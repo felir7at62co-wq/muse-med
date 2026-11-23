@@ -189,3 +189,223 @@ test('a Main Bot sees who waits for an approval or an answer first, then who is 
   // Another Bot's own chat keeps the group capsule, which has nothing to show here.
   assert.equal(capsuleOf(MemberDock({ sessionId: 'd', useRoster: pick => pick(roster), useWork: pick => pick(work), actions: {} })), null)
 })
+
+// The team capsule opens in place. These render it with hooks that keep their state between
+// renders, so a press and a change of the team show in the next tree.
+function teamStage({ effects } = {}) {
+  let slots = []
+  let cursor = 0
+  let own = false
+  const clock = { now: 1_000_000 }
+  const slot = (make) => {
+    if (!own) return make()
+    const index = cursor
+    cursor += 1
+    if (!(index in slots)) slots[index] = make()
+    return slots[index]
+  }
+  const react = {
+    createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+    createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+    useContext: ctx => ctx.value, useMemo: make => make(), useCallback: fn => fn, useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(), Fragment: 'fragment',
+    useId: () => 'team-id', useEffect: () => {}, useLayoutEffect: () => {},
+    useRef: initial => slot(() => ({ current: initial })),
+    useState: (initial) => {
+      const cell = slot(() => ({ value: typeof initial === 'function' && own ? initial() : initial }))
+      return [cell.value, (next) => { cell.value = typeof next === 'function' ? next(cell.value) : next }]
+    },
+  }
+  const exported = { exports: {} }
+  runInNewContext(bundle.outputFiles[0].text, {
+    module: exported, exports: exported.exports,
+    Date: { now: () => clock.now },
+    document: effects ? { body: { dataset: { btEffects: effects } } } : undefined,
+    require: (name) => {
+      if (name === 'react') return react
+      if (name === 'react-dom' || name === '@deepseek-ai/dsh-client-ui-primitives') return {}
+      throw new Error(`no platform module ${name}`)
+    },
+  })
+  const bots = Object.fromEntries(Object.entries({ m: 'Muse', a: 'Anvil', b: 'Flint', c: 'Prism', d: 'Quill', e: 'King', f: 'Comet', g: 'Coral', h: 'Onyx' }).map(([id, name]) => [id, { id, name }]))
+  const roster = { byId: bots, roomsById: {}, mainBotIds: ['m'], questions: {} }
+  const state = { work: { bots: {}, approvals: [] } }
+  // Only the capsule keeps state; what it draws inside renders in place, as in the tests above.
+  const expand = (node) => {
+    if (node === null || typeof node !== 'object') return node
+    if (typeof node.type === 'function') {
+      const team = node.type.name === 'TeamDock'
+      if (team) { own = true; cursor = 0 }
+      const drawn = node.type({ ...node.props, children: node.children })
+      if (team) own = false
+      return expand(drawn)
+    }
+    return { ...node, children: node.children.map(expand) }
+  }
+  return {
+    clock, exports: exported.exports,
+    set work(next) { state.work = next },
+    render: () => expand(exported.exports.MemberDock({ sessionId: 'm', useRoster: pick => pick(roster), useWork: pick => pick(state.work), actions: {} })),
+    reset: () => { slots = [] },
+  }
+}
+const all = (node, test, found = []) => {
+  if (node === null || typeof node !== 'object') return found
+  if (test(node)) found.push(node)
+  for (const child of node.children) all(child, test, found)
+  return found
+}
+const named = (node, name) => all(node, item => String(item.props.className ?? '').split(' ').includes(name))
+const textOf = node => (typeof node === 'string' ? node : node === null || typeof node !== 'object' ? '' : node.children.map(textOf).join(''))
+const two = { bots: { a: { since: 1, said: 'On it' }, b: { since: 1, tool: 'edit' } }, approvals: [] }
+const one = { bots: { a: { since: 1, said: 'On it' } }, approvals: [] }
+
+test('the open team capsule is one surface: the same shell holds the capsule and its rows', () => {
+  const stage = teamStage()
+  stage.work = two
+  const closed = stage.render()
+  const [shell] = named(closed, 'bt-team-shell')
+  assert.equal(named(closed, 'bt-team-shell').length, 1)
+  assert.equal(shell.props['data-open'], undefined)
+  // The capsule's button, then the rows, both inside the shell and nowhere else.
+  assert.deepEqual(shell.children.map(child => child.props.className), ['bt-team-toggle', 'bt-team-reveal'])
+  const [toggle, reveal] = shell.children
+  assert.equal(toggle.props['aria-expanded'], false)
+  assert.equal(toggle.props['aria-label'], 'Anvil · On it… +1')
+  assert.equal(reveal.props['aria-hidden'], true)
+  assert.equal(reveal.props.inert, '')
+  const [panel] = named(reveal, 'bt-team-panel')
+  assert.equal(toggle.props['aria-controls'], panel.props.id)
+  assert.equal(panel.props.role, 'region')
+  assert.equal(named(panel, 'bt-team-row').length, 2)
+  assert.equal(named(closed, 'bt-team-row').length, 2)
+
+  toggle.props.onClick()
+  const open = stage.render()
+  const [opened] = named(open, 'bt-team-shell')
+  assert.equal(opened.props['data-open'], true)
+  assert.deepEqual(opened.children.map(child => child.props.className), ['bt-team-toggle', 'bt-team-reveal'])
+  assert.equal(opened.children[0].props['aria-expanded'], true)
+  assert.equal(opened.children[0].props['aria-label'], 'Collapse')
+  assert.equal(opened.children[1].props['aria-hidden'], false)
+  assert.equal(opened.children[1].props.inert, undefined)
+  // Escape closes it from anywhere inside.
+  let stopped = false
+  opened.props.onKeyDown({ key: 'Escape', defaultPrevented: false, stopPropagation: () => { stopped = true } })
+  assert.equal(stopped, true)
+  assert.equal(named(stage.render(), 'bt-team-shell')[0].props['data-open'], undefined)
+})
+
+test('the capsule hands its avatars and words over to the rows', () => {
+  const stage = teamStage()
+  stage.work = two
+  const tree = stage.render()
+  const [shell] = named(tree, 'bt-team-shell')
+  const [summary] = named(tree, 'bt-team-summary')
+  const rows = named(tree, 'bt-team-row')
+  // Each avatar in the capsule has its twin at the start of its Bot's row.
+  assert.deepEqual(named(summary, 'bt-mw-face').map(face => face.props['data-bot']), ['a', 'b'])
+  assert.deepEqual(rows.map(row => named(row, 'bt-mw-face')[0].props['data-bot']), ['a', 'b'])
+  for (const row of rows) assert.equal(row.children[0].children[0].props.className, 'bt-mw-face')
+  // The first row takes the capsule's words over; the others come in one after the other.
+  assert.equal(shell.props['data-lead'], true)
+  assert.deepEqual(rows.map(row => row.props['data-lead']), [true, undefined])
+  assert.deepEqual(rows.map(row => row.props.style['--bt-team-row']), [0, 1])
+  assert.deepEqual(rows.map(row => textOf(named(row, 'bt-team-text')[0])), ['AnvilOn it…· 1s', 'FlintWriting changes…· 1s'].map(text => text.replace('· 1s', textOf(named(rows[0], 'bt-team-time')[0]))))
+  // The count is its own piece of the summary, so it can leave as the second row arrives.
+  assert.equal(textOf(named(summary, 'bt-mw-doing')[0]), 'Anvil · On it…')
+  const [more] = named(summary, 'bt-team-more')
+  assert.equal(more.props['data-on'], true)
+  assert.equal(textOf(more), '+1')
+
+  // Somebody waiting comes first, and no row repeats the capsule's words.
+  stage.reset()
+  stage.work = { bots: { a: { since: 1 } }, approvals: [{ id: 'p1', botId: 'b', tool: 'image_generate' }] }
+  const asking = stage.render()
+  assert.equal(named(asking, 'bt-team-shell')[0].props['data-lead'], undefined)
+  assert.deepEqual(named(asking, 'bt-team-row').map(row => [row.children[0].props.className, row.props['data-lead'], row.props.style['--bt-team-row']]), [['bt-team-ask', undefined, 0], ['bt-team-work', undefined, 1]])
+  assert.deepEqual(named(named(asking, 'bt-team-summary')[0], 'bt-mw-face').map(face => [face.props['data-bot'], face.props['data-ask']]), [['b', true], ['a', undefined]])
+  // Long lists stop adding to the wait.
+  stage.reset()
+  stage.work = { bots: Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(id => [id, { since: 1 }])), approvals: [] }
+  const many = stage.render()
+  assert.deepEqual(named(many, 'bt-team-row').map(row => row.props.style['--bt-team-row']), [0, 1, 2, 3, 4, 5, 5, 5])
+  // The capsule shows four avatars; the rows past them have no seat to come from.
+  assert.deepEqual(named(named(many, 'bt-team-summary')[0], 'bt-mw-face').map(face => face.props['data-bot']), ['a', 'b', 'c', 'd'])
+  assert.equal(named(many, 'bt-team-more')[0].children[0], '+7')
+})
+
+test('a Bot that starts or finishes adds or removes its row and its avatar, and the one that left stays for its exit', () => {
+  const stage = teamStage()
+  stage.work = one
+  const alone = stage.render()
+  assert.equal(named(alone, 'bt-team-row').length, 1)
+  assert.equal(named(alone, 'bt-team-more')[0].props['data-on'], undefined)
+  assert.equal(named(named(alone, 'bt-team-summary')[0], 'bt-mw-face').length, 1)
+
+  // One Bot to two: a second row, a second avatar and the count.
+  stage.work = two
+  const pair = stage.render()
+  assert.deepEqual(named(pair, 'bt-team-row').map(row => [row.key ?? row.props.key, row.props['data-leaving']]), [['work:a', undefined], ['work:b', undefined]])
+  assert.equal(named(pair, 'bt-team-more')[0].props['data-on'], true)
+  assert.equal(capsuleOf(pair).props['aria-label'], 'Anvil · On it… +1')
+
+  // Two to one: the row and the avatar that left are still drawn, marked as leaving.
+  stage.clock.now += 50
+  stage.work = one
+  const leaving = stage.render()
+  const rows = named(leaving, 'bt-team-row')
+  assert.deepEqual(rows.map(row => [row.props.key, row.props['data-leaving'], row.props.inert]), [['work:a', undefined, undefined], ['work:b', true, '']])
+  const seats = named(named(leaving, 'bt-team-summary')[0], 'bt-mw-face')
+  assert.deepEqual(seats.map(face => [face.props['data-bot'], face.props['data-leaving'], face.props.style?.['--bt-team-seat']]), [['a', undefined, undefined], ['b', true, 1]])
+  // The count goes, keeping its figure while it fades; the label already says what is true.
+  const [more] = named(leaving, 'bt-team-more')
+  assert.equal(more.props['data-on'], undefined)
+  assert.equal(textOf(more), '+1')
+  assert.equal(capsuleOf(leaving).props['aria-label'], 'Anvil · On it…')
+
+  // Once the exit is over they are gone.
+  stage.clock.now += 5000
+  const settled = stage.render()
+  assert.equal(named(settled, 'bt-team-row').length, 1)
+  assert.equal(named(named(settled, 'bt-team-summary')[0], 'bt-mw-face').length, 1)
+
+  // The last Bot finishing takes the capsule away, after its own exit.
+  stage.work = { bots: {}, approvals: [] }
+  const last = stage.render()
+  assert.equal(named(last, 'bt-team-dock').length, 1, 'the fake useEffect never ends the linger')
+  assert.equal(named(last, 'bt-team-row').length, 1)
+})
+
+test('with effects reduced or off nothing lingers and nothing travels', () => {
+  for (const effects of ['reduced', 'off']) {
+    const stage = teamStage({ effects })
+    stage.work = two
+    stage.render()
+    stage.work = one
+    const tree = stage.render()
+    assert.deepEqual(named(tree, 'bt-team-row').map(row => row.props['data-leaving']), [undefined], effects)
+    assert.equal(named(named(tree, 'bt-team-summary')[0], 'bt-mw-face').length, 1, effects)
+  }
+  const css = teamStage().exports.MEMBER_CSS
+  const team = css.split('\n').filter(line => line.includes('.bt-team-'))
+  // Both tiers and the system setting stop the capsule's own animations and leave its words a plain fade.
+  const still = ':is(.bt-team-shell,.bt-team-row,.bt-team-shell .bt-mw-face,.bt-team-summary .bt-mw-doing){animation:none}'
+  const plain = '.bt-team-shell :is(.bt-team-text,.bt-team-body,.bt-team-summary .bt-mw-label>*){transform:none;transition:opacity .12s ease-out}'
+  assert.equal(css.includes(`body:is([data-bt-effects=reduced],[data-bt-effects=off]) ${still}`), true)
+  assert.equal(css.includes(`body:is([data-bt-effects=reduced],[data-bt-effects=off]) ${plain}`), true)
+  const media = team.find(line => line.startsWith('@media (prefers-reduced-motion:reduce)'))
+  assert.equal(media.includes('.bt-team-shell,.bt-team-row,.bt-team-shell .bt-mw-face,.bt-team-summary .bt-mw-doing{animation:none}'), true)
+  assert.equal(media.includes(plain), true)
+  assert.equal(css.split(':is(.bt-team-shell,.bt-team-shell[data-open]) .bt-team-row[data-lead] .bt-team-time{transition:opacity .12s ease-out}').length, 3)
+  // Every blur is one of the tokens those settings turn off.
+  for (const line of team) {
+    for (const [, value] of line.matchAll(/filter:([^;}]+)/g)) assert.match(value, /^(none|var\(--bt-fx-blur-\d,blur\(\dpx\)\))$/, line)
+  }
+  // The surface's box and corners come from the motion driver, not from a CSS transition.
+  const shell = team.find(line => line.startsWith('.bt-team-shell{'))
+  assert.equal(shell.includes('border-radius:var(--bt-team-radius,16px)'), true)
+  assert.equal(shell.includes('transition'), false)
+  assert.equal(css.includes('rotate:calc(var(--bt-team-p,0)*180deg)'), true)
+  // Rows wait their turn: about 35 ms apart.
+  assert.equal(css.includes('--bt-team-wait:calc(90ms + var(--bt-team-row,0)*35ms)'), true)
+})

@@ -2,7 +2,8 @@ import { createElement as h, useEffect, useId, useLayoutEffect, useRef, useState
 import { BotMark, toolState } from './mark.js'
 import { Elapsed, Shimmer, workPhrase } from './cells.js'
 import { ChevronUpIcon } from './icons.js'
-import { SPRING_SHAPE, SPRING_TAP, spring, useLinger } from './motion.js'
+import { SPRING_SHAPE, SPRING_TAP, reducedEffects, spring, useLinger } from './motion.js'
+import { createDockMotion, slideSeats, withLeaving } from './team-dock-motion.js'
 import { t } from './i18n.js'
 import { isMainOf } from './sources.js'
 
@@ -89,9 +90,14 @@ function dockModel(sessionId, roster, work) {
   }
 }
 
-function Face({ bot, ask, state }) {
-  return h('span', { className: 'bt-mw-face', 'data-ask': ask || undefined },
-    h(BotMark, { bot, size: 20, state: ask ? 'alert' : state }))
+// `seat` is a team capsule's avatar: it is named by its Bot, so the one in the capsule
+// and the one in the Bot's row are found as a pair, and one that left keeps its place
+// (`leaving`, the index it had) for its exit.
+function Face({ bot, ask, state, seat, leaving }) {
+  return h('span', {
+    className: 'bt-mw-face', 'data-ask': ask || undefined, 'data-bot': seat === undefined ? undefined : bot.id,
+    'data-leaving': leaving || undefined, style: leaving ? { '--bt-team-seat': seat } : undefined,
+  }, h(BotMark, { bot, size: 20, state: ask ? 'alert' : state }))
 }
 
 // The capsule springs to the width of what it says; it is measured, so the spring runs
@@ -194,39 +200,87 @@ function QuestionCard({ entry, actions }) {
         h('button', { type: 'button', className: 'bt-q-btn', onClick: () => actions.openSession(bot.id) }, t("Open {name}'s chat", { name: bot.name }))))
 }
 
+// The entries of `items` to draw, with those that left kept as `leaving` for one
+// SPRING_SHAPE so they can close; with effects reduced nothing is kept.
+function useLeaving(items, keyOf) {
+  const drawn = useRef([])
+  const [, redraw] = useState(0)
+  const list = withLeaving(drawn.current, items, keyOf, Date.now(), reducedEffects() ? 0 : SPRING_SHAPE.duration)
+  drawn.current = list
+  const next = list.reduce((soonest, entry) => (entry.leaving ? Math.min(soonest, entry.until) : soonest), Infinity)
+  useEffect(() => {
+    if (next === Infinity) return undefined
+    const timer = setTimeout(() => redraw(count => count + 1), Math.max(0, next - Date.now()) + 1)
+    return () => clearTimeout(timer)
+  }, [next])
+  return list
+}
+
+const ROW_STAGGER_MAX = 5
+
 function TeamDock({ self, useRoster, useWork, actions }) {
   const roster = useRoster(value => value)
   const work = useWork(value => value)
-  const { asking, working } = teamWork(self, roster, work)
+  const live = teamWork(self, roster, work)
+  const busy = live.asking.length + live.working.length > 0
+  // The team as last seen stays for the capsule's exit.
+  const last = useRef(live)
+  if (busy) last.current = live
+  const { asking, working } = last.current
+  const [kept, leaving] = useLinger(busy ? self.id : null, DOCK_EXIT_MS)
   const [open, setOpen] = useState(false)
   const [card, setCard] = useState(null)
   const detailId = useId()
   const shell = useRef(null)
   const toggle = useRef(null)
   const summary = useRef(null)
+  const reveal = useRef(null)
+  const panel = useRef(null)
+  const motion = useRef(null)
+  if (motion.current === null) motion.current = createDockMotion({ shape: SPRING_SHAPE, still: reducedEffects })
+  const places = useRef(null)
   const shown = card !== null && asking.some(entry => entry.bot.id === card) ? card : asking[0]?.bot.id ?? null
-  const faces = [...asking.map(entry => ({ bot: entry.bot, ask: true, state: 'alert' })),
-    ...working.map(entry => ({ bot: entry.bot, ask: false, state: workState(entry.doing) }))].slice(0, FACES_MAX + 1)
+  const seats = useLeaving([...asking.map(entry => ({ bot: entry.bot, ask: true, state: 'alert' })),
+    ...working.map(entry => ({ bot: entry.bot, ask: false, state: workState(entry.doing) }))].slice(0, FACES_MAX + 1), face => face.bot.id)
+  const rows = useLeaving([...asking.map(entry => ({ ask: true, entry })), ...working.map(entry => ({ ask: false, entry }))],
+    row => `${row.ask ? 'ask' : 'work'}:${row.entry.bot.id}`)
   const waiting = asking.length > 0 ? joinNames(asking.map(entry => entry.bot.name)) : ''
   const first = working[0]
-  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${working.length > 1 ? ` +${working.length - 1}` : ''}` : ''
-  const label = [waiting, doing].filter(Boolean).join(' · ')
-  const width = useFitWidth(summary, label)
-  const active = label !== ''
+  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…` : ''
+  const more = Math.max(0, working.length - 1)
+  // The count keeps its figure while it fades.
+  const count = useRef(1)
+  if (more > 0) count.current = more
+  const label = [waiting, doing && more > 0 ? `${doing} +${more}` : doing].filter(Boolean).join(' · ')
+  // With nobody waiting, the capsule's words are the first working Bot's: its row takes them over.
+  const lead = asking.length === 0 ? first?.bot.id : undefined
+  const seated = seats.map(seat => `${seat.key}${seat.leaving ? '-' : ''}`).join(' ')
   useEffect(() => {
-    if (!active) setOpen(false)
-    if (!active || !open) return undefined
+    if (!busy) setOpen(false)
+    if (!busy || !open) return undefined
     const closeOutside = (event) => {
       if (!event.composedPath().includes(shell.current)) setOpen(false)
     }
     document.addEventListener('pointerdown', closeOutside, true)
     return () => document.removeEventListener('pointerdown', closeOutside, true)
-  }, [active, open])
-  if (!active) return null
-  return h('div', { className: 'bt-mw-dock bt-team-dock' },
+  }, [busy, open])
+  useLayoutEffect(() => {
+    if (!kept) return undefined
+    const driver = motion.current
+    driver.attach({ shell: shell.current, summary: summary.current, reveal: reveal.current, panel: panel.current })
+    return () => driver.detach()
+  }, [kept])
+  useLayoutEffect(() => {
+    if (kept) motion.current.toggle(open)
+  }, [kept, open])
+  // One avatar more or fewer moves the others and the words over; they slide there.
+  useLayoutEffect(() => {
+    places.current = kept && summary.current ? slideSeats(summary.current, places.current, reducedEffects() ? null : SPRING_SHAPE) : null
+  }, [kept, seated])
+  if (!kept) return null
+  return h('div', { className: 'bt-mw-dock bt-team-dock', 'data-leaving': leaving || undefined },
     h('div', {
-      ref: shell, className: 'bt-team-shell', 'data-open': open || undefined, 'data-asking': asking.length > 0 || undefined,
-      style: width ? { '--bt-team-width': `${width}px` } : undefined,
+      ref: shell, className: 'bt-team-shell', 'data-open': open || undefined, 'data-lead': lead !== undefined || undefined,
       onKeyDown: (event) => {
         if (!open || event.key !== 'Escape' || event.defaultPrevented) return
         event.stopPropagation()
@@ -236,35 +290,41 @@ function TeamDock({ self, useRoster, useWork, actions }) {
     },
       h('button', {
         ref: toggle, type: 'button', className: 'bt-team-toggle', 'aria-label': open ? t('Collapse') : label,
-        'aria-expanded': open, 'aria-controls': detailId, onClick: () => setOpen(value => !value),
+        'aria-expanded': open, 'aria-controls': detailId, disabled: leaving, onClick: () => setOpen(value => !value),
       },
         h('span', { ref: summary, className: 'bt-mw-pill-in bt-team-summary', 'aria-hidden': true },
-          h('span', { className: 'bt-mw-faces' }, faces.map(face => h(Face, { key: face.bot.id, ...face }))),
+          h('span', { className: 'bt-mw-faces' }, seats.map((seat, index) => h(Face, { key: seat.key, ...seat.item, seat: index, leaving: seat.leaving }))),
           h('span', { className: 'bt-mw-label' },
             waiting ? h('span', { className: 'bt-mw-ask' }, waiting) : null,
             waiting && doing ? h('span', { className: 'bt-mw-dot' }, '·') : null,
-            doing ? h('span', { className: 'bt-mw-doing' }, h(Shimmer, null, doing)) : null)),
+            doing ? h('span', { key: doing, className: 'bt-mw-doing' }, h(Shimmer, null, doing)) : null,
+            h('span', { key: 'more', className: 'bt-team-more', 'data-on': more > 0 || undefined }, `+${count.current}`))),
         h(ChevronUpIcon)),
-      h('div', { className: 'bt-team-reveal', 'aria-hidden': !open },
-        h('div', { id: detailId, className: 'bt-team-panel', role: 'region', 'aria-label': t('Your team') },
-          asking.map((entry) => {
+      h('div', { ref: reveal, className: 'bt-team-reveal', 'aria-hidden': !open, inert: open ? undefined : '' },
+        h('div', { ref: panel, id: detailId, className: 'bt-team-panel', role: 'region', 'aria-label': t('Your team') },
+          rows.map(({ key, item: { ask, entry }, leaving: gone }, index) => {
+            const row = { key, className: 'bt-team-row', 'data-lead': (!ask && !gone && entry.bot.id === lead) || undefined, 'data-leaving': gone || undefined, inert: gone ? '' : undefined, style: { '--bt-team-row': Math.min(index, ROW_STAGGER_MAX) } }
+            if (!ask) {
+              return h('div', row, h('button', { type: 'button', className: 'bt-team-work', onClick: () => actions.openSession(entry.bot.id) },
+                h(Face, { bot: entry.bot, ask: false, state: workState(entry.doing), seat: index }),
+                h('span', { className: 'bt-team-text' },
+                  h('strong', { className: 'bt-team-name' }, entry.bot.name),
+                  h('span', { className: 'bt-team-what' }, h(Shimmer, null, `${workPhrase(entry.doing)}…`)),
+                  typeof entry.doing.since === 'number' ? h(Elapsed, { at: entry.doing.since, className: 'bt-team-time' }) : null)))
+            }
             const expanded = entry.bot.id === shown
             const what = entry.question ? entry.question.question : entry.approvals[0]?.tool ?? ''
-            return h('div', { key: entry.bot.id, className: 'bt-team-ask' },
+            return h('div', row, h('div', { className: 'bt-team-ask' },
               h('button', { type: 'button', className: 'bt-team-head', 'aria-expanded': expanded, onClick: () => setCard(expanded ? '' : entry.bot.id) },
-                h(Face, { bot: entry.bot, ask: true, state: 'alert' }),
-                h('strong', { className: 'bt-team-name' }, entry.bot.name),
-                h('span', { className: 'bt-team-what' }, what),
-                h('span', { className: 'bt-team-chevron', 'aria-hidden': true }, expanded ? '⌄' : '›')),
+                h(Face, { bot: entry.bot, ask: true, state: 'alert', seat: index }),
+                h('span', { className: 'bt-team-text' },
+                  h('strong', { className: 'bt-team-name' }, entry.bot.name),
+                  h('span', { className: 'bt-team-what' }, what),
+                  h('span', { className: 'bt-team-chevron', 'aria-hidden': true }, expanded ? '⌄' : '›'))),
               expanded ? h('div', { className: 'bt-team-body' },
                 entry.question ? h(QuestionCard, { entry, actions }) : null,
-                entry.approvals.map(approval => h(ApprovalCard, { key: approval.id, approval, bot: entry.bot, actions, inline: true }))) : null)
-          }),
-          working.map(entry => h('button', { key: entry.bot.id, type: 'button', className: 'bt-team-work', onClick: () => actions.openSession(entry.bot.id) },
-            h(Face, { bot: entry.bot, ask: false, state: workState(entry.doing) }),
-            h('strong', { className: 'bt-team-name' }, entry.bot.name),
-            h('span', { className: 'bt-team-what' }, h(Shimmer, null, `${workPhrase(entry.doing)}…`)),
-            typeof entry.doing.since === 'number' ? h(Elapsed, { at: entry.doing.since, className: 'bt-team-time' }) : null))))))
+                entry.approvals.map(approval => h(ApprovalCard, { key: approval.id, approval, bot: entry.bot, actions, inline: true }))) : null))
+          })))))
 }
 
 // The clock stays whole at the end; only what comes before it is cut.
@@ -363,31 +423,62 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
 @keyframes bt-mw-swap{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-team-dock{position:relative;width:100%;height:32px;container-type:inline-size}
-.bt-team-shell{position:absolute;z-index:1;bottom:0;inset-inline:0;margin-inline:auto;display:grid;grid-template-rows:0fr;width:min(100%,var(--bt-team-width,160px));min-height:32px;border-radius:16px;overflow:hidden;pointer-events:auto;background:var(--bt-main);box-shadow:0 0 0 .5px var(--bt-line-2),0 2px 8px -2px rgba(0,0,0,.12);transition:${spring(SPRING_SHAPE, 'width', 'grid-template-rows', 'border-radius')}}
-.bt-team-shell[data-open]{grid-template-rows:1fr;width:min(100%,clamp(240px,var(--bt-team-width,160px) + 64px,360px));border-radius:18px}
-.bt-team-shell[data-open][data-asking]{width:min(100%,360px)}
-.bt-team-toggle{position:absolute;z-index:1;top:0;right:0;display:flex;align-items:center;justify-content:flex-end;width:100%;height:32px;padding:0 11px 0 0;border:0;border-radius:inherit;overflow:hidden;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;cursor:pointer}
-.bt-team-toggle:hover{background:var(--bt-hover)}
+.bt-team-shell{position:absolute;z-index:1;bottom:0;inset-inline:0;margin-inline:auto;width:160px;max-width:100%;height:32px;border-radius:var(--bt-team-radius,16px);overflow:hidden;pointer-events:auto;background:var(--bt-main);box-shadow:0 0 0 .5px var(--bt-line-2),0 2px 8px -2px rgba(0,0,0,.12);animation:bt-mw-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .18s ease-out backwards}
+.bt-team-dock[data-leaving] .bt-team-shell{animation:bt-mw-out .16s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
+.bt-team-toggle{position:absolute;z-index:2;inset:0;width:100%;height:100%;padding:0;border:0;border-radius:inherit;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:background-color .12s ease}
+.bt-team-shell:not([data-open]) .bt-team-toggle:hover,.bt-team-shell[data-open]:not([data-flight]) .bt-team-toggle:hover{background:var(--bt-hover)}
 .bt-team-toggle:focus-visible,.bt-team-head:focus-visible,.bt-team-work:focus-visible{outline-offset:-2px}
-.bt-team-toggle>svg{position:relative;flex:none;color:inherit;transition:${spring(SPRING_SHAPE, 'transform')}}
-.bt-team-summary{position:absolute;left:0;box-sizing:border-box;width:max-content;max-width:min(300px,100cqw);padding-right:34px}
+.bt-team-shell[data-open]:not([data-flight]) .bt-team-toggle{inset:8px 6px auto auto;width:36px;height:32px;border-radius:10px;overflow:hidden}
+.bt-team-toggle>svg{position:absolute;top:9px;right:11px;color:inherit;rotate:calc(var(--bt-team-p,0)*180deg);translate:calc(var(--bt-team-p,0)*-6px) calc(var(--bt-team-p,0)*8px)}
+.bt-team-shell[data-open]:not([data-flight]) .bt-team-toggle>svg{translate:none}
+.bt-team-summary{position:absolute;top:0;left:calc(50% - var(--bt-team-pill,100%)/2);box-sizing:border-box;width:max-content;max-width:min(300px,100cqw);height:32px;padding-right:34px}
+.bt-team-shell[data-open]:not([data-flight]) .bt-team-summary{visibility:hidden}
 .bt-team-summary .bt-mw-ask{flex:0 1 auto}
-.bt-team-shell[data-open] .bt-team-toggle{top:8px;right:6px;width:36px;padding:0;justify-content:center;border-radius:10px}
-.bt-team-shell[data-open] .bt-team-toggle>svg{transform:rotate(180deg)}
-.bt-team-shell[data-open] .bt-team-summary{visibility:hidden}
-.bt-team-reveal{min-height:0;overflow:hidden;visibility:hidden;opacity:0;transition:opacity .16s ease-out}
-.bt-team-shell[data-open] .bt-team-reveal{visibility:visible;opacity:1}
+.bt-team-summary .bt-mw-faces{position:relative}
+.bt-team-shell:is([data-open],[data-flight]) .bt-team-summary .bt-mw-faces{visibility:hidden}
+.bt-team-shell .bt-mw-face{animation:bt-team-seat ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards}
+.bt-team-summary .bt-mw-face{margin-left:0}
+.bt-team-summary .bt-mw-face:not([data-leaving])~.bt-mw-face:not([data-leaving]){margin-left:-5px}
+.bt-team-summary .bt-mw-face[data-leaving]{position:absolute;top:0;left:calc(var(--bt-team-seat,0)*15px);animation:bt-team-unseat .08s ease-out forwards}
+.bt-team-panel .bt-mw-face{transform-origin:0 0}
+.bt-team-summary .bt-mw-label{position:relative}
+.bt-team-summary .bt-mw-label>*{transition:opacity .16s ease-out .09s,filter .16s ease-out .09s}
+.bt-team-summary .bt-mw-doing{animation:bt-mw-swap .22s ease-out backwards}
+.bt-team-summary .bt-team-more{flex:none;overflow:visible}
+.bt-team-summary .bt-team-more:not([data-on]){position:absolute;left:100%;margin-left:5px;opacity:0;filter:var(--bt-fx-blur-4,blur(4px));transition:opacity .08s ease-out,filter .08s ease-out}
+.bt-team-shell[data-open] .bt-team-summary .bt-mw-label>*{opacity:0;filter:var(--bt-fx-blur-4,blur(4px));transition:opacity .1s ease-out,filter .1s ease-out}
+.bt-team-shell[data-lead] .bt-team-summary .bt-mw-label>:not(.bt-team-more){transition:opacity .14s ease-out,filter .14s ease-out}
+.bt-team-shell[data-open][data-lead] .bt-team-summary .bt-mw-label>:not(.bt-team-more){filter:var(--bt-fx-blur-2,blur(2px));transition:opacity .12s ease-in,filter .12s ease-in}
+.bt-team-shell[data-open] .bt-team-summary .bt-mw-label>.bt-team-more{transition-delay:.03s}
+.bt-team-reveal{position:absolute;top:0;left:50%;translate:-50% 0;width:min(100cqw,360px);visibility:hidden}
+.bt-team-shell:is([data-open],[data-flight]) .bt-team-reveal{visibility:visible}
 .bt-team-panel{box-sizing:border-box;max-height:min(360px,48vh);max-height:min(360px,48dvh);overflow:auto;overscroll-behavior:contain;padding:4px 44px 4px 6px}
+.bt-team-row{--bt-team-wait:calc(90ms + var(--bt-team-row,0)*35ms);display:grid;grid-template-rows:1fr;animation:bt-team-row-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-team-row-veil .22s ease-out .05s backwards}
+.bt-team-row+.bt-team-row{margin-top:2px}
+.bt-team-row>*{min-height:0}
+.bt-team-row[data-leaving]{animation:bt-team-row-out ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} forwards,bt-team-row-unveil .1s ease-in forwards;pointer-events:none}
 .bt-team-ask{border-radius:12px}
-.bt-team-ask+.bt-team-ask,.bt-team-work{margin-top:2px}
-.bt-team-head,.bt-team-work{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:6px 10px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.bt-team-head,.bt-team-work{display:flex;align-items:center;gap:10px;width:100%;padding:0 10px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-team-head:hover,.bt-team-work:hover{background:var(--bt-hover)}
+.bt-team-text{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0;min-height:44px}
+.bt-team-text,.bt-team-body{opacity:0;transform:translateY(5px);filter:var(--bt-fx-blur-3,blur(3px));transition:opacity .05s ease-out,transform 0s linear .08s,filter .05s ease-out}
+.bt-team-shell[data-open] :is(.bt-team-text,.bt-team-body){opacity:1;transform:none;filter:none;transition:opacity .2s ease-out var(--bt-team-wait),transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} var(--bt-team-wait),filter .2s ease-out var(--bt-team-wait)}
+.bt-team-row[data-lead] .bt-team-text{transform:none;filter:var(--bt-fx-blur-2,blur(2px));transition:opacity .12s ease-in,filter .12s ease-in}
+.bt-team-shell[data-open] .bt-team-row[data-lead] .bt-team-text{filter:none;transition:opacity .14s ease-out,filter .14s ease-out}
+.bt-team-row[data-lead] .bt-team-time{opacity:0;transition:opacity .05s ease-out}
+.bt-team-shell[data-open] .bt-team-row[data-lead] .bt-team-time{opacity:1;transition:opacity .18s ease-out .08s}
 .bt-team-name{flex:none;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .bt-team-what{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2)}
 .bt-team-time{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
 .bt-team-chevron{flex:none;color:var(--bt-ink-3);font-size:13px;line-height:1}
 .bt-team-body{padding:0 0 8px 10px}
 .bt-team-options{flex-wrap:wrap}
+@keyframes bt-team-seat{from{opacity:0;scale:.6}}
+@keyframes bt-team-unseat{to{opacity:0;scale:.6}}
+@keyframes bt-team-row-in{from{grid-template-rows:0fr;margin-top:0;clip-path:inset(0)}to{clip-path:inset(0)}}
+@keyframes bt-team-row-out{from{clip-path:inset(0)}to{grid-template-rows:0fr;margin-top:0;clip-path:inset(0)}}
+@keyframes bt-team-row-veil{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
+@keyframes bt-team-row-unveil{to{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-members{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
 .bt-members-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .bt-members-head>.bt-section-title{margin:0}
@@ -422,6 +513,8 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
 @media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
-body[data-bt-effects=off] :is(.bt-team-shell,.bt-team-reveal,.bt-team-toggle>svg){transition:none}
-@media (prefers-reduced-motion:reduce){.bt-team-shell,.bt-team-reveal,.bt-team-toggle>svg{transition:none}}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-team-shell,.bt-team-row,.bt-team-shell .bt-mw-face,.bt-team-summary .bt-mw-doing){animation:none}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-team-shell :is(.bt-team-text,.bt-team-body,.bt-team-summary .bt-mw-label>*){transform:none;transition:opacity .12s ease-out}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-team-shell,.bt-team-shell[data-open]) .bt-team-row[data-lead] .bt-team-time{transition:opacity .12s ease-out}
+@media (prefers-reduced-motion:reduce){.bt-team-shell,.bt-team-row,.bt-team-shell .bt-mw-face,.bt-team-summary .bt-mw-doing{animation:none}body .bt-team-shell :is(.bt-team-text,.bt-team-body,.bt-team-summary .bt-mw-label>*){transform:none;transition:opacity .12s ease-out}:is(.bt-team-shell,.bt-team-shell[data-open]) .bt-team-row[data-lead] .bt-team-time{transition:opacity .12s ease-out}}
 `

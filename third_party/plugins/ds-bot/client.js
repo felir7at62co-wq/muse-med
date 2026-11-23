@@ -16823,9 +16823,9 @@ function useGaze(ref, enabled) {
       const node = ref.current;
       if (!node || !point || reducedEffects()) return;
       const box = node.getBoundingClientRect();
-      const clamp = (value) => Math.max(-1, Math.min(1, value));
-      node.style.setProperty("--bt-gx", clamp((point.x - box.left - box.width / 2) / 160).toFixed(2));
-      node.style.setProperty("--bt-gy", clamp((point.y - box.top - box.height / 2) / 160).toFixed(2));
+      const clamp2 = (value) => Math.max(-1, Math.min(1, value));
+      node.style.setProperty("--bt-gx", clamp2((point.x - box.left - box.width / 2) / 160).toFixed(2));
+      node.style.setProperty("--bt-gy", clamp2((point.y - box.top - box.height / 2) / 160).toFixed(2));
     };
     const onMove = (event) => {
       if (reducedEffects() || document.body?.dataset.btMotion === "quiet") return;
@@ -19455,8 +19455,8 @@ function planFlight(active, next) {
   return active === flightEnd(next) ? "keep" : "reverse";
 }
 function flightBox(from, to, p) {
-  const mix = (key) => from[key] + (to[key] - from[key]) * p;
-  return { left: mix("left"), top: mix("top"), width: mix("width"), height: mix("height") };
+  const mix2 = (key) => from[key] + (to[key] - from[key]) * p;
+  return { left: mix2("left"), top: mix2("top"), width: mix2("width"), height: mix2("height") };
 }
 var boxOf = (rect) => ({ left: rect.left, top: rect.top, width: rect.width, height: rect.height });
 var serial = 0;
@@ -32614,6 +32614,221 @@ function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCards, us
   return (0, import_react42.createElement)(import_react42.Fragment, null, drawn.map((call2, index) => (0, import_react42.createElement)(import_react42.Fragment, { key: call2.callId ?? index }, renderCall(call2, env))));
 }
 
+// src/client/team-dock-motion.js
+var PILL2 = { height: 32, radius: 16 };
+var BUBBLE_RADIUS = 18;
+var mix = (from, to, p) => from + (to - from) * p;
+var clamp = (p) => Math.min(1, Math.max(0, p));
+var round = (value, digits = 2) => Number(value.toFixed(digits));
+function dockShape(pill, bubble, p) {
+  return { width: mix(pill.width, bubble.width, p), height: mix(pill.height, bubble.height, p), radius: mix(pill.radius, bubble.radius, p) };
+}
+function faceTravel(seat, slot, p) {
+  const left = 1 - p;
+  return { x: (seat.left - slot.left) * left, y: (seat.top - slot.top) * left, scale: slot.width > 0 ? mix(seat.width / slot.width, 1, p) : 1 };
+}
+function withLeaving(before, items, keyOf, now, ms) {
+  const list = items.map((item) => ({ key: keyOf(item), item, leaving: false, until: 0 }));
+  const present = new Set(list.map((entry) => entry.key));
+  let after = -1;
+  for (const entry of before) {
+    if (present.has(entry.key)) {
+      after = list.findIndex((other) => other.key === entry.key);
+      continue;
+    }
+    const until = entry.leaving ? entry.until : now + ms;
+    if (until <= now) continue;
+    after += 1;
+    list.splice(after, 0, { key: entry.key, item: entry.item, leaving: true, until });
+  }
+  return list;
+}
+function createSpring({ stiffness, damping }, { rest = 0.05, restSpeed = 1 } = {}) {
+  const spring2 = {
+    value: 0,
+    velocity: 0,
+    target: 0,
+    get moving() {
+      return spring2.value !== spring2.target || spring2.velocity !== 0;
+    },
+    jump(to) {
+      Object.assign(spring2, { value: to, velocity: 0, target: to });
+    },
+    /** @param {number} seconds @returns {boolean} whether it still moves */
+    step(seconds) {
+      const steps = Math.max(1, Math.ceil(seconds * 240));
+      const h83 = seconds / steps;
+      for (let index = 0; index < steps; index += 1) {
+        spring2.velocity += (-stiffness * (spring2.value - spring2.target) - damping * spring2.velocity) * h83;
+        spring2.value += spring2.velocity * h83;
+      }
+      if (Math.abs(spring2.value - spring2.target) < rest && Math.abs(spring2.velocity) < restSpeed) spring2.jump(spring2.target);
+      return spring2.moving;
+    }
+  };
+  return spring2;
+}
+var FACE = ".bt-mw-face[data-bot]";
+function slideSeats(summary, before, shape) {
+  const places = /* @__PURE__ */ new Map();
+  for (const node of summary.querySelectorAll(`.bt-mw-label,${FACE}:not([data-leaving])`)) {
+    const name = node.dataset.bot ?? "";
+    const left = node.offsetLeft;
+    places.set(name, left);
+    const was = before?.get(name);
+    if (shape && was !== void 0 && Math.abs(was - left) > 0.5) node.animate?.([{ translate: `${was - left}px 0` }, { translate: "0 0" }], { duration: shape.duration, easing: shape.easing });
+  }
+  return places;
+}
+function createDockMotion(env) {
+  const {
+    shape,
+    still = () => false,
+    frame = (run3) => requestAnimationFrame(run3),
+    unframe = (id) => cancelAnimationFrame(id),
+    now = () => performance.now(),
+    observe = (nodes2, run3) => {
+      if (typeof ResizeObserver !== "function") return () => {
+      };
+      const observer = new ResizeObserver(run3);
+      for (const node of nodes2) observer.observe(node);
+      return () => observer.disconnect();
+    }
+  } = env;
+  const open = createSpring(shape, { rest: 1e-3, restSpeed: 0.02 });
+  const pill = createSpring(shape);
+  let nodes = null;
+  let unobserve = null;
+  let tick = null;
+  let last = 0;
+  let flying = false;
+  let sized2 = false;
+  function place(p) {
+    const { summary, panel } = nodes;
+    const label = summary.querySelector(".bt-mw-label");
+    const lead = panel.querySelector(".bt-team-row[data-lead]:not([data-leaving]) .bt-team-text");
+    const clock4 = lead?.querySelector(".bt-team-time");
+    const slots = [...panel.querySelectorAll(FACE)];
+    for (const node of [...slots, label, lead, clock4]) if (node) node.style.transform = "";
+    if (!flying) {
+      for (const slot of slots) slot.style.opacity = "";
+      return;
+    }
+    const seats = new Map([...summary.querySelectorAll(`${FACE}:not([data-leaving])`)].map((seat) => [seat.dataset.bot, seat]));
+    const pairs = slots.map((slot) => {
+      const seat = slot.closest("[data-leaving]") ? void 0 : seats.get(slot.dataset.bot);
+      return { slot, from: seat?.getBoundingClientRect(), to: seat ? slot.getBoundingClientRect() : void 0 };
+    });
+    const words = label && lead ? [label.getBoundingClientRect(), lead.getBoundingClientRect()] : null;
+    let ride = null;
+    for (const { slot, from, to } of pairs) {
+      if (!from) {
+        slot.style.opacity = String(round(clamp(p)));
+        continue;
+      }
+      const move = faceTravel(from, to, p);
+      slot.style.opacity = "";
+      slot.style.transform = `translate(${round(move.x)}px,${round(move.y)}px)${Math.abs(move.scale - 1) > 1e-3 ? ` scale(${round(move.scale, 4)})` : ""}`;
+      ride ??= { x: to.left - from.left, y: to.top - from.top };
+    }
+    if (words) {
+      const [from, to] = words;
+      ride = { x: to.left - from.left, y: to.top + to.height / 2 - from.top - from.height / 2 };
+      const back = { x: round(-ride.x * (1 - p)), y: round(-ride.y * (1 - p)) };
+      lead.style.transform = `translate(${back.x}px,${back.y}px)`;
+      if (clock4) clock4.style.transform = `translate(${-back.x}px,${-back.y}px)`;
+    }
+    if (label && ride) label.style.transform = `translate(${round(ride.x * p)}px,${round(ride.y * p)}px)`;
+  }
+  function paint() {
+    const { shell, reveal, panel } = nodes;
+    const p = open.value;
+    const capsule = { width: pill.value, ...PILL2 };
+    const bubble = p === 0 ? capsule : { width: reveal.offsetWidth, height: panel.offsetHeight, radius: BUBBLE_RADIUS };
+    const box = dockShape(capsule, bubble, p);
+    shell.style.width = `${round(box.width)}px`;
+    shell.style.height = `${round(box.height)}px`;
+    shell.style.setProperty("--bt-team-radius", `${round(box.radius)}px`);
+    shell.style.setProperty("--bt-team-p", String(round(p, 4)));
+    shell.style.setProperty("--bt-team-pill", `${round(pill.value)}px`);
+    place(p);
+  }
+  function land() {
+    flying = false;
+    delete nodes.shell.dataset.flight;
+    if (open.target === 0) nodes.panel.scrollTop = 0;
+    paint();
+  }
+  function step(time) {
+    tick = null;
+    if (!nodes) return;
+    const seconds = Math.min(0.5, Math.max(1e-3, (time - last) / 1e3));
+    last = time;
+    const moving = [open.step(seconds), pill.step(seconds)].some(Boolean);
+    if (flying && !open.moving) land();
+    else paint();
+    if (moving) tick = frame(step);
+  }
+  function run2() {
+    if (tick !== null) return;
+    last = now();
+    tick = frame(step);
+  }
+  function resized(entries2 = []) {
+    if (!nodes) return;
+    let width = pill.target;
+    for (const entry of entries2) {
+      if (entry.target === nodes.summary) width = entry.borderBoxSize?.[0]?.inlineSize ?? nodes.summary.offsetWidth;
+    }
+    if (!sized2 || still()) pill.jump(width);
+    else if (width !== pill.target) {
+      pill.target = width;
+      run2();
+    }
+    sized2 = true;
+    paint();
+  }
+  return {
+    /** @param {{shell: HTMLElement, summary: HTMLElement, reveal: HTMLElement, panel: HTMLElement}} given */
+    attach(given) {
+      nodes = given;
+      sized2 = false;
+      flying = false;
+      open.jump(open.target);
+      pill.jump(nodes.summary.offsetWidth);
+      paint();
+      unobserve = observe([nodes.summary, nodes.reveal, nodes.panel], resized);
+    },
+    detach() {
+      if (tick !== null) unframe(tick);
+      tick = null;
+      unobserve?.();
+      unobserve = null;
+      if (nodes) delete nodes.shell.dataset.flight;
+      nodes = null;
+      flying = false;
+    },
+    /** @param {boolean} wanted - true for the bubble */
+    toggle(wanted) {
+      const to = wanted ? 1 : 0;
+      if (open.target === to) return;
+      if (!nodes || still()) {
+        open.jump(to);
+        if (nodes) land();
+        return;
+      }
+      open.target = to;
+      flying = true;
+      nodes.shell.dataset.flight = "";
+      paint();
+      run2();
+    },
+    /** 0 the capsule, 1 the bubble, as drawn now. */
+    progress: () => open.value,
+    flying: () => flying
+  };
+}
+
 // src/client/member-status.js
 var import_react43 = require("react");
 var NO_WORK = { bots: {}, rooms: {}, approvals: [] };
@@ -32675,12 +32890,14 @@ function dockModel(sessionId, roster, work) {
     doing: `${t("in {name}", { name: first.room.name })} · ${workPhrase(first.doing)}…${groups.length > 1 ? ` +${groups.length - 1}` : ""}`
   };
 }
-function Face({ bot, ask, state }) {
-  return (0, import_react43.createElement)(
-    "span",
-    { className: "bt-mw-face", "data-ask": ask || void 0 },
-    (0, import_react43.createElement)(BotMark, { bot, size: 20, state: ask ? "alert" : state })
-  );
+function Face({ bot, ask, state, seat, leaving }) {
+  return (0, import_react43.createElement)("span", {
+    className: "bt-mw-face",
+    "data-ask": ask || void 0,
+    "data-bot": seat === void 0 ? void 0 : bot.id,
+    "data-leaving": leaving || void 0,
+    style: leaving ? { "--bt-team-seat": seat } : void 0
+  }, (0, import_react43.createElement)(BotMark, { bot, size: 20, state: ask ? "alert" : state }));
 }
 function useFitWidth(inner, key) {
   const [width, setWidth] = (0, import_react43.useState)(null);
@@ -32777,48 +32994,90 @@ function QuestionCard2({ entry, actions }) {
     )
   );
 }
+function useLeaving(items, keyOf) {
+  const drawn = (0, import_react43.useRef)([]);
+  const [, redraw] = (0, import_react43.useState)(0);
+  const list = withLeaving(drawn.current, items, keyOf, Date.now(), reducedEffects() ? 0 : SPRING_SHAPE.duration);
+  drawn.current = list;
+  const next = list.reduce((soonest, entry) => entry.leaving ? Math.min(soonest, entry.until) : soonest, Infinity);
+  (0, import_react43.useEffect)(() => {
+    if (next === Infinity) return void 0;
+    const timer = setTimeout(() => redraw((count) => count + 1), Math.max(0, next - Date.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [next]);
+  return list;
+}
+var ROW_STAGGER_MAX = 5;
 function TeamDock({ self, useRoster, useWork, actions }) {
   const roster = useRoster((value) => value);
   const work = useWork((value) => value);
-  const { asking, working } = teamWork(self, roster, work);
+  const live = teamWork(self, roster, work);
+  const busy = live.asking.length + live.working.length > 0;
+  const last = (0, import_react43.useRef)(live);
+  if (busy) last.current = live;
+  const { asking, working } = last.current;
+  const [kept, leaving] = useLinger(busy ? self.id : null, DOCK_EXIT_MS);
   const [open, setOpen] = (0, import_react43.useState)(false);
   const [card, setCard] = (0, import_react43.useState)(null);
   const detailId = (0, import_react43.useId)();
   const shell = (0, import_react43.useRef)(null);
   const toggle = (0, import_react43.useRef)(null);
   const summary = (0, import_react43.useRef)(null);
+  const reveal = (0, import_react43.useRef)(null);
+  const panel = (0, import_react43.useRef)(null);
+  const motion = (0, import_react43.useRef)(null);
+  if (motion.current === null) motion.current = createDockMotion({ shape: SPRING_SHAPE, still: reducedEffects });
+  const places = (0, import_react43.useRef)(null);
   const shown = card !== null && asking.some((entry) => entry.bot.id === card) ? card : asking[0]?.bot.id ?? null;
-  const faces = [
+  const seats = useLeaving([
     ...asking.map((entry) => ({ bot: entry.bot, ask: true, state: "alert" })),
     ...working.map((entry) => ({ bot: entry.bot, ask: false, state: workState(entry.doing) }))
-  ].slice(0, FACES_MAX2 + 1);
+  ].slice(0, FACES_MAX2 + 1), (face) => face.bot.id);
+  const rows2 = useLeaving(
+    [...asking.map((entry) => ({ ask: true, entry })), ...working.map((entry) => ({ ask: false, entry }))],
+    (row) => `${row.ask ? "ask" : "work"}:${row.entry.bot.id}`
+  );
   const waiting = asking.length > 0 ? joinNames(asking.map((entry) => entry.bot.name)) : "";
   const first = working[0];
-  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${working.length > 1 ? ` +${working.length - 1}` : ""}` : "";
-  const label = [waiting, doing].filter(Boolean).join(" · ");
-  const width = useFitWidth(summary, label);
-  const active = label !== "";
+  const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…` : "";
+  const more = Math.max(0, working.length - 1);
+  const count = (0, import_react43.useRef)(1);
+  if (more > 0) count.current = more;
+  const label = [waiting, doing && more > 0 ? `${doing} +${more}` : doing].filter(Boolean).join(" · ");
+  const lead = asking.length === 0 ? first?.bot.id : void 0;
+  const seated = seats.map((seat) => `${seat.key}${seat.leaving ? "-" : ""}`).join(" ");
   (0, import_react43.useEffect)(() => {
-    if (!active) setOpen(false);
-    if (!active || !open) return void 0;
+    if (!busy) setOpen(false);
+    if (!busy || !open) return void 0;
     const closeOutside = (event) => {
       if (!event.composedPath().includes(shell.current)) setOpen(false);
     };
     document.addEventListener("pointerdown", closeOutside, true);
     return () => document.removeEventListener("pointerdown", closeOutside, true);
-  }, [active, open]);
-  if (!active) return null;
+  }, [busy, open]);
+  (0, import_react43.useLayoutEffect)(() => {
+    if (!kept) return void 0;
+    const driver = motion.current;
+    driver.attach({ shell: shell.current, summary: summary.current, reveal: reveal.current, panel: panel.current });
+    return () => driver.detach();
+  }, [kept]);
+  (0, import_react43.useLayoutEffect)(() => {
+    if (kept) motion.current.toggle(open);
+  }, [kept, open]);
+  (0, import_react43.useLayoutEffect)(() => {
+    places.current = kept && summary.current ? slideSeats(summary.current, places.current, reducedEffects() ? null : SPRING_SHAPE) : null;
+  }, [kept, seated]);
+  if (!kept) return null;
   return (0, import_react43.createElement)(
     "div",
-    { className: "bt-mw-dock bt-team-dock" },
+    { className: "bt-mw-dock bt-team-dock", "data-leaving": leaving || void 0 },
     (0, import_react43.createElement)(
       "div",
       {
         ref: shell,
         className: "bt-team-shell",
         "data-open": open || void 0,
-        "data-asking": asking.length > 0 || void 0,
-        style: width ? { "--bt-team-width": `${width}px` } : void 0,
+        "data-lead": lead !== void 0 || void 0,
         onKeyDown: (event) => {
           if (!open || event.key !== "Escape" || event.defaultPrevented) return;
           event.stopPropagation();
@@ -32835,41 +33094,62 @@ function TeamDock({ self, useRoster, useWork, actions }) {
           "aria-label": open ? t("Collapse") : label,
           "aria-expanded": open,
           "aria-controls": detailId,
+          disabled: leaving,
           onClick: () => setOpen((value) => !value)
         },
         (0, import_react43.createElement)(
           "span",
           { ref: summary, className: "bt-mw-pill-in bt-team-summary", "aria-hidden": true },
-          (0, import_react43.createElement)("span", { className: "bt-mw-faces" }, faces.map((face) => (0, import_react43.createElement)(Face, { key: face.bot.id, ...face }))),
+          (0, import_react43.createElement)("span", { className: "bt-mw-faces" }, seats.map((seat, index) => (0, import_react43.createElement)(Face, { key: seat.key, ...seat.item, seat: index, leaving: seat.leaving }))),
           (0, import_react43.createElement)(
             "span",
             { className: "bt-mw-label" },
             waiting ? (0, import_react43.createElement)("span", { className: "bt-mw-ask" }, waiting) : null,
             waiting && doing ? (0, import_react43.createElement)("span", { className: "bt-mw-dot" }, "·") : null,
-            doing ? (0, import_react43.createElement)("span", { className: "bt-mw-doing" }, (0, import_react43.createElement)(Shimmer, null, doing)) : null
+            doing ? (0, import_react43.createElement)("span", { key: doing, className: "bt-mw-doing" }, (0, import_react43.createElement)(Shimmer, null, doing)) : null,
+            (0, import_react43.createElement)("span", { key: "more", className: "bt-team-more", "data-on": more > 0 || void 0 }, `+${count.current}`)
           )
         ),
         (0, import_react43.createElement)(ChevronUpIcon)
       ),
       (0, import_react43.createElement)(
         "div",
-        { className: "bt-team-reveal", "aria-hidden": !open },
+        { ref: reveal, className: "bt-team-reveal", "aria-hidden": !open, inert: open ? void 0 : "" },
         (0, import_react43.createElement)(
           "div",
-          { id: detailId, className: "bt-team-panel", role: "region", "aria-label": t("Your team") },
-          asking.map((entry) => {
+          { ref: panel, id: detailId, className: "bt-team-panel", role: "region", "aria-label": t("Your team") },
+          rows2.map(({ key, item: { ask, entry }, leaving: gone }, index) => {
+            const row = { key, className: "bt-team-row", "data-lead": !ask && !gone && entry.bot.id === lead || void 0, "data-leaving": gone || void 0, inert: gone ? "" : void 0, style: { "--bt-team-row": Math.min(index, ROW_STAGGER_MAX) } };
+            if (!ask) {
+              return (0, import_react43.createElement)("div", row, (0, import_react43.createElement)(
+                "button",
+                { type: "button", className: "bt-team-work", onClick: () => actions.openSession(entry.bot.id) },
+                (0, import_react43.createElement)(Face, { bot: entry.bot, ask: false, state: workState(entry.doing), seat: index }),
+                (0, import_react43.createElement)(
+                  "span",
+                  { className: "bt-team-text" },
+                  (0, import_react43.createElement)("strong", { className: "bt-team-name" }, entry.bot.name),
+                  (0, import_react43.createElement)("span", { className: "bt-team-what" }, (0, import_react43.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`)),
+                  typeof entry.doing.since === "number" ? (0, import_react43.createElement)(Elapsed, { at: entry.doing.since, className: "bt-team-time" }) : null
+                )
+              ));
+            }
             const expanded = entry.bot.id === shown;
             const what = entry.question ? entry.question.question : entry.approvals[0]?.tool ?? "";
-            return (0, import_react43.createElement)(
+            return (0, import_react43.createElement)("div", row, (0, import_react43.createElement)(
               "div",
-              { key: entry.bot.id, className: "bt-team-ask" },
+              { className: "bt-team-ask" },
               (0, import_react43.createElement)(
                 "button",
                 { type: "button", className: "bt-team-head", "aria-expanded": expanded, onClick: () => setCard(expanded ? "" : entry.bot.id) },
-                (0, import_react43.createElement)(Face, { bot: entry.bot, ask: true, state: "alert" }),
-                (0, import_react43.createElement)("strong", { className: "bt-team-name" }, entry.bot.name),
-                (0, import_react43.createElement)("span", { className: "bt-team-what" }, what),
-                (0, import_react43.createElement)("span", { className: "bt-team-chevron", "aria-hidden": true }, expanded ? "⌄" : "›")
+                (0, import_react43.createElement)(Face, { bot: entry.bot, ask: true, state: "alert", seat: index }),
+                (0, import_react43.createElement)(
+                  "span",
+                  { className: "bt-team-text" },
+                  (0, import_react43.createElement)("strong", { className: "bt-team-name" }, entry.bot.name),
+                  (0, import_react43.createElement)("span", { className: "bt-team-what" }, what),
+                  (0, import_react43.createElement)("span", { className: "bt-team-chevron", "aria-hidden": true }, expanded ? "⌄" : "›")
+                )
               ),
               expanded ? (0, import_react43.createElement)(
                 "div",
@@ -32877,16 +33157,8 @@ function TeamDock({ self, useRoster, useWork, actions }) {
                 entry.question ? (0, import_react43.createElement)(QuestionCard2, { entry, actions }) : null,
                 entry.approvals.map((approval) => (0, import_react43.createElement)(ApprovalCard, { key: approval.id, approval, bot: entry.bot, actions, inline: true }))
               ) : null
-            );
-          }),
-          working.map((entry) => (0, import_react43.createElement)(
-            "button",
-            { key: entry.bot.id, type: "button", className: "bt-team-work", onClick: () => actions.openSession(entry.bot.id) },
-            (0, import_react43.createElement)(Face, { bot: entry.bot, ask: false, state: workState(entry.doing) }),
-            (0, import_react43.createElement)("strong", { className: "bt-team-name" }, entry.bot.name),
-            (0, import_react43.createElement)("span", { className: "bt-team-what" }, (0, import_react43.createElement)(Shimmer, null, `${workPhrase(entry.doing)}…`)),
-            typeof entry.doing.since === "number" ? (0, import_react43.createElement)(Elapsed, { at: entry.doing.since, className: "bt-team-time" }) : null
-          ))
+            ));
+          })
         )
       )
     )
@@ -32979,31 +33251,62 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
 @keyframes bt-mw-swap{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-team-dock{position:relative;width:100%;height:32px;container-type:inline-size}
-.bt-team-shell{position:absolute;z-index:1;bottom:0;inset-inline:0;margin-inline:auto;display:grid;grid-template-rows:0fr;width:min(100%,var(--bt-team-width,160px));min-height:32px;border-radius:16px;overflow:hidden;pointer-events:auto;background:var(--bt-main);box-shadow:0 0 0 .5px var(--bt-line-2),0 2px 8px -2px rgba(0,0,0,.12);transition:${spring(SPRING_SHAPE, "width", "grid-template-rows", "border-radius")}}
-.bt-team-shell[data-open]{grid-template-rows:1fr;width:min(100%,clamp(240px,var(--bt-team-width,160px) + 64px,360px));border-radius:18px}
-.bt-team-shell[data-open][data-asking]{width:min(100%,360px)}
-.bt-team-toggle{position:absolute;z-index:1;top:0;right:0;display:flex;align-items:center;justify-content:flex-end;width:100%;height:32px;padding:0 11px 0 0;border:0;border-radius:inherit;overflow:hidden;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;cursor:pointer}
-.bt-team-toggle:hover{background:var(--bt-hover)}
+.bt-team-shell{position:absolute;z-index:1;bottom:0;inset-inline:0;margin-inline:auto;width:160px;max-width:100%;height:32px;border-radius:var(--bt-team-radius,16px);overflow:hidden;pointer-events:auto;background:var(--bt-main);box-shadow:0 0 0 .5px var(--bt-line-2),0 2px 8px -2px rgba(0,0,0,.12);animation:bt-mw-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-veil-in .18s ease-out backwards}
+.bt-team-dock[data-leaving] .bt-team-shell{animation:bt-mw-out .16s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
+.bt-team-toggle{position:absolute;z-index:2;inset:0;width:100%;height:100%;padding:0;border:0;border-radius:inherit;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;cursor:pointer;transition:background-color .12s ease}
+.bt-team-shell:not([data-open]) .bt-team-toggle:hover,.bt-team-shell[data-open]:not([data-flight]) .bt-team-toggle:hover{background:var(--bt-hover)}
 .bt-team-toggle:focus-visible,.bt-team-head:focus-visible,.bt-team-work:focus-visible{outline-offset:-2px}
-.bt-team-toggle>svg{position:relative;flex:none;color:inherit;transition:${spring(SPRING_SHAPE, "transform")}}
-.bt-team-summary{position:absolute;left:0;box-sizing:border-box;width:max-content;max-width:min(300px,100cqw);padding-right:34px}
+.bt-team-shell[data-open]:not([data-flight]) .bt-team-toggle{inset:8px 6px auto auto;width:36px;height:32px;border-radius:10px;overflow:hidden}
+.bt-team-toggle>svg{position:absolute;top:9px;right:11px;color:inherit;rotate:calc(var(--bt-team-p,0)*180deg);translate:calc(var(--bt-team-p,0)*-6px) calc(var(--bt-team-p,0)*8px)}
+.bt-team-shell[data-open]:not([data-flight]) .bt-team-toggle>svg{translate:none}
+.bt-team-summary{position:absolute;top:0;left:calc(50% - var(--bt-team-pill,100%)/2);box-sizing:border-box;width:max-content;max-width:min(300px,100cqw);height:32px;padding-right:34px}
+.bt-team-shell[data-open]:not([data-flight]) .bt-team-summary{visibility:hidden}
 .bt-team-summary .bt-mw-ask{flex:0 1 auto}
-.bt-team-shell[data-open] .bt-team-toggle{top:8px;right:6px;width:36px;padding:0;justify-content:center;border-radius:10px}
-.bt-team-shell[data-open] .bt-team-toggle>svg{transform:rotate(180deg)}
-.bt-team-shell[data-open] .bt-team-summary{visibility:hidden}
-.bt-team-reveal{min-height:0;overflow:hidden;visibility:hidden;opacity:0;transition:opacity .16s ease-out}
-.bt-team-shell[data-open] .bt-team-reveal{visibility:visible;opacity:1}
+.bt-team-summary .bt-mw-faces{position:relative}
+.bt-team-shell:is([data-open],[data-flight]) .bt-team-summary .bt-mw-faces{visibility:hidden}
+.bt-team-shell .bt-mw-face{animation:bt-team-seat ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards}
+.bt-team-summary .bt-mw-face{margin-left:0}
+.bt-team-summary .bt-mw-face:not([data-leaving])~.bt-mw-face:not([data-leaving]){margin-left:-5px}
+.bt-team-summary .bt-mw-face[data-leaving]{position:absolute;top:0;left:calc(var(--bt-team-seat,0)*15px);animation:bt-team-unseat .08s ease-out forwards}
+.bt-team-panel .bt-mw-face{transform-origin:0 0}
+.bt-team-summary .bt-mw-label{position:relative}
+.bt-team-summary .bt-mw-label>*{transition:opacity .16s ease-out .09s,filter .16s ease-out .09s}
+.bt-team-summary .bt-mw-doing{animation:bt-mw-swap .22s ease-out backwards}
+.bt-team-summary .bt-team-more{flex:none;overflow:visible}
+.bt-team-summary .bt-team-more:not([data-on]){position:absolute;left:100%;margin-left:5px;opacity:0;filter:var(--bt-fx-blur-4,blur(4px));transition:opacity .08s ease-out,filter .08s ease-out}
+.bt-team-shell[data-open] .bt-team-summary .bt-mw-label>*{opacity:0;filter:var(--bt-fx-blur-4,blur(4px));transition:opacity .1s ease-out,filter .1s ease-out}
+.bt-team-shell[data-lead] .bt-team-summary .bt-mw-label>:not(.bt-team-more){transition:opacity .14s ease-out,filter .14s ease-out}
+.bt-team-shell[data-open][data-lead] .bt-team-summary .bt-mw-label>:not(.bt-team-more){filter:var(--bt-fx-blur-2,blur(2px));transition:opacity .12s ease-in,filter .12s ease-in}
+.bt-team-shell[data-open] .bt-team-summary .bt-mw-label>.bt-team-more{transition-delay:.03s}
+.bt-team-reveal{position:absolute;top:0;left:50%;translate:-50% 0;width:min(100cqw,360px);visibility:hidden}
+.bt-team-shell:is([data-open],[data-flight]) .bt-team-reveal{visibility:visible}
 .bt-team-panel{box-sizing:border-box;max-height:min(360px,48vh);max-height:min(360px,48dvh);overflow:auto;overscroll-behavior:contain;padding:4px 44px 4px 6px}
+.bt-team-row{--bt-team-wait:calc(90ms + var(--bt-team-row,0)*35ms);display:grid;grid-template-rows:1fr;animation:bt-team-row-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards,bt-team-row-veil .22s ease-out .05s backwards}
+.bt-team-row+.bt-team-row{margin-top:2px}
+.bt-team-row>*{min-height:0}
+.bt-team-row[data-leaving]{animation:bt-team-row-out ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} forwards,bt-team-row-unveil .1s ease-in forwards;pointer-events:none}
 .bt-team-ask{border-radius:12px}
-.bt-team-ask+.bt-team-ask,.bt-team-work{margin-top:2px}
-.bt-team-head,.bt-team-work{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:6px 10px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.bt-team-head,.bt-team-work{display:flex;align-items:center;gap:10px;width:100%;padding:0 10px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer;transition:background-color .12s ease}
 .bt-team-head:hover,.bt-team-work:hover{background:var(--bt-hover)}
+.bt-team-text{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0;min-height:44px}
+.bt-team-text,.bt-team-body{opacity:0;transform:translateY(5px);filter:var(--bt-fx-blur-3,blur(3px));transition:opacity .05s ease-out,transform 0s linear .08s,filter .05s ease-out}
+.bt-team-shell[data-open] :is(.bt-team-text,.bt-team-body){opacity:1;transform:none;filter:none;transition:opacity .2s ease-out var(--bt-team-wait),transform ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} var(--bt-team-wait),filter .2s ease-out var(--bt-team-wait)}
+.bt-team-row[data-lead] .bt-team-text{transform:none;filter:var(--bt-fx-blur-2,blur(2px));transition:opacity .12s ease-in,filter .12s ease-in}
+.bt-team-shell[data-open] .bt-team-row[data-lead] .bt-team-text{filter:none;transition:opacity .14s ease-out,filter .14s ease-out}
+.bt-team-row[data-lead] .bt-team-time{opacity:0;transition:opacity .05s ease-out}
+.bt-team-shell[data-open] .bt-team-row[data-lead] .bt-team-time{opacity:1;transition:opacity .18s ease-out .08s}
 .bt-team-name{flex:none;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .bt-team-what{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2)}
 .bt-team-time{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
 .bt-team-chevron{flex:none;color:var(--bt-ink-3);font-size:13px;line-height:1}
 .bt-team-body{padding:0 0 8px 10px}
 .bt-team-options{flex-wrap:wrap}
+@keyframes bt-team-seat{from{opacity:0;scale:.6}}
+@keyframes bt-team-unseat{to{opacity:0;scale:.6}}
+@keyframes bt-team-row-in{from{grid-template-rows:0fr;margin-top:0;clip-path:inset(0)}to{clip-path:inset(0)}}
+@keyframes bt-team-row-out{from{clip-path:inset(0)}to{grid-template-rows:0fr;margin-top:0;clip-path:inset(0)}}
+@keyframes bt-team-row-veil{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
+@keyframes bt-team-row-unveil{to{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
 .bt-members{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
 .bt-members-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .bt-members-head>.bt-section-title{margin:0}
@@ -33038,8 +33341,10 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
 @media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
-body[data-bt-effects=off] :is(.bt-team-shell,.bt-team-reveal,.bt-team-toggle>svg){transition:none}
-@media (prefers-reduced-motion:reduce){.bt-team-shell,.bt-team-reveal,.bt-team-toggle>svg{transition:none}}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-team-shell,.bt-team-row,.bt-team-shell .bt-mw-face,.bt-team-summary .bt-mw-doing){animation:none}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-team-shell :is(.bt-team-text,.bt-team-body,.bt-team-summary .bt-mw-label>*){transform:none;transition:opacity .12s ease-out}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-team-shell,.bt-team-shell[data-open]) .bt-team-row[data-lead] .bt-team-time{transition:opacity .12s ease-out}
+@media (prefers-reduced-motion:reduce){.bt-team-shell,.bt-team-row,.bt-team-shell .bt-mw-face,.bt-team-summary .bt-mw-doing{animation:none}body .bt-team-shell :is(.bt-team-text,.bt-team-body,.bt-team-summary .bt-mw-label>*){transform:none;transition:opacity .12s ease-out}:is(.bt-team-shell,.bt-team-shell[data-open]) .bt-team-row[data-lead] .bt-team-time{transition:opacity .12s ease-out}}
 `;
 
 // src/client/task-board.js
@@ -36947,8 +37252,8 @@ var MODEL_INKS = ["deepseek", "tangerine", "green", "violet", "sky", "rose", "ye
 var PARTS = [["output", 1], ["input", 0.6], ["cacheRead", 0.32]];
 var partLabel = (part) => ({ output: t("Output"), input: t("Input"), cacheRead: t("Cache hit") })[part];
 var soften = (paint, strength = 1) => {
-  const mix = (color) => `color-mix(in srgb, ${color} ${Math.round(88 * strength)}%, var(--bt-card))`;
-  return paint.startsWith("linear-gradient(") ? paint.replace(/#[0-9a-f]{6}/gi, mix) : mix(paint);
+  const mix2 = (color) => `color-mix(in srgb, ${color} ${Math.round(88 * strength)}%, var(--bt-card))`;
+  return paint.startsWith("linear-gradient(") ? paint.replace(/#[0-9a-f]{6}/gi, mix2) : mix2(paint);
 };
 var full = (count) => new Intl.NumberFormat(dateLocale()).format(Math.round(count));
 var hitRate = (sum) => percent2(sum.cacheRead, sum.input + sum.cacheRead);
@@ -40073,7 +40378,7 @@ function QrCode2({ text }) {
   );
 }
 function QrLogin({ actions, platform, botId, onDone }) {
-  const [round, setRound] = (0, import_react58.useState)(0);
+  const [round2, setRound] = (0, import_react58.useState)(0);
   const [login, setLogin] = (0, import_react58.useState)(null);
   const [status, setStatus] = (0, import_react58.useState)("waiting");
   const [error, setError] = (0, import_react58.useState)(null);
@@ -40104,7 +40409,7 @@ function QrLogin({ actions, platform, botId, onDone }) {
     return () => {
       live = false;
     };
-  }, [botId, round]);
+  }, [botId, round2]);
   const expired2 = status === "expired" || error !== null;
   const caption = error ? hostText(error) : status === "scanned" ? t("Scanned — confirm on the phone") : status === "expired" ? t("Code expired") : login ? t("Scan with WeChat") : t("Getting a code…");
   return (0, import_react58.createElement)(
