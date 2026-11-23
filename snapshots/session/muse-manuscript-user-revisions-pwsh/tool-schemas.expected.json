@@ -835,10 +835,14 @@
           },
           "frame_ids": {
             "type": "array",
-            "description": "revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。",
+            "description": "revisit需要重看的已记录或网格中的frame_id，数量不超过当前批上限；返回缓存原图及已有观察，不重新抽帧、不重置记录。",
             "items": {
               "type": "string"
             }
+          },
+          "contact_sheet": {
+            "type": "boolean",
+            "description": "scan、next或observe返回一批画面时，true将本批拼成网格图：每格是一帧，标注帧号和时间，计为已查看；单帧原图可用revisit。"
           },
           "timestamps_seconds": {
             "type": "array",

@@ -9,9 +9,10 @@ import { isAgentLoopRequest, IMAGE_OFFLOAD_REQUIRED_CODE } from '@deepseek-ai/ds
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { probeVideo, runMedia } from './media.ts'
 import { scanReviewFrames } from './review-scan.ts'
-import { installFrameImageState, offloadFrameImages } from './frame-images.ts'
-import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, hasReviewUncertainty, reviewEvidenceJson,
-  characterChecksSchema, reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
+import { frameLabels, installFrameImageState, offloadFrameImages } from './frame-images.ts'
+import { installReviewState, reviewsOf, saveReview, reviewImage, reviewAttachment, pendingReview, hasReviewUncertainty, reviewEvidenceJson,
+  characterChecksSchema, reviewFrameSchema, reviewImageSchema, VideoReviewId, type VideoReview } from './review-state.ts'
+import { renderReviewGrids, type ReviewGrid, type ReviewGridCell } from './review-grid.ts'
 import type { Config } from './index.ts'
 import { compareReviewDraft } from './review-compare.ts'
 import { bindReviewEvents, reviewEventCurrent, reviewEventEvidence, reviewEventNoteSchema } from './review-events.ts'
@@ -26,7 +27,7 @@ const parameters = z.object({ method: z.enum(['scan', 'next', 'revisit', 'observ
   draft_path: z.string().min(1).optional(), transcript_path: z.string().min(1).optional(),
   event_groups: z.array(reviewEventNoteSchema).optional(),
   timeline_start_seconds: z.number().nonnegative().optional(), timeline_end_seconds: z.number().positive().optional(),
-  frame_ids: z.array(z.string().min(1)).optional(),
+  frame_ids: z.array(z.string().min(1)).optional(), contact_sheet: z.boolean().optional(),
   timestamps_seconds: z.array(z.number().nonnegative()).min(1).max(256).optional(),
   observations: z.array(z.object({ frame_id: z.string(), visible: z.string().trim().min(8).max(2000),
     change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000).default(''),
@@ -45,7 +46,7 @@ function taskResult(review: VideoReview, limit: number, batch = false) {
     ...review.transcript_reference === undefined ? {} : { transcript_reference: review.transcript_reference },
     frames_not_shown: review.frames.length - selected.length,
     frames: selected.map((frame) => {
-      const { image, decode: _decode, ...data } = frame
+      const { image, decode: _decode, grid: _grid, ...data } = frame
       return { ...data, ...batch && image !== undefined ? { image } : {},
         status: frame.observation !== undefined ? '已记录' : frame.exposed ? '待记录' : '待查看' }
     }),
@@ -88,11 +89,14 @@ type ReviewResult = ReturnType<typeof taskResult> & {
   }
   speech?: ReviewSpeech
   speech_unavailable?: ReviewSpeechUnavailable
+  /** Grid pages that carry this batch's frames instead of one image per frame. */
+  frame_grids?: ReviewGrid[]
 }
 
 const resultSchema = z.object({ review_id: z.string(), episode: z.string(), total: z.number(), recorded: z.number(), pending: z.number(),
   complete: z.boolean(), follow_up: z.object({ status: z.enum(['active', 'closed']), reason: z.string().optional() }).default({ status: 'active' }),
-  frames: z.array(reviewFrameSchema.extend({ status: z.string(), revisited: z.boolean().optional() })) }).loose()
+  frames: z.array(reviewFrameSchema.extend({ status: z.string(), revisited: z.boolean().optional() })),
+  frame_grids: z.array(z.object({ frame_ids: z.array(z.string()).min(2), image: reviewImageSchema })).optional() }).loose()
 
 /** Model-facing note on frame images that later requests omit once seen. */
 const FRAME_IMAGE_NOTE = '历史帧图的移除说明只记录此前展示，不代表本次图片缺失，也不否定原观察。'
@@ -121,21 +125,28 @@ function pendingFrame(reviews: readonly VideoReview[], label: string): boolean {
 }
 
 function content(serialized: string, note: string | undefined): ContentBlock[] {
-  const value = resultSchema.parse(JSON.parse(serialized))
+  const { frame_grids: grids = [], ...value } = resultSchema.parse(JSON.parse(serialized))
   const text = { ...value, frames: value.frames.map(({ image: _image, ...frame }) => frame) }
   const result: ContentBlock[] = [{ type: 'text', text: JSON.stringify(text) }]
+  const tiled = new Set(grids.flatMap(grid => grid.frame_ids))
   for (const frame of value.frames) {
     const image = reviewImage(frame)
-    if (image !== undefined && (frame.observation === undefined || frame.revisited === true)) {
+    if (image !== undefined && !tiled.has(frame.id) && (frame.observation === undefined || frame.revisited === true)) {
       result.push({ type: 'text', text:  `VIDEO_FRAME ${value.review_id}/${frame.id} ${value.episode} ${frame.time}s附近：`
-        + (frame.revisited === true ? '重看缓存原图；原观察保留，供核对。' : '待逐图观察记录。') },
+        + (frame.revisited !== true ? '待逐图观察记录。'
+          : frame.observation === undefined ? '网格中该帧的原图；待逐图观察记录。' : '重看缓存原图；原观察保留，供核对。') },
       { type: 'image', attachment: image })
     }
+  }
+  for (const [index, grid] of grids.entries()) {
+    result.push({ type: 'text', text: `VIDEO_FRAME_GRID ${value.review_id}/${grid.frame_ids.join(',')} ${value.episode} `
+      + `网格图${grids.length > 1 ? `${index + 1}/${grids.length}` : ''}：每格是一帧，格下标注帧号和时间，计为已查看，待逐帧观察记录；单帧原图可用revisit。` },
+    { type: 'image', attachment: reviewAttachment(grid.image) })
   }
   if (note !== undefined) {
     const attached = result.filter(block => block.type === 'image').length
     result.push({ type: 'text', text: '帧图说明：' + (attached > 0
-      ? `本次工具结果附带${attached}张图片，位于各VIDEO_FRAME标记后。${note}`
+      ? `本次工具结果附带${attached}张图片${grids.length > 0 ? `（其中${grids.length}张网格图共${tiled.size}帧）` : ''}，位于各VIDEO_FRAME标记后。${note}`
       : '本次工具结果仅返回文字，没有新图片；status等进度查询不会重新附图，不能据此判断此前图片是否送达。'
         + '待记录帧仍可见时按图observe；需要图片时，已记录帧用revisit，待查看帧用next。') })
   }
@@ -175,27 +186,27 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       : await llm.resolveModelInfo(options.provider, options.model, options.signal)
     const delivered = new Map<string, string>()
     const requestStart: number = session?.seq ?? 0
-    const retained: { label: string | undefined; attachment: string }[] = []
+    const retained: { labels: readonly string[]; attachment: string }[] = []
     for (const message of options.messages) {
-      let label: string | undefined
+      let labels: readonly string[] = []
       for (const block of message.content) {
-        if (block.type === 'text') {
-          const marker = /^VIDEO_FRAME (\S+) /.exec(block.text)
-          if (marker !== null) label = marker[1]
-        }
+        if (block.type === 'text') labels = frameLabels(block.text) ?? labels
         if (block.type === 'image' && block.offloaded !== true) {
-          if (message.role === 'user' || message.role === 'tool') retained.push({ label, attachment: block.attachment.attachmentId })
-          if (label !== undefined) delivered.set(label, block.attachment.attachmentId)
+          if (message.role === 'user' || message.role === 'tool') retained.push({ labels, attachment: block.attachment.attachmentId })
+          for (const label of labels) delivered.set(label, block.attachment.attachmentId)
         }
       }
     }
+    // A frame is shown by its own image or by the latest grid page that tiled it.
     const admitted = session === undefined || !model?.inputModalities?.includes('image') ? []
-      : Object.values(reviewsOf(readReviews, session)).flatMap(review => review.frames
-        .filter(frame => !frame.exposed && frame.image !== undefined
-          && delivered.get(`${review.id}/${frame.id}`) === frame.image.attachmentId)
-        .map(frame => ({ path: review.path, review: review.id, frame: frame.id, image: frame.image?.attachmentId })))
-    const retainedPending = retained.map(image => admitted.some(frame => `${frame.review}/${frame.frame}` === image.label
-      && frame.image === image.attachment) ? image.label : undefined)
+      : Object.values(reviewsOf(readReviews, session)).flatMap(review => review.frames.flatMap((frame) => {
+        const shown = delivered.get(`${review.id}/${frame.id}`)
+        return !frame.exposed && frame.image !== undefined && shown !== undefined
+          && (shown === frame.image.attachmentId || shown === frame.grid?.attachmentId)
+          ? [{ path: review.path, review: review.id, frame: frame.id, image: frame.image.attachmentId, shown }] : []
+      }))
+    const retainedPending = retained.map(image => image.labels.filter(label => admitted.some(frame =>
+      `${frame.review}/${frame.frame}` === label && frame.shown === image.attachment)))
     let successful = false
     for await (const chunk of next()) {
       if (chunk.type === 'finish') {
@@ -247,7 +258,8 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       method: { type: 'string', enum: ['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'timeline', 'compare', 'close', 'reopen'], description: '默认scan；next查看下一批，revisit重显已记录原图，observe逐图记录，events保存动作事件表；status读取进度，timeline并列时间线，compare对照当前稿，metadata只读元数据。close结束当前来源后续跟进，不补记图片；reopen校验来源后恢复，不重新扫描。' },
       timeline_start_seconds: { type: 'number', description: 'timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。' },
       timeline_end_seconds: { type: 'number', description: 'timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。' },
-      frame_ids: { type: 'array', items: { type: 'string' }, description: 'revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。' },
+      frame_ids: { type: 'array', items: { type: 'string' }, description: 'revisit需要重看的已记录或网格中的frame_id，数量不超过当前批上限；返回缓存原图及已有观察，不重新抽帧、不重置记录。' },
+      contact_sheet: { type: 'boolean', description: 'scan、next或observe返回一批画面时，true将本批拼成网格图：每格是一帧，标注帧号和时间，计为已查看；单帧原图可用revisit。' },
       timestamps_seconds: { type: 'array', items: { type: 'number' }, description: 'scan可选的补看来源秒数，最多256项且0≤t<真实视频时长；合入常规扫描，保留同版本已有帧ID，新帧仍须next实际看图并observe，不能凭时间补记完成。' },
       draft_path: { type: 'string', description: 'compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。' },
       transcript_path: { type: 'string', description: '可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。close、reopen及仅凭review_id的status不读取ASR。' },
@@ -551,7 +563,10 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           }
           const selected = args.frame_ids.map((id) => {
             const frame = current.frames.find(frame => frame.id === id)
-            if (frame?.observation === undefined) throw Error(`VIDEO_REVISIT_FRAME: ${id}不是本集已记录帧；未记录画面请使用next。`)
+            // A frame shown as a grid tile may be viewed singly before its observation is recorded.
+            if (frame === undefined || frame.observation === undefined && frame.grid === undefined) {
+              throw Error(`VIDEO_REVISIT_FRAME: ${id}不是本集已记录或网格中的帧；未记录画面请使用next。`)
+            }
             return frame
           })
           await imageRoute(ctx, { ...exec, signal })
@@ -564,7 +579,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
               throw Error(`VIDEO_REVISIT_IMAGE_MISSING: ${frame.id}原图缓存不可读取，不重新抽帧。`
                 + (error instanceof Error ? error.message : String(error)))
             }
-            const { image: _image, decode: _decode, ...data } = frame
+            const { image: _image, decode: _decode, grid: _grid, ...data } = frame
             frames.push({ ...data, image, status: '重看原图', revisited: true })
           }
           const prepared = await prepareDescription(current, false, frames)
@@ -614,9 +629,11 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           review = { ...review, frames }
           saveReview(readReviews, session, review)
           if (readFrameImages !== undefined) {
-            const reviewId = review.id
+            const reviewId = review.id, reviews = Object.values(reviewsOf(readReviews, session))
             const labels = new Set([...notes.keys()].map(id => `${reviewId}/${id}`))
-            offloadFrameImages(session, readFrameImages, label => labels.has(label), removedNotice)
+            // A grid page leaves once none of its tiles awaits observation, including tiles recorded by earlier calls.
+            offloadFrameImages(session, readFrameImages, (label, _occurrence, _occurrences, tiles) => labels.has(label)
+              || tiles.length > 1 && !pendingFrame(reviews, label), removedNotice)
           }
           // With the option, recorded observations continue into the next batch below instead of costing a separate next step.
           if (!config.reviewObserveNextBatch || !review.scan_complete || review.frames.every(frame => frame.observation !== undefined)) {
@@ -628,9 +645,11 @@ export async function applyCompleteReview(ctx: Context, config: Config,
         await imageRoute(ctx, { ...exec, signal })
         const next = review.frames.filter(frame => frame.observation === undefined).slice(0, batchFrames)
         const updated = new Map<string, (typeof review.frames)[number]>()
+        const shown: ReviewGridCell[] = []
         const ffmpeg = await ctx.subprocess.resolveExecutable(config.ffmpegPath, undefined, signal)
         for (const frame of next) {
-          if (frame.image !== undefined) { updated.set(frame.id, frame); continue }
+          const cached = reviewImage(frame)
+          if (cached !== undefined) { updated.set(frame.id, frame); shown.push({ frame, image: cached }); continue }
           const output = await runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-v', 'info', '-protocol_whitelist', 'file,pipe',
             '-ss', String(frame.decode?.start_seconds ?? frame.time), '-copyts', '-i', source, '-map', '0:v:0', '-an', '-sn', '-dn', '-frames:v', '1',
             '-vf', `${frame.decode === undefined ? '' : `select='eq(n,${frame.decode.frame_index})',`}scale=w='min(${config.frameMaxDimension},iw)':h='min(${config.frameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
@@ -645,14 +664,21 @@ export async function applyCompleteReview(ctx: Context, config: Config,
             name: `video-${review.id}-${frame.id}.${config.frameFormat}` })
           const extracted = { ...frame, image, decoded_time: time }
           updated.set(frame.id, extracted)
+          shown.push({ frame: extracted, image })
           review = { ...review, frames: review.frames.map(existing => existing.id === frame.id ? extracted : existing) }
           saveReview(readReviews, session, review)
         }
         if ((await ctx.fs.stat(target, signal))?.version !== review.source_version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: source changed during extraction')
-        review = { ...review, frames: review.frames.map(frame => updated.get(frame.id) ?? frame) }
+        const grids = args.contact_sheet === true ? await renderReviewGrids(ctx, config, review.id, shown, signal) : []
+        const pages = new Map(grids.flatMap(grid => grid.frame_ids.map(id => [id, grid.image] as const)))
+        review = { ...review, frames: review.frames.map((frame) => {
+          const current = updated.get(frame.id) ?? frame, grid = pages.get(frame.id)
+          return grid === undefined ? current : { ...current, grid }
+        }) }
         saveReview(readReviews, session, review)
         const result = await describe(review, true)
-        return { ...result, frames: result.frames.filter(frame => updated.has(frame.id)) }
+        return { ...result, frames: result.frames.filter(frame => updated.has(frame.id)),
+          ...grids.length > 0 ? { frame_grids: grids } : {} }
       })
       return JSON.stringify(result)
     },

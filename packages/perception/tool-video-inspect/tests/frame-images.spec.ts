@@ -4,7 +4,7 @@ import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
 import { LlmAdapter, ToolCallId, createToolResultMessage, createUserMessage, type ContentBlock, type ImageBlock, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { installFrameImageState, offloadFrameImages } from '../src/frame-images.ts'
+import { frameLabels, installFrameImageState, offloadFrameImages } from '../src/frame-images.ts'
 
 class IdleModel extends LlmAdapter {
   override async resolveModel(provider: string, id: string) { return { provider, id, name: id, inputModalities: ['text', 'image'] as const } }
@@ -131,5 +131,28 @@ describe('retained frame image occurrences', () => {
     expect(h.session.deriveMessages().at(-1)?.content.filter(block => block.type === 'image'))
       .toEqual([{ ...image, offloaded: true, offloadNotice: 'removed' }, { ...image, offloaded: true, offloadNotice: 'removed' }])
     expect(h.read(h.session)).toEqual({ 'r1/F2': [{ seq: earlier.seq, index: 0, host: true }] })
+  })
+
+  it('reads one label per frame marker and one per tile of a grid marker', () => {
+    expect(frameLabels('VIDEO_FRAME r1/F1 第1集 0s附近：')).toEqual(['r1/F1'])
+    expect(frameLabels('VIDEO_FRAME_GRID r1/F1,F2,F3 第1集 网格图：')).toEqual(['r1/F1', 'r1/F2', 'r1/F3'])
+    expect(frameLabels('{"review_id":"r1"}')).toBeUndefined()
+  })
+
+  it('records a grid page under every tile label and offloads it only when each tile selects it', async () => {
+    const h = await harness()
+    const grid = h.send([label('VIDEO_FRAME_GRID r1/F1,F2 grid'), image, label('VIDEO_FRAME r1/F3 single'), image])
+    expect(h.read(h.session)).toEqual({ 'r1/F1': [{ seq: grid.seq, index: 0, host: true }],
+      'r1/F2': [{ seq: grid.seq, index: 0, host: true }], 'r1/F3': [{ seq: grid.seq, index: 1, host: true }] })
+    const tiles: [string, readonly string[]][] = []
+    expect(offloadFrameImages(h.session, h.read, (name, _occurrence, _occurrences, shared) => {
+      tiles.push([name, shared])
+      return name !== 'r1/F2'
+    }, 'removed')).toBe(1)
+    expect(tiles).toEqual([['r1/F1', ['r1/F1', 'r1/F2']], ['r1/F2', ['r1/F1', 'r1/F2']], ['r1/F3', ['r1/F3']]])
+    expect(h.session.snapshotEvents().filter(event => event.type === 'image/offload').map(event => event.data))
+      .toEqual([{ targets: [{ seq: grid.seq, imageIndexes: [1] }], notice: 'removed' }])
+    expect(offloadFrameImages(h.session, h.read, () => true, 'removed')).toBe(1)
+    expect(h.read(h.session)).toEqual({})
   })
 })

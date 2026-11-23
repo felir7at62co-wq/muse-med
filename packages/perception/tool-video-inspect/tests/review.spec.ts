@@ -14,7 +14,7 @@ import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import NodeRuntime from '@deepseek-ai/dsh-ptc-runtime-node'
 import LocalSandbox from '@deepseek-ai/dsh-sandbox-local'
 import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import { LlmAdapter, ToolCallId, createAssistantMessage, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, ToolCallId, createAssistantMessage, createUserMessage, type ContentBlock, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -29,7 +29,8 @@ import * as Media from '../src/media.ts'
 import sharp from 'sharp'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import { scanReviewFrames, appearanceCandidates } from '../src/review-scan.ts'
-import { reviewsOf, installReviewState, reviewImage, saveReview, pendingReview, reviewFrameSchema, VideoReviewId } from '../src/review-state.ts'
+import { reviewsOf, installReviewState, reviewImage, saveReview, pendingReview, reviewEvidenceJson, reviewFrameSchema, VideoReviewId } from '../src/review-state.ts'
+import { renderContactPage } from '../src/contact.ts'
 import { applyCompleteReview } from '../src/review.ts'
 import { compareReviewDraft } from '../src/review-compare.ts'
 import { z } from 'zod'
@@ -2593,4 +2594,147 @@ it('requires one saved review when portable provider aliases resolve to the same
   expect(h.results().at(-1)?.isError).toBe(false)
   expect(reviewsOf(h.readReviews, h.agent.session)[alias]?.follow_up?.status).toBe('closed')
   expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
+})
+
+const TILE = { contactTileWidth: 160 } as const
+const gridded = (call: RoutedCall): RoutedCall => ({ ...call, args: { ...call.args, contact_sheet: true } })
+const texts = (content: readonly ContentBlock[]) => content.flatMap(block => block.type === 'text' ? [block.text] : [])
+const gridMarkers = (content: readonly ContentBlock[]) => texts(content).filter(text => text.startsWith('VIDEO_FRAME_GRID '))
+const gridIds = (marker: string) => (/^VIDEO_FRAME_GRID \S+\/(\S+) /u.exec(marker)?.[1] ?? '').split(',')
+/** Frame IDs each result delivered as images, single frames and grid tiles alike, in result order. */
+const deliveredBatches = (h: Awaited<ReturnType<typeof fixture>>) => h.results().map(result => [
+  ...texts(result.content).flatMap(text => /^VIDEO_FRAME \S+\/(\S+) /u.exec(text)?.[1] ?? []),
+  ...gridMarkers(result.content).flatMap(gridIds)]).filter(batch => batch.length > 0)
+
+it.each([true, false])('returns a batch as one captioned grid page only when contact_sheet is %s', async (enabled) => {
+  const h = await fixture({ config: TILE })
+  await h.run(h.call('scan', enabled ? { contact_sheet: true } : {}), undefined)
+  const content = h.results()[0]!.content, review = h.review()
+  const shown = review.frames.filter(frame => frame.image !== undefined)
+  expect(shown).toHaveLength(2)
+  expect(shown.every(frame => frame.exposed)).toBe(true)
+  const images = content.flatMap(block => block.type === 'image' ? [block.attachment] : [])
+  expect(images).toHaveLength(enabled ? 1 : 2)
+  expect(texts(content).filter(text => text.startsWith('VIDEO_FRAME '))).toHaveLength(enabled ? 0 : 2)
+  expect(gridMarkers(content)).toEqual(enabled ? [`VIDEO_FRAME_GRID ${review.id}/${shown.map(frame => frame.id).join(',')} 第80集 `
+    + '网格图：每格是一帧，格下标注帧号和时间，计为已查看，待逐帧观察记录；单帧原图可用revisit。'] : [])
+  expect(shown.map(frame => frame.grid?.attachmentId))
+    .toEqual(enabled ? [images[0]!.attachmentId, images[0]!.attachmentId] : [undefined, undefined])
+  const summary = z.object({ frames: z.array(z.record(z.string(), z.unknown())) }).loose().parse(JSON.parse(texts(content)[0]!))
+  expect(Object.keys(summary)).not.toContain('frame_grids')
+  for (const frame of summary.frames) expect(Object.keys(frame)).not.toContain('grid')
+  if (!enabled) return
+  const page = await sharp((await h.ctx.attachments.readImage(images[0]!)).data).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  // Two 160-pixel cells of the 96x64 source side by side, each above its 20-pixel caption strip.
+  expect(page.info).toMatchObject({ width: 320, height: 127, channels: 3 })
+  const pixel = (x: number, y: number) => [...page.data.subarray((y * 320 + x) * 3, (y * 320 + x) * 3 + 3)]
+  expect(pixel(80, 50)[0]).toBeGreaterThan(200)
+  for (const left of [0, 160]) {
+    const caption = Array.from({ length: 20 * 150 }, (_, index) => pixel(left + 4 + index % 150, 107 + Math.floor(index / 150)))
+    expect(caption.some(([red]) => red! > 160)).toBe(true)
+  }
+}, 30_000)
+
+it.each([false, true])('shows every frame once across mixed batches and records each tile once with reviewObserveNextBatch %s', async (observeNext) => {
+  const h = await fixture({ config: { ...TILE, reviewObserveNextBatch: observeNext } })
+  await h.run(gridded(h.call('scan')), undefined)
+  for (let batch = 1; batch < 40 && pendingReview(h.review()) > 0; batch++) {
+    // Without reviewObserveNextBatch, later next calls alternate between single frames and a grid page.
+    if (observeNext) await h.run(() => gridded(h.record()), undefined)
+    else await h.run(h.record, h.call('next', { contact_sheet: batch % 2 === 0 }), undefined)
+  }
+  const review = h.review(), ids = review.frames.map(frame => frame.id)
+  const batches = Array.from({ length: Math.ceil(ids.length / 2) }, (_, index) => ids.slice(index * 2, index * 2 + 2))
+  expect(pendingReview(review)).toBe(0)
+  expect(review.frames.every(frame => frame.exposed && frame.observation !== undefined)).toBe(true)
+  expect(h.results().filter(result => result.isError)).toEqual([])
+  expect(deliveredBatches(h)).toEqual(batches)
+  expect(review.frames.filter(frame => frame.grid !== undefined).map(frame => frame.id)).toEqual(batches
+    .filter((batch, index) => batch.length === 2 && (observeNext || index % 2 === 0)).flat())
+  const last = z.object({ total: z.number(), recorded: z.number(), complete: z.boolean() }).loose()
+    .parse(JSON.parse(texts(h.results().at(-1)!.content)[0]!))
+  expect(last).toMatchObject({ total: ids.length, recorded: ids.length, complete: true })
+  const report = await readFile(reportPath(h), 'utf8')
+  expect(report).toBe(reviewEvidenceJson(review))
+  expect(report).not.toContain('"grid"')
+}, 60_000)
+
+it('counts tiles of a logged grid page as shown after a failed request and a plugin reload', async () => {
+  const h = await fixture({ config: TILE })
+  await h.run(gridded(h.call('scan')), 'fail')
+  const tiled = h.review().frames.filter(frame => frame.grid !== undefined)
+  expect(tiled).toHaveLength(2)
+  expect(h.review().frames.some(frame => frame.exposed)).toBe(false)
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, h.config).await()
+  await h.run(h.call('status'), undefined)
+  expect(h.review().frames.filter(frame => frame.exposed).map(frame => frame.id)).toEqual(tiled.map(frame => frame.id))
+}, 30_000)
+
+it('revisits a tiled frame at full size before its observation and keeps other selections refused', async () => {
+  const h = await fixture({ config: TILE })
+  await h.run(gridded(h.call('scan')), undefined)
+  const review = h.review(), tile = review.frames.find(frame => frame.grid !== undefined)!
+  const untiled = review.frames.find(frame => frame.grid === undefined)!
+  await h.run(h.call('revisit', { frame_ids: [tile.id] }), undefined)
+  const revisit = h.results().at(-1)!
+  expect(revisit.isError).toBe(false)
+  expect(texts(revisit.content)).toContain(`VIDEO_FRAME ${review.id}/${tile.id} 第80集 ${tile.time}s附近：网格中该帧的原图；待逐图观察记录。`)
+  expect(revisit.content.filter(block => block.type === 'image')).toEqual([{ type: 'image', attachment: reviewImage(tile) }])
+  expect(h.review().frames.find(frame => frame.id === tile.id)?.observation).toBeUndefined()
+  for (const frame_ids of [[untiled.id], ['missing']]) {
+    await h.run(h.call('revisit', { frame_ids }), undefined)
+    expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVISIT_FRAME')
+  }
+  await h.run(h.record, h.call('revisit', { frame_ids: [tile.id] }), undefined)
+  expect(texts(h.results().at(-1)!.content).some(text => text.endsWith('重看缓存原图；原观察保留，供核对。'))).toBe(true)
+}, 30_000)
+
+it('removes a grid page from later requests once none of its tiles awaits observation', async () => {
+  const h = await fixture({ offload: true, config: { ...TILE, offloadObservedFrames: true } })
+  await h.run(gridded(h.call('scan')), undefined)
+  const page = h.results()[0]!.content.find(block => block.type === 'image')
+  if (page?.type !== 'image') throw Error('Missing grid page')
+  expect(texts(h.results()[0]!.content).at(-1)).toContain('本次工具结果附带1张图片（其中1张网格图共2帧），位于各VIDEO_FRAME标记后。')
+  const copies = () => h.agent.session.deriveMessages().flatMap(message => message.content)
+    .filter(block => block.type === 'image' && block.attachment.attachmentId === page.attachment.attachmentId)
+  const [first, second] = h.review().frames.filter(frame => frame.grid !== undefined)
+  const observe = (id: string) => h.call('observe', { observations: [{ frame_id: id,
+    visible: '画面为完整的纯色背景，没有可见人物和道具。', change: '与相邻画面对照颜色。', uncertainty: '' }] })
+  await h.run(observe(first!.id), undefined)
+  expect(copies()).toEqual([page])
+  await h.run(observe(second!.id), undefined)
+  expect(copies()).toEqual([{ ...page, offloaded: true, offloadNotice: FRAME_REMOVED }])
+}, 30_000)
+
+it('splits a batch into grid pages of the configured capacity and returns a lone frame singly', async () => {
+  const h = await fixture({ config: { ...TILE, reviewBatchFrames: 5, contactColumns: 2, contactRows: 1, frameFormat: 'jpeg' } })
+  await h.run(h.call('scan', { contact_sheet: true, timestamps_seconds: [0.2, 0.4, 0.6, 0.8, 1.1] }), undefined)
+  const content = h.results()[0]!.content, review = h.review()
+  const shown = review.frames.filter(frame => frame.image !== undefined).map(frame => frame.id)
+  expect(shown).toHaveLength(5)
+  expect(gridMarkers(content).map(gridIds)).toEqual([shown.slice(0, 2), shown.slice(2, 4)])
+  expect(gridMarkers(content).map(marker => /网格图(\d\/\d)：/u.exec(marker)?.[1])).toEqual(['1/2', '2/2'])
+  expect(texts(content).filter(text => text.startsWith(`VIDEO_FRAME ${review.id}/${shown[4]} `))).toHaveLength(1)
+  expect(review.frames.filter(frame => frame.exposed).map(frame => frame.id)).toEqual(shown)
+  const lone = review.frames.find(frame => frame.id === shown[4])!
+  expect(lone.grid).toBeUndefined()
+  const images = content.flatMap(block => block.type === 'image' ? [block.attachment] : [])
+  expect(images.map(image => image.mediaType)).toEqual(['image/jpeg', 'image/jpeg', 'image/jpeg'])
+  expect(images[0]).toEqual(reviewImage(lone))
+}, 30_000)
+
+it.each([{ maxContactPixels: 1 }, { frameFormat: 'jpeg', reviewContactJpegQuality: 100, contactTileWidth: 640, maxContactBytes: 1024 }] as const)(
+  'refuses a grid page beyond the deployment limit %j without showing its frames', async (limits) => {
+    const h = await fixture({ config: limits })
+    await h.run(gridded(h.call('scan')), undefined)
+    expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_GRID_LIMIT')
+    expect(h.review().frames.some(frame => frame.exposed || frame.grid !== undefined)).toBe(false)
+  }, 30_000)
+
+it('escapes caption markup when composing a grid page', async () => {
+  const tile = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#ff0000' } }).png().toBuffer()
+  const page = await renderContactPage([{ bytes: tile, label: 'F<1> & \'a\' "b"' }],
+    { columns: 1, rows: 1, tileWidth: 160, tileHeight: 160, labelHeight: 20 }, 1_000_000, { format: 'jpeg', quality: 80 })
+  expect(await sharp(page).metadata()).toMatchObject({ format: 'jpeg', width: 160, height: 180 })
 })

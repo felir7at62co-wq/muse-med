@@ -6248,6 +6248,8 @@ export interface Config {
   offloadObservedFrames: boolean
   /** When `observe` leaves frames pending in a completely scanned review, return the next batch's images in the same result. */
   reviewObserveNextBatch: boolean
+  /** JPEG quality, from 1 to 100, of complete-review grid pages when `frameFormat` is `jpeg`; ignored for PNG. */
+  reviewContactJpegQuality: number
   /** Thumbnail rate for cumulative appearance changes. */
   reviewAnalysisFps: number
   /** Normalized RGB difference against the last retained thumbnail. */
@@ -6313,19 +6315,19 @@ export interface Config {
   maxTranscriptBytes: number
   /** Largest original ASR text preview per candidate utterance, in Unicode grapheme clusters. */
   utterancePreviewCharacters: number
-  /** Default grid columns for overview pages. */
+  /** Default grid columns for overview pages; maximum columns of complete-review grid pages. */
   contactColumns: number
-  /** Default grid rows for overview pages. */
+  /** Default grid rows for overview pages; maximum rows of complete-review grid pages. */
   contactRows: number
-  /** Default overview cell width in pixels. */
+  /** Default overview cell width in pixels; cell width of complete-review grid pages. */
   contactTileWidth: number
   /** Maximum sampled frames in one overview call, across all pages. */
   maxContactFrames: number
   /** Maximum overview source interval in seconds. */
   maxContactRangeSeconds: number
-  /** Maximum pixel area of one overview page. */
+  /** Maximum pixel area of one overview or complete-review grid page. */
   maxContactPixels: number
-  /** Maximum complete overview-page bytes per call. */
+  /** Maximum complete overview-page or complete-review grid-page bytes per call. */
   maxContactBytes: number
   /** Local OCR engine; the RapidOCR deployment includes its Python runtime and pinned models. */
   ocrEngine: 'windows-native' | 'rapidocr'

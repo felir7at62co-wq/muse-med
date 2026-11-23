@@ -71,6 +71,75 @@ export function contactTimecode(seconds: number): string {
     + `${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}.${String(ms % 1000).padStart(3, '0')}`
 }
 
+/** One grid cell: an encoded source frame and the caption drawn below it. */
+export interface ContactTile {
+  /** Encoded frame bytes in a format sharp decodes. */
+  bytes: Uint8Array
+  /** Caption text identifying the frame. */
+  label: string
+}
+
+/** Pixel geometry of one grid page; cells run left to right, then top to bottom. */
+export interface ContactLayout {
+  columns: number
+  rows: number
+  tileWidth: number
+  /** Height of each cell's image area, excluding its caption strip. */
+  tileHeight: number
+  /** Height of the caption strip below each cell. */
+  labelHeight: number
+}
+
+/**
+ * Size a cell that preserves the source aspect ratio, with a caption strip scaled to the cell width.
+ * @param tileWidth - Cell width in pixels.
+ * @param width - Source image width.
+ * @param height - Source image height.
+ * @returns Cell image height and caption strip height.
+ */
+export function contactCellSize(tileWidth: number, width: number, height: number): Pick<ContactLayout, 'tileHeight' | 'labelHeight'> {
+  return { tileHeight: Math.max(1, Math.round(tileWidth * height / width)), labelHeight: Math.max(20, Math.round(tileWidth / 12)) }
+}
+
+/**
+ * Check one page against the deployment's grid area and the image store's dimension and area limits.
+ * @param layout - Page geometry.
+ * @param maxContactPixels - Largest configured page area.
+ * @param limits - Image-store dimension and area limits.
+ * @returns Whether the page can be rendered and stored.
+ */
+export function contactPageFits(layout: ContactLayout, maxContactPixels: number,
+  limits: { maxImageDimension: number; maxImagePixels: number }): boolean {
+  const width = layout.columns * layout.tileWidth, height = layout.rows * (layout.tileHeight + layout.labelHeight)
+  return width * height <= maxContactPixels && width <= limits.maxImageDimension
+    && height <= limits.maxImageDimension && width * height <= limits.maxImagePixels
+}
+
+/**
+ * Compose one grid page. Each tile is fitted into its cell without cropping and captioned in the strip below it.
+ * @param tiles - At most `columns × rows` tiles in reading order.
+ * @param layout - Page geometry.
+ * @param maxSourcePixels - Largest decoded tile area accepted.
+ * @param encoding - Page encoding; JPEG quality runs from 1 to 100.
+ * @returns Encoded page bytes.
+ */
+export async function renderContactPage(tiles: readonly ContactTile[], layout: ContactLayout, maxSourcePixels: number,
+  encoding: { format: 'png' } | { format: 'jpeg'; quality: number }): Promise<Buffer> {
+  const { columns, tileWidth, tileHeight, labelHeight } = layout
+  const overlays: OverlayOptions[] = []
+  for (const [cell, tile] of tiles.entries()) {
+    const left = (cell % columns) * tileWidth, top = Math.floor(cell / columns) * (tileHeight + labelHeight)
+    const thumbnail = await sharp(tile.bytes, { limitInputPixels: maxSourcePixels }).resize(tileWidth, tileHeight, { fit: 'contain', background: '#181818' }).png().toBuffer()
+    overlays.push({ input: thumbnail, left, top })
+    const text = tile.label.replace(/[&<>"']/gu, character => `&#${character.charCodeAt(0)};`)
+    const label = `<svg width="${tileWidth}" height="${labelHeight}"><rect width="100%" height="100%" fill="#181818"/><text x="8" y="${Math.round(labelHeight * .74)}" fill="white" font-family="sans-serif" font-size="${Math.round(labelHeight * .6)}">${text}</text></svg>`
+    overlays.push({ input: Buffer.from(label), left, top: top + tileHeight })
+  }
+  const page = sharp({ create: { width: columns * tileWidth, height: layout.rows * (tileHeight + labelHeight), channels: 3, background: '#181818' } })
+    .composite(overlays)
+  return (encoding.format === 'png' ? page.png() : page.jpeg({ quality: encoding.quality })).toBuffer()
+}
+
 /**
  * Render overview images and the timecodes needed to request detailed source frames.
  * @param value - Source facts and saved chronological pages.
@@ -161,11 +230,8 @@ export function applyContactSheets(ctx: Context, config: Config, runtime: Contac
       let timestamps = planSamples({ duration: metadata.duration_seconds, start, end, count,
         ...explicit === undefined ? {} : { timestamps: explicit } }, {
         maxRangeSeconds: config.maxContactRangeSeconds, maxFrames: config.maxContactFrames })
-      const height = Math.max(1, Math.round(tileWidth * metadata.height / metadata.width))
-      const labelHeight = Math.max(20, Math.round(tileWidth / 12))
-      const width = columns * tileWidth, pageHeight = rows * (height + labelHeight)
-      if (width * pageHeight > config.maxContactPixels || width > ctx.attachments.imageLimits.maxImageDimension
-        || pageHeight > ctx.attachments.imageLimits.maxImageDimension || width * pageHeight > ctx.attachments.imageLimits.maxImagePixels) {
+      const layout: ContactLayout = { columns, rows, tileWidth, ...contactCellSize(tileWidth, metadata.width, metadata.height) }
+      if (!contactPageFits(layout, config.maxContactPixels, ctx.attachments.imageLimits)) {
         throw Error('Grid dimensions exceed image limits; reduce rows, columns or tile_width')
       }
       const ffmpeg = await ctx.subprocess.resolveExecutable(config.ffmpegPath, undefined, signal)
@@ -185,7 +251,7 @@ export function applyContactSheets(ctx: Context, config: Config, runtime: Contac
       const pages: ContactPage[] = []
       let totalBytes = 0
       for (let offset = 0; offset < timestamps.length; offset += columns * rows) {
-        const overlays: OverlayOptions[] = [], frames: ContactPage['frames'] = []
+        const tiles: ContactTile[] = [], frames: ContactPage['frames'] = []
         for (const [cell, seek] of timestamps.slice(offset, offset + columns * rows).entries()) {
           signal.throwIfAborted()
           const decoded = await runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info', '-protocol_whitelist', 'file,pipe',
@@ -196,14 +262,10 @@ export function applyContactSheets(ctx: Context, config: Config, runtime: Contac
           if (!Number.isFinite(timestamp) || timestamp < start || timestamp >= end || !decoded.bytes.length) throw Error('Frame extraction did not return a verifiable timestamp inside the selected interval')
           const image = await ctx.attachments.saveImage({ data: decoded.bytes, mediaType: 'image/png', name: `video-detail-${timestamp}.png` })
           frames.push({ index: offset + cell + 1, cell: cell + 1, requested_seconds: seek, timestamp_seconds: timestamp, image })
-          const left = (cell % columns) * tileWidth, top = Math.floor(cell / columns) * (height + labelHeight)
-          const thumbnail = await sharp(decoded.bytes, { limitInputPixels: config.maxSourcePixels }).resize(tileWidth, height, { fit: 'contain', background: '#181818' }).png().toBuffer()
-          overlays.push({ input: thumbnail, left, top })
-          const label = `<svg width="${tileWidth}" height="${labelHeight}"><rect width="100%" height="100%" fill="#181818"/><text x="8" y="${Math.round(labelHeight * .74)}" fill="white" font-family="sans-serif" font-size="${Math.round(labelHeight * .6)}">#${offset + cell + 1} ${contactTimecode(timestamp)}</text></svg>`
-          overlays.push({ input: Buffer.from(label), left, top: top + height })
+          tiles.push({ bytes: decoded.bytes, label: `#${offset + cell + 1} ${contactTimecode(timestamp)}` })
         }
         signal.throwIfAborted()
-        const bytes = await sharp({ create: { width, height: pageHeight, channels: 3, background: '#181818' } }).composite(overlays).png().toBuffer()
+        const bytes = await renderContactPage(tiles, layout, config.maxSourcePixels, { format: 'png' })
         totalBytes += bytes.length
         if (totalBytes > config.maxContactBytes) throw Error('Complete contact-sheet output exceeds maxContactBytes; reduce frame count or tile_width')
         const image = await ctx.attachments.saveImage({ data: bytes, mediaType: 'image/png', name: `video-contact-page-${pages.length + 1}.png` })

@@ -7,6 +7,21 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
 
 const FRAME_LABEL = /^VIDEO_FRAME (\S+) /u
+const GRID_LABEL = /^VIDEO_FRAME_GRID (\S+)\/(\S+) /u
+
+/**
+ * Read the `review_id/frame_id` labels a marker text assigns to the images after it: one for a single frame, one per tile
+ * for a grid page.
+ * @param text - One text block of a tool result or user message.
+ * @returns Labels in tile order, or undefined when the text is not a frame marker.
+ */
+export function frameLabels(text: string): string[] | undefined {
+  const grid = GRID_LABEL.exec(text)
+  if (grid !== null) return (grid[2] as string).split(',').map(id => `${grid[1]}/${id}`)
+  const frame = FRAME_LABEL.exec(text)?.[1]
+  return frame === undefined ? undefined : [frame]
+}
+
 const occurrenceSchema = z.object({ seq: z.number().int().nonnegative(), index: z.number().int().nonnegative(),
   /** Present when the image came in a Host-injected user message rather than a tool result. */
   host: z.literal(true).optional() })
@@ -23,11 +38,11 @@ export type FrameImageReader = (session: Session) => FrameImageOccurrences
 
 function labelledImages(content: readonly ContentBlock[]): { label: string; index: number }[] {
   const images: { label: string; index: number }[] = []
-  let label: string | undefined, index = 0
+  let labels: readonly string[] = [], index = 0
   for (const block of content) {
-    if (block.type === 'text') label = FRAME_LABEL.exec(block.text)?.[1] ?? label
+    if (block.type === 'text') labels = frameLabels(block.text) ?? labels
     if (block.type !== 'image') continue
-    if (label !== undefined && block.offloaded !== true) images.push({ label, index })
+    if (block.offloaded !== true) for (const label of labels) images.push({ label, index })
     index += 1
   }
   return images
@@ -80,22 +95,36 @@ export async function installFrameImageState(ctx: Context): Promise<FrameImageRe
 
 /**
  * Log one `image/offload` decision for every selected retained frame image; later requests send `notice` after each
- * image identity instead.
+ * image identity instead. A grid page is one image shared by its tile labels and is selected only when every label selects it.
  * @param session - Session whose later requests omit the images.
  * @param read - Reader of retained frame-image occurrences.
  * @param select - Whether one retained occurrence of a `review_id/frame_id` label, among all retained occurrences of that
- *   label in log order, is omitted.
+ *   label in log order, is omitted; `tiles` lists every label sharing that image, in label order.
  * @param notice - Model-visible reason logged with the decision.
  * @returns Number of selected image occurrences; zero appends nothing.
  */
 export function offloadFrameImages(session: Session, read: FrameImageReader,
-  select: (label: string, occurrence: FrameImageOccurrence, occurrences: readonly FrameImageOccurrence[]) => boolean,
+  select: (label: string, occurrence: FrameImageOccurrence, occurrences: readonly FrameImageOccurrence[],
+    tiles: readonly string[]) => boolean,
   notice: string): number {
-  const bySeq = new Map<number, number[]>()
-  for (const [label, occurrences] of Object.entries(read(session))) {
+  const current = Object.entries(read(session))
+  const tiles = new Map<string, string[]>()
+  for (const [label, occurrences] of current) {
+    for (const { seq, index } of occurrences) tiles.set(`${seq}:${index}`, [...tiles.get(`${seq}:${index}`) ?? [], label])
+  }
+  const decisions = new Map<string, { occurrence: FrameImageOccurrence; selected: boolean }>()
+  for (const [label, occurrences] of current) {
     for (const occurrence of occurrences) {
-      if (select(label, occurrence, occurrences)) bySeq.set(occurrence.seq, [...bySeq.get(occurrence.seq) ?? [], occurrence.index])
+      const key = `${occurrence.seq}:${occurrence.index}`
+      const selected = select(label, occurrence, occurrences, tiles.get(key) as string[])
+      const decision = decisions.get(key)
+      if (decision === undefined) decisions.set(key, { occurrence, selected })
+      else decision.selected &&= selected
     }
+  }
+  const bySeq = new Map<number, number[]>()
+  for (const { occurrence, selected } of decisions.values()) {
+    if (selected) bySeq.set(occurrence.seq, [...bySeq.get(occurrence.seq) ?? [], occurrence.index])
   }
   if (bySeq.size === 0) return 0
   const targets = [...bySeq].map(([seq, indexes]) => ({ seq: SessionSeq(seq), imageIndexes: indexes.toSorted((a, b) => a - b) }))

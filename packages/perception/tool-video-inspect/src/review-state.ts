@@ -16,7 +16,8 @@ import { AttachmentId, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachme
 import { reviewEventSchema, type ReviewEvent } from './review-events.ts'
 import type { ReviewTranscriptReference } from './review-speech.ts'
 
-const imageSchema = z.object({ attachmentId: z.string(), mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+/** Stored image reference of a review frame or grid page. */
+export const reviewImageSchema = z.object({ attachmentId: z.string(), mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
   bytes: z.number(), width: z.number(), height: z.number(), name: z.string().optional() })
 const followUpSchema = z.object({ status: z.enum(['active', 'closed']), reason: z.string().optional() })
 /** A model's comparison of a depicted character to a project reference on one viewed frame. */
@@ -29,10 +30,14 @@ export const characterChecksSchema = z.array(z.object({
   'A character match or mismatch requires the compared reference asset ID'))
   .min(1).refine(checks => new Set(checks.map(check => check.character)).size === checks.length,
     'Each character may be checked only once per observation')
-/** Persisted frame, encoded image reference and optional grounded observation. */
+/**
+ * Persisted frame, encoded image reference and optional grounded observation. `grid` names the latest grid page that
+ * tiled this frame; delivering that page shows the frame just as delivering `image` does.
+ */
 export const reviewFrameSchema = z.object({ id: z.string(), time: z.number(), reasons: z.array(z.string()),
   decode: z.object({ start_seconds: z.number().nonnegative(), frame_index: z.number().int().nonnegative() }).optional(),
-  image: imageSchema.optional(), decoded_time: z.number().optional(), exposed: z.boolean().default(false),
+  image: reviewImageSchema.optional(), grid: reviewImageSchema.optional(), decoded_time: z.number().optional(),
+  exposed: z.boolean().default(false),
   observation: z.object({ visible: z.string().min(8), change: z.string().min(2), uncertainty: z.string(),
     character_checks: characterChecksSchema.optional() }).optional() })
 const reviewSchema = z.object({ id: z.string().transform(VideoReviewId), episode: z.string(), path: z.string(), source_version: z.string(),
@@ -113,13 +118,13 @@ export function reviewsOf(readReviews: VideoReviewReader, session: Session): Vid
   return readReviews(session)
 }
 
-/** Serialize the complete observation artifact without mutable follow-up intent.
+/** Serialize the complete observation artifact without mutable follow-up intent or grid delivery references.
  * @param review - Current Host-owned source revision and observation state.
  * @returns Exact UTF-8 JSON text used by the saved observation report.
  */
 export function reviewEvidenceJson(review: VideoReview): string {
   const { follow_up: _followUp, ...evidence } = review
-  return JSON.stringify(evidence, null, 2) + '\n'
+  return JSON.stringify({ ...evidence, frames: evidence.frames.map(({ grid: _grid, ...frame }) => frame) }, null, 2) + '\n'
 }
 
 /**
@@ -150,8 +155,16 @@ export function saveReview(readReviews: VideoReviewReader, session: Session, rev
  * @returns Image attachment, or undefined before extraction.
  */
 export function reviewImage(frame: ReviewFrame): ImageAttachmentRef | undefined {
-  if (frame.image === undefined) return undefined
-  const { name, ...image } = frame.image
+  return frame.image === undefined ? undefined : reviewAttachment(frame.image)
+}
+
+/**
+ * Restore the attachment brand of a stored frame or grid image.
+ * @param stored - Persisted or serialized image reference.
+ * @returns The same reference as an image attachment.
+ */
+export function reviewAttachment(stored: z.infer<typeof reviewImageSchema>): ImageAttachmentRef {
+  const { name, ...image } = stored
   return { ...image, attachmentId: AttachmentId(image.attachmentId), ...name === undefined ? {} : { name } }
 }
 

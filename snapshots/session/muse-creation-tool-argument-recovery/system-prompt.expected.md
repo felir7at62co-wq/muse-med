@@ -1669,8 +1669,10 @@ interface ToolArgsMap {
     timeline_start_seconds?: number;
     /** timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。 */
     timeline_end_seconds?: number;
-    /** revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。 */
+    /** revisit需要重看的已记录或网格中的frame_id，数量不超过当前批上限；返回缓存原图及已有观察，不重新抽帧、不重置记录。 */
     frame_ids?: string[];
+    /** scan、next或observe返回一批画面时，true将本批拼成网格图：每格是一帧，标注帧号和时间，计为已查看；单帧原图可用revisit。 */
+    contact_sheet?: boolean;
     /** scan可选的补看来源秒数，最多256项且0≤t<真实视频时长；合入常规扫描，保留同版本已有帧ID，新帧仍须next实际看图并observe，不能凭时间补记完成。 */
     timestamps_seconds?: number[];
     /** compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。 */
