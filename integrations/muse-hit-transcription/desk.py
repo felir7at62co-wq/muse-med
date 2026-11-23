@@ -45,6 +45,20 @@ def usage_delta(now, then):
     return {field: (now or {}).get(field, 0) - (then or {}).get(field, 0) for field in USAGE_FIELDS}
 
 
+def context_tokens(lines):
+    """The working context size of the session's latest model request, or 0 when none is logged."""
+    for line in reversed(lines):
+        if '"workingContextTokens"' not in line:
+            continue
+        try:
+            value = (json.loads(line).get("data") or {}).get("workingContextTokens")
+        except ValueError:
+            continue
+        if isinstance(value, int):
+            return value
+    return 0
+
+
 def compactions(lines):
     """Times (epoch ms) of the finished context compactions in a session log."""
     found = []
@@ -402,11 +416,19 @@ class Desk:
             if done == total or not session or session in running:
                 watch["idle"] = 0
             else:
+                lines = self.muse.log_lines(session)
                 kind, detail = self.muse.last_turn(session)
                 watch["idle"] = watch["idle"] + 1 if kind in INTERRUPTED else 0
                 wait = min(self.cfg.get("watchSeconds", 300) * 2 ** watch["nudges"], self.cfg.get("resumeBackoffMaxSeconds", 1800))
                 if watch["idle"] >= 2 and now - watch["lastNudge"] >= wait:
                     try:
+                        tokens = context_tokens(lines)
+                        if tokens >= self.cfg.get("partTokenLimit", 300_000):
+                            # A context this large is what the model route rejects; go on in a fresh part,
+                            # which carries DS Bot's handoff note, rather than resending it.
+                            self.muse.bot("bot-new-part", {"botId": desk["botId"]})
+                            watch["freshParts"] = watch.get("freshParts", 0) + 1
+                            self.log(event="bot-fresh-part", series=key, bot=desk.get("bot"), contextTokens=tokens)
                         self.muse.bot("send", {"sessionId": desk["botId"], "text": RESUME_BOT})
                         watch.update(idle=0, nudges=watch["nudges"] + 1, lastNudge=now, lastTurn=kind, detail=(detail or "")[:160])
                         self.log(event="bot-nudged", series=key, bot=desk.get("bot"), lastTurn=kind, detail=(detail or "")[:120])

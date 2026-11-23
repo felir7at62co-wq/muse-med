@@ -17,7 +17,7 @@ class FakeBots:
     messages are recorded."""
 
     def __init__(self):
-        self.updates, self.sent, self.running, self.turns, self.attached = [], [], set(), {}, []
+        self.updates, self.sent, self.running, self.turns, self.attached, self.fresh = [], [], set(), {}, [], []
         self.chats = {"bot-1": "chat-1", "bot-2": "chat-2"}
         self.month = {"input": 1000, "cacheRead": 0, "cacheWrite": 0, "output": 100, "calls": 1}
         self.logs = {}
@@ -27,6 +27,9 @@ class FakeBots:
             return {"bots": [{"id": "bot-1", "name": "转写1", "sessionId": self.chats["bot-1"], "model": "m/flash",
                               "capabilities": ["transcription-desk", "drama-transcribing"]},
                              {"id": "bot-2", "name": "转写2", "sessionId": self.chats["bot-2"], "model": "m/flash"}]}
+        if endpoint == "bot-new-part":
+            self.fresh.append(payload["botId"])
+            return True
         if endpoint == "bot-capability":
             self.attached.append((payload["botId"], payload["name"], payload["attached"]))
             return []
@@ -204,6 +207,24 @@ class WatchTest(DeskCase):
         row = self.desk.status({"work_id": KEY})
         self.assertEqual((row["done"], row["nudges"]), (1, 1))
         self.assertIsNotNone(row["firstDone"])
+
+
+class FreshPartTest(DeskCase):
+    def test_a_bot_stopped_with_an_oversized_context_goes_on_in_a_fresh_part(self):
+        self.cfg.update(watchSeconds=0, partTokenLimit=300_000)
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        self.ready(KEY)
+        self.bots.turns["chat-1"] = ("error", "INVALID_REQUEST Upstream rejected the model request.")
+        self.bots.logs["chat-1"] = [json.dumps({"type": "request/context", "data": {"workingContextTokens": 435_730}})]
+        self.desk.watch_once()
+        self.desk.watch_once()
+        self.assertEqual(self.bots.fresh, ["bot-1"])
+        self.assertEqual(len(self.bots.sent), 1)
+        self.bots.turns["chat-1"] = ("aborted", "disposed")
+        self.bots.logs["chat-1"] = [json.dumps({"type": "request/context", "data": {"workingContextTokens": 80_000}})]
+        self.desk.watch_once()
+        self.desk.watch_once()
+        self.assertEqual(self.bots.fresh, ["bot-1"], "a small context is resumed in place")
 
 
 class MeasureTest(DeskCase):
