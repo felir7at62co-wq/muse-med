@@ -57,7 +57,7 @@ export async function apply(ctx) {
     assert.ok(shotReview, 'shot review tool retained')
     assert.ok(shotReview.description.includes('问题均作 warning'), 'shot review remains advisory')
     assert.ok(shotReview.description.includes('不硬拦截、不要求清零'), 'shot review does not block creative choices')
-    for (const name of ['jingliu_workflows', 'jingliu_run', 'jingliu_narration']) {
+    for (const name of ['jingliu_workflows', 'jingliu_run', 'jingliu_narration', 'muse_billing']) {
       assert.ok(options.tools.some(tool => tool.name === name), name + ' available through Muse')
     }
     assert.ok(!options.tools.some(tool => tool.name.startsWith('jubian_')), 'retired tool names are absent')

@@ -13,6 +13,8 @@ description: "在 Muse 会话中查找并调用镜流影视制作工作流。"
 
 请求使用当前账号的[镜流连接](../jingliu-connection/README.zh.md)。
 
+`muse_billing` 查询当前用户的镜流积分余额，可同时读取最近十条积分流水。流水金额带正负号，记录预扣和结算调整等余额变动。
+
 ## 目录
 
 - [运行工作流](#running-a-workflow)

@@ -70,6 +70,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'source_recover',
   'muse_feedback_submit',
   'muse_feedback_status',
+  'muse_billing',
   'muse_media_data',
   'muse_media_download',
   'muse_media_task',

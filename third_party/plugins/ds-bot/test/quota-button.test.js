@@ -11,7 +11,7 @@ import { createSource } from '../src/client/sources.js'
 // listeners, so a test drives the read loop and the popover by hand.
 const { outputFiles } = await build({
   stdin: {
-    contents: "export { QuotaButton, installQuota, QUOTA_INJECT, QUOTA_REFRESH_MS, QUOTA_HIDDEN_REFRESH_MS } from './src/client/quota.js'",
+    contents: "export { QuotaButton, installQuota, QUOTA_INJECT, QUOTA_REFRESH_MS, QUOTA_HIDDEN_REFRESH_MS } from './src/client/quota.js'; export { BalancePage } from './src/client/balance-page.js'",
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
@@ -86,7 +86,7 @@ runInNewContext(outputFiles[0].text, {
   clearTimeout: id => timers.delete(id),
   require: name => (name === 'react' ? react : name === 'react-dom' ? { createPortal: node => node } : {}),
 })
-const { QuotaButton, installQuota, QUOTA_INJECT, QUOTA_REFRESH_MS, QUOTA_HIDDEN_REFRESH_MS } = module.exports
+const { BalancePage, QuotaButton, installQuota, QUOTA_INJECT, QUOTA_REFRESH_MS, QUOTA_HIDDEN_REFRESH_MS } = module.exports
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 const walk = (node, match, out = []) => {
@@ -116,7 +116,7 @@ const runLinger = () => { for (const timer of [...timers.values()]) if (timer.ms
 
 // A client whose Jingliu namespace mounts on `mount()`: each `balance` call answers with the next
 // entry of `answers` (a result, or a function of the signal returning one), the last one repeating.
-function client(answers = [ok({ unlimited: false, available: '88.50', usedFen: 1150, heldFen: 300 })], actions = {}) {
+function client(answers = [ok({ unlimited: false, available: '88.50', usedFen: 1150, heldFen: 300 })], actions = {}, billingDetails) {
   slots.length = 0
   timers.clear()
   win.map.clear()
@@ -133,6 +133,7 @@ function client(answers = [ok({ unlimited: false, available: '88.50', usedFen: 1
   const scope = {
     remote: {
       jingliuConnection: {
+        billingDetails,
         balance: (signal) => {
           signals.push(signal)
           const answer = answers[Math.min(signals.length, answers.length) - 1]
@@ -265,7 +266,7 @@ test('a positive balance is the main figure, with used and held below', async ()
 
 test('a used-up balance marks the button and says generation has stopped', async () => {
   for (const [available, figure] of [['0.00', '¥0.00'], ['-1.5', '-¥1.50']]) {
-    const side = client([ok({ unlimited: false, available, usedFen: 50000, heldFen: 0 })])
+    const side = client([ok({ unlimited: false, available, usedFen: 50000, heldFen: 0, enforced: true })])
     await side.mount()
     const [button] = byClass(side.render(), 'bt-account bt-quota')
     assert.equal(button.props['data-state'], 'exhausted')
@@ -278,17 +279,72 @@ test('a used-up balance marks the button and says generation has stopped', async
   }
 })
 
-test('the usage button closes the popover and opens Settings at Usage', async () => {
+test('zero credit does not report generation stopped while charging is off', async () => {
+  const side = client([ok({ unlimited: false, available: '0.00', usedFen: 50000, heldFen: 0, enforced: false })])
+  await side.mount()
+  assert.equal(byClass(side.render(), 'bt-account bt-quota')[0].props['data-state'], 'known')
+  assert.equal(byClass(side.open(), 'bt-quota-stop').length, 0)
+})
+
+test('the balance button closes the popover and opens Settings at Balance and costs', async () => {
   const opened = []
   const side = client(undefined, { openSettings: (...args) => opened.push(args) })
   await side.mount()
-  const [usage] = byClass(side.open(), 'bt-quota-usage')
-  assert.equal(textOf(usage), 'Usage')
-  usage.props.onClick()
-  assert.deepEqual(opened, [['usage']])
+  const [balance] = byClass(side.open(), 'bt-quota-balance')
+  assert.equal(textOf(balance), 'Balance and costs')
+  balance.props.onClick()
+  assert.deepEqual(opened, [['balance']])
   assert.equal(byClass(side.render(), 'bt-account bt-quota')[0].props['aria-expanded'], false)
   runLinger()
   assert.equal(byClass(side.render(), MENU).length, 0)
+})
+
+test('the account page distinguishes an empty ledger from adjustments and drops stale replies after a login change', async () => {
+  let resolveOld
+  const slow = new Promise(resolve => { resolveOld = resolve })
+  const balance = { unlimited: false, available: '88.50', usedFen: 1150, heldFen: 300, enforced: false }
+  const entry = { time: '2026-11-22T00:00:00Z', kind: 'settle', amountFen: 55 }
+  const responses = [
+    Promise.resolve(ok({ balance, ledger: [entry] })),
+    slow,
+    Promise.resolve(ok({ balance: { ...balance, available: '24.00' }, ledger: [] })),
+  ]
+  const signals = []
+  const side = client(undefined, {}, (signal) => { signals.push(signal); return responses.shift() })
+  await side.mount()
+  assert.equal(signals.length, 0)
+  const expand = (node) => {
+    if (Array.isArray(node)) return node.map(expand)
+    if (!node?.props) return node
+    if (typeof node.type === 'function') return expand(node.type(node.props))
+    return { ...node, props: { ...node.props, children: expand(node.props.children) } }
+  }
+  const Section = ({ title, action, children }) => react.createElement('section', null, title, action, children)
+  const Row = ({ label, children }) => react.createElement('div', null, label, children)
+  const render = () => {
+    cursor = 0
+    const tree = expand(BalancePage({ useUi: select => select(side.ui.getSnapshot()), actions: side.actions, Section, Row }))
+    for (const run of passiveEffects.splice(0)) run()
+    return tree
+  }
+  render()
+  await tick()
+  const ready = render()
+  assert.match(textOf(ready), /¥88\.50.*Jingliu charging is off.*Settlement adjustment.*\+¥0\.55/)
+  walk(ready, node => node.type === 'button' && textOf(node) === 'Refresh')[0].props.onClick()
+  render()
+  await tick()
+  side.remoteEvents.get('muse-account/session-changed')()
+  const loading = textOf(render())
+  assert.match(loading, /Loading Jingliu account/)
+  assert.doesNotMatch(loading, /¥88\.50/)
+  assert.equal(signals[1].aborted, true)
+  resolveOld(ok({ balance, ledger: [entry] }))
+  await tick()
+  const finished = textOf(render())
+  assert.match(finished, /¥24\.00.*No ledger entries yet/)
+  assert.doesNotMatch(finished, /¥88\.50|Settlement adjustment/)
+  side.dispose()
 })
 
 test('opening the popover moves focus into it, and Escape closes it and gives focus back', async () => {

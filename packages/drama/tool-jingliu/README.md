@@ -13,6 +13,8 @@ Use `jingliu_projects` to search and confirm a production for this conversation.
 
 Requests use the signed-in [Jingliu connection](../jingliu-connection/README.md).
 
+`muse_billing` reads the current user's Jingliu balance and can include their ten latest ledger entries. The entries report signed changes in credit, including holds and settlement adjustments.
+
 ## Table of Contents
 
 - [Running a workflow](#running-a-workflow)

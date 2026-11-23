@@ -2,7 +2,7 @@ import { Component, createElement as h, useCallback, useEffect, useRef, useState
 import { ACCENT_INKS, INKS } from './inks.js'
 import { isMainOf } from './sources.js'
 import { MESSAGE_WIDTH, allThemes, effectsOf, flatWidthOf, layoutOf, thinkingShown, widthOf } from './themes.js'
-import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlusIcon, SlidersIcon, SparkIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
+import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, CoinIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlusIcon, SlidersIcon, SparkIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -30,6 +30,7 @@ import { ModelMenu } from './model-menu.js'
 import { isLocalRoute } from './agent-routes.js'
 import { t } from './i18n.js'
 import { AccountPage, MUSE_ACCOUNT_SECTION } from './account-page.js'
+import { BalancePage } from './balance-page.js'
 
 const capitalize = word => word[0].toUpperCase() + word.slice(1)
 
@@ -41,7 +42,7 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 // Muse: no Phone page. Pairing needs the upstream project's own phone app.
 // Muse: Account first, then the pages a member uses (in the design's order), then the
 // team's own pages after a rule, then DSH's sections, then Feedback and About.
-const SETTINGS_PAGES = [['account', 'Account'], ['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['connectors', 'Connectors'], ['im', 'IM'], ['computer', 'Computer use'], ['secrets', 'Secrets'], ['usage', 'Usage'], ['bots', 'Bots'], ['bot-models', 'Bot models'], ['groups', 'Group chats'], ['capabilities', 'Skills/MCP'], ['browser', 'Browser'], ['schedules', 'Scheduled tasks'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
+const SETTINGS_PAGES = [['account', 'Account'], ['balance', 'Balance and costs'], ['general', 'General'], ['models', 'Models'], ['local-agents', 'Local agents'], ['connectors', 'Connectors'], ['im', 'IM'], ['computer', 'Computer use'], ['secrets', 'Secrets'], ['usage', 'Usage'], ['bots', 'Bots'], ['bot-models', 'Bot models'], ['groups', 'Group chats'], ['capabilities', 'Skills/MCP'], ['browser', 'Browser'], ['schedules', 'Scheduled tasks'], ['feedback', 'Feedback'], ['about', 'About DS Bot']]
 const LAST_PAGES = new Set(['feedback', 'about'])
 const TEAM_PAGES = new Set(['bots', 'bot-models', 'groups', 'capabilities', 'browser', 'schedules'])
 // DSH sections DS Bot's own pages already hold; Account holds the Muse account section.
@@ -54,7 +55,7 @@ const DSH_ICONS = { account: IconUserOutlineMedium, 'agent-presets': IconAgentPr
 export const dshPages = dsh => (dsh?.sections ?? []).filter(row => row.id !== '' && !MERGED_SECTIONS.has(row.id))
 const hasSection = (dsh, id) => (dsh?.sections ?? []).some(row => row.id === id)
 const dshItem = (dsh, id) => h('div', { key: id, className: 'bt-dsh-item', 'data-item': id }, dsh.renderSlot('settings.general.item', {}, { only: id }))
-const PAGE_ICONS = { ...SETTINGS_ICONS, account: IconUserOutlineMedium, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: SparkIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
+const PAGE_ICONS = { ...SETTINGS_ICONS, account: IconUserOutlineMedium, balance: CoinIcon, models: SlidersIcon, 'bot-models': IconPersonalizationOutlineMedium, 'local-agents': TerminalIcon, connectors: ConnectorIcon, im: ChatsIcon, phone: PhoneIcon, capabilities: SparkIcon, browser: GlobeIcon, computer: MonitorIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon }
 
 // What each MEMORY.md holds by default, in characters of entry text.
 const MEMORY_SIZES = [
@@ -78,8 +79,8 @@ function SetSection({ title, action = null, className = '', children }) {
     action ? h('div', { className: 'bt-la-sec-head' }, h('h3', null, title), action) : title ? h('h3', null, title) : null,
     h('div', { className: 'bt-set-card' }, children))
 }
-function SetRow({ label, hint, children, className = '' }) {
-  return h('div', { className: `bt-set-row ${className}`.trim() },
+function SetRow({ label, hint, children, className = '', role }) {
+  return h('div', { className: `bt-set-row ${className}`.trim(), role },
     h('div', { className: 'bt-set-copy' }, h('span', null, label), hint ? h('span', { className: 'bt-set-hint' }, hint) : null),
     children ? h('div', { className: 'bt-set-control' }, children) : null)
 }
@@ -306,7 +307,7 @@ class PageBoundary extends Component {
 }
 
 // While `leaving`, the dialog plays its exit and takes no input.
-export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false, dsh }) {
+export function SettingsDialog({ page, id, roster, actions, useUi, useUpdate, leaving = false, dsh }) {
   const [error, setError] = useState('')
   const close = useCallback(() => actions.closeSettings(), [])
   useEscape(close)
@@ -316,14 +317,15 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   // A Bot or group deleted while its form is open leaves its page on the list.
   const bot = page === 'bots' && id ? roster.byId[id] : undefined
   const room = page === 'groups' && id ? roster.roomsById[id] : undefined
-  const pages = SETTINGS_PAGES.filter(([key]) => (key !== 'models' || actions.providers !== undefined) && (key !== 'account' || hasSection(dsh, MUSE_ACCOUNT_SECTION)))
+  const hasAccountPage = hasSection(dsh, MUSE_ACCOUNT_SECTION)
+  const pages = SETTINGS_PAGES.filter(([key]) => (key !== 'models' || actions.providers !== undefined) && (key !== 'account' || hasAccountPage))
   const mergedIm = hasSection(dsh, IM_ROBOT_SECTION) && (roster.im?.connections ?? []).some(conn => conn.dshImBotId)
   const extra = dshPages(dsh).filter(row => !mergedIm || row.id !== IM_ROBOT_SECTION)
   // A DSH page is `dsh` with its section id; one no longer registered falls back to General.
   const section = page === 'dsh' ? extra.find(row => row.id === id) : undefined
   // DSH's Models page, one level into Models.
   const advanced = page === 'models' && id === 'advanced' && hasSection(dsh, 'models')
-  const shown = section ? 'dsh' : pages.some(([key]) => key === page) ? page : pages[0][0]
+  const shown = section ? 'dsh' : pages.some(([key]) => key === page) ? page : hasAccountPage ? 'account' : 'general'
   const usageFocus = shown === 'usage' && id ? id : null
   const label = section ? section.label : advanced ? t('Advanced settings') : t(pages.find(([key]) => key === shown)[1])
   const back = bot ? t('Back to Bots') : room ? t('Back to group chats') : usageFocus ? t('All usage') : advanced ? t('Back to models') : null
@@ -372,6 +374,7 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           errorLine,
           h(PageBoundary, null,
           shown === 'account' ? h(AccountPage, { roster, actions, run, dsh, Section: SetSection, Row: SetRow }) : null,
+          shown === 'balance' ? h(BalancePage, { useUi, actions, Section: SetSection, Row: SetRow }) : null,
           shown === 'computer' ? h(ComputerPage, { roster, actions, run, Section: SetSection, Row: SetRow, Switch }) : null,
           shown === 'general' ? h(GeneralPage, { roster, actions, run, dsh }) : null,
           shown === 'models' && !advanced ? h(ProvidersPage, { actions, run, roster, Section: SetSection, advanced: hasSection(dsh, 'models') ? () => actions.openSettings('models', 'advanced') : null }) : null,

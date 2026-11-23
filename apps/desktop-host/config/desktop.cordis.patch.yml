@@ -300,7 +300,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [jingliu_projects, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect, hongguo_download]
+        alwaysLoad: [jingliu_projects, muse_billing, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect, hongguo_download]
         excludeFromSearch: [ask_user_question, show_view, visualize]
         maxResults: 8
         maxDescriptionChars: 320
