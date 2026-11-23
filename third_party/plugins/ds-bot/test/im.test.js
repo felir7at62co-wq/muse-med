@@ -707,6 +707,7 @@ const CONTEXT_AFTER_IM = [
   { kind: 'tool-goal', form: 'notice', summary: 'complete: ship it' },
   { kind: 'jingliu-project', form: 'notice', summary: '已关联镜流制片项目' },
   { kind: 'jubian-generation-watch', form: 'notice', summary: '剧变视频生成结果已核对' },
+  { kind: 'subagent-settled', form: 'notice', summary: 'sub1 completed', senderSessionId: 'sub1', stopReason: 'completed' },
   { kind: 'skill-invocation', form: 'instructions', name: 'short-drama' },
   { kind: 'agent-instructions', form: 'instructions', changes: [] },
   { kind: 'output-continuation' },
@@ -714,12 +715,21 @@ const CONTEXT_AFTER_IM = [
   { kind: 'working-directory' },
   { kind: 'screenplay-project-read' },
   { kind: 'jubian-video-selection' },
+  { kind: 'cordis-host-runner' },
 ]
-// Speakers: a peer Bot's relay, another agent's relay, and an approval answered elsewhere.
+// Speakers: a peer Bot's relay, another agent's relay, an approval policy change, and the
+// resume note of a part switch standing in for a sub-run's reply without an IM origin.
 const SPEAKERS_JOINING = [
   { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Writer', senderSessionId: 'b' },
   { kind: 'agent-message', form: 'relay', senderSessionId: 'b' },
   { kind: 'user-approval' },
+  { kind: 'bot', role: 'reply', work: 'w1', replyTo: 'run1', exchangeId: 'run1', senderSessionId: 'sub1' },
+]
+// Notices that can wake a turn by themselves, after the turn the chat asked for ended.
+const NOTICES_WAKING = [
+  { kind: 'subagent-settled', form: 'notice', summary: 'sub1 completed', senderSessionId: 'sub1', stopReason: 'completed' },
+  { kind: 'tool-jobs', form: 'notice', summary: 'job 1 done' },
+  { kind: 'jubian-generation-watch', form: 'notice', summary: '剧变视频生成结果已核对' },
 ]
 const context = source => ({ source, content: [{ type: 'text', text: `context from ${source.kind}` }] })
 
@@ -917,6 +927,57 @@ test('reply origin: a peer Bot, another agent or an approval joining the turn st
     await s.flush()
     assert.equal(s.fake.sent.length, 0, `${source.kind} makes a mixed turn`)
     s.emitEvent('a', 'turn/end', {})
+  }
+})
+
+test('reply origin: a notice that wakes a Bot turn of its own gives that turn no chat', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  for (const source of NOTICES_WAKING) {
+    await dm(s, 'u1', 'hi')
+    s.imTurn('a')
+    s.emitEvent('a', 'turn/end', {})
+    s.fake.sent.length = 0
+    s.emitEvent('a', 'turn/start', { turn: s.prompts.length + 1 })
+    s.emitEvent('a', 'user/message', context(source))
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: `woken by ${source.kind}` }] } })
+    await s.flush()
+    assert.equal(s.fake.sent.length, 0, `a turn ${source.kind} woke stays in Muse`)
+    s.emitEvent('a', 'turn/end', {})
+  }
+})
+
+test('reply origin: a notice that wakes the group after its relay turn ends the chat\'s claim; a memory snapshot does not', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const { one } = await pairedConn(s)
+  one.chats.g1 = { kind: 'group', title: 'G', target: { roomId: 'r1' }, at: 1 }
+  await s.rt.save()
+  const room = s.rt.roomOf('r1')
+  const lateResult = { kind: 'bot', form: 'relay', role: 'post', exchangeId: 'e2', senderName: 'Writer', senderSessionId: 'b', roomId: 'r1' }
+  await gm(s, 'u1', 'hello group')
+  s.imTurn('r1')
+  s.emitEvent('r1', 'turn/end', {})
+  s.fake.sent.length = 0
+  s.emitEvent('r1', 'turn/start', { turn: 2 })
+  s.emitEvent('r1', 'user/message', context(CONTEXT_BEFORE_IM.find(source => source.kind === 'ds-bot-group-memory')))
+  s.emitEvent('r1', 'user/message', { source: lateResult, content: [{ type: 'text', text: '[Group post from Writer]\nlast result' }] })
+  s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: 'last result' })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['g1', '**Writer**: last result']])
+  s.emitEvent('r1', 'turn/end', {})
+  for (const source of NOTICES_WAKING) {
+    await gm(s, 'u1', `again for ${source.kind}`)
+    s.imTurn('r1')
+    s.emitEvent('r1', 'turn/end', {})
+    s.fake.sent.length = 0
+    s.emitEvent('r1', 'turn/start', { turn: s.prompts.length + 1 })
+    s.emitEvent('r1', 'user/message', context(source))
+    s.rt.logRoom(room, { who: 'Writer', botId: 'b', text: `after ${source.kind}` })
+    await s.flush()
+    assert.equal(s.fake.sent.length, 0, `a group turn ${source.kind} woke stays in Muse`)
+    s.emitEvent('r1', 'turn/end', {})
   }
 })
 
