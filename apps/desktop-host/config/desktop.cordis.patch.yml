@@ -8,11 +8,11 @@
     personaPrefix: ''
     includeHarnessIdentity: false
 
-# Unattended whole-series goals resume after a model outage, or after replies discarded by
-# prompt-usage-guard, that outlasts provider retries.
+# Unattended whole-series goals resume after a model outage that outlasts provider retries.
+# Prompt-usage validation failures stop after the model's bounded recovery.
 - id: goal-round-driver
   config:
-    transientErrorResume: { maxAttempts: 3, delayMs: 120000, codes: [SERVER, TIMEOUT, TRANSPORT, STREAM_CLOSED, PROMPT_USAGE_SHORTFALL] }
+    transientErrorResume: { maxAttempts: 3, delayMs: 120000, codes: [SERVER, TIMEOUT, TRANSPORT, STREAM_CLOSED] }
 
 # New tasks use one unified creative Agent; legacy preset ids remain recoverable.
 - id: agent-preset-registry
@@ -267,18 +267,18 @@
           - { providerId: yunying, modelId: gemini-3.1-pro }
           - { providerId: yunying, modelId: gpt-6.1-sol }
         requestTimeoutMs: 60000
-        # Gateway outages of a few minutes and replies discarded by prompt-usage-guard are retried
-        # inside the same step; the list restates the defaults because it replaces them.
+        # Keep the outage budget. A reply discarded by prompt-usage-guard gets one recovery
+        # before a consecutive shortfall ends the step.
         modelRetryPolicy:
           mode: normal
           maxRetries: 8
           retryableCodes: [EMPTY_RESPONSE, INVALID_TOOL_ARGUMENTS, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, PROMPT_USAGE_SHORTFALL]
+          consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 }
           backoff: { initialDelayMs: 2000, maxDelayMs: 60000 }
         remoteAccess: true
 
-    # The Yunying gemini-3.1-pro relay intermittently answers from an upstream lane that drops tool
-    # definitions and tool history. Discard such a tool-less reply before it is committed; the
-    # muse-account model retry policy above resends the same request.
+    # Discard tool-less replies with unexplained prompt usage on the affected Yunying route
+    # before committing them. The model retry policy above permits a single consecutive retry.
     - id: prompt-usage-guard
       name: '@deepseek-ai/dsh-prompt-usage'
       config:

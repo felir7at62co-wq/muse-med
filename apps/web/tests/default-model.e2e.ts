@@ -640,6 +640,26 @@ describe('web e2e: the composer model switch is the default for later sessions',
     await trigger.focus()
     expect(await trigger.evaluate(element => element.matches(':focus-visible'))).toBe(true)
     expect(await trigger.evaluate(element => getComputedStyle(element).boxShadow)).not.toBe('none')
+
+    const activeId = await page.locator('[data-conversation-session]:visible', { has: trigger })
+      .getAttribute('data-conversation-session')
+    if (activeId === null) throw new Error('The composer has no active Session')
+    const activeSession = scaffold.ctx.sessions.get(SessionId(activeId))
+    if (activeSession === undefined) throw new Error('The active picker Session has no Host log')
+    activeSession.append('request/header', {
+      header: { config: { provider: START_ROUTE, model: START_MODEL } },
+      reason: 'initial',
+    })
+    const hint = '最近一次请求使用 Origin Large，下一次新请求将使用 Acme Large'
+    await expect.poll(() => trigger.getAttribute('title')).toBe(hint)
+    await trigger.click()
+    await page.getByText(hint, { exact: true }).waitFor({ state: 'visible' })
+    activeSession.append('request/header', {
+      header: { config: { provider: ROUTE, model: MODEL } },
+      reason: 'change',
+    })
+    await page.getByText(hint, { exact: true }).waitFor({ state: 'detached' })
+    await page.keyboard.press('Escape')
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

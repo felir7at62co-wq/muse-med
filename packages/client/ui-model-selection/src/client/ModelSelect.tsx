@@ -383,6 +383,17 @@ export function ModelSelect(
     : currentChoice?.model.name
       ?? t('trigger.fallback')
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
+  const recent = state.recentRequest
+  const recentChoice = recent === null ? undefined : choices.find(choice =>
+    choice.provider.id === recent.provider && choice.model.id === recent.model)
+  const recentLabel = recentChoice?.model.name ?? recent?.model
+  const sameName = recentLabel === modelLabel
+  const switchHint = recent === null || recentLabel === undefined || currentChoice === undefined
+    ? undefined
+    : t('status.modelSwitch', {
+      previous: sameName ? `${recentLabel} · ${recentChoice?.provider.name ?? recent.provider}` : recentLabel,
+      next: sameName ? `${modelLabel} · ${currentChoice.provider.name}` : modelLabel,
+    })
   const triggerAria = waiting
     ? t('trigger.loading')
     : currentChoice === undefined
@@ -435,7 +446,7 @@ export function ModelSelect(
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
-        title={triggerLabel}
+        title={switchHint ?? triggerLabel}
         aria-busy={busy}
         data-selection-focus={selectionFocus ? '' : undefined}
         onBlur={() => { setSelectionFocus(false) }}
@@ -472,6 +483,7 @@ export function ModelSelect(
           aria-label={t('menu.aria')}
           aria-busy={state.status === 'loading' || busy}
         >
+          {switchHint !== undefined && <div className={css.status} role="status">{switchHint}</div>}
           {state.routable === false && state.current !== null && (
             <div className={css.warning} role="status">{t('warning.savedModelUnavailable')}</div>
           )}

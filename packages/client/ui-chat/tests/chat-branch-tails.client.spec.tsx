@@ -13,7 +13,7 @@ import {
   formatMessageClock, msUntilNextLocalMidnight, startOfLocalDay,
 } from '../src/client/chat/message-chrome.ts'
 import {
-  CompactionNodeView, ContextMessageNodeView, RetryNodeView, UnknownNodeView,
+  CompactionNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView, UnknownNodeView,
   UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
@@ -96,6 +96,8 @@ function MessageItem({ node, t: translate, referenceLabels, skillNames }: Messag
       return <CompactionNodeView {...props as ChatNodeViewProps<'compaction'>} />
     case 'model-retry':
       return <RetryNodeView {...props as ChatNodeViewProps<'model-retry'>} />
+    case 'turn-error':
+      return <TurnErrorNodeView {...props as ChatNodeViewProps<'turn-error'>} />
     case 'unknown':
       return <UnknownNodeView {...props as ChatNodeViewProps<'unknown'>} />
     default:
@@ -1027,6 +1029,33 @@ describe('MessageItem arms', () => {
       />,
     )
     expect(view.getByRole('status').textContent).toBe('模型请求重试已取消（1/2） · 4s')
+  })
+
+  it('distinguishes a queued shortfall retry from a sent retry and retains the terminal reason', () => {
+    const queued = {
+      kind: 'model-retry', retryId: RETRY_ID, seq: 5, time: 10_000, retryState: 'scheduled',
+      turn: 1, step: 1, provider: 'muse-cloud-yunying', mode: 'normal', policyKey: 'muse-normal',
+      retry: 1, maxRetries: 8, delayMs: 2_000,
+      failure: { code: 'PROMPT_USAGE_SHORTFALL', message: 'Reported input 40, expected at least 600.' },
+    } satisfies Extract<ConversationNode, { kind: 'model-retry' }>
+    const view = render(<MessageItem t={t} node={queued} />)
+    expect(view.getByRole('status').textContent).toBe('模型输入用量异常，重试已排队 · 已发起 0 次')
+    expect(view.getByText('失败原因：').parentElement?.textContent)
+      .toContain('模型中继报告的输入用量低于预期，已丢弃本次回复。Reported input 40')
+
+    view.rerender(<MessageItem t={t} node={{ ...queued, retryState: 'cancelled' }} />)
+    expect(view.getByRole('status').textContent).toBe('模型请求重试已取消 · 已发起 0 次')
+    expect(view.container.querySelector('details')?.dataset.active).toBeUndefined()
+
+    view.rerender(<>
+      <MessageItem t={t} node={{ ...queued, retryState: 'started' }} />
+      <MessageItem t={t} node={{ kind: 'turn-error', seq: 8, time: 12_000, turn: 1, step: 1,
+        code: 'PROMPT_USAGE_SHORTFALL', message: 'Reported input 71, expected at least 600.' }} />
+    </>)
+    const [retry, failure] = view.getAllByRole('status')
+    expect(retry?.textContent).toBe('已重试模型请求 · 已发起 1 次')
+    expect(failure?.textContent).toContain('已丢弃本次回复。Reported input 71')
+    expect(failure?.textContent).toContain('PROMPT_USAGE_SHORTFALL')
   })
 
 })

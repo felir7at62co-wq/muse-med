@@ -10417,7 +10417,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RequestErrorAction',
-    declaration: 'export type RequestErrorAction = {\n    kind: \'retry\';\n} | {\n    kind: \'switch\';\n    selection: ModelSelection;\n} | undefined;',
+    declaration: 'export type RequestErrorAction = {\n    kind: \'retry\';\n    onDispatch?: () => void;\n} | {\n    kind: \'switch\';\n    selection: ModelSelection;\n} | undefined;',
   },
   {
     name: 'RequestHeaderReason',
@@ -10449,7 +10449,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResolvedNormalRetryPolicy',
-    declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n}',
+    declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n    readonly consecutiveRetryLimits?: Readonly<Record<string, number>>;\n}',
   },
   {
     name: 'ResolvedRetryBackoff',

@@ -102,7 +102,8 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
           ? {}
           : { reasoningEffort: ReasoningEffortId(payload.reasoningEffort) },
       }
-      projections.get(payload.sessionId)?.set({ lastUsed: null, next: selected })
+      const projection = projections.get(payload.sessionId)
+      projection?.set({ lastUsed: projection.getSnapshot()?.lastUsed ?? null, next: selected })
       return Promise.resolve({ ok: true as const, value: { selected } })
     },
   }
@@ -457,6 +458,27 @@ describe('ui-model-selection dual entry', () => {
     } finally {
       await b.ctx.fiber.dispose()
     }
+  })
+
+  it('shows a different last requested model until a request uses the saved selection', async () => {
+    const b = await bench()
+    const { projection } = b.mint('s1')
+    const face = b.seat().inject!(sid('s1'))
+    const previous = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+    const selected = { provider: 'deepseek-official', model: 'deepseek-v4-pro' }
+    face.load()
+    await vi.waitFor(() => { expect(face.directory.getSnapshot().status).toBe('ready') })
+
+    await face.select(previous)
+    expect(face.directory.getSnapshot().recentRequest).toBeNull()
+    projection.set({ lastUsed: previous, next: previous })
+    await face.select(selected)
+    expect(face.directory.getSnapshot()).toMatchObject({ current: selected, recentRequest: previous, pending: null })
+
+    await face.select({ ...selected, reasoningEffort: 'high' })
+    expect(face.directory.getSnapshot().recentRequest).toEqual(previous)
+    projection.set({ lastUsed: selected, next: { ...selected, reasoningEffort: ReasoningEffortId('high') } })
+    expect(face.directory.getSnapshot().recentRequest).toBeNull()
   })
 
   it('retains the selected model while refreshing its catalog', async () => {
