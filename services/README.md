@@ -22,3 +22,5 @@ The [workbench login adapters](muse-workbenches/README.md) sign Script workshop 
 [`jingliu`](jingliu/README.md) holds the backend of Jingliu, Muse's production engine: the cloud release's backend without the login overlay, plus the changes its README lists as not yet deployed.
 
 [`workshop`](workshop/README.md) holds the source of Script Workshop, the cloud script studio where Muse stores finalized scripts: its FastAPI backend and its Next.js frontend.
+
+[`data-station`](data-station/README.md) holds the source of the data station at `/data/`: the work-data site with platform rankings, Douyin search and downloads, and the 储备看板 that feeds daily hit transcription.

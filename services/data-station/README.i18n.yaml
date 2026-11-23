@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write services/data-station/README.md
+/data-station:
+  en: 3f6ba9dd8eb3f203
+  zh: d087ed2c2a8586ba
+/data-station/how-it-runs-in-the-cloud:
+  en: 3f8a1f81b2ea0418
+  zh: d49418c531533410
+/data-station/source:
+  en: 56f35e58e00d0980
+  zh: a422714a33dc1eab
+/data-station/layout:
+  en: 45e6ac8b0c0eee54
+  zh: dba3f99206f75941
+/data-station/build-and-test:
+  en: d27ab85730ea8f48
+  zh: ec274a6eaae53f58
+/data-station/deploy:
+  en: db623bb8150e0ecf
+  zh: cd0d2d38bddfe41d
+/data-station/repository-settings:
+  en: da83febec6c41e17
+  zh: a1c3e3fff4730e9e
+/data-station/not-in-this-repository:
+  en: 6f580034c984f39b
+  zh: f271868644263898

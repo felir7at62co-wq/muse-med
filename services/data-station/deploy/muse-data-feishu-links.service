@@ -1,0 +1,7 @@
+[Unit]
+Description=Export Muse account to Feishu links for the data station (no password data)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 -I /srv/muse-data-web/runtime/export-muse-feishu-links.py

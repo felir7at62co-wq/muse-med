@@ -1,0 +1,25 @@
+{
+  "host": "collector-mac",
+  "station": {
+    "baseUrl": "https://muse.aigc-pipeline.cn/data/api/service/lvpaopao",
+    "tokenFile": "~/Library/Application Support/muse-lvpaopao-collector/station-token"
+  },
+  "wechat": {
+    "app": "~/Library/Application Support/muse-lvpaopao-collector/wechat/WeChat-Muse-Test.app"
+  },
+  "helper": {
+    "python": "~/Library/Application Support/muse-lvpaopao-collector/venv/bin/python3",
+    "resources": "~/Library/Application Support/muse-lvpaopao-collector/native",
+    "runtimeHome": "~/Library/Application Support/muse-lvpaopao-collector/helper-runtime",
+    "ffmpeg": "/opt/homebrew/bin/ffmpeg",
+    "ffprobe": "/opt/homebrew/bin/ffprobe"
+  },
+  "rankings": { "times": ["09:00", "12:00", "15:00", "19:00", "22:00"], "pages": 5, "pageSize": 20 },
+  "engagement": {
+    "times": ["10:00"],
+    "topPerBoard": 10,
+    "dailyCallBudget": 1500,
+    "watchlist": []
+  },
+  "alert": { "chatId": null, "userId": null, "unreachableHours": 6 }
+}

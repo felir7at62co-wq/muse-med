@@ -1,0 +1,43 @@
+{
+  "name": "muse-data-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "tsx src/server/main.ts",
+    "build": "tsc --noEmit && vite build && esbuild src/server/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist-server/main.js",
+    "start": "node dist-server/main.js",
+    "test": "vitest run",
+    "test:browser": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@crawlee/basic": "3.18.2",
+    "@electric-sql/pglite": "^0.3.14",
+    "@hono/node-server": "^1.19.1",
+    "@volcengine/tos-sdk": "2.9.1",
+    "acorn": "8.15.0",
+    "fflate": "0.8.2",
+    "hono": "^4.10.6",
+    "lucide-react": "^0.468.0",
+    "parse5": "8.0.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.1.1",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2",
+    "vitest": "^3.2.4"
+  }
+}

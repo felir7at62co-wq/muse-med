@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "proxySecret": "__GENERATE_64_RANDOM_HEX_IN_PRIVATE_FILE__",
+  "users": [
+    { "username": "owner", "id": "data-user-001", "name": "管理员", "role": "admin" },
+    { "username": "staff1", "id": "data-user-002", "name": "成员", "role": "member" }
+  ]
+}
