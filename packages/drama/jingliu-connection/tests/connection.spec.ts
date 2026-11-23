@@ -246,6 +246,85 @@ it('reads routes and media of the studio mounted on the Muse gateway with the Mu
   await expect(scope.request('/projects')).rejects.toMatchObject({ code: 'JINGLIU_ACCOUNT_CHANGED' })
 })
 
+const accountBalance = { unlimited: false, available_yuan: '12.50', used_fen: 250, held_fen: 125, enforced: false }
+const time = '2026-11-20T12:00:00+00:00'
+const hold = { ts: time, entry: 'hold', amount_fen: -125, note: 'Internal note' }
+
+it('reads the signed-in user’s Jingliu balance and projects their newest ledger entries', async () => {
+  const { origin, requests, bodies } = await fixture((req) => {
+    switch (req.url) {
+      case '/jingliu/fwp/v2/auth/me': return [200, { user: { id: 45 } }]
+      case '/jingliu/fwp/v2/budget/me': return [200, accountBalance]
+      case '/jingliu/fwp/v2/budget/users/45': return [200, { user_id: 45, ledger: [
+        hold, { ts: time, entry: 'settle', amount_fen: 25 }, { ts: time, entry: 'private marker', amount_fen: 0 },
+        ...Array.from({ length: 50 }, () => hold),
+      ] }]
+      default: return [404, {}]
+    }
+  })
+  const { ctx, mounted } = await mount({ studioOrigin: origin + '/jingliu' })
+  const details = await ctx.jingliuConnection.billingDetails(new AbortController().signal)
+  expect(details.balance).toEqual({ unlimited: false, available: '12.50', usedFen: 250, heldFen: 125, enforced: false })
+  expect(details.ledger?.slice(0, 3)).toEqual([
+    { time, kind: 'hold', amountFen: -125 }, { time, kind: 'settle', amountFen: 25 }, { time, kind: 'other', amountFen: 0 },
+  ])
+  expect(details.ledger).toHaveLength(50)
+  expect(requests.map(req => [req.method, req.url])).toEqual([
+    ['GET', '/jingliu/fwp/v2/auth/me'],
+    ['GET', '/jingliu/fwp/v2/auth/me'],
+    ['GET', '/jingliu/fwp/v2/budget/me'],
+    ['GET', '/jingliu/fwp/v2/budget/users/45'],
+  ])
+  expect(bodies).toEqual(['', '', '', ''])
+  expect(mounted.mock.calls.map(([, owner]) => owner)).toEqual(Array(4).fill('muse-login-a'))
+})
+
+it('keeps a balance with a missing ledger and rejects an unverified or invalid detail response', async () => {
+  let budget: Reply = [404, {}]
+  const { origin } = await fixture((req) => {
+    switch (req.url) {
+      case '/jingliu/fwp/v2/auth/me': return [200, { user: { id: 45 } }]
+      case '/jingliu/fwp/v2/budget/me': return [200, accountBalance]
+      case '/jingliu/fwp/v2/budget/users/45': return budget
+      default: return [404, {}]
+    }
+  })
+  const { ctx } = await mount({ studioOrigin: origin + '/jingliu' })
+  const signal = new AbortController().signal
+  await expect(ctx.jingliuConnection.billingDetails(signal)).resolves.toMatchObject({ ledger: null })
+  budget = [200, { user_id: 45, ledger: [] }]
+  await expect(ctx.jingliuConnection.billingDetails(signal)).resolves.toMatchObject({ ledger: [] })
+  budget = [200, { user_id: 46, ledger: [] }]
+  await expect(ctx.jingliuConnection.billingDetails(signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_RESULT' })
+  budget = [200, { user_id: 45, ledger: [{ ...hold, amount_fen: 0.5 }] }]
+  await expect(ctx.jingliuConnection.billingDetails(signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_RESULT' })
+  budget = [403, {}]
+  await expect(ctx.jingliuConnection.billingDetails(signal)).rejects.toMatchObject({ status: 403 })
+})
+
+it('discards a Jingliu ledger when the Muse login changes during the read', async () => {
+  const started = Promise.withResolvers<undefined>()
+  const finish = Promise.withResolvers<undefined>()
+  const { origin } = await fixture(async (req) => {
+    switch (req.url) {
+      case '/jingliu/fwp/v2/auth/me': return [200, { user: { id: 45 } }]
+      case '/jingliu/fwp/v2/budget/me': return [200, accountBalance]
+      case '/jingliu/fwp/v2/budget/users/45': {
+        started.resolve(undefined)
+        await finish.promise
+        return [200, { user_id: 45, ledger: [hold] }]
+      }
+      default: return [404, {}]
+    }
+  })
+  const { ctx, account } = await mount({ studioOrigin: origin + '/jingliu' })
+  const result = ctx.jingliuConnection.billingDetails(new AbortController().signal)
+  await started.promise
+  account.id = 'muse-login-b'
+  finish.resolve(undefined)
+  await expect(result).rejects.toMatchObject({ code: 'JINGLIU_ACCOUNT_CHANGED' })
+})
+
 it('keeps thumbnails in the account cache and plays videos from the conversation workspace only on a Host with local media', async () => {
   const home = await mkdtemp(join(tmpdir(), 'jingliu-home-'))
   const workspace = await mkdtemp(join(tmpdir(), 'jingliu-workspace-'))

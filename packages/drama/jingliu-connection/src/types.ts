@@ -80,6 +80,23 @@ export interface StudioBalance {
   enforced: boolean | null
 }
 
+/** A signed change to the balance in the studio's account ledger. */
+export interface StudioBillingEntry {
+  /** Timestamp reported by the studio. */
+  time: string
+  /** Studio entry type, or `other` for an unrecognized type. */
+  kind: 'adjust' | 'allot' | 'grant' | 'hold' | 'other' | 'reclaim' | 'refund' | 'revoke' | 'settle' | 'spend'
+  /** Balance movement in fen. A settlement entry records only the adjustment after the hold. */
+  amountFen: number
+}
+
+/** The signed-in account's credit and most recent ledger entries. */
+export interface StudioBillingDetails {
+  balance: StudioBalance
+  /** Newest first, or null when the studio has no ledger for the account. */
+  ledger: StudioBillingEntry[] | null
+}
+
 /** Project-specific model overrides and video resolution from the native studio. */
 export interface StudioOptions {
   projectId: string

@@ -1,6 +1,6 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CoinIcon, GaugeIcon } from './icons.js'
+import { CoinIcon } from './icons.js'
 import { useLinger, useViewport, viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
@@ -17,6 +17,9 @@ const WAKE_MS = 15_000
 // Failures that mean the Host does not serve the namespace: the button stays out.
 const ABSENT = new Set(['gateway/invocation-unavailable', 'gateway/definition-unavailable', 'gateway/service-unavailable', 'gateway/method-unavailable'])
 
+/** Whether this Host lacks the requested Jingliu service or method. */
+export const quotaUnavailable = result => ABSENT.has(result?.error?.code)
+
 const readable = value => value !== null && typeof value === 'object' && typeof value.unlimited === 'boolean'
   && Number.isFinite(value.usedFen) && Number.isFinite(value.heldFen)
   && (value.unlimited || (typeof value.available === 'string' && value.available.trim() !== '' && Number.isFinite(Number(value.available))))
@@ -27,7 +30,7 @@ export function quotaFrom(result) {
   if (result?.ok === true) return readable(result.value) ? { state: 'known', value: result.value } : { state: 'unknown' }
   const code = result?.error?.code
   if (code === 'gateway/cancelled') return null
-  return ABSENT.has(code) ? { state: 'absent' } : { state: 'unknown' }
+  return quotaUnavailable(result) ? { state: 'absent' } : { state: 'unknown' }
 }
 
 const sameQuota = (a, b) => a?.state === b?.state && JSON.stringify(a?.value) === JSON.stringify(b?.value)
@@ -44,11 +47,11 @@ export function installQuota(ctx, { ui, actions }) {
     let reading = null
     let started = 0
     let timer
-    // `next` is the new state, or a function of the current one.
-    const put = next => ui.set((state) => {
-      const quota = typeof next === 'function' ? next(state.quota) : next
-      return sameQuota(state.quota, quota) ? state : { ...state, quota }
-    })
+    const put = quota => ui.set(state => (sameQuota(state.quota, quota) ? state : { ...state, quota }))
+    // Each source belongs to one connection and login. The settings page drops results
+    // from a previous source before starting the next read.
+    const billingSource = () => signal => scope.remote.jingliuConnection.billingDetails(signal)
+    ui.set(state => ({ ...state, readBillingDetails: billingSource() }))
     const read = () => {
       if (!live) return
       clearTimeout(timer)
@@ -68,7 +71,11 @@ export function installQuota(ctx, { ui, actions }) {
     }
     // After a sign-in change or a reconnect the figure shown may be another account's.
     const reread = () => {
-      put(quota => (quota === undefined || quota.state === 'absent' ? quota : { state: 'loading' }))
+      ui.set(state => ({
+        ...state,
+        quota: state.quota === undefined || state.quota.state === 'absent' ? state.quota : { state: 'loading' },
+        readBillingDetails: billingSource(),
+      }))
       read()
     }
     // A read made while hidden scheduled the next one five minutes out; a skipped wake read
@@ -92,32 +99,33 @@ export function installQuota(ctx, { ui, actions }) {
       off()
       document.removeEventListener('visibilitychange', onShow)
       if (actions.refreshQuota === read) delete actions.refreshQuota
-      ui.set(state => (state.quota === undefined ? state : { ...state, quota: undefined }))
+      ui.set(state => ({ ...state, quota: undefined, readBillingDetails: undefined }))
     }, 'ds-bot: jingliu quota')
   })
 }
 
-const money = yuan => `${yuan < 0 ? '-' : ''}¥${Math.abs(yuan).toFixed(2)}`
+/** Format Jingliu credit in yuan. */
+export const quotaMoney = yuan => `${yuan < 0 ? '-' : ''}¥${Math.abs(yuan).toFixed(2)}`
 
 // What the button and its popover show for `ui.quota`, or null where the button stays out.
 // `state` is `loading`, `unknown`, `known`, `unlimited` or `exhausted` (nothing left, not unlimited).
 export function quotaView(quota) {
   if (!quota || quota.state === 'absent') return null
   if (quota.state !== 'known') return { state: quota.state }
-  const { unlimited, available, usedFen, heldFen } = quota.value
+  const { unlimited, available, usedFen, heldFen, enforced } = quota.value
   const left = Number(available)
   return {
-    state: unlimited ? 'unlimited' : left <= 0 ? 'exhausted' : 'known',
-    figure: unlimited ? t('Unlimited') : money(left),
-    used: money(usedFen / 100),
-    held: money(heldFen / 100),
+    state: unlimited ? 'unlimited' : left <= 0 && enforced === true ? 'exhausted' : 'known',
+    figure: unlimited ? t('Unlimited') : quotaMoney(left),
+    used: quotaMoney(usedFen / 100),
+    held: quotaMoney(heldFen / 100),
   }
 }
 
 const MENU_WIDTH = 224
 
 // The round quota button beside the user's capsule, and its popover above it: what is left as
-// the main figure, what was used and what is on hold, and the way to Settings → Usage.
+// the main figure, what was used and what is on hold, and the way to Settings → Balance and costs.
 export function QuotaButton({ actions, useUi }) {
   const quota = useUi(state => state.quota)
   const view = quotaView(quota)
@@ -173,8 +181,8 @@ export function QuotaButton({ actions, useUi }) {
         h('div', null, h('dt', null, t('On hold')), h('dd', null, view.held))),
       exhausted ? h('p', { className: 'bt-quota-stop', role: 'status' }, t('Quota used up. Generation has stopped; ask your team lead to grant more.')) : null,
       h('div', { className: 'bt-menu-sep', role: 'separator' }),
-      h('button', { type: 'button', className: 'bt-quota-usage', onClick: () => { setOpen(false); actions.openSettings('usage') } },
-        h(GaugeIcon), h('span', { className: 'bt-menu-label' }, t('Usage')))), document.body) : null)
+      h('button', { type: 'button', className: 'bt-quota-balance', onClick: () => { setOpen(false); actions.openSettings('balance') } },
+        h(CoinIcon), h('span', { className: 'bt-menu-label' }, t('Balance and costs')))), document.body) : null)
 }
 
 export const QUOTA_CSS = `

@@ -94,6 +94,7 @@ export async function apply(ctx) {
     return { code: grant, expiresIn: 60 }
   })
   const user = { id: 74111 }
+  const account = { unlimited: false, available_yuan: '12.50', used_fen: 250, held_fen: 100, enforced: false }
   const studio = await loopback(ctx, 'Jingliu reader project', (req, body) => {
     assert.equal(req.headers.cookie, undefined)
     const prefix = '/fwp/v2'
@@ -121,6 +122,16 @@ export async function apply(ctx) {
       calls.push('me')
       return { user }
     }
+    if (req.url === prefix + '/budget/me') {
+      assert.equal(req.method, 'GET')
+      calls.push('balance')
+      return account
+    }
+    if (req.url === prefix + '/budget/users/' + user.id) {
+      assert.equal(req.method, 'GET')
+      calls.push('ledger')
+      return { user_id: user.id, ledger: [{ ts: '2026-11-22T08:36:00+00:00', entry: 'spend', amount_fen: -250, note: 'Private invoice reference' }] }
+    }
     assert.equal(req.url, prefix + '/desktop-agent/tool')
     assert.equal(req.method, 'POST')
     assert.deepEqual(body.args, { project_id: project })
@@ -146,7 +157,7 @@ export async function apply(ctx) {
     const messages = JSON.stringify(options.messages)
     for (const secret of [cookie, grant, studioToken]) assert.ok(!messages.includes(secret), 'Private login data in model input')
     const names = options.tools.map(tool => tool.name)
-    for (const name of ['jingliu_projects', 'jingliu_workflows', 'jingliu_run', 'jingliu_narration', 'jingliu_studio', 'jingliu_image']) {
+    for (const name of ['jingliu_projects', 'jingliu_workflows', 'jingliu_run', 'jingliu_narration', 'jingliu_studio', 'jingliu_image', 'muse_billing']) {
       assert.ok(names.includes(name), `Missing Desktop tool ${name}`)
     }
     assert.deepEqual(names.filter(name => /^(?:jubian_|muse_production$)/u.test(name)), [],
@@ -167,7 +178,13 @@ export async function apply(ctx) {
   ctx.on('agent/turn-stopping', async () => {
     const reader = await ctx.get('jingliuConnection').connection()
     assert.deepEqual(await reader.request('/auth/me'), { user })
-    assert.deepEqual(calls, ['challenge', 'grant', 'exchange', 'tools', 'read', 'me'])
+    const billing = ctx.tools.get('muse_billing')
+    assert.ok(billing)
+    assert.deepEqual(await billing.execute({ include_ledger: true }, { signal: new AbortController().signal }), {
+      account: 'jingliu', available_yuan: '12.50', used_fen: 250, held_fen: 100, unlimited: false, enforced: false,
+      ledger: [{ time: '2026-11-22T08:36:00+00:00', kind: 'spend', amountFen: -250 }],
+    })
+    assert.deepEqual(calls, ['challenge', 'grant', 'exchange', 'tools', 'read', 'me', 'me', 'balance', 'ledger'])
     assert.ok(modelSawScript, 'The model receives the read result from the selected Jingliu project')
   })
 }

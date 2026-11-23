@@ -1,7 +1,7 @@
 /** Translate native Jingliu project, budget and library responses for Muse. */
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { isRecord } from './http.ts'
-import type { StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioEpisode, StudioLibrary, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioShot, StudioShotMedia } from './types.ts'
+import type { StudioAsset, StudioBalance, StudioBillingEntry, StudioCatalog, StudioConfig, StudioEpisode, StudioLibrary, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioShot, StudioShotMedia } from './types.ts'
 
 function invalid(): never {
   throw new HarnessError('镜流返回的数据格式已变更，请刷新后重试。', 'JINGLIU_INVALID_RESULT')
@@ -102,6 +102,33 @@ export function balance(value: unknown): StudioBalance {
   return { unlimited: value.unlimited, available: field(value.available_yuan),
     usedFen: count(value.used_fen), heldFen: count(value.held_fen),
     enforced: typeof value.enforced === 'boolean' ? value.enforced : null }
+}
+
+/** Read the account identifier from the studio's authenticated profile.
+ * @param value - Response from `/auth/me`.
+ * @returns The signed-in Jingliu user ID.
+ */
+export function billingUserId(value: unknown): number {
+  if (!isRecord(value) || !isRecord(value.user)) return invalid()
+  const userId = value.user.id
+  return typeof userId === 'number' && Number.isSafeInteger(userId) && userId > 0 ? userId : invalid()
+}
+
+const ledgerKinds = ['adjust', 'allot', 'grant', 'hold', 'reclaim', 'refund', 'revoke', 'settle', 'spend'] as const
+
+/** Read up to 50 recent balance movements for the verified account.
+ * @param value - Account detail from the studio.
+ * @param userId - User verified by the studio's self-profile endpoint.
+ * @returns Signed balance movements, newest first.
+ */
+export function billingLedger(value: unknown, userId: number): StudioBillingEntry[] {
+  if (!isRecord(value) || value.user_id !== userId || !Array.isArray(value.ledger)) return invalid()
+  return value.ledger.slice(0, 50).map((row: unknown) => {
+    if (!isRecord(row) || typeof row.ts !== 'string' || !Number.isFinite(Date.parse(row.ts)) ||
+      typeof row.entry !== 'string' || typeof row.amount_fen !== 'number' || !Number.isSafeInteger(row.amount_fen)) return invalid()
+    const kind = ledgerKinds.find(entry => entry === row.entry) ?? 'other'
+    return { time: row.ts, kind, amountFen: row.amount_fen }
+  })
 }
 
 /**

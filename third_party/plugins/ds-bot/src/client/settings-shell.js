@@ -283,7 +283,7 @@ export function SettingsShell(props) {
       }),
       wide ? h(DesktopUpdatePill, { view: update, hidden: indicator !== undefined && !installing, onOpen: openDesktopUpdate }) : null),
     kept ? createPortal(h(SettingsDialog, {
-      page: kept.page, id: kept.id, roster, actions, useUpdate, leaving,
+      page: kept.page, id: kept.id, roster, actions, useUi, useUpdate, leaving,
       dsh: { sections, items, renderSlot },
     }), document.body) : null,
     step !== undefined ? renderSlot('settings.onboarding', {

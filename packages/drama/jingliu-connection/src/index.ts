@@ -8,9 +8,9 @@ import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SelectedProject } from './types.ts'
 import { Context } from '@deepseek-ai/cordis'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { balance, catalog, createdProject, episodeList, episodeShots, library, options, preferences, projectAssets, projectConfig, projectPath, projects, shotMedia, workflowResult } from './browser.ts'
-import type { StudioBalance, StudioCatalog, StudioConfig, StudioEpisode, StudioImage, StudioLibrary, StudioLibraryQuery, StudioNewProject, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia, StudioVideoRequest } from './types.ts'
+import { principalOf, Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { balance, billingLedger, billingUserId, catalog, createdProject, episodeList, episodeShots, library, options, preferences, projectAssets, projectConfig, projectPath, projects, shotMedia, workflowResult } from './browser.ts'
+import type { StudioBalance, StudioBillingDetails, StudioCatalog, StudioConfig, StudioEpisode, StudioImage, StudioLibrary, StudioLibraryQuery, StudioNewProject, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia, StudioVideoRequest } from './types.ts'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-muse-account'
 import { WorkbenchSessions } from '@deepseek-ai/dsh-workbench-connection'
@@ -568,6 +568,28 @@ export class JingliuConnection extends TypertRemoteService {
   @Remote
   async balance(signal: AbortSignal): Promise<StudioBalance> {
     return balance(await (await this.connection()).request('/budget/me', { signal }))
+  }
+
+  /**
+   * Read the current account's credit and recent balance movements.
+   * @param signal - Caller cancellation.
+   * @returns The balance and up to 50 recent entries, or a null ledger when the account has none available.
+   */
+  @Remote
+  async billingDetails(signal: AbortSignal): Promise<StudioBillingDetails> {
+    if (principalOf(this.ctx.invocation) !== undefined) {
+      throw new HarnessError('只有当前 Muse 账号的所有者可以查看镜流费用明细。', 'JINGLIU_BILLING_OWNER_REQUIRED')
+    }
+    const session = await this.connection()
+    const userId = billingUserId(await session.request('/auth/me', { signal }))
+    const current = balance(await session.request('/budget/me', { signal }))
+    try {
+      const entries = await session.request('/budget/users/' + String(userId), { signal })
+      return { balance: current, ledger: billingLedger(entries, userId) }
+    } catch (error) {
+      if (error instanceof JingliuHttpError && error.status === 404) return { balance: current, ledger: null }
+      throw error
+    }
   }
 
   /**

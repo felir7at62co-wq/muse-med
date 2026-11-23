@@ -1623,6 +1623,19 @@
       }
     },
     {
+      "name": "muse_billing",
+      "description": "查询当前 Muse 登录用户的镜流积分余额、已用和占用额度，或查看近期积分流水。1 积分等于 1 元。流水显示有正负号的余额变动，结算调整只记录该次调整。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "include_ledger": {
+            "type": "boolean",
+            "description": "需要消费明细时传 true，返回最多 10 条近期流水；省略时只查余额。"
+          }
+        }
+      }
+    },
+    {
       "name": "present",
       "description": "Declare existing files as final deliverables for the user. Hosts may show presented files only after your turn ends, so call it once the files are final. If the user needs to review files earlier, such as before a tool call that waits for their answer, link them in your message instead. Use it when the user needs a separate file, especially Office documents, spreadsheets, and slide decks; prefer your final response when that suffices. The user opens the current files; their contents are not copied.",
       "parameters": {
