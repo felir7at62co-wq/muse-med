@@ -1,4 +1,7 @@
 """The A/B report: minutes and spend between first passes, coverage, and the summary over a range."""
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from desk_report import report
@@ -23,6 +26,23 @@ class ReportTest(unittest.TestCase):
         only = report(desk, {"m/flash": {"output": 4.8}}, 32, 33)
         self.assertEqual([r["episode"] for r in only["episodes"]], [32, 33])
         self.assertEqual(only["summary"]["qaShare"], 0.5)
+
+    def test_speakers_are_checked_against_the_character_table(self):
+        with TemporaryDirectory() as folder:
+            workspace = Path(folder)
+            (workspace / "outline").mkdir()
+            (workspace / "episodes").mkdir()
+            (workspace / "outline" / "人物表.json").write_text(json.dumps({"characters": [
+                {"name": "周晟安", "aliases": ["周总"], "variants": ["周生安"]}, {"name": "白清枚", "aliases": [], "variants": []}],
+                "supporting_descriptive_names": ["服务员"]}, ensure_ascii=False), encoding="utf-8")
+            (workspace / "episodes" / "第1集.md").write_text(
+                "第1集\n1-1 茶室 日 内\n人物：周晟安、白清枚\n周晟安：你好。\n白清枚（OS）：他就是周晟安？\n周生安：请坐。\n"
+                "服务员：您的茶。\n陌生人：借过。\n", encoding="utf-8")
+            desk = {"title": "盛夏芬德拉", "workspace": str(workspace), "doneAt": {"1": "2026-11-23 20:00:00"},
+                    "measures": {"1": {"qa": True}}}
+            result = report(desk, {})
+            self.assertEqual(result["episodes"][0]["characters"], {"speakers": 5, "unknown": ["陌生人"], "misspelled": ["周生安"]})
+            self.assertEqual((result["summary"]["unknownSpeakers"], result["summary"]["misspelledSpeakers"]), (1, 1))
 
 
 if __name__ == "__main__":
