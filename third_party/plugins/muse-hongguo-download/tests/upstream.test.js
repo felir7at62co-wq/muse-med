@@ -2,14 +2,45 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { cp, mkdtemp, rm, appendFile } from 'node:fs/promises';
+import { cp, mkdtemp, rm, appendFile, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 test('retained source and runtime match the reviewed pin and load without external packages', async () => {
   await import('../scripts/verify-upstream.mjs');
   const engine = createRequire(import.meta.url)('../upstream/engine.cjs');
   for (const name of ['fetchEpisodeList', 'fetchPlayUrlSingle', 'deriveKey']) assert.equal(typeof engine[name], 'function');
+});
+
+test('loads Electron net only in an Electron browser process', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hongguo-electron-'));
+  const engine = join(directory, 'engine.cjs');
+  try {
+    const source = await readFile(fileURLToPath(new URL('../upstream/engine.cjs', import.meta.url)), 'utf8');
+    await writeFile(engine, source + '\nmodule.exports.testCatalog = require_catalog;\n');
+    for (const [kind, expected] of [['node', 0], ['renderer', 0], ['browser', 1]]) {
+      const code = `
+      const Module = require('node:module');
+      const load = Module._load;
+      let electronCalls = 0;
+      Module._load = function (name, ...args) {
+        if (name === 'electron') { electronCalls++; return { net: {} }; }
+        return load.call(this, name, ...args);
+      };
+      if (process.env.CASE !== 'node') {
+        Object.defineProperty(process.versions, 'electron', { value: 'test' });
+        process.type = process.env.CASE;
+      }
+      require(process.argv[1]).testCatalog();
+      if (electronCalls !== Number(process.env.EXPECTED)) process.exit(1);
+      `;
+      const child = spawnSync(process.execPath, ['-e', code, engine], {
+        env: { ...process.env, CASE: kind, EXPECTED: String(expected) }, encoding: 'utf8',
+      });
+      assert.equal(child.status, 0, `${kind}: ${child.stderr}`);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 function box(type, ...parts) {

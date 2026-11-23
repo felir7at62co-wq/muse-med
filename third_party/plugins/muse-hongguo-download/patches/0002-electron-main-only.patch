@@ -1,0 +1,9 @@
+diff --git a/src/native/catalog.js b/src/native/catalog.js
+--- a/src/native/catalog.js
++++ b/src/native/catalog.js
+@@ -1,4 +1,4 @@
+ const axios = require('axios');
+ let net;
+-try { ({ net } = require('electron')); } catch (error) { if (error.code !== 'MODULE_NOT_FOUND') throw error; }
++if (process.versions.electron && process.type === 'browser') ({ net } = require('electron'));
+ const { webMediaRequestOptions } = require('./web-media-guard');

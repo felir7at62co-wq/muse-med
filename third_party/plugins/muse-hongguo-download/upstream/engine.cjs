@@ -17326,11 +17326,7 @@ var require_catalog = __commonJS({
   "src/native/catalog.js"(exports2, module2) {
     var axios2 = require_axios();
     var net;
-    try {
-      ({ net } = require("electron"));
-    } catch (error) {
-      if (error.code !== "MODULE_NOT_FOUND") throw error;
-    }
+    if (process.versions.electron && process.type === "browser") ({ net } = require("electron"));
     var { webMediaRequestOptions: webMediaRequestOptions2 } = require_web_media_guard();
     var SITE = "https://hongguoduanju.com";
     var CATEGORIES = /* @__PURE__ */ new Set(["real-drama", "comic-drama", "ai-drama", "comic"]);

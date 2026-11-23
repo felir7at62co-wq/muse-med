@@ -4,7 +4,7 @@
   "revision": "4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567",
   "version": "7.5.0",
   "license": "GPL-3.0",
-  "engineSha256": "13c93ea532c2e46d5329635a2fe9a16f5c576dd267b87d2cf4c7f1a5d2070cf2",
+  "engineSha256": "a78cf232d5613adf5551d9267488b51d4acb521a1abe6bfa8193518298c21b51",
   "originalRuntimeIncluded": false,
   "credentialFilesIncluded": false,
   "sourceArchive": "upstream/source.tar.gz",
@@ -13,6 +13,10 @@
     {
       "file": "patches/0001-bytevc2-cenc.patch",
       "sha256": "30ff86434a7ec54fe56edf71df1f43707f97beb9a0b9e0069bee34d08dd37bbc"
+    },
+    {
+      "file": "patches/0002-electron-main-only.patch",
+      "sha256": "31a89a720e764403af7e19d2d5f5d0fbf9af4321dcdb0e05704b1ecac4553b26"
     }
   ]
 }
