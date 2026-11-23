@@ -475,13 +475,12 @@ describe('jubian_catalog reads', () => {
     { args: { page_num: 2, page_size: 10 }, page: 2, size: 10 },
   ])('reports an empty episode page $page within the provider total', async ({ args, page, size }) => {
     const { client, calls } = stubClient(() => ({ total: 13, rows: [] }))
-    await expect(catalogMethod(client, { method: 'episodes', script_id: 2708, ...args })).rejects.toMatchObject({
-      code: 'CONTRACT_CHANGED',
-      message: expect.stringContaining(`第 ${page} 页为空（page_size=${size}，total=13）`),
-    })
+    const result = catalogMethod(client, { method: 'episodes', script_id: 2708, ...args })
+    await expect(result).rejects.toHaveProperty('code', 'CONTRACT_CHANGED')
+    await expect(result).rejects.toThrow(`第 ${page} 页为空（page_size=${size}，total=13）`)
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ method: 'GET',
-      path: expect.stringContaining(`/aigc/episode/list?scriptId=2708&pageNum=${page}&pageSize=${size}`) })
+    expect(calls[0]?.method).toBe('GET')
+    expect(calls[0]?.path).toBe(`https://web.jubianai.net/prod-api/aigc/episode/list?scriptId=2708&pageNum=${page}&pageSize=${size}`)
   })
 
   it.each([
