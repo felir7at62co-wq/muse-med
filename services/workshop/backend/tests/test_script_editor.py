@@ -1,13 +1,17 @@
 """Exercise the editor routes with Workshop auth and real database transactions."""
 
 import asyncio
+import base64
 from contextlib import asynccontextmanager
+import io
+import json
 import os
 import tempfile
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
+from docx import Document
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, func, select, text
@@ -137,6 +141,8 @@ class ScriptEditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(unauthorized.status_code, 401)
         blocked = await self.client.get(self.first_url, headers=_headers(2))
         self.assertEqual(blocked.status_code, 403)
+        role_mismatch = await self.client.get(self.first_url, headers=_headers(2, "admin"))
+        self.assertEqual(role_mismatch.status_code, 403)
         deleted = await self.client.get("/v1/script-editor/drafts/30", headers=_headers(1))
         self.assertEqual(deleted.status_code, 404)
         items = await self.get("/v1/script-editor/drafts?query=稿")
@@ -149,6 +155,205 @@ class ScriptEditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await self.get(self.draft_url))["canFinalize"])
         self.assertFalse((await self.get(self.draft_url, 3))["canFinalize"])
         self.assertEqual((await self.get(self.draft_url))["context"]["outline"]["synopsis"], "女主寻找账本")
+
+    async def test_ordinary_editor_creates_drafts_and_fills_preexisting_empty_episodes(self):
+        url = "/v1/script-editor/drafts"
+        body = {"title": "风雨里的账本", "episodeCount": 2, "requestId": str(uuid4())}
+        self.assertEqual((await self.client.post(url, json=body)).status_code, 401)
+        response = await self.client.post(url, headers=_headers(1), json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        draft = response.json()
+        self.assertEqual([row["episode"] for row in draft["episodes"]], [1, 2])
+        self.assertFalse(draft["canFinalize"])
+        empty_export = await self.client.get(f"{url}/{draft['id']}/export", headers=_headers(1))
+        self.assertEqual(empty_export.status_code, 404)
+        retry = await self.client.post(url, headers=_headers(1), json=body)
+        self.assertEqual(retry.json()["id"], draft["id"])
+        reused = await self.client.post(url, headers=_headers(1), json={**body, "title": "另一份草稿"})
+        self.assertEqual(reused.status_code, 409)
+        self.assertNotIn(draft["id"], [item["id"] for item in (await self.get(url, 2))["items"]])
+        refused_owner = await self.client.post(url, headers=_headers(1), json={"title": "错误归属", "userId": 2})
+        self.assertEqual(refused_owner.status_code, 422)
+        old = "/v1/script-editor/drafts/40/episodes/2"
+        for episode_url in (f"{url}/{draft['id']}/episodes/1", old):
+            empty = await self.get(episode_url)
+            self.assertEqual(empty["content"], "")
+            changed = await self.client.patch(episode_url, headers=_headers(1), json={
+                "baseRevision": empty["revision"], "content": "我在这里写正文。",
+            })
+            self.assertEqual(changed.status_code, 200, changed.text)
+            self.assertEqual((await self.get(episode_url))["version"], 2)
+        missing = await self.client.get(f"{url}/{draft['id']}/episodes/3", headers=_headers(1))
+        self.assertEqual(missing.status_code, 404)
+
+    async def test_import_preserves_structured_scenes_and_history_restores_both_layers(self):
+        url = "/v1/script-editor/drafts"
+        shot = {"scene_no": "1-1", "characters": ["小雨"], "extra": {"continuity": ["湿雨衣", True]},
+                "elements": [{"type": "dialogue", "character": "小雨", "content": "账本在这里。"}]}
+        response = await self.client.post(url, headers=_headers(1), json={
+            "title": "结构化导入",
+            "episodes": [{"content": "初稿正文。", "shotsJson": json.dumps([shot])}],
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        draft_url = f"{url}/{response.json()['id']}"
+        chapter_url = draft_url + "/episodes/1"
+        board_url = chapter_url + "/storyboard"
+        history_url = chapter_url + "/history"
+        original = await self.get(chapter_url)
+        board = await self.get(board_url)
+        self.assertEqual(json.loads(board["shotsJson"]), [shot])
+        self.assertTrue(board["exists"])
+        forbidden = await self.client.get(board_url, headers=_headers(2))
+        self.assertEqual(forbidden.status_code, 403)
+        saved = await self.client.patch(chapter_url, headers=_headers(1), json={
+            "baseRevision": original["revision"], "content": "第二版正文。",
+        })
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertTrue((await self.get(board_url))["stale"])
+        failed_save = await self.client.patch(board_url, headers=_headers(1), json={
+            "baseRevision": board["revision"], "shotsJson": "[]",
+        })
+        self.assertEqual(failed_save.status_code, 409)
+        current_board = await self.get(board_url)
+        changed_shot = {**shot, "characters": ["小雨", "外婆"]}
+        board_edit = await self.client.patch(board_url, headers=_headers(1), json={
+            "baseRevision": current_board["revision"], "shotsJson": json.dumps([changed_shot]),
+        })
+        self.assertEqual(board_edit.status_code, 200, board_edit.text)
+        self.assertFalse(board_edit.json()["stale"])
+        self.assertEqual(json.loads(board_edit.json()["shotsJson"]), [changed_shot])
+
+        for layer, base, last, key in (
+            ("chapter", original, saved.json(), "episode"),
+            ("storyboard", current_board, board_edit.json(), "storyboard"),
+        ):
+            versions = await self.get(history_url + f"?layer={layer}")
+            self.assertEqual([item["version"] for item in versions["items"]], [1])
+            snapshot_url = history_url + f"/{versions['items'][0]['id']}"
+            preview = await self.get(snapshot_url + f"?layer={layer}")
+            if layer == "chapter":
+                self.assertEqual(preview["content"], original["content"])
+            else:
+                self.assertEqual(json.loads(preview["content"]), [shot])
+            restore_url = snapshot_url + "/restore"
+            request = {"baseRevision": last["revision"], "layer": layer}
+            forbidden = await self.client.post(restore_url, headers=_headers(2), json=request)
+            self.assertEqual(forbidden.status_code, 403)
+            stale = await self.client.post(restore_url, headers=_headers(1), json={**request, "baseRevision": base["revision"]})
+            self.assertEqual(stale.status_code, 409)
+            wrong_layer = await self.client.post(restore_url, headers=_headers(1), json={
+                **request, "layer": "storyboard" if layer == "chapter" else "chapter",
+            })
+            self.assertEqual(wrong_layer.status_code, 404)
+            if layer == "storyboard":
+                # Restoring prose invalidates even a newer storyboard editor's copy.
+                self.assertTrue((await self.get(board_url))["stale"])
+                request["baseRevision"] = (await self.get(board_url))["revision"]
+            restored = await self.client.post(restore_url, headers=_headers(1), json=request)
+            self.assertEqual(restored.status_code, 200, restored.text)
+            result = restored.json()[key]
+            self.assertEqual(result["version"], 3)
+            self.assertEqual(result["content"] if layer == "chapter" else json.loads(result["shotsJson"]),
+                             original["content"] if layer == "chapter" else [shot])
+            self.assertEqual([item["version"] for item in (await self.get(history_url + f"?layer={layer}"))["items"]], [2, 1])
+
+    async def test_legacy_board_snapshots_and_new_board_from_empty(self):
+        chapter_url = "/v1/script-editor/drafts/40/episodes/2"
+        board_url = chapter_url + "/storyboard"
+        scene = {"shot_no": "2-1", "action": "在门口停下。", "legacy": "原始字段"}
+        wrapped_scene = {**scene, "action": "在空走廊回头。"}
+        async with self.sessions.begin() as session:
+            history = ScriptEpisodeHistory(draft_id=40, episode_order=2, stage="storyboard", content=[scene], version=1)
+            wrapped = ScriptEpisodeHistory(
+                draft_id=40, episode_order=2, stage="storyboard", content={"shots": [wrapped_scene]}, version=2,
+            )
+            session.add_all([history, wrapped])
+            await session.flush()
+            snapshot_url = chapter_url + f"/history/{history.id}"
+            wrapped_url = chapter_url + f"/history/{wrapped.id}"
+        self.assertEqual(json.loads((await self.get(snapshot_url + "?layer=storyboard"))["content"]), [scene])
+        self.assertEqual(json.loads((await self.get(wrapped_url + "?layer=storyboard"))["content"]), [wrapped_scene])
+        empty = await self.get(board_url)
+        self.assertFalse(empty["exists"])
+        self.assertEqual(empty["shotsJson"], "[]")
+        rejected = await self.client.patch(board_url, headers=_headers(1), json={
+            "baseRevision": empty["revision"], "shotsJson": '[{"action":"\\u0000"}]',
+        })
+        self.assertEqual(rejected.status_code, 422)
+        restored = await self.client.post(snapshot_url + "/restore", headers=_headers(1), json={
+            "baseRevision": empty["revision"], "layer": "storyboard",
+        })
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertEqual(json.loads(restored.json()["storyboard"]["shotsJson"]), [scene])
+        restored_wrapped = await self.client.post(wrapped_url + "/restore", headers=_headers(1), json={
+            "baseRevision": restored.json()["storyboard"]["revision"], "layer": "storyboard",
+        })
+        self.assertEqual(restored_wrapped.status_code, 200, restored_wrapped.text)
+        self.assertEqual(json.loads(restored_wrapped.json()["storyboard"]["shotsJson"]), [wrapped_scene])
+        self.assertEqual((await self.get(chapter_url))["content"], "")
+
+    async def test_ordinary_editor_exports_word_and_imports_the_document_as_editable_text(self):
+        url = "/v1/script-editor/drafts"
+        contents = ["下雨了，女主走到门口。", "女主打开抽屉拿到账本。"]
+        draft = await self.client.post(url, headers=_headers(1), json={
+            "title": "王家的往事", "episodes": [{"content": content} for content in contents],
+        })
+        self.assertEqual(draft.status_code, 200, draft.text)
+        export_url = f"{url}/{draft.json()['id']}/export"
+        self.assertEqual((await self.client.get(export_url)).status_code, 401)
+        self.assertEqual((await self.client.get(export_url, headers=_headers(2))).status_code, 403)
+        exported = await self.get(export_url + "?format=docx")
+        self.assertIn("王家的往事", exported["filename"])
+        self.assertEqual(exported["mime"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        document = Document(io.BytesIO(base64.b64decode(exported["base64"])))
+        self.assertTrue(set(contents) <= {paragraph.text for paragraph in document.paragraphs})
+        for format, mime in (("txt", "text/plain"), ("md", "text/markdown")):
+            selected = await self.get(export_url + f"?format={format}&episode=2")
+            self.assertTrue(selected["mime"].startswith(mime))
+            decoded = base64.b64decode(selected["base64"]).decode("utf-8")
+            self.assertIn(contents[1], decoded)
+            self.assertNotIn(contents[0], decoded)
+        imported = await self.client.post(url, headers=_headers(1), json={
+            "title": "原稿回读", "file": {"filename": exported["filename"], "base64": exported["base64"]},
+        })
+        self.assertEqual(imported.status_code, 200, imported.text)
+        self.assertEqual(imported.json()["episodeCount"], 2)
+        contents[0] = "王家的往事\n\n" + contents[0]
+        for order, content in enumerate(contents, start=1):
+            self.assertEqual((await self.get(f"{url}/{imported.json()['id']}/episodes/{order}"))["content"], content)
+        failed = await self.client.post(url, headers=_headers(1), json={
+            "title": "损坏的文件", "file": {"filename": "坏.docx", "base64": "bm90IHdvcmQ="},
+        })
+        self.assertEqual(failed.status_code, 422)
+        self.assertEqual((await self.get(url + "?query=损坏"))["items"], [])
+
+    async def test_file_import_keeps_preface_with_first_episode(self):
+        preface = "前情：女主一直没说出自己的真实姓名。"
+        opening = "女主推开木门。"
+        followup = "第二天，镇上的水井干了。"
+        paragraphs = [preface, "第一集：归来", opening, "第二集：水井", followup]
+        document = Document()
+        for paragraph in paragraphs:
+            document.add_paragraph(paragraph)
+        word = io.BytesIO()
+        document.save(word)
+        sources = (
+            ("剧稿.txt", "\n\n".join(paragraphs).encode("utf-8")),
+            ("剧稿.md", ("\n\n".join(paragraphs)).replace("\n\n第", "\n\n## 第").encode("utf-8")),
+            ("剧稿.docx", word.getvalue()),
+        )
+        url = "/v1/script-editor/drafts"
+        for filename, source in sources:
+            with self.subTest(filename=filename):
+                result = await self.client.post(url, headers=_headers(1), json={
+                    "title": filename, "file": {"filename": filename, "base64": base64.b64encode(source).decode("ascii")},
+                })
+                self.assertEqual(result.status_code, 200, result.text)
+                self.assertEqual(result.json()["episodeCount"], 2)
+                first = await self.get(f"{url}/{result.json()['id']}/episodes/1")
+                second = await self.get(f"{url}/{result.json()['id']}/episodes/2")
+                self.assertEqual((first["title"], first["content"]), ("第1集 归来", preface + "\n\n" + opening))
+                self.assertEqual((second["title"], second["content"]), ("第2集 水井", followup))
 
     async def test_reviewed_candidate_apply_changes_only_the_target_and_records_history(self):
         first = await self.get(self.first_url)
@@ -260,3 +465,21 @@ class ScriptEditorTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as session:
             self.assertEqual(await session.scalar(select(func.count()).select_from(ScriptEpisodeHistory)), 1)
             self.assertEqual(await session.scalar(select(func.count()).select_from(script_library.ScriptEntry)), 1)
+
+    async def test_postgres_concurrent_create_receipt_and_first_storyboard_save(self):
+        if not self.postgres:
+            self.skipTest("PostgreSQL is required for row locks")
+        drafts = "/v1/script-editor/drafts"
+        body = {"title": "并发创建", "requestId": str(uuid4())}
+        created = await asyncio.gather(*(self.client.post(drafts, headers=_headers(1), json=body) for _ in range(2)))
+        self.assertEqual([response.status_code for response in created], [200, 200])
+        self.assertEqual(created[0].json()["id"], created[1].json()["id"])
+        board_url = f"{drafts}/{created[0].json()['id']}/episodes/1/storyboard"
+        base = await self.get(board_url)
+        both = await asyncio.gather(*(
+            self.client.patch(board_url, headers=_headers(1), json={
+                "baseRevision": base["revision"], "shotsJson": json.dumps([{"action": action}]),
+            }) for action in ["停下脚步", "继续向前"]
+        ))
+        self.assertEqual(sorted(response.status_code for response in both), [200, 409])
+        self.assertEqual((await self.get(board_url))["version"], 2)

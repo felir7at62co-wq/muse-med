@@ -687,6 +687,12 @@ async connection(): Promise<WorkbenchSession>
  */
 @Remote async scriptDrafts(request: ScriptDraftListRequest): Promise<ScriptDraftList>
 
+/** Create a blank draft or import an existing file into this editor's draft library.
+ * @param request - Title, episodes or file, and an optional retry identifier.
+ * @returns The new draft and its initial episodes.
+ */
+@Remote async createScriptDraft(request: ScriptDraftCreateRequest): Promise<ScriptDraft>
+
 /** Read a draft's editable episodes and context.
  * @param request - Draft to open.
  * @returns Episode directory, context, and publication revision.
@@ -723,6 +729,42 @@ async stageScriptDraftCandidate(request: ScriptDraftStageRequest, signal?: Abort
  * @returns The saved episode.
  */
 @Remote async saveScriptDraftEpisode(request: ScriptDraftSaveRequest): Promise<ScriptDraftEpisode>
+
+/** Read the structured screenplay stored separately from an episode's source text.
+ * @param request - Draft and episode to open.
+ * @returns The structured screenplay, its revision, and whether it needs review after a source edit.
+ */
+@Remote async scriptDraftStoryboard(request: ScriptDraftEpisodeRequest): Promise<ScriptDraftStoryboard>
+
+/** Save the structured screenplay displayed by the editor.
+ * @param request - Episode, displayed revision, and updated screenplay.
+ * @returns The saved structured screenplay.
+ */
+@Remote async saveScriptDraftStoryboard(request: ScriptDraftStoryboardSaveRequest): Promise<ScriptDraftStoryboard>
+
+/** List the saved versions of one episode and layer.
+ * @param request - Episode and layer to inspect.
+ * @returns Version metadata.
+ */
+@Remote async scriptDraftHistory(request: ScriptDraftHistoryRequest): Promise<ScriptDraftHistory>
+
+/** Read the exact historical version selected by the editor.
+ * @param request - Episode, layer, and history entry.
+ * @returns The selected historical content.
+ */
+@Remote async scriptDraftHistoryEntry(request: ScriptDraftHistoryEntryRequest): Promise<ScriptDraftHistoryEntry>
+
+/** Restore a historical version as a new revision.
+ * @param request - Historical entry and the current revision reviewed by the editor.
+ * @returns The restored episode layer.
+ */
+@Remote async restoreScriptDraftHistory(request: ScriptDraftHistoryRestoreRequest): Promise<ScriptDraftHistoryRestore>
+
+/** Download an authorized export of the saved draft or selected episode.
+ * @param request - Content scope and format.
+ * @returns Download metadata and file bytes encoded for the Client.
+ */
+@Remote async exportScriptDraft(request: ScriptDraftExportRequest): Promise<ScriptDraftExport>
 
 /** Publish a reviewed draft revision to the finalized library.
  * @param request - Draft, revision, and publication metadata reviewed by the user.

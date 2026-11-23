@@ -91,3 +91,109 @@ textarea.manuscript {
 @media (pointer:coarse) {
   .select, textarea.manuscript { font-size:16px; }
 }
+
+.field {
+  display:grid;
+  gap:6px;
+  min-width:0;
+  color:var(--dsw-alias-label-secondary);
+  font-size:12px;
+}
+
+.field input,
+.field select,
+.field textarea { color:var(--dsw-alias-label-primary); }
+
+.source {
+  width:100%;
+  min-width:0;
+  font:inherit;
+}
+
+.source::file-selector-button {
+  margin-inline-end:8px;
+  padding:6px 10px;
+  border:1px solid var(--dsw-alias-bg-layer-3);
+  border-radius:6px;
+  background:var(--dsw-alias-bg-layer-2);
+  color:inherit;
+  font:inherit;
+  cursor:pointer;
+}
+
+.historyPreview {
+  max-height:45vh;
+  overflow:auto;
+  padding-block-start:10px;
+  border-block-start:1px solid var(--dsw-alias-bg-layer-2);
+}
+
+.scenes, .sceneLines {
+  display:grid;
+  gap:8px;
+  margin:0;
+  padding:0;
+  list-style:none;
+}
+
+.scene {
+  display:grid;
+  gap:8px;
+  min-width:0;
+  padding:10px 12px;
+  border:1px solid var(--dsw-alias-bg-layer-2);
+  border-radius:9px;
+}
+
+.scene header, .sceneToolbar {
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:8px;
+}
+
+.scene header h4 {
+  flex:none;
+  margin:0;
+  color:var(--dsw-alias-label-primary);
+  font-size:13px;
+  font-weight:600;
+}
+
+.scene header span, .sceneNote { color:var(--dsw-alias-label-secondary); }
+.scene header button, .sceneToolbar > .controls { margin-inline-start:auto; }
+
+.sceneText, .sceneNote, .sceneLines li {
+  margin:0;
+  line-height:1.55;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+
+.sceneLines { padding-inline-start:10px; border-inline-start:2px solid var(--dsw-alias-bg-layer-2); }
+
+.sceneFields {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,9rem),1fr));
+  gap:8px;
+}
+
+.sceneLine, .sceneElements { display:grid; gap:8px; min-width:0; }
+.sceneLine { padding-inline-start:8px; border-inline-start:2px solid var(--dsw-alias-bg-layer-2); }
+
+.sceneInput {
+  width:100%;
+  min-width:0;
+  padding:6px 8px;
+  box-sizing:border-box;
+  border:1px solid var(--dsw-alias-bg-layer-2);
+  border-radius:6px;
+  background:var(--dsw-alias-bg-layer-1);
+  font:inherit;
+  font-size:13px;
+  resize:vertical;
+}
+
+@media (pointer:coarse) {
+  .sceneInput { font-size:16px; }
+}

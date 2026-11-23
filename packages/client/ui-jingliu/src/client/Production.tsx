@@ -9,7 +9,7 @@ import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/clie
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SelectedProject, StudioAsset, StudioBalance, StudioCatalog, StudioConfig, StudioNewProject, StudioEpisode, StudioLibrary, StudioLibraryQuery, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia, StudioVideoRequest } from '@deepseek-ai/dsh-jingliu-connection/types'
 import type { MuseDataBoards, MuseDataCollector, MuseDataPeriod, MuseDataStock, MuseDataWorkDetail, MuseDataWorks } from '@deepseek-ai/dsh-muse-account/types'
-import type { ScriptDetail, ScriptDraft, ScriptDraftEpisode, ScriptDraftList, ScriptList } from '@deepseek-ai/dsh-workbench-connection/types'
+import type { ScriptDetail, ScriptDraft, ScriptDraftEpisode, ScriptDraftHistory, ScriptDraftHistoryEntry, ScriptDraftList, ScriptDraftStoryboard, ScriptList } from '@deepseek-ai/dsh-workbench-connection/types'
 import css from './Production.module.css'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -94,6 +94,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'workshop-drafts': ScriptDraftList
     'workshop-draft': ScriptDraft
     'workshop-draft-episode': ScriptDraftEpisode
+    'workshop-draft-storyboard': ScriptDraftStoryboard
+    'workshop-draft-history': ScriptDraftHistory
+    'workshop-draft-history-entry': ScriptDraftHistoryEntry
   }
 }
 

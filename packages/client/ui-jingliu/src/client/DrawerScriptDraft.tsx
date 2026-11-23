@@ -1,9 +1,15 @@
 /** Browse workshop drafts, review one episode, and confirm its finalization. */
-import { useId, useRef, useState } from 'react'
+import { useId, useState } from 'react'
 import { Button, DiffBlock, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
-  ScriptDraft, ScriptDraftCandidateRequest, ScriptDraftEpisode, ScriptDraftFinalizeRequest, ScriptDraftSaveRequest, ScriptSummary,
+  ScriptDraft, ScriptDraftCandidateRequest, ScriptDraftCreateRequest, ScriptDraftEpisode, ScriptDraftExport, ScriptDraftExportRequest,
+  ScriptDraftFinalizeRequest, ScriptDraftHistoryRestore, ScriptDraftHistoryRestoreRequest, ScriptDraftLayer, ScriptDraftSaveRequest,
+  ScriptDraftStoryboard, ScriptDraftStoryboardSaveRequest, ScriptSummary,
 } from '@deepseek-ai/dsh-workbench-connection/types'
+import { DraftExport, NewDraft } from './DrawerScriptDraftFiles.tsx'
+import { DraftHistory } from './DrawerScriptHistory.tsx'
+import { StoryboardEditor, StoryboardPreview } from './DrawerScriptStoryboard.tsx'
+import { useDraftMutation } from './useDraftMutation.ts'
 import type { OpenScript } from './DrawerScripts.tsx'
 import { address, type Read, type Text } from './Production.tsx'
 import data from './DrawerData.module.css'
@@ -12,6 +18,10 @@ import css from './DrawerScriptDraft.module.css'
 
 /** Mutations permitted by the workshop account and performed through the Host. */
 export interface DraftActions {
+  createDraft(request: ScriptDraftCreateRequest): Promise<ScriptDraft>
+  saveStoryboard(request: ScriptDraftStoryboardSaveRequest): Promise<ScriptDraftStoryboard>
+  restoreHistory(request: ScriptDraftHistoryRestoreRequest): Promise<ScriptDraftHistoryRestore>
+  exportDraft(request: ScriptDraftExportRequest): Promise<ScriptDraftExport>
   saveEpisode(request: ScriptDraftSaveRequest): Promise<ScriptDraftEpisode>
   applyCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode>
   discardCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode>
@@ -23,6 +33,7 @@ interface LibraryProps {
   openScript: (script: OpenScript) => void
   t: Text
   useResource: Read
+  draftActions: DraftActions
 }
 
 const DRAFT_PAGE = 30
@@ -32,7 +43,8 @@ const DRAFT_PAGE = 30
  * @param props - The account, drawer command, locale and resource reader.
  * @returns The search form and one page of matching drafts.
  */
-export function DraftLibrary({ epoch, openScript, t, useResource }: LibraryProps) {
+export function DraftLibrary({ epoch, openScript, t, useResource, draftActions }: LibraryProps) {
+  const [creator, setCreator] = useState<'blank' | 'file' | null>(null)
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [offset, setOffset] = useState(0)
@@ -45,6 +57,16 @@ export function DraftLibrary({ epoch, openScript, t, useResource }: LibraryProps
       <Input aria-label={t('searchScripts')} placeholder={t('searchScripts')} maxLength={100} value={search}
         onChange={(event) => { setSearch(event.target.value); if (event.target.value.trim() === '') { setQuery(''); setOffset(0) } }} />
     </form>
+    {list.status === 'live' && <div className={css.controls}>
+      <Button variant="outline" size="sm" onClick={() => { setCreator('blank') }}>{t('newDraft')}</Button>
+      <Button variant="ghost" size="sm" onClick={() => { setCreator('file') }}>{t('importDraft')}</Button>
+    </div>}
+    {creator !== null && <NewDraft mode={creator} t={t} create={draftActions.createDraft} close={() => { setCreator(null) }}
+      opened={(draft) => {
+        setCreator(null)
+        refresh(count => count + 1)
+        openScript({ id: 'draft:' + String(draft.id), title: draft.title })
+      }} />}
     {list.status === 'failed' ? <ReadFailure t={t} retry={() => { refresh(count => count + 1) }} />
       : list.value === undefined ? <p className={data.quiet} role="status">{t('loading')}</p>
         : list.value.items.length === 0 ? <p className={data.quiet}>{t('nothingHere')}</p>
@@ -67,7 +89,6 @@ export function DraftLibrary({ epoch, openScript, t, useResource }: LibraryProps
 
 interface DraftViewProps extends LibraryProps {
   draftId: number
-  draftActions: DraftActions
   quote: (text: string) => void
 }
 
@@ -88,6 +109,7 @@ export function DraftView(props: DraftViewProps) {
 function WorkingDraft(props: DraftViewProps & { draft: ScriptDraft }) {
   const { draftId, epoch, t, useResource } = props
   const [selected, select] = useState<number | undefined>()
+  const [layer, setLayer] = useState<ScriptDraftLayer>('chapter')
   const [revision, setRevision] = useState(0)
   const [needsReview, setNeedsReview] = useState(false)
   const [finalize, setFinalize] = useState(0)
@@ -104,8 +126,8 @@ function WorkingDraft(props: DraftViewProps & { draft: ScriptDraft }) {
     {needsReview && <p className={data.quiet}>{t('reviewBeforeFinalizing')}</p>}
     {refreshed.status === 'failed' && revision !== 0 && <ReadFailure t={t} retry={review} />}
     {episode === undefined ? <p className={data.quiet}>{t('emptyEpisodes')}</p>
-      : <EpisodeEditor key={episode} {...props} draft={draft} episode={episode} selectEpisode={select} confirm={confirm}
-        finalizeReady={ready && !needsReview} refreshDraft={review} draftChanged={() => { setNeedsReview(true) }} />}
+      : <EpisodeEditor key={episode} {...props} draft={draft} episode={episode} selectEpisode={select} layer={layer} setLayer={setLayer}
+        confirm={confirm} finalizeReady={ready && !needsReview} refreshDraft={review} draftChanged={() => { setNeedsReview(true) }} />}
     {confirming !== null && <FinalizeDraft key={finalize} {...props} refresh={finalize} baseRevision={confirming}
       close={() => { setConfirming(null) }} />}
   </section>
@@ -116,37 +138,12 @@ function ReadFailure({ t, retry }: { t: Text; retry: () => void }) {
     <Button variant="ghost" size="sm" onClick={retry}>{t('retry')}</Button></div>
 }
 
-interface MutationState {
-  busy: boolean
-  problem: 'failed' | 'conflict' | null
-  reset: () => void
-  run(action: () => Promise<void>): Promise<void>
-}
-
-function useMutation(): MutationState {
-  const inFlight = useRef(false)
-  const [busy, setBusy] = useState(false)
-  const [problem, setProblem] = useState<MutationState['problem']>(null)
-  return { busy, problem, reset: () => { setProblem(null) }, run: async (action) => {
-    if (inFlight.current) return
-    inFlight.current = true
-    setBusy(true)
-    setProblem(null)
-    try { await action() }
-    catch (error) {
-      const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
-      setProblem(code === 'SCRIPT_EDITOR_VERSION_CHANGED' || code === 'SCRIPT_EDITOR_CANDIDATE_CHANGED' ? 'conflict' : 'failed')
-    } finally {
-      inFlight.current = false
-      setBusy(false)
-    }
-  } }
-}
-
 interface EpisodeEditorProps extends DraftViewProps {
   draft: ScriptDraft
   episode: number
   selectEpisode: (episode: number) => void
+  layer: ScriptDraftLayer
+  setLayer: (layer: ScriptDraftLayer) => void
   confirm: () => void
   finalizeReady: boolean
   refreshDraft: () => void
@@ -154,23 +151,39 @@ interface EpisodeEditorProps extends DraftViewProps {
 }
 
 function EpisodeEditor({
-  draft, episode, selectEpisode, confirm, finalizeReady, refreshDraft, draftChanged, epoch, t, useResource, draftActions, quote,
+  draft, episode, selectEpisode, layer, setLayer, confirm, finalizeReady, refreshDraft, draftChanged,
+  epoch, t, useResource, draftActions, quote,
 }: EpisodeEditorProps) {
   const [revision, refresh] = useState(0)
+  const [historyRevision, markHistoryChanged] = useState(0)
+  const [showHistory, setShowHistory] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [receipt, setReceipt] = useState<ScriptDraftEpisode>()
-  const [manual, setManual] = useState<string | null>(null)
+  const [boardReceipt, setBoardReceipt] = useState<ScriptDraftStoryboard>()
+  const [manual, setManual] = useState<{ content: string; baseRevision: string } | null>(null)
+  const [boardEdit, setBoardEdit] = useState<ScriptDraftStoryboard>()
   const [showCurrent, setShowCurrent] = useState(false)
   const [saved, setSaved] = useState(false)
-  const write = useMutation()
-  const detail = useResource<'workshop-draft-episode'>(address('workshop-draft-episode', epoch, revision, {
-    id: String(draft.id), episode: String(episode),
-  }))
+  const write = useDraftMutation()
+  const params = { id: String(draft.id), episode: String(episode) }
+  const board = useResource<'workshop-draft-storyboard'>(layer === 'storyboard'
+    ? address('workshop-draft-storyboard', epoch, revision, { ...params, generation: String(historyRevision) }) : 'studio://inactive')
+  const detail = useResource<'workshop-draft-episode'>(layer === 'chapter'
+    ? address('workshop-draft-episode', epoch, revision, params) : 'studio://inactive')
   const value = receipt ?? detail.value
+  const storyboard = boardReceipt ?? board.value
+  const activeValue = layer === 'chapter' ? value : storyboard
+  const activeStatus = layer === 'chapter' ? detail.status : board.status
   const candidate = value?.candidate ?? null
   const episodeLabel = t('episodeNumber', { number: String(episode) })
   const staleCandidate = candidate !== null && candidate.baseRevision !== value?.revision
+  const editing = manual !== null || boardEdit !== undefined
+  const locked = write.busy || editing
+  const problems = write.problem !== null && <p className={scripts.failed} role="alert">{t(write.problem === 'conflict' ? 'draftConflict' : 'draftSaveFailed')}</p>
+  const savedStatus = saved && <p className={data.quiet} role="status">{t('draftSaved')}</p>
   const reread = () => {
     setReceipt(undefined)
+    setBoardReceipt(undefined)
     setSaved(false)
     setShowCurrent(false)
     write.reset()
@@ -184,51 +197,103 @@ function EpisodeEditor({
       setManual(null)
       setShowCurrent(false)
       setSaved(changed)
-      if (changed) draftChanged()
+      if (changed) {
+        markHistoryChanged(count => count + 1)
+        setBoardReceipt(undefined)
+        draftChanged()
+      }
     })
+  }
+  const restore = (result: ScriptDraftHistoryRestore) => {
+    if (result.episode !== null) setReceipt(result.episode)
+    if (result.storyboard !== null) setBoardReceipt(result.storyboard)
+    markHistoryChanged(count => count + 1)
+    setShowCurrent(false)
+    setShowHistory(false)
+    setSaved(true)
+    draftChanged()
   }
   return <>
     <div className={css.toolbar}>
-      <select className={css.select} aria-label={t('scriptEpisodes')} value={episode}
-        disabled={write.busy || manual !== null} onChange={(event) => { selectEpisode(Number(event.target.value)) }}>
-        {draft.episodes.map(item => <option key={item.episode} value={item.episode}>
-          {t('episodeNumber', { number: String(item.episode) })}{item.title ? ' · ' + item.title : ''}
-        </option>)}
-      </select>
       <div className={css.controls}>
-        <Button variant="ghost" size="sm" disabled={write.busy || manual !== null} onClick={reread}>{t('refresh')}</Button>
+        <select className={css.select} aria-label={t('scriptEpisodes')} value={episode}
+          disabled={locked} onChange={(event) => { selectEpisode(Number(event.target.value)) }}>
+          {draft.episodes.map(item => <option key={item.episode} value={item.episode}>
+            {t('episodeNumber', { number: String(item.episode) })}{item.title ? ' · ' + item.title : ''}
+          </option>)}
+        </select>
+        <select className={css.select} aria-label={t('draftLayer')} value={layer} disabled={locked} onChange={(event) => {
+          setLayer(event.target.value === 'storyboard' ? 'storyboard' : 'chapter')
+          setSaved(false)
+          write.reset()
+        }}>
+          <option value="chapter">{t('draftChapter')}</option>
+          <option value="storyboard">{t('draftStoryboard')}</option>
+        </select>
+      </div>
+      <div className={css.controls}>
+        <Button variant="ghost" size="sm" disabled={locked} onClick={reread}>{t('refresh')}</Button>
+        <Button variant="ghost" size="sm" disabled={locked || activeValue === undefined} onClick={() => { setShowHistory(true) }}>{t('episodeHistory')}</Button>
+        <Button variant="ghost" size="sm" disabled={locked} onClick={() => { setShowExport(true) }}>{t('exportScriptDraft')}</Button>
         <Button variant="ghost" size="sm" onClick={() => { quote(t('draftEpisodeReference', {
           title: draft.title, id: String(draft.id), episode: String(episode),
         })) }}>{t('quoteAsset')}</Button>
-        {draft.canFinalize && <Button variant="outline" size="sm" disabled={!finalizeReady || value === undefined || write.busy || manual !== null}
+        {draft.canFinalize && <Button variant="outline" size="sm" disabled={!finalizeReady || activeValue === undefined || locked}
           onClick={confirm}>{t('finalizeDraft')}</Button>}
       </div>
     </div>
     <div className={css.reading}>
-      {detail.status === 'failed' && value === undefined ? <ReadFailure t={t} retry={reread} />
-        : value === undefined ? <p className={data.quiet} role="status">{t('loading')}</p>
+      {activeStatus === 'failed' && activeValue === undefined ? <ReadFailure t={t} retry={reread} />
+        : layer === 'storyboard' && storyboard !== undefined ? <>
+          <div className={css.episodeBar}>
+            <h3>{storyboard.title || episodeLabel}</h3>
+            {storyboard.exists && <span className={data.quiet}>{t('versionLabel', { number: storyboard.version })}</span>}
+            {boardEdit === undefined && <Button variant="ghost" size="sm" disabled={write.busy} onClick={() => {
+              setSaved(false)
+              setBoardEdit(storyboard)
+              write.reset()
+            }}>{t('editStoryboard')}</Button>}
+          </div>
+          {storyboard.stale && <p className={data.quiet}>{t('draftStoryboardStale')}</p>}
+          {problems}
+          {savedStatus}
+          {boardEdit === undefined ? <StoryboardPreview json={storyboard.shotsJson} t={t} /> :
+            <StoryboardEditor json={boardEdit.shotsJson} t={t} busy={write.busy} blocked={write.problem === 'conflict'}
+              cancel={() => { setBoardEdit(undefined); write.reset() }}
+              save={(shotsJson) => {
+                void write.run(async () => {
+                  setBoardReceipt(await draftActions.saveStoryboard({
+                    draftId: draft.id, episode, baseRevision: boardEdit.revision, shotsJson,
+                  }))
+                  setBoardEdit(undefined)
+                  setSaved(true)
+                  markHistoryChanged(count => count + 1)
+                  draftChanged()
+                })
+              }} />}
+        </> : layer !== 'chapter' || value === undefined ? <p className={data.quiet} role="status">{t('loading')}</p>
           : <>
             <div className={css.episodeBar}>
               <h3>{value.title || episodeLabel}</h3>
               <span className={data.quiet}>{t('versionLabel', { number: value.version })}</span>
               {manual === null && (candidate === null || showCurrent) && <Button variant="ghost" size="sm" disabled={write.busy}
-                onClick={() => { setManual(value.content); write.reset() }}>{t('editEpisode')}</Button>}
+                onClick={() => { setManual({ content: value.content, baseRevision: value.revision }); setSaved(false); write.reset() }}>{t('editEpisode')}</Button>}
               {candidate !== null && manual === null && <Button variant="ghost" size="sm" disabled={write.busy}
                 onClick={() => { setShowCurrent(current => !current) }}>{t(showCurrent ? 'candidateChanges' : 'currentDraft')}</Button>}
             </div>
-            {write.problem !== null && <p className={scripts.failed} role="alert">{t(write.problem === 'conflict' ? 'draftConflict' : 'draftSaveFailed')}</p>}
-            {saved && <p className={data.quiet} role="status">{t('draftSaved')}</p>}
+            {problems}
+            {savedStatus}
             {manual !== null ? <form className={css.editor} onSubmit={(event) => {
               event.preventDefault()
-              if (manual.trim() !== '' && manual !== value.content) save(() => draftActions.saveEpisode({
-                draftId: draft.id, episode, baseRevision: value.revision, content: manual,
+              if (manual.content.trim() !== '' && manual.content !== value.content && write.problem !== 'conflict') save(() => draftActions.saveEpisode({
+                draftId: draft.id, episode, baseRevision: manual.baseRevision, content: manual.content,
               }), true)
             }}>
-              <textarea aria-label={t('editEpisode')} className={css.manuscript} value={manual} disabled={write.busy}
-                onChange={(event) => { setManual(event.target.value) }} />
+              <textarea aria-label={t('editEpisode')} className={css.manuscript} value={manual.content} disabled={write.busy}
+                onChange={(event) => { setManual({ ...manual, content: event.target.value }) }} />
               <div className={css.controls}>
                 <Button variant="ghost" size="sm" disabled={write.busy} onClick={() => { setManual(null); write.reset() }}>{t('cancel')}</Button>
-                <Button variant="primary" size="sm" type="submit" disabled={write.busy || manual.trim() === '' || manual === value.content}>{t('save')}</Button>
+                <Button variant="primary" size="sm" type="submit" disabled={write.busy || manual.content.trim() === '' || manual.content === value.content || write.problem === 'conflict'}>{t('save')}</Button>
               </div>
             </form> : candidate !== null && !showCurrent ? <section className={css.candidate} aria-label={t('candidateChanges')}>
               {candidate.summary !== '' && <p className={css.summary}>{candidate.summary}</p>}
@@ -248,6 +313,11 @@ function EpisodeEditor({
             </section> : <div className={css.manuscript}>{value.content || t('nothingHere')}</div>}
           </>}
     </div>
+    {showHistory && activeValue !== undefined && <DraftHistory draftId={draft.id} episode={episode} layer={layer}
+      baseRevision={activeValue.revision} epoch={epoch} revision={revision + historyRevision}
+      t={t} useResource={useResource} restore={draftActions.restoreHistory} restored={restore} close={() => { setShowHistory(false) }} />}
+    {showExport && <DraftExport draftId={draft.id} episode={episode} layer={layer} t={t} exportDraft={draftActions.exportDraft}
+      close={() => { setShowExport(false) }} />}
   </>
 }
 
@@ -259,7 +329,7 @@ function FinalizeDraft({ draftId, epoch, t, useResource, draftActions, openScrip
   const [style, setStyle] = useState<ScriptDraftFinalizeRequest['style']>('realistic')
   const [originWorkId, setOriginWorkId] = useState('')
   const [originTitle, setOriginTitle] = useState('')
-  const submit = useMutation()
+  const submit = useDraftMutation()
   const id = useId()
   const draft = durable.status === 'failed' ? undefined : durable.value
   const changed = draft !== undefined && draft.revision !== baseRevision

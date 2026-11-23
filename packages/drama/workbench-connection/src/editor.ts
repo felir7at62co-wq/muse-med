@@ -1,7 +1,12 @@
 /** Validation of the Workshop draft editor's HTTP requests and responses. @module */
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { isRecord } from './http.ts'
-import type { ScriptDraft, ScriptDraftCandidate, ScriptDraftEpisode, ScriptDraftEpisodeRequest, ScriptDraftList, ScriptDraftListRequest, ScriptDraftSummary } from './editor-types.ts'
+import type {
+  ScriptDraft, ScriptDraftCandidate, ScriptDraftEpisode, ScriptDraftEpisodeRequest, ScriptDraftExport,
+  ScriptDraftExportRequest, ScriptDraftHistory, ScriptDraftHistoryEntry, ScriptDraftHistoryEntryRequest,
+  ScriptDraftHistoryItem, ScriptDraftHistoryRequest, ScriptDraftHistoryRestore, ScriptDraftList,
+  ScriptDraftListRequest, ScriptDraftStoryboard, ScriptDraftSummary,
+} from './editor-types.ts'
 
 function invalid(): HarnessError {
   return new HarnessError('剧本工坊返回了无法识别的草稿数据。', 'WORKSHOP_EDITOR_INVALID_RESULT')
@@ -135,4 +140,103 @@ export function editorListPath(request: ScriptDraftListRequest): string {
   const query = new URLSearchParams({ offset: String(request.offset), limit: String(request.limit) })
   if (request.query !== undefined && request.query.trim()) query.set('query', request.query.trim())
   return '/script-editor/drafts?' + query.toString()
+}
+
+/** Decode the structured screenplay for one requested episode.
+ * @param value - Workshop result.
+ * @param request - Exact draft and episode being read or saved.
+ * @returns The current structured screenplay with its revision.
+ */
+export function editorStoryboard(value: unknown, request: ScriptDraftEpisodeRequest): ScriptDraftStoryboard {
+  const row = item(value)
+  if (row.draftId !== request.draftId || row.episode !== request.episode ||
+    typeof row.exists !== 'boolean' || typeof row.stale !== 'boolean') throw invalid()
+  return {
+    draftId: request.draftId, episode: request.episode, title: text(row.title, 1_000),
+    shotsJson: text(row.shotsJson, 4_000_000), version: integer(row.version), revision: revision(row.revision),
+    exists: row.exists, stale: row.stale,
+  }
+}
+
+function historyItem(value: unknown): ScriptDraftHistoryItem {
+  const row = item(value)
+  return {
+    id: integer(row.id, 1),
+    version: integer(row.version),
+    createdAt: row.createdAt === null ? null : text(row.createdAt, 64),
+    createdBy: row.createdBy === null ? null : text(row.createdBy, 1_000),
+  }
+}
+
+/** Decode metadata for one episode layer's historical versions.
+ * @param value - Workshop result.
+ * @returns The available versions.
+ */
+export function editorHistory(value: unknown): ScriptDraftHistory {
+  return { items: array(item(value).items, 1_000, historyItem) }
+}
+
+/** Decode the historical version selected by the editor.
+ * @param value - Workshop result.
+ * @param historyId - Expected historical version ID.
+ * @returns The content and metadata of that version.
+ */
+export function editorHistoryEntry(value: unknown, historyId: number): ScriptDraftHistoryEntry {
+  const row = item(value)
+  const info = historyItem(row)
+  if (info.id !== historyId) throw invalid()
+  return { ...info, content: text(row.content, 4_000_000) }
+}
+
+/** Decode one restored episode layer.
+ * @param value - Workshop result.
+ * @param request - The expected draft, episode, and layer.
+ * @returns Exactly the requested restored layer.
+ */
+export function editorRestore(value: unknown, request: ScriptDraftHistoryRequest): ScriptDraftHistoryRestore {
+  const row = item(value)
+  if (request.layer === 'chapter') {
+    if (row.storyboard !== null) throw invalid()
+    return { episode: editorEpisode(row.episode, request), storyboard: null }
+  }
+  if (row.episode !== null) throw invalid()
+  return { episode: null, storyboard: editorStoryboard(row.storyboard, request) }
+}
+
+/** Build a history path for an episode and, when requested, one historical version.
+ * @param request - The target episode and optional history ID.
+ * @returns The route before its query parameters.
+ */
+export function editorHistoryPath(request: ScriptDraftHistoryRequest | ScriptDraftHistoryEntryRequest): string {
+  const base = editorEpisodePath(request) + '/history'
+  if (!('historyId' in request)) return base
+  if (!Number.isSafeInteger(request.historyId) || request.historyId < 1) throw requestError()
+  return base + '/' + String(request.historyId)
+}
+
+/** Build the authenticated export route for the target draft and format.
+ * @param request - Content and encoding to export.
+ * @returns The export route including its query parameters.
+ */
+export function editorExportPath(request: ScriptDraftExportRequest): string {
+  const query = new URLSearchParams({ kind: request.kind, format: request.format })
+  if (request.episode !== undefined) {
+    if (!Number.isSafeInteger(request.episode) || request.episode < 1) throw requestError()
+    query.set('episode', String(request.episode))
+  }
+  return editorDraftPath(request.draftId) + '/export?' + query.toString()
+}
+
+/** Decode a downloadable draft export.
+ * @param value - Workshop result.
+ * @returns The file name, type, and encoded bytes.
+ */
+export function editorExport(value: unknown): ScriptDraftExport {
+  const row = item(value)
+  const filename = text(row.filename, 1_000)
+  const mime = text(row.mime, 200)
+  const base64 = text(row.base64, 14_000_000)
+  if (filename === '' || /[\\/\p{Cc}]/u.test(filename) || !/^[\w.+-]+\/[\w.+-]+(?:;\s*charset=utf-8)?$/iu.test(mime) ||
+    base64 === '' || base64.length % 4 !== 0 || /[^A-Za-z0-9+/=]/u.test(base64) || /=/.test(base64.slice(0, -2))) throw invalid()
+  return { filename, mime, base64 }
 }

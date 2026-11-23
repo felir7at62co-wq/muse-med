@@ -47,3 +47,38 @@ it('rejects an episode reply containing a different draft or episode', async () 
     code: 'WORKSHOP_EDITOR_INVALID_RESULT',
   })
 })
+
+it('uses the signed-in Workshop for structured editing, history restore and document export', async () => {
+  const board = { draftId: 12, episode: 4, title: '账本', shotsJson: '[]', version: 1, revision: baseRevision, exists: true, stale: false }
+  const version = { id: 32, version: 1, createdAt: null, createdBy: 'user_edit' }
+  const file = { filename: '账本.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', base64: 'UEsDBA==' }
+  const draft = { id: 12, title: '账本', status: 'draft', episodeCount: 1, updatedAt: null, episodes: [{ episode: 4, title: '账本' }],
+    revision: baseRevision, canFinalize: false, context: { outline: null, storyBible: null } }
+  const { origin, requests } = await workbench((req) => {
+    switch (req.url) {
+      case '/v1/auth/muse/challenge': return [200, { requestId: 'fixture', challenge: 'c'.repeat(43) }]
+      case '/v1/auth/muse/exchange': return [200, { access_token: 'fixture-token', user: { id: 41 } }]
+      case '/v1/script-editor/drafts': return [200, draft]
+      case root + '/storyboard': return [200, board]
+      case root + '/history?layer=storyboard': return [200, { items: [version] }]
+      case root + '/history/32?layer=storyboard': return [200, { ...version, content: '[]' }]
+      case root + '/history/32/restore': return [200, { episode: null, storyboard: board }]
+      case '/v1/script-editor/drafts/12/export?kind=storyboards&format=docx&episode=4': return [200, file]
+      default: return [404, {}]
+    }
+  })
+  const { ctx } = await host()
+  await ctx.plugin(WorkshopConnection, { workshopOrigin: origin }).await()
+  const api = ctx.workshopConnection
+  const target = { draftId: 12, episode: 4, layer: 'storyboard' as const }
+  expect(await api.createScriptDraft({ title: '账本', file: { filename: '账本.docx', base64: file.base64 } })).toEqual(draft)
+  expect(await api.scriptDraftStoryboard(target)).toEqual(board)
+  expect(await api.saveScriptDraftStoryboard({ ...target, baseRevision, shotsJson: '[]' })).toEqual(board)
+  expect(await api.scriptDraftHistory(target)).toEqual({ items: [version] })
+  expect(await api.scriptDraftHistoryEntry({ ...target, historyId: 32 })).toEqual({ ...version, content: '[]' })
+  expect(await api.restoreScriptDraftHistory({ ...target, historyId: 32, baseRevision })).toEqual({ episode: null, storyboard: board })
+  expect(await api.exportScriptDraft({ draftId: 12, episode: 4, kind: 'storyboards', format: 'docx' })).toEqual(file)
+  expect(requests.slice(2).every(row => row.authorization === 'Bearer fixture-token')).toBe(true)
+  expect(requests.slice(2).map(row => row.method)).toEqual(['POST', 'GET', 'PATCH', 'GET', 'GET', 'POST', 'GET'])
+  expect(JSON.parse(requests.at(-2)!.body)).toEqual({ layer: 'storyboard', baseRevision })
+})

@@ -3,7 +3,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { principalOf, Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
-import { editorCandidate, editorDraft, editorDraftList, editorDraftPath, editorEpisode, editorEpisodePath, editorListPath } from './editor.ts'
+import {
+  editorCandidate, editorDraft, editorDraftList, editorDraftPath, editorEpisode, editorEpisodePath,
+  editorExport, editorExportPath, editorHistory, editorHistoryEntry, editorHistoryPath, editorListPath, editorRestore, editorStoryboard,
+} from './editor.ts'
 import { workbenchOrigin } from './http.ts'
 import type { WorkbenchRequest } from './http.ts'
 import { WorkbenchSessions } from './sessions.ts'
@@ -11,9 +14,11 @@ import type { WorkbenchDefinition, WorkbenchSession } from './sessions.ts'
 import { scriptDetail, scriptList, scriptOf } from './scripts.ts'
 import type { ScriptDetail, ScriptList, ScriptListRequest, ScriptPickRequest, ScriptProductionRequest, ScriptReadRequest, ScriptSummary } from './types.ts'
 import type {
-  ScriptDraft, ScriptDraftCandidate, ScriptDraftCandidateRequest, ScriptDraftEpisode, ScriptDraftEpisodeRequest,
-  ScriptDraftFinalizeRequest, ScriptDraftList, ScriptDraftListRequest, ScriptDraftRequest, ScriptDraftSaveRequest,
-  ScriptDraftStageRequest,
+  ScriptDraft, ScriptDraftCandidate, ScriptDraftCandidateRequest, ScriptDraftCreateRequest, ScriptDraftEpisode, ScriptDraftEpisodeRequest,
+  ScriptDraftExport, ScriptDraftExportRequest, ScriptDraftFinalizeRequest, ScriptDraftHistory, ScriptDraftHistoryEntry,
+  ScriptDraftHistoryEntryRequest, ScriptDraftHistoryRequest, ScriptDraftHistoryRestore, ScriptDraftHistoryRestoreRequest,
+  ScriptDraftList, ScriptDraftListRequest, ScriptDraftRequest, ScriptDraftSaveRequest, ScriptDraftStageRequest,
+  ScriptDraftStoryboard, ScriptDraftStoryboardSaveRequest,
 } from './editor-types.ts'
 
 export { boundedBytes, isRecord, requestJson, workbenchOrigin, WorkbenchHttpError } from './http.ts'
@@ -138,6 +143,15 @@ export class WorkshopConnection extends TypertRemoteService {
     return editorDraftList(await this.editorRequest(editorListPath(request)))
   }
 
+  /** Create a blank draft or import an existing file into this editor's draft library.
+   * @param request - Title, episodes or file, and an optional retry identifier.
+   * @returns The new draft and its initial episodes.
+   */
+  @Remote
+  async createScriptDraft(request: ScriptDraftCreateRequest): Promise<ScriptDraft> {
+    return editorDraft(await this.editorRequest('/script-editor/drafts', { method: 'POST', body: request }))
+  }
+
   /** Read a draft's editable episodes and context.
    * @param request - Draft to open.
    * @returns Episode directory, context, and publication revision.
@@ -199,6 +213,66 @@ export class WorkshopConnection extends TypertRemoteService {
     return editorEpisode(await this.editorRequest(editorEpisodePath(request), {
       method: 'PATCH', body: { baseRevision: request.baseRevision, content: request.content },
     }), request)
+  }
+
+  /** Read the structured screenplay stored separately from an episode's source text.
+   * @param request - Draft and episode to open.
+   * @returns The structured screenplay, its revision, and whether it needs review after a source edit.
+   */
+  @Remote
+  async scriptDraftStoryboard(request: ScriptDraftEpisodeRequest): Promise<ScriptDraftStoryboard> {
+    return editorStoryboard(await this.editorRequest(editorEpisodePath(request) + '/storyboard'), request)
+  }
+
+  /** Save the structured screenplay displayed by the editor.
+   * @param request - Episode, displayed revision, and updated screenplay.
+   * @returns The saved structured screenplay.
+   */
+  @Remote
+  async saveScriptDraftStoryboard(request: ScriptDraftStoryboardSaveRequest): Promise<ScriptDraftStoryboard> {
+    return editorStoryboard(await this.editorRequest(editorEpisodePath(request) + '/storyboard', {
+      method: 'PATCH', body: { baseRevision: request.baseRevision, shotsJson: request.shotsJson },
+    }), request)
+  }
+
+  /** List the saved versions of one episode and layer.
+   * @param request - Episode and layer to inspect.
+   * @returns Version metadata.
+   */
+  @Remote
+  async scriptDraftHistory(request: ScriptDraftHistoryRequest): Promise<ScriptDraftHistory> {
+    const query = new URLSearchParams({ layer: request.layer })
+    return editorHistory(await this.editorRequest(editorHistoryPath(request) + '?' + query.toString()))
+  }
+
+  /** Read the exact historical version selected by the editor.
+   * @param request - Episode, layer, and history entry.
+   * @returns The selected historical content.
+   */
+  @Remote
+  async scriptDraftHistoryEntry(request: ScriptDraftHistoryEntryRequest): Promise<ScriptDraftHistoryEntry> {
+    const query = new URLSearchParams({ layer: request.layer })
+    return editorHistoryEntry(await this.editorRequest(editorHistoryPath(request) + '?' + query.toString()), request.historyId)
+  }
+
+  /** Restore a historical version as a new revision.
+   * @param request - Historical entry and the current revision reviewed by the editor.
+   * @returns The restored episode layer.
+   */
+  @Remote
+  async restoreScriptDraftHistory(request: ScriptDraftHistoryRestoreRequest): Promise<ScriptDraftHistoryRestore> {
+    return editorRestore(await this.editorRequest(editorHistoryPath(request) + '/restore', {
+      method: 'POST', body: { layer: request.layer, baseRevision: request.baseRevision },
+    }), request)
+  }
+
+  /** Download an authorized export of the saved draft or selected episode.
+   * @param request - Content scope and format.
+   * @returns Download metadata and file bytes encoded for the Client.
+   */
+  @Remote
+  async exportScriptDraft(request: ScriptDraftExportRequest): Promise<ScriptDraftExport> {
+    return editorExport(await this.editorRequest(editorExportPath(request)))
   }
 
   /** Publish a reviewed draft revision to the finalized library.

@@ -10,7 +10,9 @@ The cloud serves Workshop on the shared Muse workbench host at `/jubengongfang/`
 
 ## Muse draft editing
 
-`/v1/script-editor` serves existing draft text episodes to Muse under the same Workshop account. Draft owners and administrators can read and edit them, and only the owner can publish a complete draft. Each editor has one pending candidate per draft episode. Saving or applying checks the episode's exact revision and archives its previous text in the same transaction. Publication checks the complete draft revision and reuses that draft's existing library entry. Previously selected versions remain selected. Structured storyboards continue to use the existing Workshop routes.
+`/v1/script-editor` uses the editor's Workshop account to create blank drafts and import Word, Markdown, UTF-8 text, or structured episodes without starting a generation job. File imports extract editable text from files up to 4 MiB and split it by episode headings. Structured imports preserve the ordered scene records and their additional fields.
+
+Draft owners and administrators can edit episode text and structured scenes, preview the history of either layer, restore a saved version, and export Word, Markdown, or plain text files. Saving, applying a text candidate, and restoring require the current revision and save the prior version in the same transaction. Only the owner can publish a complete draft. Publication checks the complete draft revision, reuses its library entry, and keeps any previously selected version.
 
 ## Source
 

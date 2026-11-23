@@ -5874,6 +5874,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Drafts and the next offset.',
       },
       {
+        signature: '@Remote async createScriptDraft(request: ScriptDraftCreateRequest): Promise<ScriptDraft>',
+        description: 'Create a blank draft or import an existing file into this editor\'s draft library.',
+        parameters: [{ name: 'request', description: 'Title, episodes or file, and an optional retry identifier.' }],
+        returns: 'The new draft and its initial episodes.',
+      },
+      {
         signature: '@Remote async scriptDraft(request: ScriptDraftRequest): Promise<ScriptDraft>',
         description: 'Read a draft\'s editable episodes and context.',
         parameters: [{ name: 'request', description: 'Draft to open.' }],
@@ -5908,6 +5914,42 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Save a manual edit to one episode.',
         parameters: [{ name: 'request', description: 'Episode, displayed revision, and updated text.' }],
         returns: 'The saved episode.',
+      },
+      {
+        signature: '@Remote async scriptDraftStoryboard(request: ScriptDraftEpisodeRequest): Promise<ScriptDraftStoryboard>',
+        description: 'Read the structured screenplay stored separately from an episode\'s source text.',
+        parameters: [{ name: 'request', description: 'Draft and episode to open.' }],
+        returns: 'The structured screenplay, its revision, and whether it needs review after a source edit.',
+      },
+      {
+        signature: '@Remote async saveScriptDraftStoryboard(request: ScriptDraftStoryboardSaveRequest): Promise<ScriptDraftStoryboard>',
+        description: 'Save the structured screenplay displayed by the editor.',
+        parameters: [{ name: 'request', description: 'Episode, displayed revision, and updated screenplay.' }],
+        returns: 'The saved structured screenplay.',
+      },
+      {
+        signature: '@Remote async scriptDraftHistory(request: ScriptDraftHistoryRequest): Promise<ScriptDraftHistory>',
+        description: 'List the saved versions of one episode and layer.',
+        parameters: [{ name: 'request', description: 'Episode and layer to inspect.' }],
+        returns: 'Version metadata.',
+      },
+      {
+        signature: '@Remote async scriptDraftHistoryEntry(request: ScriptDraftHistoryEntryRequest): Promise<ScriptDraftHistoryEntry>',
+        description: 'Read the exact historical version selected by the editor.',
+        parameters: [{ name: 'request', description: 'Episode, layer, and history entry.' }],
+        returns: 'The selected historical content.',
+      },
+      {
+        signature: '@Remote async restoreScriptDraftHistory(request: ScriptDraftHistoryRestoreRequest): Promise<ScriptDraftHistoryRestore>',
+        description: 'Restore a historical version as a new revision.',
+        parameters: [{ name: 'request', description: 'Historical entry and the current revision reviewed by the editor.' }],
+        returns: 'The restored episode layer.',
+      },
+      {
+        signature: '@Remote async exportScriptDraft(request: ScriptDraftExportRequest): Promise<ScriptDraftExport>',
+        description: 'Download an authorized export of the saved draft or selected episode.',
+        parameters: [{ name: 'request', description: 'Content scope and format.' }],
+        returns: 'Download metadata and file bytes encoded for the Client.',
       },
       {
         signature: '@Remote async finalizeScriptDraft(request: ScriptDraftFinalizeRequest): Promise<ScriptSummary>',
@@ -10650,6 +10692,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ScriptDraftCandidateRequest extends ScriptDraftEpisodeRequest {\n    readonly candidateId: string;\n}',
   },
   {
+    name: 'ScriptDraftCreateRequest',
+    declaration: 'export interface ScriptDraftCreateRequest {\n    readonly title: string;\n    readonly episodeCount?: number;\n    readonly episodes?: readonly ScriptDraftImportEpisode[];\n    readonly requestId?: string;\n    readonly file?: {\n        readonly filename: string;\n        readonly base64: string;\n    };\n}',
+  },
+  {
     name: 'ScriptDraftEpisode',
     declaration: 'export interface ScriptDraftEpisode extends ScriptDraftEpisodeRequest {\n    readonly title: string;\n    readonly revision: string;\n    readonly version: number;\n    readonly content: string;\n    readonly candidate: ScriptDraftCandidate | null;\n}',
   },
@@ -10658,8 +10704,52 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ScriptDraftEpisodeRequest extends ScriptDraftRequest {\n    readonly episode: number;\n}',
   },
   {
+    name: 'ScriptDraftExport',
+    declaration: 'export interface ScriptDraftExport {\n    readonly filename: string;\n    readonly mime: string;\n    readonly base64: string;\n}',
+  },
+  {
+    name: 'ScriptDraftExportRequest',
+    declaration: 'export interface ScriptDraftExportRequest extends ScriptDraftRequest {\n    readonly kind: \'chapters\' | \'storyboards\' | \'mixed\' | \'outline\';\n    readonly format: \'docx\' | \'txt\' | \'md\';\n    readonly episode?: number;\n}',
+  },
+  {
     name: 'ScriptDraftFinalizeRequest',
     declaration: 'export interface ScriptDraftFinalizeRequest extends ScriptDraftRequest {\n    readonly baseRevision: string;\n    readonly rights: ScriptRights;\n    readonly kind: ScriptKind;\n    readonly style: ScriptStyle;\n    readonly originWorkId?: string;\n    readonly originTitle?: string;\n}',
+  },
+  {
+    name: 'ScriptDraftHistory',
+    declaration: 'export interface ScriptDraftHistory {\n    readonly items: readonly ScriptDraftHistoryItem[];\n}',
+  },
+  {
+    name: 'ScriptDraftHistoryEntry',
+    declaration: 'export interface ScriptDraftHistoryEntry extends ScriptDraftHistoryItem {\n    readonly content: string;\n}',
+  },
+  {
+    name: 'ScriptDraftHistoryEntryRequest',
+    declaration: 'export interface ScriptDraftHistoryEntryRequest extends ScriptDraftHistoryRequest {\n    readonly historyId: number;\n}',
+  },
+  {
+    name: 'ScriptDraftHistoryItem',
+    declaration: 'export interface ScriptDraftHistoryItem {\n    readonly id: number;\n    readonly version: number;\n    readonly createdAt: string | null;\n    readonly createdBy: string | null;\n}',
+  },
+  {
+    name: 'ScriptDraftHistoryRequest',
+    declaration: 'export interface ScriptDraftHistoryRequest extends ScriptDraftEpisodeRequest {\n    readonly layer: ScriptDraftLayer;\n}',
+  },
+  {
+    name: 'ScriptDraftHistoryRestore',
+    declaration: 'export interface ScriptDraftHistoryRestore {\n    readonly episode: ScriptDraftEpisode | null;\n    readonly storyboard: ScriptDraftStoryboard | null;\n}',
+  },
+  {
+    name: 'ScriptDraftHistoryRestoreRequest',
+    declaration: 'export interface ScriptDraftHistoryRestoreRequest extends ScriptDraftHistoryEntryRequest {\n    readonly baseRevision: string;\n}',
+  },
+  {
+    name: 'ScriptDraftImportEpisode',
+    declaration: 'export interface ScriptDraftImportEpisode {\n    readonly title?: string;\n    readonly content?: string;\n    readonly shotsJson?: string;\n}',
+  },
+  {
+    name: 'ScriptDraftLayer',
+    declaration: 'export type ScriptDraftLayer = \'chapter\' | \'storyboard\';',
   },
   {
     name: 'ScriptDraftList',
@@ -10680,6 +10770,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ScriptDraftStageRequest',
     declaration: 'export interface ScriptDraftStageRequest extends ScriptDraftSaveRequest {\n    readonly summary: string;\n}',
+  },
+  {
+    name: 'ScriptDraftStoryboard',
+    declaration: 'export interface ScriptDraftStoryboard extends ScriptDraftEpisodeRequest {\n    readonly title: string;\n    readonly shotsJson: string;\n    readonly revision: string;\n    readonly version: number;\n    readonly exists: boolean;\n    readonly stale: boolean;\n}',
+  },
+  {
+    name: 'ScriptDraftStoryboardSaveRequest',
+    declaration: 'export interface ScriptDraftStoryboardSaveRequest extends ScriptDraftEpisodeRequest {\n    readonly baseRevision: string;\n    readonly shotsJson: string;\n}',
   },
   {
     name: 'ScriptDraftSummary',

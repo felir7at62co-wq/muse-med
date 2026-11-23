@@ -2,7 +2,7 @@
 /** Draft review stays scoped to the selected episode and applies only after a human action. */
 import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { ScriptDraft, ScriptDraftEpisode } from '@deepseek-ai/dsh-workbench-connection/types'
+import type { ScriptDraft, ScriptDraftEpisode, ScriptDraftStoryboard } from '@deepseek-ai/dsh-workbench-connection/types'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DrawerScripts, type DrawerScriptsProps } from '../src/client/DrawerScripts.tsx'
 import { en } from '../src/client/locales.ts'
@@ -17,10 +17,22 @@ const pending: NonNullable<ScriptDraftEpisode['candidate']> = {
   createdAt: '2026-11-22T20:00:00Z', summary: 'Keep the reveal and clarify the action.',
 }
 const current = 'Jin picks up the ledger.'
+const shot = {
+  scene_no: '3-1', time_loc: 'Night · interior', location: 'Bookroom', characters: ['Jin'],
+  elements: [{ type: 'action', content: 'Jin locks the door.', framing: 'Keep' },
+    { type: 'dialogue', character: 'Jin', content: 'Bring the book.', mode: 'whisper' }],
+  subtitle: 'Six years earlier', plugin: { keep: true },
+}
 
 afterEach(cleanup)
 
-function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = false } = {}) {
+function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = false, legacyEmptyBoard = false, storedShots }: {
+  stale?: boolean
+  canFinalize?: boolean
+  changedBeforeConfirmation?: boolean
+  legacyEmptyBoard?: boolean
+  storedShots?: string
+} = {}) {
   const reads: URL[] = []
   let latestRevision = draft.revision
   const episodeRow = (episode: number): ScriptDraftEpisode => ({
@@ -28,6 +40,11 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
     revision: stale ? 'new-revision' : 'episode-' + String(episode), version: 2,
     content: episode === 4 ? current : 'A visitor arrives.', candidate: episode === 4 ? pending : null,
   })
+  const storyRow = (episode: number): ScriptDraftStoryboard => ({
+    draftId: draft.id, episode, title: '', shotsJson: episode === 3 && storedShots !== undefined ? storedShots : JSON.stringify(episode === 3 && !legacyEmptyBoard ? [shot] : []),
+    revision: 'board-' + String(episode), version: legacyEmptyBoard ? 1 : 2, exists: episode === 3 && !legacyEmptyBoard, stale: false,
+  })
+  const old = { id: 21, version: 1, createdAt: '2026-11-23T06:00:00Z', createdBy: '11' }
   const useResource = ((address: string) => {
     const url = new URL(address)
     reads.push(url)
@@ -38,6 +55,10 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
       case 'workshop-draft': value = { ...draft, canFinalize,
         revision: url.searchParams.has('confirmation') && changedBeforeConfirmation ? 'unreviewed-revision' : latestRevision }; break
       case 'workshop-draft-episode': value = episodeRow(Number(url.searchParams.get('episode'))); break
+      case 'workshop-draft-storyboard': value = storyRow(Number(url.searchParams.get('episode'))); break
+      case 'workshop-draft-history': value = { items: [old] }; break
+      case 'workshop-draft-history-entry': value = { ...old, content: url.searchParams.get('layer') === 'storyboard'
+        ? JSON.stringify([{ ...shot, location: 'Market' }]) : 'Jin watches the door.' }; break
     }
     return { status: value === undefined ? 'failed' : 'live', value, failure: undefined }
   }) as DrawerScriptsProps['useResource']
@@ -52,12 +73,25 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
   })
   const discardCandidate = vi.fn(async (): Promise<ScriptDraftEpisode> => ({ ...episodeRow(4), candidate: null }))
   const finalizeDraft = vi.fn<DrawerScriptsProps['draftActions']['finalizeDraft']>()
+  const createDraft = vi.fn<DrawerScriptsProps['draftActions']['createDraft']>().mockResolvedValue(draft)
+  const saveStoryboard = vi.fn<DrawerScriptsProps['draftActions']['saveStoryboard']>().mockImplementation(async request => ({
+    ...storyRow(request.episode), version: 3, revision: 'board-saved', shotsJson: request.shotsJson, exists: true,
+  }))
+  const restoreHistory = vi.fn<DrawerScriptsProps['draftActions']['restoreHistory']>().mockImplementation(async request => request.layer === 'chapter'
+    ? { episode: { ...episodeRow(request.episode), content: 'Jin watches the door.', version: 3 }, storyboard: null }
+    : { episode: null, storyboard: { ...storyRow(request.episode), shotsJson: JSON.stringify([{ ...shot, location: 'Market' }]), version: 3 } })
+  const exportDraft = vi.fn<DrawerScriptsProps['draftActions']['exportDraft']>().mockResolvedValue({
+    filename: 'source.md', mime: 'text/markdown', base64: 'U2NyaXB0',
+  })
   const props: DrawerScriptsProps = {
     t: makeTranslate(en), useResource, useAccountEpoch: select => select(1),
     script: null, openScript, quote, compose: vi.fn(), pick: vi.fn(), link: vi.fn(),
-    draftActions: { applyCandidate, saveEpisode, discardCandidate, finalizeDraft },
+    draftActions: {
+      applyCandidate, saveEpisode, discardCandidate, finalizeDraft, createDraft, saveStoryboard, restoreHistory, exportDraft,
+    },
   }
-  return { props, reads, openScript, quote, applyCandidate, saveEpisode, discardCandidate, finalizeDraft }
+  return { props, reads, openScript, quote, applyCandidate, saveEpisode, discardCandidate, finalizeDraft, createDraft, saveStoryboard,
+    restoreHistory, exportDraft }
 }
 
 it('opens a draft tab from search and keeps the finalized library available', () => {
@@ -140,4 +174,124 @@ it('refuses a newer draft discovered inside the confirmation dialog', () => {
   expect(dialog.getByRole('alert').textContent).toBe(en.draftConflict)
   fireEvent.click(dialog.getByRole('button', { name: en.finalizeDraft }))
   expect(finalizeDraft).not.toHaveBeenCalled()
+})
+
+it('creates a blank numbered draft from the draft collection and reuses the same request on retry', async () => {
+  const { props, createDraft, openScript } = setup()
+  createDraft.mockRejectedValueOnce(new Error('Connection lost'))
+  const view = render(<DrawerScripts {...props} />)
+  fireEvent.click(view.getByRole('button', { name: en.newDraft }))
+  const dialog = within(view.getByRole('dialog', { name: en.newDraft }))
+  fireEvent.change(dialog.getByRole('textbox', { name: en.draftName }), { target: { value: 'New screenplay' } })
+  fireEvent.change(dialog.getByRole('spinbutton', { name: en.draftEpisodes }), { target: { value: '3' } })
+  fireEvent.click(dialog.getByRole('button', { name: en.newDraft }))
+  await waitFor(() => { expect(dialog.getByRole('alert').textContent).toBe(en.draftCreateFailed) })
+  fireEvent.click(dialog.getByRole('button', { name: en.newDraft }))
+  await waitFor(() => { expect(openScript).toHaveBeenCalledWith({ id: 'draft:45', title: draft.title }) })
+  expect(createDraft.mock.calls).toEqual([
+    [{ title: 'New screenplay', episodeCount: 3, requestId: expect.any(String) }],
+    [createDraft.mock.calls[0]?.[0]],
+  ])
+})
+
+it('passes a selected source file to Workshop and opens the returned draft', async () => {
+  const { props, createDraft, openScript } = setup()
+  const view = render(<DrawerScripts {...props} />)
+  fireEvent.click(view.getByRole('button', { name: en.importDraft }))
+  const dialog = within(view.getByRole('dialog', { name: en.importDraft }))
+  const file = new File(['Episode 1'], 'Side story.txt', { type: 'text/plain' })
+  const selector = dialog.getByLabelText(new RegExp(en.draftSource, 'u'))
+  fireEvent.change(selector, { target: { files: [file] } })
+  const submit = dialog.getByRole('button', { name: en.importDraft })
+  await waitFor(() => { expect(submit).toHaveProperty('disabled', false) })
+  fireEvent.click(submit)
+  await waitFor(() => { expect(openScript).toHaveBeenCalledWith({ id: 'draft:45', title: draft.title }) })
+  expect(createDraft).toHaveBeenCalledWith({ title: 'Side story', requestId: expect.any(String),
+    file: { filename: 'Side story.txt', base64: 'RXBpc29kZSAx' } })
+})
+
+it('edits ordered dialogue in the scene script and retains fields that other Workshop features use', async () => {
+  const { props, reads, saveStoryboard } = setup()
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.change(view.getByRole('combobox', { name: en.draftLayer }), { target: { value: 'storyboard' } })
+  expect(view.getByText('Jin locks the door.')).toBeTruthy()
+  expect(view.getByText(/Bring the book\./u)).toBeTruthy()
+  fireEvent.click(view.getByRole('button', { name: en.editStoryboard }))
+  fireEvent.change(view.getByRole('textbox', { name: en.draftSceneDialogue }), { target: { value: 'Open the book.' } })
+  fireEvent.click(view.getByRole('button', { name: en.save }))
+  await waitFor(() => { expect(view.getByText(/Open the book\./u)).toBeTruthy() })
+  const request = saveStoryboard.mock.calls[0]?.[0]
+  expect(request).toMatchObject({ draftId: 45, episode: 3, baseRevision: 'board-3' })
+  expect(JSON.parse(request?.shotsJson ?? '')).toEqual([{
+    ...shot, elements: [shot.elements[0], { ...shot.elements[1], content: 'Open the book.' }],
+  }])
+  fireEvent.change(view.getByRole('combobox', { name: en.scriptEpisodes }), { target: { value: '4' } })
+  expect(reads.some(url => url.hostname === 'workshop-draft-storyboard' && url.searchParams.get('episode') === '4')).toBe(true)
+  expect(view.getByText(en.emptyStoryboard)).toBeTruthy()
+})
+
+it('shows scenes and history without rewriting an unsafe integer in stored scene metadata', () => {
+  const storedShots = JSON.stringify([shot]).replace('"keep":true', '"keep":true,"externalId":9223372036854775807')
+  const { props, saveStoryboard } = setup({ storedShots })
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.change(view.getByRole('combobox', { name: en.draftLayer }), { target: { value: 'storyboard' } })
+  expect(view.getByText('Jin locks the door.')).toBeTruthy()
+  fireEvent.click(view.getByRole('button', { name: en.editStoryboard }))
+  expect(view.getByRole('alert').textContent).toBe(en.draftStoryboardUnsafeNumbers)
+  expect(view.queryByRole('button', { name: en.save })).toBeNull()
+  expect(saveStoryboard).not.toHaveBeenCalled()
+  fireEvent.click(view.getByRole('button', { name: en.cancel }))
+  expect(view.getByText('Jin locks the door.')).toBeTruthy()
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+  fireEvent.change(dialog.getByRole('combobox', { name: en.chooseDraftVersion }), { target: { value: '21' } })
+  expect(dialog.getByText(/Market/u)).toBeTruthy()
+  expect(dialog.getByRole('button', { name: en.restoreDraftVersion })).toHaveProperty('disabled', false)
+})
+
+it('restores a legacy revision for the chosen episode and layer when its version number equals the empty board version', async () => {
+  const { props, restoreHistory, saveEpisode } = setup({ legacyEmptyBoard: true })
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.change(view.getByRole('combobox', { name: en.draftLayer }), { target: { value: 'storyboard' } })
+  expect(view.getByText(en.emptyStoryboard)).toBeTruthy()
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+  const restore = dialog.getByRole('button', { name: en.restoreDraftVersion })
+  expect(restore).toHaveProperty('disabled', true)
+  fireEvent.change(dialog.getByRole('combobox', { name: en.chooseDraftVersion }), { target: { value: '21' } })
+  expect(dialog.getByText(/Market/u)).toBeTruthy()
+  expect(restoreHistory).not.toHaveBeenCalled()
+  fireEvent.click(restore)
+  await waitFor(() => { expect(view.queryByRole('dialog')).toBeNull() })
+  expect(view.getByText(/Market/u)).toBeTruthy()
+  expect(restoreHistory).toHaveBeenCalledWith({ draftId: 45, episode: 3, layer: 'storyboard', historyId: 21, baseRevision: 'board-3' })
+  expect(saveEpisode).not.toHaveBeenCalled()
+})
+
+it.each(['chapters', 'mixed', 'outline'] as const)('downloads %s in the selected format and supported scope', async (kind) => {
+  const { props, exportDraft } = setup()
+  const create = vi.fn(() => 'blob:file')
+  const revoke = vi.fn()
+  vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL: create, revokeObjectURL: revoke }))
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  try {
+    const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+    fireEvent.click(view.getByRole('button', { name: en.exportScriptDraft }))
+    const dialog = within(view.getByRole('dialog', { name: en.exportScriptDraft }))
+    fireEvent.change(dialog.getByRole('combobox', { name: en.draftExportFormat }), { target: { value: 'md' } })
+    const scope = dialog.getByRole('combobox', { name: en.draftExportEpisodes })
+    fireEvent.change(scope, { target: { value: 'episode' } })
+    fireEvent.change(dialog.getByRole('combobox', { name: en.draftExportKind }), { target: { value: kind } })
+    expect(scope).toHaveProperty('disabled', kind !== 'chapters')
+    expect(scope).toHaveProperty('value', kind === 'chapters' ? 'episode' : 'all')
+    fireEvent.click(dialog.getByRole('button', { name: en.exportScriptDraft }))
+    await waitFor(() => { expect(view.queryByRole('dialog')).toBeNull() })
+    expect(exportDraft).toHaveBeenCalledWith({ draftId: 45, kind, format: 'md', ...(kind === 'chapters' ? { episode: 3 } : {}) })
+    expect(click.mock.instances[0]).toHaveProperty('download', 'source.md')
+    expect(create).toHaveBeenCalledWith(expect.any(Blob))
+    await waitFor(() => { expect(revoke).toHaveBeenCalledWith('blob:file') })
+  } finally {
+    click.mockRestore()
+    vi.unstubAllGlobals()
+  }
 })
