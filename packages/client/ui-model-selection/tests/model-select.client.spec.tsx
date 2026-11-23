@@ -40,6 +40,7 @@ const reasoning = {
 function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryState {
   return {
     current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    recentRequest: null,
     routable: true,
     groups: [{
       id: 'deepseek-official',
@@ -154,6 +155,43 @@ describe('ModelSelect label slot', () => {
     expect(renderSlot).not.toHaveBeenCalled()
   })
 })
+
+it('names the last request and selected next model in the picker while they differ', () => {
+  const models = modelGroups(2)
+  const previous = { provider: models[0]!.id, model: models[0]!.models[0]!.id }
+  const current = { provider: models[0]!.id, model: models[0]!.models[1]!.id }
+  const directory = createSnapshotStore(state({ groups: models, current, recentRequest: previous }))
+  const hint = `最近一次请求使用 ${models[0]!.models[0]!.name}，下一次新请求将使用 ${models[0]!.models[1]!.name}`
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+    resolveText={resolveText} select={vi.fn()} t={t} />)
+
+  const trigger = screen.getByRole('button', { name: /选择模型，当前/u })
+  expect(trigger.getAttribute('title')).toBe(hint)
+  fireEvent.click(trigger)
+  expect(screen.getByRole('status').textContent).toBe(hint)
+  act(() => { directory.update((snapshot) => { snapshot.recentRequest = null }) })
+  expect(screen.queryByText(hint)).toBeNull()
+  expect(trigger.getAttribute('title')).not.toBe(hint)
+})
+
+it.each([
+  { previousAvailable: true, previousProviderLabel: '前一个渠道' },
+  { previousAvailable: false, previousProviderLabel: 'prior-provider' },
+])('names the channels of identical model names (previous available: $previousAvailable)',
+  ({ previousAvailable, previousProviderLabel }) => {
+    const previous = { provider: 'prior-provider', model: '同名模型' }
+    const current = { provider: 'next-provider', model: '同名模型' }
+    const currentGroup = { id: current.provider, name: '下一个渠道', models: [{ id: current.model, name: current.model }] }
+    const previousGroup = { id: previous.provider, name: '前一个渠道', models: [{ id: previous.model, name: previous.model }] }
+    const directory = createSnapshotStore(state({
+      current, recentRequest: previous, groups: previousAvailable ? [previousGroup, currentGroup] : [currentGroup],
+    }))
+    render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory} load={vi.fn()}
+      resolveText={resolveText} select={vi.fn()} t={t} />)
+
+    const expected = `最近一次请求使用 同名模型 · ${previousProviderLabel}，下一次新请求将使用 同名模型 · 下一个渠道`
+    expect(screen.getByRole('button', { name: '选择模型，当前 同名模型' }).getAttribute('title')).toBe(expected)
+  })
 
 describe('ModelSelect catalog badges', () => {
   const BADGE = { text: { en: 'New', zh: '新' }, tone: 'info' } as const

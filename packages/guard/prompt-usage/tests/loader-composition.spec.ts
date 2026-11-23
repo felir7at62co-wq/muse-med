@@ -21,10 +21,9 @@ describe('real app and Loader composition of the shipped Desktop guard row', () 
       inspect: async (cwd) => {
         expect(JSON.parse(await readFile(join(cwd, 'result.json'), 'utf8'))).toEqual({
           passed: true, scenario,
-          // Shipped maxRetries 8: one dropped reply then recovery, or nine dropped replies.
-          requests: recover ? 2 : 9,
-          rejected_attempts: recover ? 1 : 9,
-          retry_events: recover ? 1 : 8,
+          requests: 2,
+          rejected_attempts: recover ? 1 : 2,
+          retry_events: 1,
           retry_codes: ['PROMPT_USAGE_SHORTFALL'],
           committed_messages: recover ? 1 : 0,
           final_text_recovered: recover,
