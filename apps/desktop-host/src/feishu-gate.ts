@@ -104,18 +104,20 @@ export { FEISHU_CHANNEL_ROW_ID } from '@deepseek-ai/dsh-feishu-settings'
 export interface FeishuGateRow {
   /** Entry id the composition patches by. */
   readonly id: string
+  /** Whether the composition explicitly disables this entry. */
+  readonly disabled?: PatchOptions['disabled']
   /** Existing dependencies and their service intercept configs. */
   readonly inject?: Inject<Record<string, unknown>> | null
 }
 
 /**
- * Require setup before the bundled IM configuration resolves.
+ * Order the bundled IM configuration after the legacy setup service when it is enabled.
  * @param rows - entries composed from preceding layers.
  * @returns the bridge dependency patch, or no patch when its entry is absent.
  */
 export function feishuGateLayer(rows: readonly FeishuGateRow[]): PatchOptions[] {
   const row = rows.find(candidate => candidate.id === FEISHU_CHANNEL_ROW_ID)
-  if (row === undefined) return []
+  if (row === undefined || rows.some(candidate => candidate.id === 'feishu' && candidate.disabled === true)) return []
   const inject: Inject<Record<string, unknown>> = Array.isArray(row.inject)
     ? [...new Set([...row.inject, 'feishuSetup'])]
     : { ...row.inject, feishuSetup: row.inject?.['feishuSetup'] ?? {} }

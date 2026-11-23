@@ -46,6 +46,13 @@ it('adds the setup dependency without replacing existing service intercepts or a
   expect(feishuGateLayer([{ id: 'other-row' }])).toEqual([])
 })
 
+it('lets the native IM entry start while the legacy Feishu settings are off', () => {
+  expect(feishuGateLayer([
+    { id: 'feishu-channel', disabled: false, inject: ['connection'] },
+    { id: 'feishu', disabled: true },
+  ])).toEqual([])
+})
+
 it('migrates the exact legacy profile guard once with a private original-byte backup', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'muse-im-profile-name-'))
   const path = join(dir, 'cordis.patch.yml')
