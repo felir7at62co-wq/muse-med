@@ -681,8 +681,8 @@ test('Feishu bot settings render one step-push select with four presentations', 
   );
   assert.equal(helpNodes.filter((node) => /只回复最终结果/.test(nodeText(node))).length, 1);
 
-  // off -> streaming_card: the flag write must land before the mode write so
-  // the runtime never sees a mode without step push enabled.
+  // off -> streaming_card: the mode write lands before the flag write, so the
+  // first request after enabling already starts progress in the chosen presentation.
   await act(async () => {
     stepPushSelect().props.onChange({ target: { value: 'streaming_card' } });
     await flushTasks();
@@ -699,7 +699,7 @@ test('Feishu bot settings render one step-push select with four presentations', 
   ));
   assert.ok(flagIndex >= 0, 'the enable flag is saved');
   assert.ok(modeIndex >= 0, 'the presentation mode is saved');
-  assert.ok(flagIndex < modeIndex, 'the flag must be saved before the mode');
+  assert.ok(modeIndex < flagIndex, 'the mode must be saved before the flag');
   assert.equal(stepPushSelect().props.value, 'streaming_card');
 
   // streaming_card -> live_cot: only the mode endpoint is called.
