@@ -16,7 +16,7 @@ export const imDesktopCompatibility = {
   remoteProvider: 'retained at @wenbin_wb/dsh-bridge/remote',
   sessionRouting: 'existing chat keys, native Session and workspace bindings, durable claims and topic replies remain authoritative without Muse Bot',
   managedFeishu: 'verified Muse connections own their existing chat bindings, with native Feishu transport, progress and optional voice',
-  feishuSettings: 'full-width status diagnostics in the embedded settings page',
+  feishuSettings: 'full-width status diagnostics with Muse wording in the embedded settings page',
   updates: 'supplied only by Muse application updates',
 }
 
@@ -66,6 +66,18 @@ export function applyImDesktopCompatibility(directory) {
   ])
   edit(directory, 'plugin-src/client/i18n.js', '1b785ceca110674f02b3d0ccb56684216e6c2fc8b1a8b267d46db96a02243200', [
     ["  '当前工作区': 'Current workspace',", "  '当前工作区': 'Current workspace',\n  '同一机器人的私聊和群聊共用此工作区，聊天记录各自独立。': 'This bot’s direct and group chats share this workspace; each chat keeps its own history.',"],
+    ["  '$locale': 'en',", `  '$locale': 'en',
+  '无法访问 DSH 管理接口，请检查 DSH 连接或重新登录后重试。': 'Cannot access the Muse management API. Check your connection or sign in again.',
+  '访问 DSH 管理接口': 'Access the Muse management API',
+  'DSH 版本': 'Muse engine version',`],
+    [`export const zh = Object.freeze(Object.fromEntries(
+  Object.keys(EN).map((key) => [key, key === '$locale' ? 'zh' : key]),
+));`, `export const zh = Object.freeze({
+  ...Object.fromEntries(Object.keys(EN).map((key) => [key, key === '$locale' ? 'zh' : key])),
+  '无法访问 DSH 管理接口，请检查 DSH 连接或重新登录后重试。': '无法访问 Muse 管理接口，请检查连接或重新登录后重试',
+  '访问 DSH 管理接口': '访问 Muse 管理接口',
+  'DSH 版本': 'Muse 内核版本',
+});`],
   ])
   edit(directory, 'src/channels/shared/workspace-command.mjs', 'f0418bb8cfe3066decb8cbb34f9a36979b3ad385c08cf7cb7d1fc02c322a6994', [
     ['function sessionBindErrorMessage(error) {', `function sessionBindErrorMessage(error) {
