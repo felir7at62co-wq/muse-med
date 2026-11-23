@@ -25,6 +25,11 @@ const GOAL_TOOLS = ['create_goal', 'update_goal', 'get_goal']
 // end with the conversation part that started them; Bots hand work to other Bots.
 // Agent Teams' teammates are such children too (#973).
 const DELEGATION_TOOLS = ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents', 'workflow', 'ralph', 'spawn_teammate', 'wait_agent', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update']
+// Muse: a Bot the user gives the `subagents` capability (transcription Bots, which need
+// several episodes at once) keeps DSH's own sub-agent tools; teammates, workflows and the
+// other delegation tools stay hidden for every Bot.
+export const SUBAGENTS_CAPABILITY = 'subagents'
+const SUBAGENT_TOOLS = ['subagent', 'list_agents', 'send_message', 'wait_agent', 'interrupt_agent']
 // restrict() refuses a whole list when one name is registered in the Agent's own
 // scope, so each group is masked on its own.
 const HIDDEN_TOOL_GROUPS = [[BLOCKING_QUESTION_TOOL, ...GOAL_TOOLS], DELEGATION_TOOLS]
@@ -1189,12 +1194,13 @@ export function install(rt) {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
     const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
       const assembled = await next()
+      const kept = allowsSubagents(agent?.session?.id ?? agent?.id) ? SUBAGENT_TOOLS : []
       // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
       // older assembly still carries tools to drop here.
       return {
         ...assembled,
-        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name) || kept.includes(tool.name)) } : {},
+        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name) || kept.some(name => section.name === `tool:${name}`)),
       }
     })
     held.filtered = true
@@ -1279,8 +1285,14 @@ export function install(rt) {
   }
 
   // restrict() throws on a name this profile does not serve.
+  // Whether the Bot owning this Session has the `subagents` capability attached.
+  const allowsSubagents = (sessionId) => {
+    const bot = rt.botOf(rt.selfOf?.(sessionId) ?? sessionId)
+    return Array.isArray(bot?.capabilities) && bot.capabilities.includes(SUBAGENTS_CAPABILITY)
+  }
   const maskHiddenTools = (agent, held, served) => {
-    const groups = HIDDEN_TOOL_GROUPS.map(group => group.filter(name => served.has(name))).filter(group => group.length > 0)
+    const kept = allowsSubagents(agent?.session?.id ?? agent?.id) ? SUBAGENT_TOOLS : []
+    const groups = HIDDEN_TOOL_GROUPS.map(group => group.filter(name => served.has(name) && !kept.includes(name))).filter(group => group.length > 0)
     if (groups.length === 0) return
     // Marked after one attempt even when a group fails, so a profile that can
     // never mask it is not re-masked on every resolve.
@@ -1342,6 +1354,7 @@ export function install(rt) {
     if (exec.name === BLOCKING_QUESTION_TOOL) return `Bots cannot use ${BLOCKING_QUESTION_TOOL}. Ask with ask_user in your own chat, or ask in your reply.`
     const target = exec.arguments?.target
     if (SCHEDULE_TARGET_TOOLS.includes(exec.name) && target !== undefined && target !== 'this_session') return SCHEDULE_TARGET_REFUSAL
+    if (SUBAGENT_TOOLS.includes(exec.name) && allowsSubagents(exec.agent?.id)) return undefined
     return DELEGATION_TOOLS.includes(exec.name) ? DELEGATION_REFUSAL : undefined
   })
   // Creation waits for this listener, so the Agent's first step already lacks the tool.

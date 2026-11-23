@@ -283,6 +283,29 @@ test("another plugin's global recall cannot stop ds-bot or shadow its own", asyn
   assert.match(String(recall?.tool?.description), /^Search your memory/)
 })
 
+test('a Bot given the subagents capability keeps the sub-agent tools and no other delegation tool', async (t) => {
+  const team = {
+    ...TEAM,
+    bots: { ...TEAM.bots, b: { ...TEAM.bots.b, capabilities: ['subagents'] } },
+    capabilities: { items: { subagents: { name: 'subagents', kind: 'skill', description: 'Sub-agents', content: 'At most three at once.', createdAt: 1, updatedAt: 1 } } },
+  }
+  const host = start(team)
+  t.after(host.stop)
+  const schemas = host.ctx.tools.schemas
+  host.ctx.tools.schemas = agent => [...schemas(agent), { name: 'subagent' }, { name: 'list_agents' }, { name: 'workflow' }]
+  await host.call('state', {})
+  await host.agentCreated('a')
+  await host.agentCreated('b')
+  const deniedNames = id => host.restricted.filter(entry => entry.sessionId === id).flatMap(entry => entry.deny)
+  assert.ok(deniedNames('a').includes('subagent'), 'a Bot without the capability loses subagent')
+  assert.ok(!deniedNames('b').includes('subagent') && !deniedNames('b').includes('list_agents'), 'the capability keeps the sub-agent tools')
+  assert.ok(deniedNames('b').includes('workflow') && deniedNames('b').includes('ask_user_question'), 'the other hidden tools stay hidden')
+  const guard = (name, sessionId) => host.ctx.guards.map(check => check({ name, agent: { id: sessionId } })).find(reason => reason !== undefined)
+  assert.equal(guard('subagent', 'b'), undefined)
+  assert.match(guard('subagent', 'a'), /Bots do not start subagents/)
+  assert.match(guard('workflow', 'b'), /Bots do not start subagents/)
+})
+
 test('a Bot made without a model has the scoped tools before its first step', async (t) => {
   const host = start({ ...TEAM, rooms: {} })
   t.after(host.stop)
