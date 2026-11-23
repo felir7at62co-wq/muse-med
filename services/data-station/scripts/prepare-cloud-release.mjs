@@ -207,10 +207,11 @@ export async function prepareCloudRelease(options = {}) {
   const packageBytes = await file(resolve(root, 'package.json')), lockBytes = await file(resolve(root, 'pnpm-lock.yaml'));
   const sourcePackage = JSON.parse(packageBytes.toString('utf8'));
   if (sourcePackage.name !== 'muse-data-web' || !sourcePackage.dependencies || !lockBytes.length) throw new Error('Cloud packaging requires the Muse Data Web package and frozen lockfile');
-  const gitRoot = await run('git', ['rev-parse', '--show-toplevel'], root);
+  // The project may be a directory inside a larger repository (services/data-station in Muse); only that directory has to be tracked and clean.
   const sourceCommit = await run('git', ['rev-parse', 'HEAD'], root);
-  const sourceStatus = await run('git', ['status', '--porcelain', '--untracked-files=normal'], root);
-  const sourceDirty = Boolean(sourceStatus) || gitRoot !== root;
+  const sourceStatus = await run('git', ['status', '--porcelain', '--untracked-files=normal', '--', '.'], root);
+  const sourceTracked = await run('git', ['ls-files', '--', 'package.json'], root);
+  const sourceDirty = Boolean(sourceStatus) || sourceTracked !== 'package.json';
   if (sourceDirty && !options.allowDirty) throw new Error('Cloud packaging requires clean committed source');
   if (options.allowDirty && !options.nodeModulesRoot) throw new Error('Dirty-source bypass is restricted to isolated fixture dependency trees');
   if (options.nodeModulesRoot && !options.allowDirty) throw new Error('Supplied node_modules trees are restricted to isolated fixtures');

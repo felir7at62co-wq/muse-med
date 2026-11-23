@@ -38,6 +38,8 @@ Left out are the repository history, `.env.example`, whose values are the defaul
 - The 绿泡泡 collector's default host label, its example config, `docs/lvpaopao.md` and its tests say `collector-mac` instead of a Mac's host name. A new collector install whose config has no `host` reports `collector-mac`.
 - `.gitignore` also ignores `.env.*` and keeps `third_party/fanqie-original/vendor/signer/lib/` in despite the repository's `lib/` rule.
 
+Changes in this tree that the cloud does not run yet, none of which changes a built file: `scripts/prepare-cloud-release.mjs` packages from a project directory inside a larger repository. It requires a tracked `package.json` and no uncommitted changes in that directory, and `RELEASE.json` names the Muse commit; the packager of `e53565b` refuses every directory that is not the repository root. `AGENTS.md` and `deploy/README.md` describe the station as a service in this repository.
+
 ## Layout
 
 | Path | Contents |

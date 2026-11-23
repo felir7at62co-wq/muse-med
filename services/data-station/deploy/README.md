@@ -4,7 +4,7 @@
 
 ## 本地准备
 
-先完成源码检查、根构建和 `/data/` 浏览器验收，提交已审查的改动。本地打包需要 Node、pnpm、tar 和 Python 3；Python 仅用标准库 `tarfile` 只读归档成员，不解压文件。然后在干净的项目根目录运行 `node scripts/prepare-cloud-release.mjs`；未提交改动、缺少服务端构建或不正确的静态资源 base 都会拒绝打包。打包器不会调用根构建，也不会改动根 `dist` 或根 `node_modules`。
+先完成源码检查、根构建和 `/data/` 浏览器验收，提交已审查的改动。本地打包需要 Node、pnpm、tar 和 Python 3；Python 仅用标准库 `tarfile` 只读归档成员，不解压文件。然后在 Muse 仓库的 `services/data-station` 目录运行 `node scripts/prepare-cloud-release.mjs`；该目录有未提交改动、缺少服务端构建或静态资源 base 不正确都会拒绝打包，清单的 `sourceCommit` 记录 Muse 仓库的提交。打包器不会调用根构建，也不会改动根 `dist` 或根 `node_modules`。
 
 客户端单独使用 `pnpm exec vite build --base=/data/ --outDir=.data/cloud-release-pack/dist`。生产依赖在独立 staging 的 `app` 中执行 `pnpm install --prod --frozen-lockfile --ignore-scripts`，禁止将根依赖目录符号链接到 staging。脚本只复制构建产物、生产依赖、版本锁、必要的番茄源文件和私有 Python 环境初始化脚本，以及所需许可证；不复制 `.env`、数据库、缓存、正文、测试、浏览器资料、账号文件或部署密钥。
 

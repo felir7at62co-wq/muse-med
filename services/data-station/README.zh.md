@@ -38,6 +38,8 @@ Muse 通过三种方式使用数据站：
 - 绿泡泡采集端的默认主机标签、示例配置、`docs/lvpaopao.md` 及其测试用 `collector-mac` 代替一台 Mac 的主机名。新安装的采集端若配置中没有 `host`，上报 `collector-mac`。
 - `.gitignore` 另外忽略 `.env.*`，并保留 `third_party/fanqie-original/vendor/signer/lib/`，不受仓库 `lib/` 规则影响。
 
+本目录中云端尚未运行的改动，均不改变构建产物：`scripts/prepare-cloud-release.mjs` 可以在更大仓库中的项目目录打包，要求该目录的 `package.json` 已被跟踪且没有未提交改动，`RELEASE.json` 记录 Muse 仓库的提交；`e53565b` 的打包器拒绝所有不是仓库根目录的目录。`AGENTS.md` 和 `deploy/README.md` 把数据站描述为本仓库中的服务。
+
 ## 目录
 
 | 路径 | 内容 |

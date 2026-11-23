@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
@@ -93,7 +93,23 @@ describe('isolated cloud release packaging', () => {
     expect((await readFile(resolve(extracted, 'app/RELEASE.json'), 'utf8'))).not.toContain('MUST_NOT_SHIP');
   });
 
-  it.each(['outer-appledouble', 'undeclared-file', 'missing-member', 'wrong-type', 'wrong-link-target', 'duplicate-member'] as const)('rejects a real archive that differs from its manifest: %s', async change => {
+  it('treats a committed project directory inside a larger repository as clean source', async () => {
+    const { root } = await fixture();
+    const outer = await mkdtemp(resolve('.data', 'cloud-packaging-outer-')); roots.push(outer);
+    const project = resolve(outer, 'services/station'); await mkdir(dirname(project), { recursive: true }); await rename(root, project);
+    await put(project, '.gitignore', 'node_modules/\ndist/\ndist-server/\n.data/\nartifacts/\n');
+    const git = async (...args: string[]) => (await execute('git', ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
+      '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: outer })).stdout.trim();
+    await git('init', '-q'); await git('add', '-A'); await git('commit', '-q', '-m', 'fixture');
+    const options = { cwd: project, nodeModulesRoot: resolve(project, 'deps/node_modules'), allowDirty: true, buildClient: false };
+    await put(outer, 'outside-the-project.txt', 'change outside the project directory\n');
+    const clean = JSON.parse(await readFile((await prepareCloudRelease(options)).manifest, 'utf8'));
+    expect(clean).toMatchObject({ sourceCommit: await git('rev-parse', 'HEAD'), sourceDirty: false });
+    await put(project, 'uncommitted.txt', 'change inside the project directory\n');
+    expect(JSON.parse(await readFile((await prepareCloudRelease(options)).manifest, 'utf8'))).toMatchObject({ sourceDirty: true });
+  });
+
+  it.each(['outer-appledouble','undeclared-file', 'missing-member', 'wrong-type', 'wrong-link-target', 'duplicate-member'] as const)('rejects a real archive that differs from its manifest: %s', async change => {
     const f = await fixture(); const packed = await prepareCloudRelease(f.options);
     const inventory: ArchiveInventory = JSON.parse(await readFile(packed.manifest, 'utf8'));
     const app = packed.stagingDirectory, stage = dirname(app), archive = resolve(f.root, 'tampered.tar.gz');
