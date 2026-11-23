@@ -8,6 +8,8 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
 
 The Muse spider in Bot details reacts to thinking, tool work, and requests for user input. A successfully completed turn plays one short animation. The details avatar respects the system's reduced-motion setting.
 
+Main Bots appear at the top of the sidebar in Main Bot order. A Bot linked to an enabled Feishu connection shows the Feishu mark on its avatar, including Bots bound to a group chat or direct message.
+
 - **Long-lived Bots**: each Bot is a dsh Session in the "DS Bot" workspace, with its own name, role, instructions and model.
 - **Working folders**: a Bot can work in a folder you choose instead of the team workspace, and a group chat can set one folder for all its members there. Pick it in the Bot's settings or details panel or in the group's settings, or ask a Bot (`update_bot`, `update_group`). After a change, the chat goes on in a fresh part that starts in the new folder. When a Bot sets a folder outside the team workspace, or adds a Bot to a group that works in one, it asks for your approval if those Bots can only write in their folder. Folders that hold dsh data (`$DSH_HOME`, the team's data) are refused. The team workspace itself moves in Settings > General > Locations; Bots and groups that work there go on in a fresh part in the new folder, and the old folder keeps its files.
 - **Permission presets**: each Bot runs with its own dsh permission preset (Read only, Workspace or Full access), set in its details panel. A group chat can run all its members with one preset there, in place of their own: turn on **Same for every member** under Permissions in the group's settings. Only you set permissions; Bots cannot change them.

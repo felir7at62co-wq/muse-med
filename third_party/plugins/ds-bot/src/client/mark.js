@@ -1,6 +1,7 @@
 import { createElement as h, useEffect, useRef, useState } from 'react'
 import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMarkup } from './characters.js'
 import { reducedEffects, reducedMotion } from './motion.js'
+import { FeishuMark, MARKS } from './connector-marks.js'
 import { t } from './i18n.js'
 
 export { colorOf, lookOf } from './characters.js'
@@ -141,16 +142,29 @@ function useSettled(state) {
   return settled
 }
 
-export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
+// Muse: the chat app a Bot is linked to (`imLinksOf` in sources.js), by the app's own mark
+// where connector-marks.js draws one. DingTalk and WeCom have none, so they show nothing.
+const IM_MARKS = {
+  feishu: ['Feishu', FeishuMark], lark: ['Lark', FeishuMark], telegram: ['Telegram', MARKS.telegram], weixin: ['WeChat', MARKS.wechat],
+  qq: ['QQ', MARKS.qq], discord: ['Discord', MARKS.discord], slack: ['Slack', MARKS.slack],
+}
+// What the mark says, for the mark and for the row that wears it; '' where there is none.
+export const imLabel = im => (IM_MARKS[im] ? t('Linked to {name}', { name: t(IM_MARKS[im][0]) }) : '')
+
+// `im` names the chat app the Bot is linked to; its mark sits above the state, Main and
+// admin badge, so both show.
+export function BotAvatar({ bot, size, state = 'idle', main, admin, im, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state)
   if (bot === undefined) return h(BotMark, { size })
   const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' && state !== 'waiting' ? 'working' : admin ? 'admin' : main ? 'main' : null
+  const ImMark = badge ? IM_MARKS[im]?.[1] : undefined
   return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
     h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,
     badgeKind === 'alert' ? h('span', { className: 'bt-badge bt-badge-alert', 'aria-label': t('Waiting for your answer'), role: 'img' }, '?') : null,
     badgeKind === 'admin' ? h('span', { className: 'bt-badge bt-badge-admin', 'aria-label': t('Admin'), role: 'img' }, h(StarIcon)) : null,
-    badgeKind === 'main' ? h('span', { className: 'bt-badge bt-badge-main', 'aria-label': t('Main Bot'), role: 'img' }, h(MainStar)) : null)
+    badgeKind === 'main' ? h('span', { className: 'bt-badge bt-badge-main', 'aria-label': t('Main Bot'), role: 'img' }, h(MainStar)) : null,
+    ImMark ? h('span', { className: `bt-badge bt-badge-im${badgeKind === 'main' ? ' bt-badge-im-main' : ''}`, 'data-im': im, 'aria-label': imLabel(im), role: 'img' }, h(ImMark)) : null)
 }
 
 // A group avatar seats its members' characters in the frame: two on a

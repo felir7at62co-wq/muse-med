@@ -1,12 +1,12 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { inkFill } from './inks.js'
-import { isMainOf } from './sources.js'
+import { imLinksOf, isMainOf, mainBotsOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
 import { ChatsIcon, PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, GearIcon, PinMarkIcon, ConnectorIcon, PlugIcon, SwitchIcon, CloudDownloadIcon, SignInIcon, SignOutIcon, SlidersIcon, ChevronRightIcon, DotsIcon, FolderIcon, ImageIcon } from './icons.js'
 import { lookOf, MAIN_LOOK, youLook } from './characters.js'
 import { MuseGlyph } from './muse-brand.js'
-import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, BotMark, BotAvatar, RoomAvatar, imLabel } from './mark.js'
 import { AgentBadge } from './agent-badge.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
@@ -62,7 +62,7 @@ const waitingFor = (roster, waits) => {
   return names.length === 0 ? '' : t('Waiting for {names}', { names: names.join(t(' and ')) })
 }
 
-function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
+function BotRow({ bot, roster, links, actions, useSessions, useSessionStatus, useSessionRetainInfo, useActivity, useWork, wide, marked, onDragStart }) {
   const id = bot.id
   const part = currentPart(bot)
   const preview = useSessions(list => previewOf(list, part, roster.exchangeTurns[part]))
@@ -71,7 +71,9 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const unread = useSessionStatus(map => map.get(part)?.completionUnread === true || map.get(part)?.pendingInteraction !== undefined) || (marked && !active)
   useMarkedUnread(id, active, marked, actions)
   const main = isMainOf(roster, id)
-  const tile = roster.mainBotId === id
+  // Muse: every Main Bot is a tile at the top of the open column, not only the first.
+  const tile = main
+  const im = links?.get(id)
   const approval = useApproval(useWork, entry => entry.botId === id)
   const alert = roster.questions?.[part] !== undefined || approval
   const doing = useActivity(map => map[id])
@@ -91,13 +93,13 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     actions.openMenu({ kind: 'bot', id, x: event.clientX, y: event.clientY })
   }
   const pinned = bot.pinned === true && !tile
-  const label = [bot.name, main ? t('Main Bot') : '', pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
+  const label = [bot.name, main ? t('Main Bot') : '', imLabel(im), pinned ? t('Pinned') : '', running || away ? t('Working') : '', waitsFor, approval ? t('Waiting for your approval') : alert ? t('Waiting for your answer') : '', unread ? t('Unread activity') : ''].filter(Boolean).join(', ')
   if (tile && wide) {
     return h('div', { className: 'bt-tile-wrap' }, h('button', {
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
-    h(BotAvatar, { bot, size: 60, state, main: true }),
+    h(BotAvatar, { bot, size: 60, state, main: true, im }),
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null))
   }
@@ -108,7 +110,7 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
     onDragStart: wide && !tile && onDragStart ? event => onDragStart(event, id) : undefined,
     onMouseEnter: wide ? nameIfCut : undefined, onClick: () => actions.openSession(id), onContextMenu,
   },
-  h(BotAvatar, { bot, size: wide ? 36 : 44, state, main }),
+  h(BotAvatar, { bot, size: wide ? 36 : 44, state, main, im }),
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), bot.engine ? h(AgentBadge, { engine: bot.engine }) : null, pinned ? h(PinMark) : null),
@@ -540,7 +542,7 @@ export function TeamSidebar(props) {
   const order = useMemo(() => {
     const stamps = JSON.parse(updated)
     const entries = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
+      ...roster.bots.filter(bot => !isMainOf(roster, bot.id)).map(bot => ({ kind: 'bot', item: bot, at: stamps[currentPart(bot)] ?? bot.createdAt })),
       ...roster.rooms.map(room => ({ kind: 'room', item: room, at: stamps[room.id] ?? room.createdAt })),
       // The Agent sorts by its most recent Session, falling back to when it was added.
       ...(roster.agents ?? []).map(agent => ({ kind: 'agent', item: agent, at: Math.max(0, ...agent.sessions.map(id => stamps[id] ?? 0)) || agent.createdAt })),
@@ -553,10 +555,12 @@ export function TeamSidebar(props) {
     () => order.filter(entry => !entry.item.sectionId || !sectionSet.has(entry.item.sectionId)),
     [order, sectionSet],
   )
-  const main = roster.byId[roster.mainBotId]
+  // Muse: the Main Bots lead the column, in `mainBotIds` order, and stay out of the list below.
+  const mains = useMemo(() => mainBotsOf(roster), [roster])
+  const links = useMemo(() => imLinksOf(roster.im), [roster.im])
   const glideKey = useMemo(
-    () => `${sections.map(s => `${s.id}:${s.collapsed ? 1 : 0}`).join(',')}|${order.map(entry => `${entry.item.id}:${entry.item.sectionId ?? ''}`).join(',')}`,
-    [sections, order],
+    () => `${mains.map(bot => bot.id).join(',')}|${sections.map(s => `${s.id}:${s.collapsed ? 1 : 0}`).join(',')}|${order.map(entry => `${entry.item.id}:${entry.item.sectionId ?? ''}`).join(',')}`,
+    [mains, sections, order],
   )
   useListGlide(listRef, wideContent, glideKey)
   useLandOnMainBot(roster, useSessions, actions)
@@ -780,7 +784,10 @@ export function TeamSidebar(props) {
     openAgentSession: id => navigate(actions.openAgentSession, id),
     newAgentSession: id => navigate(actions.newAgentSession, id),
   }
-  const rowProps = { roster, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide: wideContent }
+  const rowProps = { roster, links, actions: rowActions, useSessions, useUi, useSessionStatus: props.useSessionStatus, useSessionRetainInfo: props.useSessionRetainInfo, useActivity: props.useActivity, useWork: props.useWork, wide: wideContent }
+  // Tiles side by side in the open column, avatar rows above the rail's rule.
+  const mainRows = mains.map(bot => h(BotRow, { key: bot.id, ...rowProps, bot, marked: markedUnread[bot.id] === true }))
+  const noMain = mains.length > 0 || roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…'))
   // Typing while the sidebar has focus starts a search.
   const typeToSearch = (event) => {
     if (event.defaultPrevented || event.key.length !== 1 || event.key === ' ' || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
@@ -831,7 +838,8 @@ export function TeamSidebar(props) {
     : h('div', { className: 'bt-rail-top' },
         h(UpdateButton, { useUpdate: props.useUpdate, actions }),
         h('button', { type: 'button', className: 'bt-round bt-side-collapse', 'aria-label': t('Collapse sidebar'), title: t('Collapse sidebar'), onClick: onToggle }, h(SidebarIcon)),
-        main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…')),
+        mainRows,
+        noMain,
         h('span', { className: 'bt-rail-sep', 'aria-hidden': true }))
   // The foot stands in for the shell's hidden footer: the account avatar, and on
   // the rail the new-chat button above it.
@@ -855,7 +863,8 @@ export function TeamSidebar(props) {
       onDragEnd: () => { setDragId(null); setDropTarget(null) },
       onDragLeave: (event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null) },
     },
-      wideContent ? (main ? h(BotRow, { ...rowProps, bot: main, marked: markedUnread[main.id] === true }) : roster.ready ? null : bootFailed ? h(BootFailed, { actions }) : h('div', { className: 'bt-hint' }, t('Setting up your Main Bot…'))) : null,
+      wideContent && mains.length > 0 ? h('div', { className: 'bt-tiles' }, mainRows) : null,
+      wideContent ? noMain : null,
       sections.length > 0 && wideContent
         ? h('div', {
             className: 'bt-sec-ungrouped',

@@ -57,7 +57,8 @@ export function ContextMenu({ menu, roster, actions, useWork, leaving = false })
   const waits = useMemo(() => JSON.parse(waitsRaw), [waitsRaw])
   if (entry === undefined) return null
   const isMainBot = isMainOf(roster, menu.id)
-  const isTile = roster.mainBotId === menu.id
+  // Muse: every Main Bot is a sidebar tile, which is neither pinned nor filed in a section.
+  const isTile = isMainBot
   const mainCount = (roster.mainBotIds ?? []).length
   const groups = [
     [
@@ -112,7 +113,7 @@ function SectionMenu({ menu, roster, actions, leaving }) {
   if (sec === undefined) return null
   if (menu.kind === 'section-add') {
     const candidates = [
-      ...roster.bots.filter(bot => bot.id !== roster.mainBotId && !bot.hidden).map(bot => ({ kind: 'bot', item: bot })),
+      ...roster.bots.filter(bot => !isMainOf(roster, bot.id) && !bot.hidden).map(bot => ({ kind: 'bot', item: bot })),
       ...roster.rooms.filter(room => !room.hidden).map(room => ({ kind: 'room', item: room })),
     ]
     return h('div', { ref, className: 'bt-menu bt-sec-add-menu', role: 'menu', 'aria-label': t('Add to {name}', { name: sec.name }), style: place, 'data-leaving': leaving || undefined },
