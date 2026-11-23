@@ -12,8 +12,9 @@ const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
 // The dsh-update module alone: a stub loader says the running DSH version, a
-// stub plugin manager says how the bot was installed, and fetch is scripted.
-function start({ current = '0.1.0', source, answers = {}, app = false, spawn, config = {}, profileDir }) {
+// stub plugin manager says how the bot was installed, and fetch is scripted. The checks
+// run only where the config turns them on, so the helper's config does.
+function start({ current = '0.1.0', source, answers = {}, app = false, spawn, config = { updateCheck: true }, profileDir }) {
   const fetched = []
   const spawns = []
   const warnings = []
@@ -69,6 +70,22 @@ test('the newest released bot declares the verified DSH, offered to an older npm
   assert.deepEqual(spawns.map(([, argv]) => argv), [['install', '-g', '@deepseek-ai/dsh@9.9.9']])
   assert.equal((await rt.dshUpdateCheck()).phase, 'installed')
   assert.equal((await rt.dshUpdateCheck()).installed, '9.9.9')
+})
+
+// The DSH row follows the DS Bot switch: without `updateCheck: true` in the config no
+// release is looked up and `npm install -g` never runs.
+test('without updateCheck in the config the DSH check never asks the network and never runs npm', async () => {
+  const off = start({ source: `${PKG.name}@^${PKG.version}`, answers: registryLatest({ verifiedDsh: '9.9.9' }), config: {} })
+  const view = await off.rt.dshUpdateCheck({ fresh: true })
+  assert.equal(view.verified, null)
+  assert.equal(view.available, false)
+  assert.deepEqual(off.fetched, [])
+  assert.throws(() => off.rt.dshUpdateStart(), /No DSH update is available/)
+  assert.deepEqual(off.spawns, [])
+
+  const on = start({ source: `${PKG.name}@^${PKG.version}`, answers: registryLatest({ verifiedDsh: '9.9.9' }), config: { updateCheck: true } })
+  assert.equal((await on.rt.dshUpdateCheck({ fresh: true })).available, true)
+  assert.deepEqual(on.fetched, [`https://registry.npmjs.org/${PKG.name}/latest`])
 })
 
 test('a verified version older than the running one is still offered, for a broken release', async () => {

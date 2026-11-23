@@ -15,6 +15,13 @@ export const FETCH_TIMEOUT_MS = 8000
 const STARTUP_DELAY_MS = 15_000
 const VERSION = /^v?(\d+\.\d+\.\d+(?:-[\w.]+)?)(?:\+[\w.]+)?$/
 
+/**
+ * Whether the update checks run. Muse ships its own updates, so only a config that sets
+ * `updateCheck: true` turns them on: a profile that replaces the plugin's whole config
+ * leaves them off, with no registry request and no reinstall offered.
+ */
+export const updateChecksOn = config => config?.updateCheck === true
+
 /** A release version without its `v` and build metadata, or null. */
 export const cleanVersion = value => VERSION.exec(String(value ?? '').trim())?.[1] ?? null
 
@@ -112,7 +119,7 @@ export const STARS_TTL_MS = 60 * 60_000
 
 export function install(rt) {
   const { ctx, config } = rt
-  const enabled = config.updateCheck !== false
+  const enabled = updateChecksOn(config)
   const manager = () => ctx.get?.('pluginManager')
 
   const status = {

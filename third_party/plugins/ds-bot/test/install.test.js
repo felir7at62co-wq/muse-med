@@ -121,7 +121,7 @@ test('apply registers listeners and effects in a fixed order', (t) => {
     'effect ds-bot: computer use',
     'effect ds-bot: usage ledger',
     'on llm/stream',
-    'effect ds-bot: update check',
+    // No 'ds-bot: update check' here: it is scheduled only with `updateCheck: true`.
     'effect ds-bot: dsh update install',
     'on session/event',
     'effect ds-bot: mobile room signals',

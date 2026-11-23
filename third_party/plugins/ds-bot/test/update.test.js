@@ -12,13 +12,15 @@ const settle = async (rt) => { for (let index = 0; index < 200 && (await rt.upda
 const realFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = realFetch })
 
-// The update module alone, on a stub plugin manager and a scripted fetch.
-function start({ source, registries, answers = {}, result = { application: 'restart-required' }, remove = { application: 'applied' }, enable = { application: 'applied', changed: true }, config = {}, profileDir, home }) {
+// The update module alone, on a stub plugin manager and a scripted fetch. The checks run
+// only where the config turns them on, so the helper's config does.
+function start({ source, registries, answers = {}, result = { application: 'restart-required' }, remove = { application: 'applied' }, enable = { application: 'applied', changed: true }, config = { updateCheck: true }, profileDir, home }) {
   const fetched = []
   const installs = []
   const removes = []
   const enables = []
   const warnings = []
+  const effects = []
   globalThis.fetch = async (url) => {
     fetched.push(url)
     const answer = answers[url]
@@ -34,13 +36,13 @@ function start({ source, registries, answers = {}, result = { application: 'rest
     setBundleEnabled: async (name, on) => { enables.push([name, on]); return typeof enable === 'function' ? enable() : enable },
   }
   const rt = {
-    ctx: { get: name => (name === 'pluginManager' ? pluginManager : name === 'profileContext' && profileDir ? { dir: profileDir } : undefined), effect() {} },
+    ctx: { get: name => (name === 'pluginManager' ? pluginManager : name === 'profileContext' && profileDir ? { dir: profileDir } : undefined), effect: (_run, label) => { effects.push(label) } },
     config,
     home,
     warn: (...args) => warnings.push(args),
   }
   install(rt)
-  return { rt, fetched, installs, removes, enables, warnings }
+  return { rt, fetched, installs, removes, enables, warnings, effects }
 }
 
 test('versions compare in semver order and lose their v and build metadata', () => {
@@ -154,6 +156,28 @@ test('a linked checkout, an unversioned git install, or a disabled check never a
   assert.deepEqual(fetched, [])
 })
 
+// Muse ships its own updates. A profile that replaces the plugin's whole config drops
+// `updateCheck: false`; without the field the check stays off, and only `true` turns it on.
+test('without updateCheck in the config no check is scheduled, the network is never asked and nothing is offered', async () => {
+  const newest = { [`https://registry.npmjs.org/${PKG.name}/latest`]: { version: '9.0.0' } }
+  const off = start({ source: `${PKG.name}@^${PKG.version}`, answers: newest, config: {} })
+  assert.deepEqual(off.effects, [])
+  const view = await off.rt.updateCheck({ fresh: true })
+  assert.equal(view.enabled, false)
+  assert.equal(view.available, false)
+  assert.equal(view.latest, null)
+  assert.deepEqual(off.fetched, [])
+  assert.throws(() => off.rt.updateStart(), /No Muse update/)
+  assert.deepEqual(off.installs, [])
+
+  const on = start({ source: `${PKG.name}@^${PKG.version}`, answers: newest, config: { updateCheck: true } })
+  assert.deepEqual(on.effects, ['ds-bot: update check'])
+  const offered = await on.rt.updateCheck({ fresh: true })
+  assert.equal(offered.enabled, true)
+  assert.equal(offered.available, true)
+  assert.deepEqual(on.fetched, [`https://registry.npmjs.org/${PKG.name}/latest`])
+})
+
 test('in the desktop app, which updates as a whole, it never asks the network and offers nothing', async (t) => {
   process.env.DS_BOT_APP = '1'
   t.after(() => { delete process.env.DS_BOT_APP })
@@ -222,7 +246,7 @@ test('a failed install reports why and can be tried again', async () => {
   let attempt = 0
   const { rt, installs } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: () => (++attempt === 1
       ? { application: 'failed', error: { code: 'incompatible-version', diagnostic: 'needs a newer DSH' } }
@@ -253,7 +277,7 @@ test('a plain refusal or success needs no removal and writes no note', async () 
   const home = newHome()
   const { rt, installs, removes } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: { application: 'restart-required', version: '9.0.0' },
     home,
@@ -273,7 +297,7 @@ test('an already-installed refusal removes the bundle, reinstalls and leaves a n
   const calls = []
   const { rt, installs, removes } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: (count) => {
       calls.push(`install${count}`)
@@ -303,7 +327,7 @@ test('a failed removal fails the update without a second install', async () => {
   const home = newHome()
   const { rt, installs, removes, enables } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' }),
     remove: { error: { code: 'bundle-in-use' } },
@@ -326,7 +350,7 @@ test('a removal that fails after it took the bundle out of the profile selects i
   const home = newHome()
   const { rt, installs, removes, enables } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' }),
     remove: { changed: true, error: { code: 'operation-error', diagnostic: 'pnpm: remove failed' } },
@@ -349,7 +373,7 @@ test('when selecting the bundle again fails too, the old version is installed ag
   const home = newHome()
   const { rt, installs, enables } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: PKG.version }),
     remove: { changed: true, error: { code: 'bundle-in-use' } },
@@ -371,7 +395,7 @@ test('a removal that throws ran nothing, so nothing is undone', async () => {
   const home = newHome()
   const { rt, installs, enables } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' }),
     remove: () => { throw new Error('lock timeout') },
@@ -393,7 +417,7 @@ test('a failed reinstall writes its reason into the note', async () => {
   const home = newHome()
   const { rt } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: count => (count === 1 ? { error: { code: 'already-installed' } } : { error: { code: 'operation-error', diagnostic: 'pnpm: tarball 500' } }),
     home,
@@ -412,7 +436,7 @@ test('a reinstall refused by an application state also puts the old version back
   const home = newHome()
   const { rt, installs } = start({
     source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
+    config: { updateCheck: true, updateRegistry: 'https://registry.example' },
     answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
     result: count => (count === 1 ? { error: { code: 'already-installed' } } : count === 2 ? { application: 'failed' } : { application: 'applied', version: PKG.version }),
     home,
