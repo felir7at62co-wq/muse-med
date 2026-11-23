@@ -10441,9 +10441,6 @@ importers:
       '@deepseek-ai/dsh-workbench-connection':
         specifier: workspace:*
         version: link:../workbench-connection
-      '@deepseek-ai/schemastery':
-        specifier: link:../../../vendor/schemastery
-        version: link:../../../vendor/schemastery
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
@@ -10472,9 +10469,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools
-      '@deepseek-ai/dsh-user-approval':
-        specifier: workspace:*
-        version: link:../../interaction/user-approval
       '@deepseek-ai/dsh-util-values':
         specifier: workspace:*
         version: link:../../util/values

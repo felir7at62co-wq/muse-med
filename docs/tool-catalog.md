@@ -26,8 +26,8 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`, `ctx.museAccount`, `FFmpeg and FFprobe on PATH (or configured)` | `tool/call`, `tool/result`, `transcript/jobs task receipt`, `transcript/raw timed TXT and JSON when complete` | - | `start` submits compressed speech under the signed-in Muse account and returns a project receipt; `status` checks that receipt and publishes timed TXT and JSON when recognition completes. The same tool is available in every Muse mode, with provider credentials held by the account gateway. |
 | `@deepseek-ai/dsh-tool-episode-subtitles` | `episode_subtitles` | `ctx.tools`, `ctx.systemPrompt`, `ctx.museAccount`, `ctx.subprocess`, `FFmpeg and FFprobe on PATH (or configured)`, `Python with pypinyin 0.55.0 (source or pythonPath)`, `ctx.jingliuConnection with local media for Jingliu projects (optional)` | `tool/call`, `tool/result`, `transcript/packs, transcript/jobs and transcript/shots`, `editing/<episode>-shots.json`, `editing/<episode>.srt and its version 2 .clock.json`, `subtitles/<episode>.state.json, .review.json and .decisions.json`, `Jingliu projects: media, transcripts and subtitles/ep<episode>.* under jingliu/<project>, and Jingliu auto_subtitles segments jobs` | - | `build` packs the shots that miss the transcript cache into a few cloud uploads, splits the words back per shot, corrects them toward the locked script with the rules shared with Jingliu, and lays out the clock from measured durations; repeat the same call until it is not `waiting`. `review` pages pending items and applies `heard`, `script` or `drop` decisions without new recognition. |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`, `TOS access key credential references`, `network access to Volcengine TOS` | `tool/call`, `tool/result`, `public TOS objects below download-video-date/{platform}/{date}/{work_id}/`, `local file deletion only when remove_local is true` | - | Optional package: only the cloud transcription deployment composes it, with its credential references. |
-| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`, `jingliu_media`, `jingliu_narration`, `jingliu_projects`, `jingliu_run`, `jingliu_studio`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `conversation project selections, image and narration job receipts, local Jianying drafts, downloaded studio media under the workspace, and uploads to the Jingliu media store` | - | - |
-| `@deepseek-ai/dsh-tool-workshop` | `script_finalize`, `script_library`, `workshop_script_editor`, `workshop_video_transcribe` | `ctx.tools`, `ctx.workshopConnection`, `ctx.approval to start a job`, `ctx.fs and ctx.sandboxPolicy for script files` | `tool/call`, `tool/result`, `video_transcribe factory jobs on the configured Script Workshop`, `finalized-script versions and production links in the Workshop library`, `script files under 剧本库/ in the workspace`, `single-episode candidates for review in the Muse script panel` | - | - |
+| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`, `jingliu_media`, `jingliu_narration`, `jingliu_projects`, `jingliu_run`, `jingliu_studio`, `jingliu_workflows`, `muse_billing` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `conversation project selections, image and narration job receipts, local Jianying drafts, downloaded studio media under the workspace, and uploads to the Jingliu media store` | - | - |
+| `@deepseek-ai/dsh-tool-workshop` | `script_finalize`, `script_library`, `workshop_script_editor` | `ctx.tools`, `ctx.workshopConnection`, `ctx.fs and ctx.sandboxPolicy for script files` | `tool/call`, `tool/result`, `finalized-script versions and production links in the Workshop library`, `script files under 剧本库/ in the workspace`, `single-episode candidates for review in the Muse script panel` | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`, `data station service token credential reference`, `network access to the data station service API` | `tool/call`, `tool/result`, `data station transcription job state` | - | Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it. |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | `video_source_review` | The default video_inspect retains metadata and sample operations. Creation enables sourceReviewCompanion to add video_source_review with complete scan/next/observe operations without replacing legacy sampling or trusted receipts. Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`, `ctx.tools`, `ctx.ptcRuntime`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program. The resolved timeout and maxSubCallsPerMinute set the total call allowance; exceeding it terminates the program. |
@@ -77,7 +77,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 ### `data_station_requeue`
 
-把一部红果短剧放回数据站转写队列最前（立即转写），使用当前登录的 Muse 账号，记在这个账号名下。用于待处理、失败或被淘汰的剧再转一次：已下载的原片和已通过的集沿用，没通过的集再给一轮。正在转写或已有剧本的剧不会重新排队。排队后由转写任务领取；负责这部剧的视频转剧本任务已经结束时，要续跑它才会接着转。
+把一部红果短剧放回数据站转写队列最前（立即转写），使用当前登录的 Muse 账号，记在这个账号名下。用于待处理、失败或被淘汰的剧再转一次：已下载的原片和已通过的集沿用，没通过的集再给一轮。正在转写或已有剧本的剧不会重新排队。排队后由云端 Muse 的转写 Bot 领取。
 
 ```json
 {
@@ -2312,6 +2312,24 @@ Source: [`packages/drama/tool-jingliu/src/studio.ts`](../packages/drama/tool-jin
 
 Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
 
+### `muse_billing`
+
+查询当前 Muse 登录用户的镜流积分余额、已用和占用额度，或查看近期积分流水。1 积分等于 1 元。流水显示有正负号的余额变动，结算调整只记录该次调整。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "include_ledger": {
+      "type": "boolean",
+      "description": "需要消费明细时传 true，返回最多 10 条近期流水；省略时只查余额。"
+    }
+  }
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+
 <a id="deepseek-aidsh-tool-workshop"></a>
 
 ## `@deepseek-ai/dsh-tool-workshop`
@@ -2477,63 +2495,6 @@ Source: [`packages/drama/tool-workshop/src/library.ts`](../packages/drama/tool-w
 ```
 
 Source: [`packages/drama/tool-workshop/src/editor.ts`](../packages/drama/tool-workshop/src/editor.ts)
-
-### `workshop_video_transcribe`
-
-剧本工坊的视频转剧本任务：从数据站爆款队列领剧，经 AI 观众选材、红果整剧下载和云端 Muse 逐集转写，出稿存为工坊剧本。status 查看是否就绪、队列和任务进度；start 按参数开始一个任务，resume 沿用原参数续跑已停止的任务，两者都会产生下载与转写费用，提交前请用户确认；stop 停止任务，已领取的剧保留进度。
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "action": {
-      "type": "string",
-      "enum": [
-        "status",
-        "start",
-        "stop",
-        "resume"
-      ]
-    },
-    "job_id": {
-      "type": "integer",
-      "description": "status：查看这个任务的进度和出稿，省略时列出最近的任务。stop 和 resume：必填。"
-    },
-    "count": {
-      "type": "integer",
-      "description": "start：转写部数，0 表示持续运行直到停止，默认 0。"
-    },
-    "concurrency": {
-      "type": "integer",
-      "description": "start：同时转写部数，1 到 status 返回的 max_slots，默认 1。"
-    },
-    "quality": {
-      "type": "string",
-      "description": "start：下载画质，默认 720p。",
-      "enum": [
-        "720p",
-        "1080p"
-      ]
-    },
-    "publish": {
-      "type": "boolean",
-      "description": "start：通过检查的剧本上架到数据站储备看板，默认 false。"
-    },
-    "only_series": {
-      "type": "array",
-      "description": "start：只转这些红果作品编号，省略时按队列顺序领取。",
-      "items": {
-        "type": "string"
-      }
-    }
-  },
-  "required": [
-    "action"
-  ]
-}
-```
-
-Source: [`packages/drama/tool-workshop/src/index.ts`](../packages/drama/tool-workshop/src/index.ts)
 
 <a id="deepseek-aidsh-tool-hit-queue"></a>
 

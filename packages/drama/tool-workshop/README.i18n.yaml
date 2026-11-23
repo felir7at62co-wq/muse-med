@@ -3,23 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-workshop/README.md
 /:
-  en: 6bf4b6518c358ec6
-  zh: c4cfac753ef6ff2c
+  en: 9a55ad7bc9f57609
+  zh: 4d4b1b5077f65127
 /deepseek-ai-dsh-tool-workshop:
   en: 05c1005e4708e625
   zh: ee45f984e186bf49
 /deepseek-ai-dsh-tool-workshop/summary:
-  en: 87784f6575eab6a8
-  zh: 9cb3dc25c596aec5
+  en: 95af57c82506b9c8
+  zh: 94629e7a2b556719
 /deepseek-ai-dsh-tool-workshop/table-of-contents:
-  en: 335941474f609515
-  zh: e0c1473bee57fcc3
+  en: 28af4a9439e2cd7c
+  zh: 83583b1e7dc550e8
 /deepseek-ai-dsh-tool-workshop/use-this-package:
-  en: ee91b7319f27bd9a
-  zh: 37d9615aa14b3282
-/deepseek-ai-dsh-tool-workshop/actions:
-  en: d11ae7b51080ee49
-  zh: 3d7aaf11f90842cb
+  en: b39b233b4dceba49
+  zh: ad06d61e5c4755f9
 /deepseek-ai-dsh-tool-workshop/finalized-scripts:
   en: 1d47636579fa9667
   zh: 7178bc641e115a91
@@ -27,29 +24,17 @@
   en: fbef9301316339e5
   zh: c041e7816c04e4f7
 /deepseek-ai-dsh-tool-workshop/further-exploration:
-  en: 441677f6612a1997
-  zh: b7dc1719af81e99f
+  en: 0ffb8bb8413303e7
+  zh: 3d519efce32a2eae
 /deepseek-ai-dsh-tool-workshop/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
-/deepseek-ai-dsh-tool-workshop/model-experience/tool:
-  en: 615059588d64addd
-  zh: 4ff53c10051d71e7
-/deepseek-ai-dsh-tool-workshop/model-experience/tool/what-the-model-sees:
-  en: 823a0dfe6c6488f0
-  zh: b86dc1e24c2fcf71
-/deepseek-ai-dsh-tool-workshop/model-experience/tool/token-effect:
-  en: 5e428554fa410846
-  zh: b15aa83c06f73ec3
-/deepseek-ai-dsh-tool-workshop/model-experience/tool/kv-cache-effect:
-  en: ed92ccab0178a33a
-  zh: 75c660bb554afe3b
 /deepseek-ai-dsh-tool-workshop/model-experience/finalized-script-tools:
   en: bad5d3fa8e186fed
   zh: 88c1ab330e6080d3
 /deepseek-ai-dsh-tool-workshop/model-experience/finalized-script-tools/what-the-model-sees:
-  en: 4275a8c07b3e9341
-  zh: c67772465432e758
+  en: 3d3d30a0f76cd95a
+  zh: 242babe9c721f4fa
 /deepseek-ai-dsh-tool-workshop/model-experience/finalized-script-tools/token-effect:
   en: fd8c58ca7b41d6dc
   zh: a81f69ded5f1a4ff
@@ -57,8 +42,8 @@
   en: 11d07e30efcbeee1
   zh: 1dd2266268b1005d
 /deepseek-ai-dsh-tool-workshop/known-limitations-and-deferred-work:
-  en: 5590a8fbb637a196
-  zh: 6906576ccf9e2a63
+  en: c83cab85b9ccb052
+  zh: b020392da4d21e0f
 /deepseek-ai-dsh-tool-workshop/known-limitations-and-deferred-work/dev-note:
-  en: 7fcf4d7da8842a58
-  zh: da95efd51c66395d
+  en: 6813cf6062301971
+  zh: aebcef45fc66cafa

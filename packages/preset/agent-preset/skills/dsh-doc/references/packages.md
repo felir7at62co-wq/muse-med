@@ -214,10 +214,11 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-tool-drama-assets` | yes | Short-drama pre-spend asset reconciliation: the model-facing drama_assets tool that compares the Jubian project's used assets with the manifest and writes the evidence the paid-call gate reads |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | yes | Stores a short drama's source videos and transcription materials in dated Volcengine TOS folders |
 | `@deepseek-ai/dsh-tool-episode-render` | yes | Short-drama episode renderer: the model-facing drama_render tool that lays out render inputs, encodes the delivery master, and checks the result |
+| `@deepseek-ai/dsh-tool-episode-subtitles` | yes | Per-episode subtitles from packed cloud transcription, corrected toward the locked script by Jingliu's shared rules |
 | `@deepseek-ai/dsh-tool-hit-queue` | yes | Transcription worker access to the data station's hit-transcription job queue |
 | `@deepseek-ai/dsh-tool-jingliu` | no | Discover and run ShotFlow production workflows with the current Jingliu account |
 | `@deepseek-ai/dsh-tool-shot-script` | yes | Short-drama shot-script checks, advisory packaging suggestions and strict episode compilation |
-| `@deepseek-ai/dsh-tool-workshop` | no | Start, stop and report Script Workshop's video-to-screenplay factory job from a Muse conversation |
+| `@deepseek-ai/dsh-tool-workshop` | no | Finalize scripts into Script Workshop's library, read them back for production, and stage cloud draft revisions from a Muse conversation |
 | `@deepseek-ai/dsh-workbench-connection` | yes | Host-side Script Workshop connection and the Muse-account workbench session core shared with Jingliu |
 
 ## experimental

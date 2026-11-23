@@ -1054,6 +1054,7 @@ flowchart TD
   pkg_tool_drama_tos_upload --> pkg_tools
   pkg_tool_episode_subtitles --> pkg_llm
   pkg_tool_episode_subtitles --> pkg_subprocess
+  pkg_tool_episode_subtitles --> pkg_system_prompt
   pkg_tool_episode_subtitles --> pkg_tools
   pkg_tool_hit_queue --> pkg_credentials
   pkg_tool_hit_queue --> pkg_error
@@ -1063,7 +1064,6 @@ flowchart TD
   pkg_tool_workshop --> pkg_fs
   pkg_tool_workshop --> pkg_sandbox_policy
   pkg_tool_workshop --> pkg_tools
-  pkg_tool_workshop --> pkg_user_approval
   pkg_tool_workshop --> pkg_util_values
   pkg_action_cards --> pkg_llm
   pkg_action_cards --> pkg_session
@@ -2083,9 +2083,9 @@ flowchart TD
 | [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`attachment`](../packages/attachment/attachment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`tool-drama-tos-upload`](../packages/drama/tool-drama-tos-upload) | `drama` | [`credentials`](../packages/credentials/credentials), [`error`](../packages/util/error), [`tools`](../packages/core/tools) |
-| [`tool-episode-subtitles`](../packages/drama/tool-episode-subtitles) | `drama` | [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
+| [`tool-episode-subtitles`](../packages/drama/tool-episode-subtitles) | `drama` | [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`tool-hit-queue`](../packages/drama/tool-hit-queue) | `drama` | [`credentials`](../packages/credentials/credentials), [`error`](../packages/util/error), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
-| [`tool-workshop`](../packages/drama/tool-workshop) | `drama` | [`error`](../packages/util/error), [`fs`](../packages/fs/fs), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval), [`util-values`](../packages/util/values) |
+| [`tool-workshop`](../packages/drama/tool-workshop) | `drama` | [`error`](../packages/util/error), [`fs`](../packages/fs/fs), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
 | [`action-cards`](../packages/experimental/action-cards) | `experimental` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
 | [`creation-recommendations`](../packages/experimental/creation-recommendations) | `experimental` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`skill`](../packages/skill/skill), [`tools`](../packages/core/tools) |
 | [`cua`](../packages/experimental/cua) | `experimental` | [`attachment`](../packages/attachment/attachment), [`ptc-runtime-node`](../packages/ptc-runtime/ptc-runtime-node), [`scope`](../packages/core/scope), [`user-questions`](../packages/interaction/user-questions) |

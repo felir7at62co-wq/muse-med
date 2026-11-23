@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { defineTool, ToolArgsError, type ToolDefinition, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { scriptDetail, scriptOf, type ScriptEpisode, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
-import type { Fields } from './jobs.ts'
+import type { Fields } from './finalize.ts'
 
 /** Workspace folder that holds scripts read from the library. */
 export const LIBRARY_FOLDER = '剧本库'

@@ -434,6 +434,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       jingliu_image: 'packages/drama/tool-jingliu/src/production.ts',
       jingliu_studio: 'packages/drama/tool-jingliu/src/studio.ts',
       jingliu_media: 'packages/drama/tool-jingliu/src/media.ts',
+      muse_billing: 'packages/drama/tool-jingliu/src/index.ts',
     },
     requires: ['ctx.tools', 'ctx.jingliuConnection', 'ctx.approval for changes and paid workflows'],
     writes: ['tool/call', 'tool/result', 'project updates and jobs on the configured Jingliu service', 'conversation project selections, image and narration job receipts, local Jianying drafts, downloaded studio media under the workspace, and uploads to the Jingliu media store'],
@@ -453,12 +454,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
       script_finalize: 'packages/drama/tool-workshop/src/finalize.ts',
       script_library: 'packages/drama/tool-workshop/src/library.ts',
       workshop_script_editor: 'packages/drama/tool-workshop/src/editor.ts',
-      workshop_video_transcribe: 'packages/drama/tool-workshop/src/index.ts',
     },
-    requires: ['ctx.tools', 'ctx.workshopConnection', 'ctx.approval to start a job', 'ctx.fs and ctx.sandboxPolicy for script files'],
+    requires: ['ctx.tools', 'ctx.workshopConnection', 'ctx.fs and ctx.sandboxPolicy for script files'],
     writes: [
-      'tool/call', 'tool/result', 'video_transcribe factory jobs on the configured Script Workshop',
-      'finalized-script versions and production links in the Workshop library', 'script files under 剧本库/ in the workspace',
+      'tool/call', 'tool/result', 'finalized-script versions and production links in the Workshop library', 'script files under 剧本库/ in the workspace',
       'single-episode candidates for review in the Muse script panel',
     ],
     async mount(ctx) {
