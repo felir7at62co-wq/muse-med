@@ -67,6 +67,8 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。来源查询或缺少声线样本不会发起付费请求。新用户消息不再自动追加提取或复用提示；历史提示仍作为已保存的普通上下文保留。
 
+正式的托管人物引用 `character_reference` 只用于 `image_generate`。为兼容自动填充可选字段的调用方，`task`、`tasks`、`subtasks`、`sources` 和 `unresolved` 会忽略五项身份字符串均为空、`authorization_version` 为 `0` 或 `1` 的占位对象。上述只读方法收到其他引用时，会在访问剧变前拒绝调用。
+
 ### 会话视频模型选择
 
 通过当前会话聊天框菜单选择视频模型和分辨率。

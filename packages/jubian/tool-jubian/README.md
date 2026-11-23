@@ -67,6 +67,8 @@ Use `jubian_video sources` with the exact `script_id` and original `storyboard_i
 
 Source reads use `videoSourcePageSize` (100), `videoSourcePageLimit` (20), `videoSourceTaskLimit` (50), and `videoSourceResultLimit` (20), each within 1–100; `videoSourceMaxResultChars` bounds the complete result to 12000 JSON characters by default (2048–1000000). A reached limit preserves verified rows that fit, removes whole rows rather than truncating URLs, and reports incomplete coverage. Source lookup and missing voice samples do not create a paid request. New user messages receive no automatic extraction or reuse notice. Historical notices remain ordinary saved context.
 
+Supply a managed `character_reference` only to `image_generate`. For callers that fill optional fields automatically, `task`, `tasks`, `subtasks`, `sources` and `unresolved` discard a placeholder object when all five identity strings are empty and `authorization_version` is `0` or `1`. A different reference on these reads is rejected before provider access.
+
 ### Conversation video selection
 
 Choose the current conversation's video model and resolution from its composer menu.
