@@ -1,6 +1,7 @@
-import { createElement as h, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { BotMark, toolState } from './mark.js'
 import { Elapsed, Shimmer, workPhrase } from './cells.js'
+import { ChevronUpIcon } from './icons.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useLinger } from './motion.js'
 import { t } from './i18n.js'
 import { isMainOf } from './sources.js'
@@ -97,7 +98,18 @@ function Face({ bot, ask, state }) {
 // between two real widths. A capsule that comes back starts from its own width.
 function useFitWidth(inner, key) {
   const [width, setWidth] = useState(null)
-  useLayoutEffect(() => { setWidth(key && inner.current ? inner.current.offsetWidth : null) }, [key])
+  useLayoutEffect(() => {
+    const element = key ? inner.current : null
+    if (!element) {
+      setWidth(null)
+      return undefined
+    }
+    const measure = () => setWidth(element.offsetWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [inner, key])
   return width
 }
 
@@ -107,7 +119,7 @@ function useFitWidth(inner, key) {
 export function MemberDock(props) {
   const roster = props.useRoster(value => value)
   const self = roster.roomsById[props.sessionId] ? undefined : roster.byId[props.sessionId]
-  return self && isMainOf(roster, self.id) ? h(TeamDock, { ...props, self }) : h(GroupDock, props)
+  return self && isMainOf(roster, self.id) ? h(TeamDock, { ...props, key: self.id, self }) : h(GroupDock, props)
 }
 
 function GroupDock({ sessionId, useRoster, useWork, actions }) {
@@ -188,7 +200,10 @@ function TeamDock({ self, useRoster, useWork, actions }) {
   const { asking, working } = teamWork(self, roster, work)
   const [open, setOpen] = useState(false)
   const [card, setCard] = useState(null)
-  if (asking.length === 0 && working.length === 0) return null
+  const detailId = useId()
+  const shell = useRef(null)
+  const toggle = useRef(null)
+  const summary = useRef(null)
   const shown = card !== null && asking.some(entry => entry.bot.id === card) ? card : asking[0]?.bot.id ?? null
   const faces = [...asking.map(entry => ({ bot: entry.bot, ask: true, state: 'alert' })),
     ...working.map(entry => ({ bot: entry.bot, ask: false, state: workState(entry.doing) }))].slice(0, FACES_MAX + 1)
@@ -196,34 +211,60 @@ function TeamDock({ self, useRoster, useWork, actions }) {
   const first = working[0]
   const doing = first ? `${first.bot.name} · ${workPhrase(first.doing)}…${working.length > 1 ? ` +${working.length - 1}` : ''}` : ''
   const label = [waiting, doing].filter(Boolean).join(' · ')
+  const width = useFitWidth(summary, label)
+  const active = label !== ''
+  useEffect(() => {
+    if (!active) setOpen(false)
+    if (!active || !open) return undefined
+    const closeOutside = (event) => {
+      if (!event.composedPath().includes(shell.current)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside, true)
+    return () => document.removeEventListener('pointerdown', closeOutside, true)
+  }, [active, open])
+  if (!active) return null
   return h('div', { className: 'bt-mw-dock bt-team-dock' },
-    open ? h('div', { className: 'bt-team-panel', role: 'region', 'aria-label': t('Your team') },
-      asking.map((entry) => {
-        const expanded = entry.bot.id === shown
-        const what = entry.question ? entry.question.question : entry.approvals[0]?.tool ?? ''
-        return h('div', { key: entry.bot.id, className: 'bt-team-ask' },
-          h('button', { type: 'button', className: 'bt-team-head', 'aria-expanded': expanded, onClick: () => setCard(expanded ? '' : entry.bot.id) },
-            h(Face, { bot: entry.bot, ask: true, state: 'alert' }),
+    h('div', {
+      ref: shell, className: 'bt-team-shell', 'data-open': open || undefined, 'data-asking': asking.length > 0 || undefined,
+      style: width ? { '--bt-team-width': `${width}px` } : undefined,
+      onKeyDown: (event) => {
+        if (!open || event.key !== 'Escape' || event.defaultPrevented) return
+        event.stopPropagation()
+        setOpen(false)
+        toggle.current?.focus()
+      },
+    },
+      h('button', {
+        ref: toggle, type: 'button', className: 'bt-team-toggle', 'aria-label': open ? t('Collapse') : label,
+        'aria-expanded': open, 'aria-controls': detailId, onClick: () => setOpen(value => !value),
+      },
+        h('span', { ref: summary, className: 'bt-mw-pill-in bt-team-summary', 'aria-hidden': true },
+          h('span', { className: 'bt-mw-faces' }, faces.map(face => h(Face, { key: face.bot.id, ...face }))),
+          h('span', { className: 'bt-mw-label' },
+            waiting ? h('span', { className: 'bt-mw-ask' }, waiting) : null,
+            waiting && doing ? h('span', { className: 'bt-mw-dot' }, '·') : null,
+            doing ? h('span', { className: 'bt-mw-doing' }, h(Shimmer, null, doing)) : null)),
+        h(ChevronUpIcon)),
+      h('div', { className: 'bt-team-reveal', 'aria-hidden': !open },
+        h('div', { id: detailId, className: 'bt-team-panel', role: 'region', 'aria-label': t('Your team') },
+          asking.map((entry) => {
+            const expanded = entry.bot.id === shown
+            const what = entry.question ? entry.question.question : entry.approvals[0]?.tool ?? ''
+            return h('div', { key: entry.bot.id, className: 'bt-team-ask' },
+              h('button', { type: 'button', className: 'bt-team-head', 'aria-expanded': expanded, onClick: () => setCard(expanded ? '' : entry.bot.id) },
+                h(Face, { bot: entry.bot, ask: true, state: 'alert' }),
+                h('strong', { className: 'bt-team-name' }, entry.bot.name),
+                h('span', { className: 'bt-team-what' }, what),
+                h('span', { className: 'bt-team-chevron', 'aria-hidden': true }, expanded ? '⌄' : '›')),
+              expanded ? h('div', { className: 'bt-team-body' },
+                entry.question ? h(QuestionCard, { entry, actions }) : null,
+                entry.approvals.map(approval => h(ApprovalCard, { key: approval.id, approval, bot: entry.bot, actions, inline: true }))) : null)
+          }),
+          working.map(entry => h('button', { key: entry.bot.id, type: 'button', className: 'bt-team-work', onClick: () => actions.openSession(entry.bot.id) },
+            h(Face, { bot: entry.bot, ask: false, state: workState(entry.doing) }),
             h('strong', { className: 'bt-team-name' }, entry.bot.name),
-            h('span', { className: 'bt-team-what' }, what),
-            h('span', { className: 'bt-team-chevron', 'aria-hidden': true }, expanded ? '⌄' : '›')),
-          expanded ? h('div', { className: 'bt-team-body' },
-            entry.question ? h(QuestionCard, { entry, actions }) : null,
-            entry.approvals.map(approval => h(ApprovalCard, { key: approval.id, approval, bot: entry.bot, actions, inline: true }))) : null)
-      }),
-      working.map(entry => h('button', { key: entry.bot.id, type: 'button', className: 'bt-team-work', onClick: () => actions.openSession(entry.bot.id) },
-        h(Face, { bot: entry.bot, ask: false, state: workState(entry.doing) }),
-        h('strong', { className: 'bt-team-name' }, entry.bot.name),
-        h('span', { className: 'bt-team-what' }, h(Shimmer, null, `${workPhrase(entry.doing)}…`)),
-        typeof entry.doing.since === 'number' ? h(Elapsed, { at: entry.doing.since, className: 'bt-team-time' }) : null))) : null,
-    h('button', { type: 'button', className: 'bt-mw-pill', 'aria-label': label, 'aria-expanded': open, onClick: () => setOpen(!open) },
-      h('span', { className: 'bt-mw-pill-in' },
-        h('span', { className: 'bt-mw-faces', 'aria-hidden': true }, faces.map(face => h(Face, { key: face.bot.id, ...face }))),
-        h('span', { className: 'bt-mw-label', 'aria-hidden': true },
-          waiting ? h('span', { className: 'bt-mw-ask' }, waiting) : null,
-          waiting && doing ? h('span', { className: 'bt-mw-dot' }, '·') : null,
-          doing ? h('span', { className: 'bt-mw-doing' }, h(Shimmer, null, doing)) : null),
-        h('span', { className: 'bt-team-chevron', 'aria-hidden': true }, open ? '⌄' : '⌃'))))
+            h('span', { className: 'bt-team-what' }, h(Shimmer, null, `${workPhrase(entry.doing)}…`)),
+            typeof entry.doing.since === 'number' ? h(Elapsed, { at: entry.doing.since, className: 'bt-team-time' }) : null))))))
 }
 
 // The clock stays whole at the end; only what comes before it is cut.
@@ -321,17 +362,31 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 @keyframes bt-mw-out{to{opacity:0;transform:translateY(6px) scale(.96);filter:var(--bt-fx-blur-3,blur(3px))}}
 @keyframes bt-mw-seat{from{opacity:0;scale:.6}}
 @keyframes bt-mw-swap{from{opacity:0;filter:var(--bt-fx-blur-4,blur(4px))}}
-.bt-team-dock{flex-direction:column;align-items:center;gap:8px}
-.bt-team-panel{pointer-events:auto;box-sizing:border-box;width:min(560px,100%);max-height:min(360px,48vh);overflow:auto;padding:6px;border-radius:18px;background:var(--bt-main);box-shadow:0 0 0 .5px var(--bt-line-2),0 6px 20px -6px rgba(0,0,0,.18);animation:bt-mw-in ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing} backwards}
+.bt-team-dock{position:relative;width:100%;height:32px;container-type:inline-size}
+.bt-team-shell{position:absolute;z-index:1;bottom:0;inset-inline:0;margin-inline:auto;display:grid;grid-template-rows:0fr;width:min(100%,var(--bt-team-width,160px));min-height:32px;border-radius:16px;overflow:hidden;pointer-events:auto;background:var(--bt-main);box-shadow:0 0 0 .5px var(--bt-line-2),0 2px 8px -2px rgba(0,0,0,.12);transition:${spring(SPRING_SHAPE, 'width', 'grid-template-rows', 'border-radius')}}
+.bt-team-shell[data-open]{grid-template-rows:1fr;width:min(100%,clamp(240px,var(--bt-team-width,160px) + 64px,360px));border-radius:18px}
+.bt-team-shell[data-open][data-asking]{width:min(100%,360px)}
+.bt-team-toggle{position:absolute;z-index:1;top:0;right:0;display:flex;align-items:center;justify-content:flex-end;width:100%;height:32px;padding:0 11px 0 0;border:0;border-radius:inherit;overflow:hidden;background:none;color:var(--bt-ink-2);font:inherit;font-size:13px;line-height:18px;cursor:pointer}
+.bt-team-toggle:hover{background:var(--bt-hover)}
+.bt-team-toggle:focus-visible,.bt-team-head:focus-visible,.bt-team-work:focus-visible{outline-offset:-2px}
+.bt-team-toggle>svg{position:relative;flex:none;color:inherit;transition:${spring(SPRING_SHAPE, 'transform')}}
+.bt-team-summary{position:absolute;left:0;box-sizing:border-box;width:max-content;max-width:min(300px,100cqw);padding-right:34px}
+.bt-team-summary .bt-mw-ask{flex:0 1 auto}
+.bt-team-shell[data-open] .bt-team-toggle{top:8px;right:6px;width:36px;padding:0;justify-content:center;border-radius:10px}
+.bt-team-shell[data-open] .bt-team-toggle>svg{transform:rotate(180deg)}
+.bt-team-shell[data-open] .bt-team-summary{visibility:hidden}
+.bt-team-reveal{min-height:0;overflow:hidden;visibility:hidden;opacity:0;transition:opacity .16s ease-out}
+.bt-team-shell[data-open] .bt-team-reveal{visibility:visible;opacity:1}
+.bt-team-panel{box-sizing:border-box;max-height:min(360px,48vh);max-height:min(360px,48dvh);overflow:auto;overscroll-behavior:contain;padding:4px 44px 4px 6px}
 .bt-team-ask{border-radius:12px}
 .bt-team-ask+.bt-team-ask,.bt-team-work{margin-top:2px}
 .bt-team-head,.bt-team-work{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:6px 10px;border:0;border-radius:12px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer}
 .bt-team-head:hover,.bt-team-work:hover{background:var(--bt-hover)}
-.bt-team-name{flex:none;font-weight:600}
+.bt-team-name{flex:none;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .bt-team-what{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2)}
 .bt-team-time{flex:none;color:var(--bt-ink-3);font-size:12px;font-variant-numeric:tabular-nums}
 .bt-team-chevron{flex:none;color:var(--bt-ink-3);font-size:13px;line-height:1}
-.bt-team-body{padding:0 10px 8px 40px}
+.bt-team-body{padding:0 0 8px 10px}
 .bt-team-options{flex-wrap:wrap}
 .bt-members{display:flex;flex-direction:column;gap:2px;margin:0 -8px}
 .bt-members-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
@@ -367,4 +422,6 @@ body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-mw-actions>button{height:28px;padding:0 12px;font-size:12px}
 .bt-mw-actions>button:disabled{opacity:.5;cursor:default}
 @media (prefers-reduced-motion:reduce){.bt-mw-pill,.bt-mw-face,.bt-mw-label,.bt-member,.bt-mw-card{animation:none}.bt-mw-pill{transition:background-color .12s ease}}
+body[data-bt-effects=off] :is(.bt-team-shell,.bt-team-reveal,.bt-team-toggle>svg){transition:none}
+@media (prefers-reduced-motion:reduce){.bt-team-shell,.bt-team-reveal,.bt-team-toggle>svg{transition:none}}
 `

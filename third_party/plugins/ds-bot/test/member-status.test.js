@@ -30,7 +30,7 @@ const capsuleOf = (node) => {
   if (node === null || typeof node !== 'object') return null
   // A component element renders in place, as React would.
   if (typeof node.type === 'function') return capsuleOf(node.type(node.props))
-  if (node.props.className === 'bt-mw-pill') return node
+  if (node.props.className === 'bt-mw-pill' || node.props.className === 'bt-team-toggle') return node
   for (const child of node.children) {
     const found = capsuleOf(child)
     if (found) return found
