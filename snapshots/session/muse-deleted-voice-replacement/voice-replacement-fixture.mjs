@@ -91,4 +91,5 @@ export async function apply(ctx) {
     await writeFile(join(agent.session.header.cwd, '_probe.json'), JSON.stringify({ registeredAssets: [51, 52], deletedAssets: deletes,
       retiredOperations: 1, originalIntents: 3, oldOperationClosedAfterRestart: true, replaySentNoWrites: true, paidRequests: 0 }, null, 2) + '\n')
   })
+  ctx.effect(() => ctx.provide('snapshotVoiceReplacementReady', true))
 }
