@@ -3,7 +3,8 @@
 Writing happens on each member's own computer in Muse. When a script is done, Muse asks the member and, on yes,
 uploads it here as a new version of that script (an identical upload adds nothing). Every signed-in user can read
 the library; users with the `script_pick` feature (admins by default) pick a version for production and record the
-Jingliu project it became. A script keeps only its original's data-station work ID (`fanqie:…`, `hongguo:…`);
+Jingliu project it became. A library reader opened on a first Muse sign-in (`muse_readers`) uploads only with the
+`script_finalize` feature. A script keeps only its original's data-station work ID (`fanqie:…`, `hongguo:…`);
 clients read the original's current numbers from the data station.
 """
 from datetime import datetime
@@ -21,6 +22,7 @@ from .auth import User, get_current_user
 from .auth.dependencies import user_has_feature
 from .db.models import Base
 from .db.session import session_scope
+from .muse_readers import FINALIZE_FEATURE, is_reader
 
 router = APIRouter(prefix="/v1/script-library", tags=["script-library"])
 
@@ -178,8 +180,14 @@ def _require_pick(user: User) -> None:
         raise HTTPException(403, "只有组长可以选用剧本")
 
 
+def _require_finalize(user: User) -> None:
+    if is_reader(user) and not user_has_feature(user, FINALIZE_FEATURE):
+        raise HTTPException(403, "只读账号不能上传定稿，请联系管理员开通")
+
+
 async def finalize_in_session(session, body: FinalizeBody, user: User):
     """Save a library version in the caller’s transaction and return its summary."""
+    _require_finalize(user)
     digest = _digest(body.episodes)
     words = _words(body.episodes)
     if body.entry_id is None:

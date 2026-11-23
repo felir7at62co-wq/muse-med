@@ -184,6 +184,41 @@ class Workbench(unittest.TestCase):
                                   headers={"Authorization": "Bearer " + self.priv})
             self.assertEqual(refused.status_code, 403)
 
+    def test_workshop_opens_a_library_reader_only_for_a_company_account_from_the_edge(self):
+        """Workshop opens a reader only when the shared-host edge sends `company: true`; the bindings file wins."""
+        opened = []
+
+        async def resolve_or_provision(subject, username, bound_owners):
+            opened.append((subject, username, bound_owners))
+            return 31
+
+        readers = types.SimpleNamespace(resolve_or_provision=resolve_or_provision)
+        mint = AsyncMock(return_value={"access_token": "workbench-only", "user": {"id": 31}})
+        with patch.dict(os.environ, {"MUSE_WORKBENCH_SHARED_HOST": "1"}), \
+                patch.dict(sys.modules, {"test_app.muse_readers": readers}), \
+                patch.object(adapter, "issue_native_session", mint):
+            client = self.client("script-workshop")
+
+            def ask(secret=self.priv, **body):
+                return client.post("/v1/auth/muse/internal-session", json=body, headers={"Authorization": "Bearer " + secret})
+            for vouch in (None, False, "true", 1):
+                self.assertEqual(ask(sub="muse-new", username="林晨", company=vouch).status_code, 403)
+            self.assertEqual(ask(secret="y" * 43, sub="muse-new", company=True).status_code, 403)
+            self.assertEqual(opened, [])
+            self.assertEqual(ask(sub="muse-new", username=" 林晨 ", company=True).json()["user"]["id"], 31)
+            self.assertEqual(opened, [("muse-new", "林晨", {7})])
+            mint.assert_awaited_with("script-workshop", 31, None)
+            self.assertEqual(ask(sub="muse-new", username="林\n晨", company=True).status_code, 200)
+            self.assertIsNone(opened.pop()[1])
+            self.assertEqual(ask(sub="muse-a", company=True).status_code, 200)
+            mint.assert_awaited_with("script-workshop", 7, None)
+            self.assertEqual(len(opened), 1)
+        # Without the reader module the Workshop admits only file bindings.
+        with patch.dict(os.environ, {"MUSE_WORKBENCH_SHARED_HOST": "1"}):
+            refused = self.client("script-workshop").post("/v1/auth/muse/internal-session", json={"sub": "muse-new", "company": True},
+                                                          headers={"Authorization": "Bearer " + self.priv})
+            self.assertEqual(refused.status_code, 403)
+
     def test_install_is_repeatable_and_validates_frontend_before_writing(self):
         root, front = self.root / "backend", self.root / "front"
         (root / "app").mkdir(parents=True)

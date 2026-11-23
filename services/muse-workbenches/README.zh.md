@@ -40,7 +40,7 @@ HTTP 开发地址限本机回环。工坊须配置 `AUTH_REQUIRED=true`、独立
 
 ### 旧账号关联
 
-请管理员从 Muse 账号记录核对稳定的账户 ID，从原业务库核对工坊 `users.id` 或镜流 `known_users.user_id`。每个服务维护自己的映射，同一个 Muse 用户可在两份数据库中对应不同编号。工坊的新成员先在业务库中由管理员建立或确认个人账户，再加入对应绑定。原库中的同名、邮箱和飞书标识均不会触发自动认领。未绑定或被禁用的工坊用户登录时会收到明确提示。镜流后端开启自动开通（`FW_MUSE_AUTO_PROVISION`，默认开启）时，绑定文件里没有的 Muse 账号第一次登录镜流即开通一个积分为 0 的账号，记在镜流自己的库里；绑定文件仍然优先，管理员照样可以把某个 Muse 账号绑到已有账号上。
+请管理员从 Muse 账号记录核对稳定的账户 ID，从原业务库核对工坊 `users.id` 或镜流 `known_users.user_id`。每个服务维护自己的映射，同一个 Muse 用户可在两份数据库中对应不同编号。绑定文件优先于自动开通的账号，管理员随时可以把某个 Muse 账号绑到已有账号上。没有自动开通时，新成员先在业务库中由管理员建立或确认个人账户，再加入对应绑定。原库中的同名、邮箱和飞书标识均不会触发自动认领。未绑定或被禁用的用户登录时会收到明确提示。镜流后端开启自动开通（`FW_MUSE_AUTO_PROVISION`，默认开启）时，绑定文件里没有的 Muse 账号第一次登录镜流即开通一个积分为 0 的账号，记在镜流自己的库里。同域部署时，绑定文件里没有的账号只能作为[公司账号](#company-accounts)进入工作台。
 
 ```json
 {"issuer":"https://accounts.example.com","users":{"verified-muse-subject":74111}}
@@ -69,6 +69,13 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 普通编辑在部署后的 Muse 完成新建、导入、分场编辑、历史恢复和导出后，可以收起旧工坊网页入口。从客户端 UI 插件配置移除 `workshopOrigin`，并在同域代理配置的 JSON 中设置 `archiveWorkshopWeb: true`，配套发布网页路由和边缘服务。管理员回退入口为 `/jubengongfang/_archive`，使用绑定了工坊账号的 Muse 管理员登录。保留该入口所需的旧网页发布版本。工坊 API 和工作进程继续运行。需要重新开放旧入口时，恢复客户端 UI 配置并设置 `archiveWorkshopWeb: false`。
 
 用 [prepare.py](shared-host/prepare.py) 适配两套原版前端，用 [prepare_uploads.py](shared-host/prepare_uploads.py) 配置工坊上传目录，再以 `NEXT_PUBLIC_ORCHESTRATOR_URL=/jubengongfang` 构建 Next。服务器上的 [provision.py](shared-host/provision.py) 在 `/srv/muse-workbenches/config` 下初始化各服务凭据和首名已核验成员。账号代理和业务接口共用各应用的 `bindings/*.json` 文件。工坊使用独立的 PostgreSQL、Redis 和任务进程。镜流将 SQLite 和素材保存在自己的数据目录。桌面和网页共用已登录账号的素材目录。已有部署先运行 `install.py --audience jingliu --library-only --backend <backend> --frontend <studio-site>`，再使用镜流服务的环境和 Python 路径运行 `import_character_references.py <verified-export>`。导入会校验每张原图的摘要、保留元数据和使用范围，重复执行时跳过相同记录。[activate.py](shared-host/activate.py) 检查生成的路径配置后平滑重载现有 Muse HTTPS 站点。
+
+<a id="company-accounts"></a>
+### 同域部署的公司账号
+
+只有当边缘 JSON 中该应用的条目列出公司的飞书租户标识时，同域边缘代理才放行工作台映射之外的公司 Muse 账号，例如在 `apps["script-workshop"]` 下写 `"autoAccounts": {"feishuTenants": ["<租户标识>"]}`。租户标识就是 Muse 账号页上飞书身份旁显示的组织标识。没有 `autoAccounts` 时，未映射的账号一律拒绝。对未映射的账号，边缘代理用该账号自己的 Muse cookie 读取 `/api/muse/profile`，只有其中某个飞书身份属于所列租户才继续。随后它把 `company: true` 和 Muse 用户名交给工作台的 internal-session，并且只接受没有被任何映射占用的原生用户。缓存的原生会话五分钟后过期，届时重新检查。
+
+剧本工坊用 `app/muse_readers.py` 返回一个定稿剧本库读者：每个 Muse 账号一个工坊用户，`login_id` 为 `muse:<账户 ID>`，角色 `user`，没有密码和功能开关。边缘代理只为读者转发 `GET /v1/auth/me`、`POST /v1/auth/logout`、`/v1/script-library` 的列表和阅读、定稿上传，以及对单个剧本的选用和投产登记。读者的网页入口、浏览器会话和其余 API 一律拒绝。工坊要求选用须有 `script_pick`，读者定稿上传须有 `script_finalize`。管理员通过 `PATCH /v1/admin-api/users/{id}` 提交完整的 `feature_flags` 开通权限，把读者状态设为 `disabled` 即停用。把该账号加入映射（映射到读者账号或其他用户）即解除边缘代理的限制；读者账号定稿上传仍需 `script_finalize`。镜流后端能自动开通账号后也接受同样的 `autoAccounts` 条目，边缘代理不限制镜流的路径。
 
 ### Muse 桌面与独立站
 

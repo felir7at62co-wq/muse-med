@@ -119,23 +119,33 @@ def muse_username(value):
     return value
 
 
-async def bound_owner(audience, accounts, subject, username=None):
-    """The native account for a verified Muse subject: the bindings file first, then Jingliu's own accounts.
+async def bound_owner(audience, accounts, subject, username=None, *, company=False):
+    """The native account for a verified Muse subject: the bindings file first, then the workbench's own accounts.
 
     Jingliu opens an account for a subject the file does not list on first sign-in (`app/muse_accounts.py`
-    in the Jingliu backend). Workshop accounts come only from the file. Returns None when no account applies.
+    in the Jingliu backend). Workshop opens a finalized-script library reader (`app/muse_readers.py`) only when
+    `company` is true, which the shared-host edge sends after it checked the account's company Feishu tenant.
+    Returns None when no account applies.
     """
     owner = accounts.get(subject)
-    if owner is not None or audience != "jingliu":
+    if owner is not None:
         return owner
+    if audience == "jingliu":
+        try:
+            from .muse_accounts import AccountError, resolve_or_provision
+        except ImportError:
+            return None  # A Jingliu build without automatic accounts admits only file bindings.
+        try:
+            return await asyncio.to_thread(resolve_or_provision, subject, muse_username(username))
+        except AccountError as error:
+            raise HTTPException(error.status, error.message) from None
+    if not company:
+        return None
     try:
-        from .muse_accounts import AccountError, resolve_or_provision
+        from .muse_readers import resolve_or_provision
     except ImportError:
-        return None  # A Jingliu build without automatic accounts admits only file bindings.
-    try:
-        return await asyncio.to_thread(resolve_or_provision, subject, muse_username(username))
-    except AccountError as error:
-        raise HTTPException(error.status, error.message) from None
+        return None  # A Workshop build without library readers admits only file bindings.
+    return await resolve_or_provision(subject, muse_username(username), set(accounts.values()))
 
 
 def issue_jingliu_session(owner, native_role):
@@ -232,8 +242,10 @@ def configure_muse_login(app: FastAPI, audience: str):
             payload = await request.json()
             subject = payload.get("sub") if isinstance(payload, dict) else None
             username = payload.get("username") if isinstance(payload, dict) else None
+            company = isinstance(payload, dict) and payload.get("company") is True
             accounts, roles = await asyncio.to_thread(read_bindings, bindings, issuer, audience)
-            owner = (await bound_owner(audience, accounts, subject, username if isinstance(username, str) else None)
+            owner = (await bound_owner(audience, accounts, subject, username if isinstance(username, str) else None,
+                                       company=company)
                      if isinstance(subject, str) and subject else None)
             if owner is None:
                 raise HTTPException(403, "此 Muse 账号尚未开通工作台")

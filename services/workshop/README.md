@@ -14,6 +14,10 @@ The cloud serves Workshop on the shared Muse workbench host at `/jubengongfang/`
 
 Draft owners and administrators can edit episode text and structured scenes, preview the history of either layer, restore a saved version, and export Word, Markdown, or plain text files. Saving, applying a text candidate, and restoring require the current revision and save the prior version in the same transaction. Only the owner can publish a complete draft. Publication checks the complete draft revision, reuses its library entry, and keeps any previously selected version.
 
+## Finalized-script library readers
+
+A company Muse account outside the bindings file gets a library reader on its first sign-in through the shared host. `app/muse_readers.py` opens one Workshop user per Muse account, with `login_id` `muse:<account ID>`, role `user`, no password and no feature flags. The [shared-host edge](../muse-workbenches/README.md#company-accounts) lets a reader reach only the library and its own profile. A reader lists and reads every finalized script, picks with `script_pick` and publishes a finalized script with `script_finalize`.
+
 ## Source
 
 This tree is the Workshop source that the cloud runs. It is the Workshop source of the November 17, 2026 workbench backup, `01-drama/code/services/orchestrator` as `backend/` and `01-drama/code/apps/web` as `frontend/` including the web lockfile, with the Muse changes that the install-time overlays in [`../muse-workbenches`](../muse-workbenches/README.md) add:
@@ -45,7 +49,7 @@ This tree is now the source of truth for Workshop. The cloud release is still bu
 | `backend/app/` | FastAPI application, served as `app.main:app`, and the job worker `app/worker.py` |
 | `backend/alembic/`, `backend/alembic.ini` | Database migrations |
 | `backend/scripts/` | Migration, seed, verification and evaluation scripts |
-| `backend/tests/` | unittest suite for 视频转剧本 and the Muse draft editor |
+| `backend/tests/` | unittest suite for 视频转剧本, the Muse draft editor and library readers |
 | `backend/pyproject.toml`, `backend/requirements.txt` | Declared dependency ranges and the pinned cloud runtime |
 | `frontend/` | Next.js application with its `package.json` and `pnpm-lock.yaml` |
 
@@ -61,7 +65,7 @@ uv pip install --python ~/.venvs/workshop/bin/python -r requirements.txt
 
 Importing the application also needs the Muse login settings (`MUSE_WORKBENCH_ISSUER`, `MUSE_WORKBENCH_PUBLIC_ORIGIN`, `MUSE_WORKBENCH_SECRET`, `MUSE_WORKBENCH_BINDINGS`, `MUSE_WORKBENCH_STATE_DB`), `AUTH_REQUIRED=true`, a `JWT_SECRET` of at least 32 characters and `UPLOADS_DIR`. With placeholder values and a bindings file without users, `import app.main` and every module under `app` load without connecting to the database or Redis.
 
-`~/.venvs/workshop/bin/python -m unittest discover -s tests` runs the 视频转剧本 and editor tests from `backend/`. The editor tests run against a temporary SQLite file and require the `aiosqlite` development dependency. Set `MUSE_SCRIPT_EDITOR_TEST_POSTGRES_URL` to a disposable local PostgreSQL connection using `postgresql+psycopg` and `127.0.0.1` to also verify concurrent saves and publication in isolated PostgreSQL schemas.
+`~/.venvs/workshop/bin/python -m unittest discover -s tests` runs the 视频转剧本, editor and library reader tests from `backend/`. The editor and reader tests run against a temporary SQLite file and require the `aiosqlite` development dependency. Set `MUSE_SCRIPT_EDITOR_TEST_POSTGRES_URL` to a disposable local PostgreSQL connection using `postgresql+psycopg` and `127.0.0.1` to also verify concurrent saves and publication in isolated PostgreSQL schemas.
 
 Build the frontend from `frontend/` with the pnpm version that wrote the lockfile:
 
