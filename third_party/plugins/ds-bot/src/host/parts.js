@@ -25,7 +25,7 @@ import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, reminderPrompts, splitRef, textOf } from './text.js'
 import { pageThinkingMs } from './thinking.js'
 import { viaOf } from '../shared/im-platforms.js'
-import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
+import { focusOpenPart, isOpenPart, ownChatSessions, pushThreadPart, startOpenPart, successorOfMovedPart, taskModelOf, threadCurrent, threadCurrentOfPart, threadOf, threadOfPart } from './threads.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
@@ -1169,9 +1169,12 @@ export function install(rt) {
   // A fresh part runs on its Bot's model. A Bot without a model of its own keeps the
   // earlier part's route. That route is what its last request used, which misses a model
   // the user picked since. A group's own Session has no Bot: see selectRoomSession.
-  async function freshRoute(bot, session) {
+  async function freshRoute(bot, session, { carryTask = true } = {}) {
+    const task = taskModelOf(bot, session.id)
+    if (carryTask && task !== undefined) return { ref: task, task: true }
     const ref = await rt.desiredModel(bot)
     if (ref !== undefined) return { ref, effort: await rt.desiredEffort(bot, ref) }
+    if (task !== undefined) return undefined
     const route = session.requestHeader()?.config
     return route?.provider && route?.model ? { ref: `${route.provider}/${route.model}`, effort: route.reasoningEffort } : undefined
   }
@@ -1188,7 +1191,9 @@ export function install(rt) {
   // this rule, an earlier part opened again and a fresh part whose route did not apply.
   const engineOfRoute = route => (route?.provider && route?.model ? rt.engineOf?.(`${route.provider}/${route.model}`) : undefined)
   function offEngine(agent, place, selection) {
-    const wanted = place?.botId === undefined ? undefined : rt.engineOfBot?.(rt.botOf(place.botId))
+    const bot = rt.botOf(place?.botId)
+    const task = taskModelOf(bot, agent.id)
+    const wanted = task === undefined ? rt.engineOfBot?.(bot) : rt.engineOf?.(task)
     if (wanted === undefined) return false
     return [agent.session.requestHeader?.()?.config, selection].some(route => engineOfRoute(route) !== undefined && engineOfRoute(route) !== wanted)
   }
@@ -1278,7 +1283,15 @@ export function install(rt) {
     // earlier part's route may be one DSH no longer serves (#1310).
     if (bot === undefined) await rt.selectRoomSession(freshId)
     const picked = bot === undefined ? undefined : await freshRoute(bot, session)
-    if (picked !== undefined && !await selectRoute({ name }, freshId, picked) && job.engine) engineRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
+    if (picked?.task === true) {
+      try {
+        await rt.selectTaskSessionModel(freshId, picked.ref)
+      } catch (error) {
+        await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
+          .catch(archiveError => rt.warn('ds-bot: unused task of %s not archived: %s', name, archiveError))
+        throw error
+      }
+    } else if (picked !== undefined && !await selectRoute({ name }, freshId, picked) && job.engine) engineRetry.set(freshId, Date.now() + FOLDER_RETRY_MS)
     if (bot !== undefined) await rt.applyPermission(bot, freshId, room)
       .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', name, error))
     // The fresh part took several awaits: a Bot or group deleted meanwhile, a member that
@@ -1328,7 +1341,7 @@ export function install(rt) {
     await rt.save()
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
-    const now = bot === undefined ? undefined : await freshRoute(bot, session)
+    const now = bot === undefined || picked?.task === true ? undefined : await freshRoute(bot, session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name }, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
     job.moved = true
@@ -2041,7 +2054,7 @@ export function install(rt) {
   async function openPartNow(bot, agent) {
     const dir = rt.workDirOf({ botId: bot.id })
     const freshId = await rt.createSession(bot.name, { dir })
-    const picked = await freshRoute(bot, agent.session)
+    const picked = await freshRoute(bot, agent.session, { carryTask: false })
     if (picked !== undefined) await selectRoute({ name: bot.name }, freshId, picked)
     await rt.applyPermission(bot, freshId, undefined)
       .catch(error => rt.warn('ds-bot: permission for the new part of %s not applied: %s', bot.name, error))
@@ -2057,7 +2070,7 @@ export function install(rt) {
     // registered then, and the sync recorded it as applied; this part was not one of them
     // yet, so the route picked at the top may be the old one. Read it again now that the
     // part is the Bot's, as the switch does.
-    const now = await freshRoute(bot, agent.session)
+    const now = await freshRoute(bot, agent.session, { carryTask: false })
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute({ name: bot.name }, freshId, now)
   }
 

@@ -22,7 +22,7 @@ import { readMuseSession } from './session.ts'
 import { MuseGatewayError } from './gateway.ts'
 import { removeModelAccessFile } from './model-access.ts'
 import { safeMuseModelStream } from './model-errors.ts'
-import { MuseModelRequestTrace } from './model-request-trace.ts'
+import { deepSeekFlashRelay, MuseModelRequestTrace } from './model-request-trace.ts'
 
 /** Public catalog metadata; any supplier address or credential field a gateway adds is discarded unread. */
 const metadata = z.object({ providers: z.array(z.object({
@@ -191,6 +191,7 @@ export class MuseModels {
     const recovery = await next()
     if (recovery !== undefined) return recovery
     if (!provider.startsWith('muse-cloud-') || !failoverCodes.has(failure.code) || this.isStopped() || signal.aborted) return
+    if (provider === `muse-cloud-${deepSeekFlashRelay}` || provider === 'muse-cloud-jubian-pro') return
     const owner = scopeOf(this.ctx)
     if (owner !== undefined && !scopeChainOf(agent).includes(owner)) return
     const header = agent.session.requestHeader()
@@ -360,7 +361,8 @@ export class MuseModels {
               } : {}) } }
         }),
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',
-          ...(provider.id === 'deepseek-official' ? { thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true } : {}) },
+          ...(['deepseek-official', deepSeekFlashRelay, 'jubian-pro'].includes(provider.id)
+            ? { thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true } : {}) },
       }
     }
     const candidate = resolveProfiles(providers)

@@ -83,7 +83,15 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     updateCheck: true               # look for a newer DS Bot when a window opens; default true
     updateRegistry: https://registry.example/   # ask only this npm registry for updates
     github: false                   # hide the GitHub connector; default shown in Connectors
+    taskRouting:                    # optional Main Bot routing for independent tasks
+      enabled: true
+      flash: muse-cloud-deepseek-flash-auto/deepseek-v4.1-flash
+      pro: muse-cloud-jubian-pro/deepseek-v4-pro
 ```
+
+**Task models**: When `taskRouting.enabled` is true, Main Bots can consult `list_bot_model_cards` before they delegate independent tasks from their own chats. The cards show catalog models the team can select, with available input and context metadata. `message_bot` accepts `task_difficulty` (`routine` or `advanced`) or the exact `task_model` explicitly requested by the user, together with `when: queue`, `request_id`, and a short `routing_reason`. An unavailable difficulty card uses the Worker's normal dispatch and says so in the receipt. If the requested exact model is unavailable, the task is held for a different choice.
+
+A routed assignment opens a background thread for the Worker. The receipt includes the thread's Session, model, and reason. The thread keeps its task model across restarts and conversation handoffs. The same request ID and arguments return the previous receipt. The Worker's foreground chat, model setting, and other threads keep their existing models. Look in the Worker's conversation parts to find the delegated thread. Set `taskRouting.enabled: false` and restart the profile to stop routing new tasks.
 
 **Updates**: when a window opens, DS Bot asks where it was installed from for a newer release: the npm registry (the one the DSH plugin manager installs from, then its fallbacks), or the latest GitHub release for a `github:…#vX.Y.Z` install. A newer version shows a cloud button at the top right of the sidebar; **Update** reinstalls DS Bot through the DSH plugin manager, and the new version runs from the next DSH start. A linked or local checkout is never offered an update. Settings → About DS Bot shows the same state, with **Check for updates** to ask again at once.
 

@@ -4,6 +4,7 @@ import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test } from 'node:test'
+import { AgentModel, modelSelectionProjectionDefinition } from '@deepseek-ai/dsh-agent'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { install as installRequests } from '../src/host/requests.js'
@@ -45,19 +46,36 @@ function team({ group = false } = {}) {
 
 // The plugin in a home of its own, with a stand-in DSH around it. The seed is written the
 // first time; a later boot keeps the state the first run saved.
-async function boot(home, seed) {
+async function boot(home, seed, { taskRouting, modelCatalog = {}, unavailable = [], rejectSelection, recordedEvents = {} } = {}) {
   if (seed !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(seed))
   const ctx = fakeContext()
   const agents = new Map()
+  const selections = []
+  const archived = []
+  let nextSession = 0
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
       const calls = []
+      const events = [...(recordedEvents[sessionId] ?? [])]
+      let selection = events.reduce(modelSelectionProjectionDefinition.apply, modelSelectionProjectionDefinition.init())
+      const session = {
+        id: sessionId,
+        requestHeader: () => undefined,
+        append(type, data) {
+          const event = { type, data }
+          events.push(event)
+          selection = modelSelectionProjectionDefinition.apply(selection, event)
+        },
+      }
+      const model = new AgentModel(() => selection, session, {})
       agents.set(sessionId, {
-        session: { id: sessionId, requestHeader: () => undefined },
+        session,
+        model,
         id: sessionId,
         calls,
+        events,
         status: 'idle',
-        followup(message) { calls.push(['followup', message]) },
+        followup(message) { calls.push(['followup', message, model.current()]) },
         steer(message) { calls.push(['steer', message]) },
         inject(message) { calls.push(['inject', message]) },
         cancel(cause) { calls.push(['cancel', cause]) },
@@ -79,23 +97,34 @@ async function boot(home, seed) {
     return agents.get(sessionId)
   }
   Object.assign(ctx, {
-    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    llm: {
+      listProviders: () => Object.keys(modelCatalog).map(id => ({ id })),
+      listModels: async provider => modelCatalog[provider] ?? [],
+      resolveModelInfo: async (provider, id) => modelCatalog[provider]?.find(model => model.id === id) ?? {},
+    },
     workspaceRegistry: {
       get: () => undefined,
       resolveByPath: async () => undefined,
       create: async path => ({ id: 'w1', path }),
-      archiveSession: async () => {},
+      archiveSession: async id => { archived.push(id) },
     },
     sessionController: {
-      create: async () => ({ sessionId: 's1' }),
+      create: async () => ({ sessionId: `s${++nextSession}` }),
       resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }),
-      selectModel: async () => {},
+      selectModel: async (request) => {
+        if (rejectSelection?.(request)) throw new Error('Model selection refused')
+        selections.push(request)
+        const selected = { provider: request.provider, model: request.model }
+        agentOf(request.sessionId).model.select(selected)
+        return { selected }
+      },
       page: async () => ({ records: [], hasMore: false }),
     },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => {} },
   })
-  rt = createRuntime(ctx, { home })
+  rt = createRuntime(ctx, { home, taskRouting })
+  if (unavailable.length > 0) rt.missingKeys = async () => new Set(unavailable)
   let seq = 0
   const emit = (id, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {
@@ -106,7 +135,7 @@ async function boot(home, seed) {
   const stop = async () => { await ctx.dispose() }
   // Loading once fills the Session-owner indexes turns.js filters events by.
   await tool('list_bots', {}, 'a')
-  return { ctx, rt, agents, agentOf, emit, tool, stop }
+  return { ctx, rt, agents, agentOf, emit, tool, stop, selections, archived }
 }
 
 // After a restart, a message its recipient never read is sent again on purpose (resume.js);
@@ -114,6 +143,118 @@ async function boot(home, seed) {
 const freshSends = agent => agent.calls.filter(([, message]) => !message?.content?.[0]?.text?.includes('restarted before it could reach you'))
 const tempHome = () => mkdtempSync(join(tmpdir(), 'ds-bot-request-'))
 const cleanup = home => rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+
+const taskRouting = { enabled: true, flash: 'test-flash/deepseek-v4.1-flash', pro: 'test-pro/deepseek-v4-pro' }
+const modelCatalog = {
+  'test-flash': [{ id: 'deepseek-v4.1-flash', inputModalities: ['text'], context: { contextWindow: 64000 } }],
+  'test-pro': [{ id: 'deepseek-v4-pro', inputModalities: ['text'], context: { contextWindow: 128000 } }],
+  'test-original': [{ id: 'worker-normal' }],
+}
+const taskArgs = (request_id, task_difficulty, routing_reason) => ({ to: 'Writer', message: `Work for ${request_id}`, when: 'queue', request_id, task_difficulty, routing_reason })
+
+test('Main Bot selects Flash for routine work and Pro for difficult work while preserving its Worker’s other chats', async (t) => {
+  const home = tempHome()
+  const seed = team()
+  seed.bots.b.model = 'test-original/worker-normal'
+  seed.bots.b.appliedModel = seed.bots.b.model
+  const { ctx, rt, agentOf, tool, stop, selections } = await boot(home, seed, { taskRouting, modelCatalog })
+  t.after(async () => { await stop(); cleanup(home) })
+  const worker = agentOf('b')
+  worker.status = 'running'
+  worker.inbox.nextTurn.push({ id: 'existing-work' })
+  rt.live.set('b', { turn: 'previous-work' })
+  const cards = await tool('list_bot_model_cards', {}, 'a')
+  assert.match(cards, /routine: test-flash\/deepseek-v4\.1-flash.*Advertised input: text.*Context: 64000 tokens/)
+  assert.match(cards, /advanced: test-pro\/deepseek-v4-pro.*Context: 128000 tokens/)
+  assert.match(ctx.sections.get('bot-identity').text({ agent: { id: 'a' } }), /Before assigning a new independent task.*list_bot_model_cards/)
+  assert.doesNotMatch(ctx.sections.get('bot-identity').text({ agent: { id: 'b' } }), /list_bot_model_cards/)
+
+  const argumentsForFlash = taskArgs('format-subtitles', 'routine', 'Apply a known subtitle format.')
+  const flash = await tool('message_bot', argumentsForFlash, 'a')
+  const pro = await tool('message_bot', taskArgs('compare-scripts', 'advanced', 'Reconcile conflicting plot details across scripts.'), 'a')
+  assert.match(flash, /task session s1.*Selected model: test-flash\/deepseek-v4\.1-flash.*Reason: Apply a known subtitle format/)
+  assert.match(pro, /task session s2.*Selected model: test-pro\/deepseek-v4-pro.*Reason: Reconcile conflicting plot details/)
+  assert.deepEqual(selections, [
+    { sessionId: 's1', provider: 'test-flash', model: 'deepseek-v4.1-flash', saveDefault: false },
+    { sessionId: 's2', provider: 'test-pro', model: 'deepseek-v4-pro', saveDefault: false },
+  ])
+  assert.equal(rt.chatOf('b'), 'b')
+  assert.equal(rt.botOf('b').model, 'test-original/worker-normal')
+  assert.equal(worker.inbox.nextTurn[0].id, 'existing-work')
+  assert.equal(worker.calls.length, 0)
+  assert.equal(agentOf('s1').calls[0][0], 'followup')
+  assert.equal(agentOf('s2').calls[0][0], 'followup')
+  assert.deepEqual(agentOf('s1').events, [{ type: 'model/selection', data: { provider: 'test-flash', model: 'deepseek-v4.1-flash' } }])
+  assert.deepEqual(agentOf('s2').events, [{ type: 'model/selection', data: { provider: 'test-pro', model: 'deepseek-v4-pro' } }])
+  assert.deepEqual(agentOf('s2').calls[0][2], agentOf('s2').events[0].data)
+  assert.equal(await tool('message_bot', argumentsForFlash, 'a'), flash)
+  await assert.rejects(tool('message_bot', { ...argumentsForFlash, task_model: taskRouting.pro }, 'a'), /already used for a different request/)
+  assert.equal(agentOf('s1').calls.length, 1)
+
+  await rt.applyModel(rt.botOf('b'), { force: true })
+  assert.deepEqual(selections.map(selection => selection.sessionId), ['s1', 's2', 'b'])
+  await rt.switchPart('b', 's2')
+  await tool('message_bot', { to: 'Writer', message: 'A separate message' }, 'a')
+  assert.equal(worker.calls.length, 1)
+  assert.equal(agentOf('s2').calls.length, 1)
+})
+
+test('a requested exact model takes priority and unavailable routes have explicit outcomes', async (t) => {
+  const home = tempHome()
+  const { rt, agentOf, tool, stop, selections } = await boot(home, team({ group: true }), { taskRouting, modelCatalog, unavailable: ['test-flash'] })
+  t.after(async () => { await stop(); cleanup(home) })
+  const cards = await tool('list_bot_model_cards', {}, 'a')
+  assert.doesNotMatch(cards, /test-flash/)
+  assert.match(cards, /test-pro/)
+  assert.match(await tool('list_bot_model_cards', {}, 'b'), /Only Main Bots/)
+  await assert.rejects(tool('message_bot', { ...taskArgs('permission', 'advanced', 'Worker cannot route.'), to: 'Chief' }, 'b'), /Only a Main Bot/)
+  const group = rt.state.rooms.r1
+  group.members.push('a')
+  rt.groupOwners.set('ga', { botId: 'a', roomId: group.id })
+  await assert.rejects(tool('message_bot', taskArgs('group', 'advanced', 'Group work.'), 'ga'), /Main Bot’s own chat/)
+
+  assert.match(await tool('message_bot', taskArgs('fallback', 'routine', 'Routine work.'), 'a'), /uses its existing model/)
+  assert.equal(agentOf('b').calls.length, 1)
+  assert.match(await tool('message_bot', { ...taskArgs('missing', 'advanced', 'User requested Flash.'), task_model: taskRouting.flash }, 'a'), /unavailable/)
+  assert.equal(agentOf('b').calls.length, 1)
+  assert.match(await tool('message_bot', { ...taskArgs('manual', 'routine', 'Use the model the user requested.'), task_model: taskRouting.pro }, 'a'), /Selected model: test-pro\/deepseek-v4-pro/)
+  assert.deepEqual(selections.map(selection => selection.model), ['deepseek-v4-pro'])
+})
+
+test('a task model selection failure delivers nothing and leaves its request free to retry', async (t) => {
+  const home = tempHome()
+  let fail = true
+  const { agentOf, archived, tool, stop } = await boot(home, team(), { taskRouting, modelCatalog, rejectSelection: request => fail && request.saveDefault === false })
+  t.after(async () => { await stop(); cleanup(home) })
+  const args = taskArgs('retry-unselected', 'advanced', 'Complex work.')
+  assert.match(await tool('message_bot', args, 'a'), /Task not delivered/)
+  assert.deepEqual(archived, ['s1'])
+  assert.equal(agentOf('s1').calls.length, 0)
+  fail = false
+  assert.match(await tool('message_bot', args, 'a'), /task session s2.*Selected model/)
+  assert.equal(agentOf('s2').calls.length, 1)
+})
+
+test('a missed task delivery remains pinned to its Worker thread and a retry gets the original receipt', async (t) => {
+  const home = tempHome()
+  const first = await boot(home, team(), { taskRouting, modelCatalog })
+  const args = taskArgs('restart-task', 'routine', 'Routine work.')
+  const receipt = await first.tool('message_bot', args, 'a')
+  await first.stop()
+  const pending = JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8'))
+  assert.equal(pending.queued.s1[0].args.taskThread, true)
+  assert.equal(pending.queued.s1[0].args.sessionId, 's1')
+  const second = await boot(home, undefined, { taskRouting, modelCatalog, recordedEvents: { s1: first.agentOf('s1').events } })
+  t.after(async () => { await second.stop(); cleanup(home) })
+  assert.equal(second.rt.botOf('b').openParts[0].taskModel, taskRouting.flash)
+  assert.equal(second.rt.chatOf('b'), 'b')
+  assert.equal(await second.tool('message_bot', args, 'a'), receipt)
+  assert.equal(freshSends(second.agentOf('s1')).length, 0)
+  for (let retry = 0; retry < 100 && second.agentOf('s1').calls.length === 0; retry += 1) await delay(50)
+  assert.equal(second.agentOf('s1').calls.length, 1)
+  assert.deepEqual(second.agentOf('s1').calls[0][2], { provider: 'test-flash', model: 'deepseek-v4.1-flash' })
+  assert.equal(second.agentOf('b').calls.length, 0)
+})
 
 test('a request with an id is delivered once, and a repeat gives the first receipt back', async (t) => {
   const home = tempHome()

@@ -230,6 +230,22 @@ Both model relay entry points validate `x-muse-client-request-id` as a UUID and 
 
 A bounded response observer preserves the forwarded bytes and records whether it observed `[DONE]`, ordinary EOF, cancellation or a transport error. Oversized or malformed metadata stays unavailable rather than being treated as a successful semantic assessment. Diagnostics exclude request and response text, credentials, Cookie, complete headers and exception messages. They do not archive raw requests or SSE bodies, certify manuscript quality or change admission, retries and accounting. Deployment of these gateway changes is separate from a Desktop build.
 
+### DeepSeek Flash supplier routing
+
+Set `MUSE_DEEPSEEK_FLASH_ROUTING` to a private JSON file to offer one DeepSeek V4.1 Flash entry. Supply `jubian` and `bailian` objects with a `provider` ID and exact `model` ID from the private native model directory. The Jubian source uses `https://gw.jubianai.net` and `deepseek-v4.1-flash`. The Bailian source uses an Alibaba Cloud Model Studio workspace endpoint or `https://dashscope.aliyuncs.com`, with `/compatible-mode/v1` and `deepseek-v4.1-flash-1017`. Each source needs its own working credential. The public entry advertises capabilities common to both sources.
+
+```json
+{
+  "jubian": { "provider": "jubian-flash-upstream", "model": "deepseek-v4.1-flash" },
+  "bailian": { "provider": "alibaba-bailian", "model": "deepseek-v4.1-flash-1017" },
+  "hide": []
+}
+```
+
+The Desktop catalog hides the two source entries and any optional `hide` references. A valid 64-character lowercase hex `x-muse-model-session` selects a route within the authenticated account. Legacy clients use account affinity. The gateway can try the other supplier once after a retryable pre-stream failure and keeps that supplier for the Session when it accepts the request. Accepted switches persist in `deepseek-flash-affinity.json` beside the account store. Attributes used for affinity stay at the gateway. A stream already sent to the client never triggers supplier failover.
+
+Test with a separate gateway, account store, and model directory. Add `deepseek-v4-pro` under the `jubian-pro` provider in that directory to use the DS Bot default Pro card. The Flash environment variable and the DS Bot `taskRouting` setting independently enable the two features.
+
 ### Model key pools
 
 Zhipu array credentials share one gateway admission pool across Desktop and cloud-workspace requests. `MUSE_ZHIPU_KEY_CONCURRENCY` (default 20), `MUSE_ZHIPU_QUEUE_LIMIT` (1000), and `MUSE_ZHIPU_QUEUE_TIMEOUT_MS` (120000) configure it. Queue overflow or timeout fails before supplier dispatch; an ambiguous acquisition is not automatically retried.

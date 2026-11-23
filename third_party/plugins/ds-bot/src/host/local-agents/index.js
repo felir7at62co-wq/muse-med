@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { serviceOf } from '../services.js'
 import { splitRef } from '../text.js'
+import { taskModelOf } from '../threads.js'
 import { output } from '../tools.js'
 import { LocalAgentAdapter } from './adapter.js'
 import { AcpEngine } from './acp.js'
@@ -162,7 +163,7 @@ export function install(rt) {
   }
   const isLocalAgentSession = (sessionId) => {
     const bot = rt.botOf(rt.selfOf(sessionId))
-    return bot !== undefined && localAgentOf(bot) !== undefined
+    return bot !== undefined && taskModelOf(bot, sessionId) === undefined && localAgentOf(bot) !== undefined
   }
 
   // ---------------------------------------------------------------------------

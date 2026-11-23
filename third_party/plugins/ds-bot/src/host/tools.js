@@ -9,7 +9,7 @@ import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
-import { isOpenPart, ownChatSessions } from './threads.js'
+import { isOpenPart, ownChatSessions, taskModelOf } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { plainToolSchema } from './tool-schema.js'
 import { checkShownView, showViewDescription, showViewParameters } from 'deep-view/core'
@@ -264,12 +264,17 @@ export function install(rt) {
       when: {
         type: 'string',
         enum: ['now', 'queue'],
-        description: '"now" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.',
+        description: '"now" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.' + (rt.taskRouting === undefined ? '' : ' A task with its own model starts in a separate Worker chat.'),
       },
       request_id: {
         type: 'string',
         description: `Your own name for this request, up to ${NAME_MAX} characters, so that a repeat of it is not sent twice. Send the same request_id with the same message when you repeat a call: the receipt of the first call comes back and nothing is sent again. A request_id names one request: with other content it is refused.`,
       },
+      ...(rt.taskRouting === undefined ? {} : {
+        task_difficulty: { type: 'string', enum: ['routine', 'advanced'], description: 'Main Bot only. Use list_bot_model_cards to classify a new independent task. Requires when "queue", request_id and routing_reason. Leave out for ongoing work and group messages.' },
+        task_model: { type: 'string', description: 'Main Bot only. Exact provider/model ref the user requests for this task. Overrides task_difficulty. Requires when "queue", request_id and routing_reason.' },
+        routing_reason: { type: 'string', description: 'One short sentence about why this task needs its assigned model, at most 180 characters. Do not copy task content or private data.' },
+      }),
     },
     output,
     async execute(args, exec) {
@@ -284,6 +289,13 @@ export function install(rt) {
       if (name.length > NAME_MAX) return `The request_id is ${name.length} characters long; a request name is at most ${NAME_MAX}.`
       const text = absoluteLinks(String(args.message), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
       const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
+      const askedForRoute = args.task_model !== undefined || args.task_difficulty !== undefined || args.routing_reason !== undefined
+      const routingReason = args.routing_reason?.trim() ?? ''
+      if (askedForRoute) {
+        if (rt.taskRouting === undefined || !rt.isMain(sender.id)) refuse('Only a Main Bot can route a task when task routing is enabled.')
+        if (rt.groupOwners.has(exec.agent?.id) || args.when !== 'queue' || args.reply_to === 'user') refuse('Route a new independent task with when "queue" from the Main Bot’s own chat, with its reply coming back to the Main Bot.')
+        if (name === '' || routingReason === '' || routingReason.length > 180 || (args.task_model === undefined && args.task_difficulty === undefined)) refuse('Provide request_id, a task_difficulty or task_model, and a routing_reason of 1–180 characters.')
+      }
       // The request the caller named: it is admitted once, and a repeat of it is not sent again.
       const request = name === '' ? undefined : rt.requestIdentity({
         caller: sender.id,
@@ -294,6 +306,7 @@ export function install(rt) {
           message: String(args.message ?? '').replace(/\r\n?/g, '\n').trim(),
           reply_to: args.reply_to === 'user' ? 'user' : 'me',
           when: args.when === 'queue' ? 'queue' : 'now',
+          ...(askedForRoute ? { task_difficulty: args.task_difficulty, task_model: args.task_model?.trim(), routing_reason: routingReason } : {}),
         },
       })
       // What the caller gets for a request that was admitted before.
@@ -330,7 +343,39 @@ export function install(rt) {
         // The part of the sender's own chat this request comes from: its answer goes back
         // to that part's thread.
         const fromPart = callerPart(exec).fromPart
-        const chat = rt.chatOf(target.id)
+        if (askedForRoute && rt.localAgentOf(target) !== undefined && args.task_model !== undefined) {
+          request.unsent = true
+          return 'This Worker runs on a local agent. Ask a Worker with an API model to take this task with your requested model.'
+        }
+        const route = !askedForRoute || rt.localAgentOf(target) !== undefined ? {} : await rt.taskRouting.resolve(args)
+        if (route.error !== undefined) {
+          request.unsent = true
+          return route.error
+        }
+        if (route.ref !== undefined) {
+          const long = await rt.attachLong(text, `Message from ${sender.name}.txt`)
+          if (long === undefined) { request.unsent = true; return tooLong(text) }
+          let sessionId
+          try {
+            sessionId = await rt.taskRouting.createThread(target, route.ref)
+          } catch (error) {
+            rt.warn('ds-bot: task model %s for %s could not be set: %s', route.ref, target.name, error)
+            request.unsent = true
+            return `Task not delivered. Muse could not prepare ${route.ref} for ${target.name}. Check whether the model is available or use the Worker’s existing model.`
+          }
+          const exchangeId = randomUUID()
+          rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, ...(fromPart ? { fromPart } : {}) })
+          try {
+            await rt.deliver({ fromId: sender.id, toId: target.id, sessionId, ...(fromPart ? { fromPart } : {}), text: long.text, files: long.files, length: long.length, role: 'request', exchangeId })
+          } catch (error) {
+            if (rt.botOf(target.id) === undefined) rt.dropWork(exchangeId)
+            throw error
+          }
+          return `Delivered to ${target.name} in task session ${sessionId}. Selected model: ${route.ref}. Reason: ${routingReason}\nIts reply will arrive later as a new message; do not wait for it.`
+        }
+        const foreground = rt.chatOf(target.id)
+        const chat = taskModelOf(target, foreground) === undefined ? foreground : target.openParts?.findLast(part => taskModelOf(target, part.sessionId) === undefined)?.sessionId
+        if (chat === undefined) refuse(`${target.name} has no ordinary chat available. Open a new Worker chat before sending this message.`)
         const agent = await rt.resolveAgent(chat)
         const status = rt.statusOf(target.id)
         // A request it has not read yet, sent for the same work, takes this one in, so
@@ -353,7 +398,8 @@ export function install(rt) {
         if (joins) rt.forgetDelivery?.(exchangeId)
         else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work, ...(fromPart ? { fromPart } : {}) })
         try {
-          await rt.deliver({ fromId: sender.id, toId: target.id, ...(fromPart ? { fromPart } : {}), text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
+          const selectedPart = chat !== foreground || taskModelOf(target, rt.chatOf(target.id)) !== undefined ? { sessionId: chat } : {}
+          await rt.deliver({ fromId: sender.id, toId: target.id, ...selectedPart, ...(fromPart ? { fromPart } : {}), text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
         } catch (error) {
           // The delivery stays noted for the next start while its Bot exists
           // (resume.js), and the resent request still answers up the tree, so the
@@ -371,6 +417,7 @@ export function install(rt) {
         const asker = rt.ownsWork(sender.id, work) ? rt.botOf(state.works[work].from)?.name : undefined
         const notes = [
           joins ? `${target.name} had not read your earlier message yet, so this one was added to it, and it answers both at once.` : '',
+          askedForRoute ? `The requested routing card is unavailable for this Worker. This task uses its existing model.` : '',
           status === 'idle' ? '' : `${target.name} now: ${status}.`,
           asker ? `When you have handed on everything, end your turn: each reply brings you back to this work, and your answer goes to ${asker} once all of it is back.` : '',
         ].filter(Boolean)
@@ -384,6 +431,20 @@ export function install(rt) {
         return `${out} Your message does not reach its work in ${elsewhere.map(whereOf).join(' and ')}.${stop}`
       }
       return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
+    },
+  }))
+
+  if (rt.taskRouting !== undefined) rt.teamTools.push(defineTool({
+    name: 'list_bot_model_cards',
+    description: 'Main Bot only. Compare currently available models before assigning a new independent task with message_bot. Shows when to use each model and the limits of the comparison.',
+    parameters: {},
+    output,
+    async execute(_args, exec) {
+      await rt.load()
+      if (!rt.isMain(rt.selfOf(exec.agent?.id)) || rt.groupOwners.has(exec.agent?.id)) return 'Only Main Bots can look up task routing model cards from their own chats.'
+      const cards = await rt.taskRouting.modelCards()
+      if (cards.length === 0) return 'No task routing model cards are available. Use the Worker’s existing model, or check the exact model the user requested with list_bot_models.'
+      return [...cards.map(card => `- ${card.difficulty}: ${card.ref}. ${card.guidance} Advertised input: ${card.input?.join(', ') || 'unspecified'}. Context: ${card.context === undefined ? 'unspecified' : `${card.context} tokens`}.`), 'Use these text-task guidelines and relative cost tiers to estimate suitability. Actual performance, availability and account charges may vary. Check the task’s input requirements and honor a model the user requested.'].join('\n')
     },
   }))
 
@@ -1005,11 +1066,13 @@ export function install(rt) {
     // a Bot whose route is a local agent; they are not in rt.teamTools. A Bot
     // can move onto or off a local route after its Agent exists.
     const self = owns ? rt.botOf(rt.selfOf(id)) : undefined
-    const localBot = rt.isLocalAgentRef?.(self?.model ?? self?.appliedModel) === true
+    const localBot = rt.isLocalAgentSession?.(id) === true
+    const routingBot = rt.taskRouting !== undefined && rt.isMain(self?.id) && !rt.groupOwners.has(id)
+    const available = def => (!relayOnly || def.name === 'group_relay') && (routingBot || def.name !== 'list_bot_model_cards')
     // A Session that left the team, a scope of the wrong kind, a fresh Agent
     // for one Session, or a Bot that changed between a local route and a model
     // all start over; a wanted scope is registered again below.
-    if (held !== undefined && (!wanted || held.agent !== agent || held.relay !== relayOnly || (held.tools === true && held.local !== localBot))) {
+    if (held !== undefined && (!wanted || held.agent !== agent || held.relay !== relayOnly || (held.tools === true && (held.local !== localBot || held.routing !== routingBot)))) {
       unscope(id)
       held = undefined
     }
@@ -1020,7 +1083,7 @@ export function install(rt) {
     // join that scope. Register what it is missing, so the next request is whole.
     if (held?.tools === true) {
       for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
-        if (relayOnly && def.name !== 'group_relay') continue
+        if (!available(def)) continue
         if (held.added?.has(def.name) === true) continue
         try {
           const dispose = agent.ctx.tools.register(def)
@@ -1055,7 +1118,7 @@ export function install(rt) {
     const failed = []
     const registered = []
     for (const def of [...rt.teamTools, ...(localBot ? (rt.localAgentTools ?? []) : [])]) {
-      if (relayOnly && def.name !== 'group_relay') continue
+      if (!available(def)) continue
       try {
         const dispose = agent.ctx.tools.register(def)
         if (typeof dispose === 'function') {
@@ -1075,6 +1138,7 @@ export function install(rt) {
     held.relay = relayOnly
     held.tools = true
     held.local = localBot
+    held.routing = routingBot
     held.disposers.push(...disposers)
     held.added = new Set(registered)
     scoped.set(id, held)

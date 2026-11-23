@@ -38,6 +38,8 @@ const MAIN_RULES = [
   '- The team can have more than one Main Bot; list_bots marks them. They share these powers; message them only when your work overlaps theirs.',
 ].join('\n')
 
+const TASK_ROUTING = 'Before assigning a new independent task from your own chat, call list_bot_model_cards. For a card that fits the task’s inputs and difficulty, use message_bot with when "queue", a unique request_id, task_difficulty and one short routing_reason. If the user asks for a specific model for the task, use that exact task_model instead. Use ordinary message_bot when no card fits or for corrections, follow-ups, user-facing replies and group work.'
+
 export function install(rt) {
   const { ctx } = rt
 
@@ -52,6 +54,7 @@ export function install(rt) {
         bot.instructions ? `\n${bot.instructions}` : '',
         '',
         rt.isMain(self) ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,
+        ...(rt.taskRouting !== undefined && rt.isMain(self) && !rt.groupOwners.has(id) ? [`\n- ${TASK_ROUTING}`] : []),
       ].join('\n')
     }
     const room = rt.roomOf(id)
