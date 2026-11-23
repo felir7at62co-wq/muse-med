@@ -138,7 +138,8 @@ export function characterMarkup(shape, color) {
     const eyes = `<g class="bt-gaze"><g class="bt-eyes" fill="#000">${def.eyes.map(eyeMarkup).join('')}${def.eyes.map(happyEyeMarkup).join('')}</g></g>`
     const stops = GRADIENTS[color]
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join('')}</linearGradient>` : ''
-    const paint = stops ? `url(#${MASK_ID}g)` : inkFill(color)
+    // Muse: a shape may give its own color for an ink (the spider's artwork purple for violet).
+    const paint = stops ? `url(#${MASK_ID}g)` : def.inks?.[color] ?? inkFill(color)
     const body = def.solidEyes
       ? `${bodyOf(def, paint)}<g class="bt-gaze"><g class="bt-eyes">${def.eyes.map(solidEyeMarkup).join('')}${def.eyes.map(solidHappyEyeMarkup).join('')}</g></g>`
       : `<g mask="url(#${MASK_ID})">${bodyOf(def, paint)}</g>`

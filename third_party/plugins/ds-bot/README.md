@@ -304,6 +304,8 @@ dev/check.sh                             # all checks (see below)
 | `web-search.js` | The `auto` search provider; independent of the team code |
 | `test/` | Unit tests and fixtures |
 | `dev/characters.mjs` | Builds the characters (small 3D models traced to outlines) into the `CHARACTERS` table in `src/client/characters.js` |
+| `dev/spider.mjs` | Traces the Muse spider artwork (`packages/client/ui-muse-market/src/client/assets/muse-purple-spider.png`) into the `SPIDER` layers in `src/client/muse-spider.js`; `--check` prints how far the layers are from the artwork |
+| `dev/trace.mjs` | Contour tracing and path writing shared by `dev/characters.mjs` and `dev/spider.mjs` |
 | `dev/` | Mock model, test benches, smoke test, Desktop scripts, real-model tools (steward evaluation, logging pass-through) |
 
 ## License
