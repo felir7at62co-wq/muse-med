@@ -70,7 +70,7 @@ try {
   const shippedPolicy: NormalRetryPolicyConfig = {
     mode: 'normal', maxRetries: 8,
     retryableCodes: ['EMPTY_RESPONSE', 'INVALID_TOOL_ARGUMENTS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', CODE],
-    consecutiveRetryLimits: { [CODE]: 1 },
+    consecutiveRetryLimits: { [CODE]: 1, INVALID_TOOL_ARGUMENTS: 2 },
     backoff: { initialDelayMs: 2000, maxDelayMs: 60000 },
   }
   const accountConfig: unknown = rows.find(row => row.id === 'muse-account')?.config

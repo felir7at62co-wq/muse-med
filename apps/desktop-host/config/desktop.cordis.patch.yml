@@ -268,12 +268,13 @@
           - { providerId: yunying, modelId: gpt-6.1-sol }
         requestTimeoutMs: 60000
         # Keep the outage budget. A reply discarded by prompt-usage-guard gets one recovery
-        # before a consecutive shortfall ends the step.
+        # before a consecutive shortfall ends the step. A reply whose tool arguments are not
+        # valid JSON is requested again at most twice in a row; no tool from it has run.
         modelRetryPolicy:
           mode: normal
           maxRetries: 8
           retryableCodes: [EMPTY_RESPONSE, INVALID_TOOL_ARGUMENTS, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, PROMPT_USAGE_SHORTFALL]
-          consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 }
+          consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1, INVALID_TOOL_ARGUMENTS: 2 }
           backoff: { initialDelayMs: 2000, maxDelayMs: 60000 }
         remoteAccess: true
 

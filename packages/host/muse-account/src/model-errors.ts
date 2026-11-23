@@ -14,6 +14,8 @@ const messages = {
   TRANSPORT: 'Upstream model connection interrupted. Please retry later.',
   STREAM_CLOSED: 'Upstream model stream ended before completion. Please retry later.',
   EMPTY_RESPONSE: 'Upstream model returned no content. Please retry later.',
+  INVALID_TOOL_ARGUMENTS: 'Upstream model returned invalid tool arguments. No tool from this reply ran; please retry.',
+  MALFORMED_RESPONSE: 'Upstream model returned a malformed response. No tool from this reply ran; please retry.',
   ABORTED: 'Muse model request cancelled.',
   MISSING_CREDENTIAL: 'Please sign in to Muse and refresh the model list.',
   INVALID_CREDENTIAL: 'Muse model credential is invalid. Please contact the administrator.',
@@ -31,8 +33,37 @@ const messages = {
   UNKNOWN: 'Muse model request failed. Please retry or contact the Muse administrator.',
 } as const
 
-function safeFailure(failure: LlmFailure): LlmFailure {
-  const code = Object.hasOwn(messages, failure.code) ? failure.code as keyof typeof messages : 'UNKNOWN'
+type FixedCode = keyof typeof messages
+
+/**
+ * Content-free facts about a failure that the fixed diagnostics report as `UNKNOWN`.
+ * Supplier text, reply text, tool arguments, headers and credentials are never included.
+ */
+export interface UnknownMuseModelFailure {
+  /** `thrown` for a value thrown by the adapter stream; `finish` for an in-band error or aborted finish. */
+  readonly source: 'thrown' | 'finish'
+  /** `name` of a thrown Error, or `typeof` another thrown value; absent for a finish. */
+  readonly errorClass?: string
+  /** The original code when it is an upper-snake identifier, such as `ECONNRESET` or an unlisted Harness code. */
+  readonly code?: string
+  /**
+   * A thrown value's message: its first line, cut at the first quotation mark because parser and
+   * validation messages quote the rejected input, with opaque runs of 24 or more token characters
+   * replaced, and at most 160 characters. Absent for a thrown non-Error value and for a finish,
+   * whose message is supplier text.
+   */
+  readonly message?: string
+}
+
+const DIAGNOSTIC_MESSAGE_MAX_CHARS = 160
+const IDENTIFIER = /^[A-Za-z_$][\w$]{0,63}$/u
+const CODE = /^[A-Z][A-Z0-9_]{0,63}$/u
+
+function fixedCode(code: string): FixedCode {
+  return Object.hasOwn(messages, code) ? code as FixedCode : 'UNKNOWN'
+}
+
+function safeFailure(failure: LlmFailure, code: FixedCode): LlmFailure {
   return { code, message: messages[code],
     ...(failure.status === undefined ? {} : { status: failure.status }),
     ...(failure.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: failure.providerRetryAfterMs }),
@@ -40,20 +71,54 @@ function safeFailure(failure: LlmFailure): LlmFailure {
   }
 }
 
+function diagnosticMessage(text: string): string {
+  const end = text.search(/[\r\n]/u)
+  const line = end === -1 ? text : text.slice(0, end)
+  const quote = line.search(/["'`]/u)
+  const unquoted = (quote === -1 ? line : `${line.slice(0, quote)}…`).replace(/[A-Za-z0-9+/_=-]{24,}/gu, '…')
+  return unquoted.length <= DIAGNOSTIC_MESSAGE_MAX_CHARS ? unquoted : `${unquoted.slice(0, DIAGNOSTIC_MESSAGE_MAX_CHARS - 1)}…`
+}
+
+function knownCode(value: unknown): { code: string } | Record<string, never> {
+  return typeof value === 'string' && CODE.test(value) ? { code: value } : {}
+}
+
+function thrownFailure(error: unknown): UnknownMuseModelFailure {
+  if (!(error instanceof Error)) return { source: 'thrown', errorClass: typeof error }
+  const code: unknown = Reflect.get(error, 'code')
+  return { source: 'thrown', errorClass: IDENTIFIER.test(error.name) ? error.name : 'Error',
+    ...knownCode(code), message: diagnosticMessage(error.message) }
+}
+
+function notify(report: (failure: UnknownMuseModelFailure) => void, describe: () => UnknownMuseModelFailure): void {
+  // Description reads thrown-value properties; neither it nor the sink may replace the model outcome.
+  try { report(describe()) }
+  catch (_diagnosticFailure) { /* The fixed UNKNOWN failure is still delivered to the caller. */ }
+}
+
 /**
  * Keep model output intact while replacing failed and cancelled supplier diagnostics.
  * @param source - Deferred stream creation, including synchronous adapter failures.
+ * @param report - Receives content-free facts each time a failure becomes `UNKNOWN`; its own failure is ignored.
  * @returns Stream with fixed error text and routing facts; thrown failures carry no upstream cause or request ID.
  */
-export async function* safeMuseModelStream(source: () => AsyncIterable<StreamChunk>): AsyncGenerator<StreamChunk> {
+export async function* safeMuseModelStream(
+  source: () => AsyncIterable<StreamChunk>,
+  report: (failure: UnknownMuseModelFailure) => void,
+): AsyncGenerator<StreamChunk> {
   try {
     for await (const chunk of source()) {
       if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
-        yield { ...chunk, reason: { ...chunk.reason, failure: safeFailure(chunk.reason.failure) } }
+        const original = chunk.reason.failure.code
+        const code = fixedCode(original)
+        if (code === 'UNKNOWN') notify(report, () => ({ source: 'finish', ...knownCode(original) }))
+        yield { ...chunk, reason: { ...chunk.reason, failure: safeFailure(chunk.reason.failure, code) } }
       } else yield chunk
     }
   } catch (error) {
-    const failure = safeFailure(error instanceof LlmError ? error.failure : { code: 'UNKNOWN', message: '' })
-    throw LlmError.fromFailure(failure)
+    const failure: LlmFailure = error instanceof LlmError ? error.failure : { code: 'UNKNOWN', message: '' }
+    const code = fixedCode(failure.code)
+    if (code === 'UNKNOWN') notify(report, () => thrownFailure(error))
+    throw LlmError.fromFailure(safeFailure(failure, code))
   }
 }

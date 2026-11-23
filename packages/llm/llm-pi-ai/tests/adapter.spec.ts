@@ -566,6 +566,24 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/chat/completions'])
   })
 
+  it.each([
+    ['inside an event', 'data: {"choices":[{"index":0,"delta":{"reasoning_content":"trunc', 'TRANSPORT', true],
+    ['between events', '', 'TRANSPORT', true],
+    ['after a provider error event', `data: ${JSON.stringify({ error: { message: 'opaque provider refusal' } })}\n\n`, 'PI_AI_ERROR', false],
+  ] as const)('classifies a Chat Completions body that ends %s without a finish reason', async (_label, tail, code, retryable) => {
+    const reasoning = `data: ${JSON.stringify({ choices: [{ index: 0, delta: { role: 'assistant', reasoning_content: 'thinking' }, finish_reason: null }] })}\n\n`
+    const server = await mockServer([{ headers: { 'content-type': 'text/event-stream' }, body: reasoning + tail }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const adapter = adapterOf({ deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url } }, 'test-key')
+    ctx.llm.registerAdapter(['deepseek'], adapter)
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code } })
+    const policy = adapter.providerRetryPolicy('deepseek')
+    if (policy?.mode !== 'normal') throw new Error('Expected bounded provider retry policy')
+    expect(policy.retryableCodes.includes(code)).toBe(retryable)
+  })
+
   it('normalizes provider retry delays and bounded request-id header variants', async () => {
     const future = new Date(Date.now() + 60_000).toUTCString()
     const responses = [

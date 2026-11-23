@@ -132,7 +132,7 @@ A completed, nonempty `stop` remains successful when reported usage exceeds the 
 
 A route pi-ai does not ship needs `api`, `baseURL`, and a non-empty `models` list; an unserviceable profile is refused where it is written, naming the route and model. Failures carry stable codes: a credential that cannot be used fails with `INVALID_CREDENTIAL` naming the route and reference, a route whose `apiKeyEnv` reference resolves to nothing fails with `MISSING_CREDENTIAL`, an unconfigured model fails with `UNKNOWN_MODEL`, and terminal provider failures distinguish `QUOTA` from transient `RATE_LIMIT`. The adapter captures each request's HTTP status, valid `Retry-After`, and bounded provider request ID before pi-ai flattens the SDK error; status classifies 401/403 as `AUTH`, 429 as `RATE_LIMIT`, and 5xx as `SERVER`. `google-generative-ai` routes are the exception: pi-ai rejects a custom fetch there, so their failures are classified from the error text alone. A Host can observe only those structured facts plus the route, model, and category; response text and arbitrary headers never enter the observer. `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming UI cannot guarantee it across providers.
 
-Chat Completions terminal `finish_reason: content_filter` returns non-retryable `CONTENT_FILTER`; `network_error` returns transient `TRANSPORT`. Only the exact SDK protocol labels receive these categories; unknown terminal reasons remain `PI_AI_ERROR` and are not retried by the default policy.
+Chat Completions terminal `finish_reason: content_filter` returns non-retryable `CONTENT_FILTER`; `network_error` returns transient `TRANSPORT`. A body that ends inside an SSE event, which the OpenAI SDK reports as malformed server-sent event JSON, returns `TRANSPORT` like a body that ends between events without a finish reason. Only the exact SDK protocol labels receive these categories; unknown terminal reasons and provider error events remain `PI_AI_ERROR` and are not retried by the default policy.
 
 Config updates strictly validate changed providers. Initial loading retains stored catalog failures as editable provider diagnostics; unchanged failed providers do not block edits elsewhere. Serviceable models remain selectable, and unresolved models fail before network I/O. Repairing or deleting the offending configuration clears its diagnostic.
 
@@ -251,7 +251,7 @@ Later system messages supplied to the adapter stay out of the initial prompt, pr
 
 #### What the model sees
 
-pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. The adapter passes parsed tool arguments to the harness as raw JSON strings. If pi-ai reports invalid completed arguments, the attempt fails with `MALFORMED_RESPONSE` before tool dispatch and publishes no successful replay state. The default normal retry policy excludes this code; an explicit retry policy still controls recovery.
+pi-ai events become harness reasoning, text, tool-call, usage, and finish chunks. The adapter passes parsed tool arguments to the harness as raw JSON strings. If pi-ai reports invalid completed arguments, the attempt fails with `INVALID_TOOL_ARGUMENTS` before tool dispatch and publishes no successful replay state. The default normal retry policy repeats the request; an explicit retry policy controls recovery.
 
 #### Token effect
 

@@ -64,7 +64,7 @@ modelRetryPolicy:
   backoff: { initialDelayMs: 2000, maxDelayMs: 60000 }
 ```
 
-In normal mode, `consecutiveRetryLimits` caps retries for the same failure code within the step's total budget. This example permits one shortfall retry. A consecutive second shortfall ends the turn with the error. Muse uses this policy on `muse-account`. Goal auto-resume applies to the configured transient failures and leaves a shortfall stopped. The guard delegates retry decisions to the route policy. `always` mode ignores the consecutive limit.
+In normal mode, `consecutiveRetryLimits` caps retries for the same failure code within the step's total budget. This example permits one shortfall retry. A consecutive second shortfall ends the turn with the error. Muse's `muse-account` policy includes this limit. Goal auto-resume applies to the configured transient failures and leaves a shortfall stopped. The guard delegates retry decisions to the route policy. `always` mode ignores the consecutive limit.
 
 ### Choosing thresholds
 

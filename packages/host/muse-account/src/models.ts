@@ -22,6 +22,7 @@ import { readMuseSession } from './session.ts'
 import { MuseGatewayError } from './gateway.ts'
 import { removeModelAccessFile } from './model-access.ts'
 import { safeMuseModelStream } from './model-errors.ts'
+import type { UnknownMuseModelFailure } from './model-errors.ts'
 import { deepSeekFlashRelay, MuseModelRequestTrace } from './model-request-trace.ts'
 
 /** Public catalog metadata; any supplier address or credential field a gateway adds is discarded unread. */
@@ -45,6 +46,7 @@ const modelName = (id: string): string => id.slice(id.lastIndexOf('/') + 1)
 
 type AccountModel = z.infer<typeof metadata>['providers'][number]['models'][number]
 type FailoverRoute = { readonly provider: string; readonly model: AccountModel }
+type MuseModelRoute = { readonly provider: string; readonly model: string }
 
 const jubianTestedRelay = 'jubian-tested'
 
@@ -64,6 +66,7 @@ class MusePiAiAdapter extends PiAiAdapter {
     private readonly providerSelectable: (provider: string) => boolean,
     private readonly modelSelectable: (provider: string, model: string) => boolean,
     private readonly trace: MuseModelRequestTrace,
+    private readonly reportUnknown: (route: MuseModelRoute, failure: UnknownMuseModelFailure) => void,
   ) {
     super(options)
   }
@@ -92,7 +95,7 @@ class MusePiAiAdapter extends PiAiAdapter {
       stream: options => this.trace.stream(options, () => safeMuseModelStream(() => {
         const signal = options.signal === undefined ? authorization : AbortSignal.any([authorization, options.signal])
         return prepared.stream({ ...options, signal })
-      })),
+      }, (failure) => { this.reportUnknown({ provider: options.provider, model: options.model }, failure) })),
     }
   }
 
@@ -177,7 +180,14 @@ export class MuseModels {
     }
     this.adapter = new MusePiAiAdapter(adapterOptions, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`),
       () => this.authorization.signal, provider => this.providerSelectable(provider),
-      (provider, model) => this.modelSelectable(provider, model), trace)
+      (provider, model) => this.modelSelectable(provider, model), trace,
+      ({ provider, model }, failure) => {
+        ctx.logger.warn(
+          `Muse model failure reported as UNKNOWN: provider=${JSON.stringify(provider)} model=${JSON.stringify(model)}`
+          + ` source=${failure.source} errorClass=${JSON.stringify(failure.errorClass ?? null)}`
+          + ` code=${JSON.stringify(failure.code ?? null)} message=${JSON.stringify(failure.message ?? null)}`,
+        )
+      })
     this.disposeAgentCreated = ctx.on('agent/created', async ({ agent, signal }) => {
       await this.repairSelection(agent, signal ?? this.stop.signal)
       return undefined

@@ -117,7 +117,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
         visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' },
           { providerId: 'yunying', modelId: 'gpt-6.1-sol' }], requestTimeoutMs: 60000,
         modelRetryPolicy: { mode: 'normal', maxRetries: 8, backoff: { initialDelayMs: 2000, maxDelayMs: 60000 },
-          consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 },
+          consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1, INVALID_TOOL_ARGUMENTS: 2 },
           retryableCodes: ['EMPTY_RESPONSE', 'INVALID_TOOL_ARGUMENTS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'PROMPT_USAGE_SHORTFALL'] },
         excludedModels: [
           { providerId: 'yunying', modelId: 'claude-opus-5-5' },

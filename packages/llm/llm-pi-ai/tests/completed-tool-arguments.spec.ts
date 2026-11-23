@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { BlockAssembler, createUserMessage, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -93,7 +93,7 @@ describe('completed tool-call arguments through the public runtime', () => {
   ] as const)('%s rejects malformed completed arguments without successful replay', async (api, events) => {
     const raw = '{"value":"unfinished'
     const { chunks, assembler, server } = await collect(api, events(raw))
-    expect(assembler.finish).toMatchObject({ kind: 'error', failure: { code: 'MALFORMED_RESPONSE' } })
+    expect(assembler.finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_TOOL_ARGUMENTS' } })
     expect(assembler.finish).toHaveProperty('failure.message', expect.stringContaining(raw))
     expect(assembler.replayState).toBeUndefined()
     expect(chunks.filter(chunk => chunk.type === 'finish')).toHaveLength(1)
@@ -101,9 +101,22 @@ describe('completed tool-call arguments through the public runtime', () => {
     expect(server.requests).toHaveLength(1)
   })
 
+  it.each([
+    ['a trailing extra brace', '{"method":"observe","review_id":"r1"}}'],
+    ['a key after its object closed', '{"observations":[{"frame_id":"F1","visible":"wide"}, "uncertainty": "unclear"}],"review_id":"r1"}'],
+    ['markup in place of a colon', '{"observations":[],"review_id" string="true">r1"}}'],
+  ])('classifies Chat Completions arguments with %s as retryable before dispatch', async (_label, raw) => {
+    const { chunks, assembler } = await collect('openai-completions', completionsEvents(raw))
+    expect(assembler.finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_TOOL_ARGUMENTS' } })
+    expect(chunks.some(chunk => chunk.type === 'block-end' && chunk.block.type === 'tool-call')).toBe(false)
+    const policy = resolveRetryPolicy(undefined, 'fixture')
+    if (policy.mode !== 'normal') throw new Error('Expected the bounded default retry policy')
+    expect(policy.retryableCodes).toContain('INVALID_TOOL_ARGUMENTS')
+  })
+
   it.each(['null', '[]', '42'])('rejects non-object completed arguments %s', async (raw) => {
     const { assembler } = await collect('openai-completions', completionsEvents(raw))
-    expect(assembler.finish).toMatchObject({ kind: 'error', failure: { code: 'MALFORMED_RESPONSE' } })
+    expect(assembler.finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_TOOL_ARGUMENTS' } })
     expect(assembler.replayState).toBeUndefined()
   })
 
@@ -111,7 +124,7 @@ describe('completed tool-call arguments through the public runtime', () => {
     const raw = '{"value":"final-invalid'
     const { chunks, assembler } = await collect('openai-responses', responsesEvents(raw, '{"value":"valid-prefix"}'))
     expect(chunks).toContainEqual(expect.objectContaining({ type: 'tool-call-delta', argumentsDelta: '{"value":"valid-prefix"}' }))
-    expect(assembler.finish).toMatchObject({ kind: 'error', failure: { code: 'MALFORMED_RESPONSE' } })
+    expect(assembler.finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_TOOL_ARGUMENTS' } })
     expect(assembler.finish).toHaveProperty('failure.message', expect.stringContaining(raw))
     expect(assembler.replayState).toBeUndefined()
   })
@@ -119,7 +132,7 @@ describe('completed tool-call arguments through the public runtime', () => {
   it('retains the first completed-argument failure when several calls are invalid', async () => {
     const { assembler } = await collect('openai-responses', responsesEvents('[]', undefined, true, '[1]'))
     expect(assembler.finish).toEqual({ kind: 'error', failure: {
-      code: 'MALFORMED_RESPONSE', message: 'Tool call "count": Tool arguments must be a JSON object\n\nReceived arguments:\n[1]',
+      code: 'INVALID_TOOL_ARGUMENTS', message: 'Tool call "count": Tool arguments must be a JSON object\n\nReceived arguments:\n[1]',
     } })
     expect(assembler.replayState).toBeUndefined()
   })
@@ -132,7 +145,7 @@ describe('completed tool-call arguments through the public runtime', () => {
     const { assembler } = await collect('openai-responses', events)
     expect(assembler.finish).toMatchObject({ kind: 'error' })
     expect(assembler.finish).toHaveProperty('failure.message', expect.stringContaining('upstream failure'))
-    expect(assembler.finish).not.toMatchObject({ failure: { code: 'MALFORMED_RESPONSE' } })
+    expect(assembler.finish).not.toMatchObject({ failure: { code: 'INVALID_TOOL_ARGUMENTS' } })
     expect(assembler.replayState).toBeUndefined()
   })
 
@@ -189,10 +202,10 @@ describe('completed tool-call arguments through the public runtime', () => {
     const attempts = events.filter(event => event.type === 'assistant/attempt')
     expect(attempts).toHaveLength(1)
     expect(JSON.stringify(attempts)).toContain('call_valid|item_valid')
-    expect(JSON.stringify(attempts)).toContain('MALFORMED_RESPONSE')
+    expect(JSON.stringify(attempts)).toContain('INVALID_TOOL_ARGUMENTS')
     expect(JSON.stringify(attempts)).not.toContain('replayState')
     expect(events.find(event => event.type === 'turn/end')).toMatchObject({
-      data: { reason: { kind: 'error', error: { code: 'MALFORMED_RESPONSE' } } },
+      data: { reason: { kind: 'error', error: { code: 'INVALID_TOOL_ARGUMENTS' } } },
     })
     expect(server.requests).toHaveLength(1)
   })

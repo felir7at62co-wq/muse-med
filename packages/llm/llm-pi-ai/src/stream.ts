@@ -50,6 +50,10 @@ function classifyPiAiError(message: string, status?: number): BuiltinLlmFailureC
   // These are SDK-owned terminal protocol labels, not provider prose.
   if (message === 'Provider finish_reason: content_filter') return 'CONTENT_FILTER'
   if (message === 'Provider finish_reason: network_error') return 'TRANSPORT'
+  // The OpenAI SDK reports a body that ends inside an SSE event, before any
+  // finish reason, with this fixed text; the response is truncated like one
+  // that ends between events.
+  if (message === 'Error reading response: malformed server-sent event JSON.') return 'TRANSPORT'
   // Prefer the response boundary over provider prose. Quota wording remains a
   // deliberate refinement of HTTP 429 because resending it cannot recover.
   if (status === 401 || status === 403) return 'AUTH'
@@ -171,7 +175,7 @@ export function mapStopReason(
  * @param prefixDigest - request-context digest recorded for durable replay.
  * @returns the harness chunks, ending with `usage` then `finish`; throws
  *   `LlmError` (`STREAM_CLOSED`) if the source ends without a terminal event, or
- *   `MALFORMED_RESPONSE` when completed tool arguments are invalid. Length-limited
+ *   `INVALID_TOOL_ARGUMENTS` when completed tool arguments are invalid. Length-limited
  *   output retains its terminal reason so the assembler can discard incomplete calls.
  */
 export async function* toStreamChunks(
@@ -250,7 +254,7 @@ export async function* toStreamChunks(
       case 'done':
         yield { type: 'usage', usage: mapUsage(event.message.usage) }
         if (argumentsError !== undefined && event.message.stopReason !== 'length') {
-          throw new LlmError(argumentsError, 'MALFORMED_RESPONSE')
+          throw new LlmError(argumentsError, 'INVALID_TOOL_ARGUMENTS')
         }
         yield {
           type: 'finish',

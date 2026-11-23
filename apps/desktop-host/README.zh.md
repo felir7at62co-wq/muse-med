@@ -43,7 +43,7 @@ Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../pac
 
 桌面账号组合通过 [`excludedProviderIds`](../../packages/host/muse-account/README.zh.md#minimal-configuration) 排除独立 Gemini 提供方 `aa`，将 `yunying` 加入 `hiddenProviderIds`，并通过 `visibleModels` 允许精确组合 `yunying/gemini-3.1-pro` 和 `yunying/gpt-6.1-sol`：网关提供这些模型时可在新模型选择器中选择，其他云映模型仍隐藏，已注册路由仍供保存的 Session 使用。个人提供方及其他已注册提供方保持不变。已有对话若选用了独立 Gemini，须在下次请求前选择可用模型；操作见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-gemini-provider/guide.zh.md)。
 
-桌面版为 `muse-cloud-yunying`/`gemini-3.1-pro` 挂载 [`prompt-usage-guard`](../../packages/guard/prompt-usage/README.zh.md)。`muse-account` 的常规步骤重试预算内设置 `consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 }`。若这次重试仍报同一错误，本轮以该错误结束，目标也停止自动续跑。其他可重试错误沿用原有步骤预算和目标恢复规则。
+桌面版为 `muse-cloud-yunying`/`gemini-3.1-pro` 挂载 [`prompt-usage-guard`](../../packages/guard/prompt-usage/README.zh.md)。`muse-account` 在八次重试的常规步骤预算内设置 `consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1, INVALID_TOOL_ARGUMENTS: 2 }`。若用量异常的重试仍报同一错误，本轮以该错误结束，目标也停止自动续跑。工具参数不是有效 JSON 的回复最多连续重新请求两次，之后本轮以 `INVALID_TOOL_ARGUMENTS` 结束；该回复中的工具都不会运行。其他可重试错误，包括没有终止原因就结束的流（`TRANSPORT`），沿用原有步骤预算和目标恢复规则。
 
 桌面账号组合还从新会话可选目录精确排除云映的 `claude-opus-5-5`、`claude-fable-5-1`、`gpt-6-astra`、`glm-5.3-flash`。网关私有目录及其他提供方（包括智谱官方 GLM 路由）保持不变。已有会话保留原模型 ID；当目录不再提供该路由时，选择器提示先切换模型。
 
