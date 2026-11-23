@@ -1,0 +1,15 @@
+version: 1
+scenario: muse-storyboard-project-binding
+profile: headless
+composition: muse-storyboard-project-binding
+recording: authored
+header:
+  class: muse-storyboard-project-binding
+  pin: true
+  systemPromptSource: muse-image-material-readback
+  toolSchemasSource: muse-image-material-readback
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-project-binding-fixture
