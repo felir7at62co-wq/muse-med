@@ -256,8 +256,8 @@ test('a plugin loaded again gives a live Bot Session its tools before its next r
   cleanup(t, home, second.ctx)
   await settle(() => registered.includes('message_bot'))
   for (const name of ['remember', 'recall', 'request_secret']) assert.equal(registered.includes(name), true, name)
-  // The delegation tools a Bot Session must not use stay masked.
-  assert.equal(denied.includes('subagent'), true)
+  // Every Bot keeps subagent; the delegation tools a Bot Session must not use stay masked.
+  assert.equal(denied.includes('subagent'), false)
   assert.equal(denied.includes('workflow'), true)
 })
 
