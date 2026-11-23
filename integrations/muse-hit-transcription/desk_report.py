@@ -35,7 +35,9 @@ def roster(workspace):
     except (OSError, ValueError, TypeError):
         return set(), {}
     known, variants = set(), {}
-    for person in table.get("characters") or []:
+    # Bots write the table either as {"characters": [...], ...} or as the bare list of characters.
+    people = table if isinstance(table, list) else table.get("characters") or [] if isinstance(table, dict) else []
+    for person in people:
         if not isinstance(person, dict) or not person.get("name"):
             continue
         known.add(person["name"])
@@ -43,7 +45,7 @@ def roster(workspace):
         for variant in person.get("variants") or []:
             if isinstance(variant, str):
                 variants[variant] = person["name"]
-    for extra in table.get("supporting_descriptive_names") or []:
+    for extra in (table.get("supporting_descriptive_names") or [] if isinstance(table, dict) else []):
         name = extra.get("name") if isinstance(extra, dict) else extra
         if isinstance(name, str):
             known.add(name)

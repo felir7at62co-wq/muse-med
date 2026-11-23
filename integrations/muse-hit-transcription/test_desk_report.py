@@ -43,6 +43,9 @@ class ReportTest(unittest.TestCase):
             result = report(desk, {})
             self.assertEqual(result["episodes"][0]["characters"], {"speakers": 5, "unknown": ["陌生人"], "misspelled": ["周生安"]})
             self.assertEqual((result["summary"]["unknownSpeakers"], result["summary"]["misspelledSpeakers"]), (1, 1))
+            (workspace / "outline" / "人物表.json").write_text(json.dumps([{"name": "周晟安", "variants": ["周生安"]}],
+                                                                        ensure_ascii=False), encoding="utf-8")
+            self.assertEqual(report(desk, {})["episodes"][0]["characters"]["misspelled"], ["周生安"])
 
 
 if __name__ == "__main__":
