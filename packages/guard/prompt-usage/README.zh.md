@@ -103,7 +103,7 @@ modelRetryPolicy:
 <a id="model-experience"></a>
 ## Model Experience
 
-无。按策略执行的重试沿用同一份已记录的上下文，并消耗一次模型生成。
+无，因为本防护检查上报用量，而策略允许重试时会沿用同一份已记录的上下文再次请求模型。
 
 #### KV Cache effect
 

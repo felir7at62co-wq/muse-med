@@ -103,7 +103,7 @@ The loop records the discarded reply as a log-only `assistant/attempt`. When the
 <a id="model-experience"></a>
 ## Model Experience
 
-None. A policy-approved retry sends the same logged context and uses another model generation.
+None, as the guard checks reported usage and any policy-approved retry sends the same logged context in a new model invocation.
 
 #### KV Cache effect
 
