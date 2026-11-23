@@ -624,7 +624,7 @@ export const JA = {
   "Model for {name}": "{name} のモデル",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness にはまだモデルが設定されていません。",
   "Other models": "その他のモデル",
-  "Models and providers…": "モデルとプロバイダー…",
+  "Model settings…": "モデル設定…",
   "Models": "モデル",
   "Harness default": "Harness デフォルト",
   "Saving": "保存中",

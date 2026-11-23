@@ -505,7 +505,7 @@ const modelScroll = ({ roster, models, current, local, reading, opening }, pick)
   reading ? h('div', { className: 'bt-model-none' }, t('Reading models…')) : null)
 
 const manageButton = (manage, close) => h('button', { type: 'button', role: 'menuitem', onClick: () => { close(); manage() } },
-  h(SlidersIcon), h('span', { className: 'bt-menu-label' }, t('Models and providers…')))
+  h(SlidersIcon), h('span', { className: 'bt-menu-label' }, t('Model settings…')))
 
 const modelMenuLabel = bot => t('Model for {name}', { name: bot.name })
 

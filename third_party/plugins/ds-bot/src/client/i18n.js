@@ -634,7 +634,7 @@ const ZH = {
   'Model for {name}': '{name} 的模型',
   'No models are set up in DeepSeek Harness yet.': 'DeepSeek Harness 里还没有设置模型。',
   'Other models': '其他模型',
-  'Models and providers…': '模型和服务商…',
+  'Model settings…': '模型设置…',
   Models: '模型',
   'Harness default': 'Harness 默认',
   Saving: '保存中',

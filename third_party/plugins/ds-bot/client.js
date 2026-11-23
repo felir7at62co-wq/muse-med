@@ -748,7 +748,7 @@ var JA = {
   "Model for {name}": "{name} のモデル",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness にはまだモデルが設定されていません。",
   "Other models": "その他のモデル",
-  "Models and providers…": "モデルとプロバイダー…",
+  "Model settings…": "モデル設定…",
   "Models": "モデル",
   "Harness default": "Harness デフォルト",
   "Saving": "保存中",
@@ -3240,7 +3240,7 @@ var KO = {
   "Model for {name}": "{name}의 모델",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness에 아직 설정된 모델이 없습니다.",
   "Other models": "기타 모델",
-  "Models and providers…": "모델 및 제공자…",
+  "Model settings…": "모델 설정…",
   Models: "모델",
   "Harness default": "Harness 기본값",
   Saving: "저장 중",
@@ -5762,7 +5762,7 @@ var ES = {
   "Model for {name}": "Modelo para {name}",
   "No models are set up in DeepSeek Harness yet.": "Aún no hay modelos configurados en DeepSeek Harness.",
   "Other models": "Otros modelos",
-  "Models and providers…": "Modelos y proveedores…",
+  "Model settings…": "Ajustes de modelos…",
   Models: "Modelos",
   "Harness default": "Predeterminado de Harness",
   Saving: "Guardando",
@@ -8269,7 +8269,7 @@ var FR = {
   "Model for {name}": "Modèle pour {name}",
   "No models are set up in DeepSeek Harness yet.": "Aucun modèle n’est encore configuré dans DeepSeek Harness.",
   "Other models": "Autres modèles",
-  "Models and providers…": "Modèles et fournisseurs…",
+  "Model settings…": "Paramètres des modèles…",
   "Models": "Modèles",
   "Harness default": "Par défaut de Harness",
   "Saving": "Enregistrement",
@@ -10761,7 +10761,7 @@ var DE = {
   "Model for {name}": "Modell für {name}",
   "No models are set up in DeepSeek Harness yet.": "In DeepSeek Harness sind noch keine Modelle eingerichtet.",
   "Other models": "Weitere Modelle",
-  "Models and providers…": "Modelle und Anbieter…",
+  "Model settings…": "Modelleinstellungen…",
   Models: "Modelle",
   "Harness default": "Harness-Standard",
   Saving: "Wird gespeichert",
@@ -13259,7 +13259,7 @@ var ZH = {
   "Model for {name}": "{name} 的模型",
   "No models are set up in DeepSeek Harness yet.": "DeepSeek Harness 里还没有设置模型。",
   "Other models": "其他模型",
-  "Models and providers…": "模型和服务商…",
+  "Model settings…": "模型设置…",
   Models: "模型",
   "Harness default": "Harness 默认",
   Saving: "保存中",
@@ -22297,7 +22297,7 @@ var manageButton = (manage, close) => (0, import_react17.createElement)(
     manage();
   } },
   (0, import_react17.createElement)(SlidersIcon),
-  (0, import_react17.createElement)("span", { className: "bt-menu-label" }, t("Models and providers…"))
+  (0, import_react17.createElement)("span", { className: "bt-menu-label" }, t("Model settings…"))
 );
 var modelMenuLabel = (bot) => t("Model for {name}", { name: bot.name });
 function ModelMenu(props) {
