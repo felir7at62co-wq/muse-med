@@ -10,7 +10,7 @@ The Jingliu installer adapts both Jianying exporters to the pinned draft library
 
 ## Install
 
-Install on an extracted release copy. Jingliu's backend source is in [`../jingliu`](../jingliu/README.md), and `install.py --audience jingliu` applies this overlay to a release copy of it. Workshop's source is in [`../workshop`](../workshop/README.md) with the `--audience script-workshop` overlay and the upload-path, base-path, 视频转剧本 and script library changes already applied; the Workshop install path stays until a release is built from that source. The installer checks known integration points before writing and can be run again. Rebuild the workshop's Next application after installing. Jingliu serves the modified static directory.
+Install on an extracted release copy. Jingliu's backend source is in [`../jingliu`](../jingliu/README.md), and `install.py --audience jingliu` applies this overlay to a release copy of it. Workshop's source is in [`../workshop`](../workshop/README.md) with the `--audience script-workshop` overlay and the upload-path, base-path and script library changes already applied, and its 视频转剧本 factory step archived; the Workshop install path stays until a release is built from that source. The installer checks known integration points before writing and can be run again. Rebuild the workshop's Next application after installing. Jingliu serves the modified static directory.
 
 ```sh
 python3 install.py --audience script-workshop \
@@ -85,7 +85,7 @@ Jingliu chat tools call `POST .../auth/muse/challenge`, obtain a Muse grant and 
 
 ## Muse video transcription
 
-Workshop uploads, imported video links, TOS uploads, retries and TikHub's draft action use the same [episode runner](../../integrations/muse-hit-transcription/native.py) as the Muse data station. Draft ownership stays in Workshop. An episode keeps its original Muse Session, input digest and references on retry. An explicit full rerun creates a new revision. Speech recognition, whole-episode OCR, visual review, dialogue comparison and Word verification must finish before the native chapter and its material index are committed together.
+Workshop uploads, imported video links, TOS uploads, retries and TikHub's draft action use the Muse [episode runner](../../integrations/muse-hit-transcription/native.py). Draft ownership stays in Workshop. An episode keeps its original Muse Session, input digest and references on retry. An explicit full rerun creates a new revision. Speech recognition, whole-episode OCR, visual review, dialogue comparison and Word verification must finish before the native chapter and its material index are committed together.
 
 Apply `install.py --audience script-workshop --reverse-only --backend <extracted-backend>` to an existing deployment. [configure_reverse.py](shared-host/configure_reverse.py) installs the versioned runner and a private SDK home from the operator-authorized cloud profile. Set `MUSE_WORKSHOP_REVERSE_CONFIG` to the resulting private JSON path and `VIDEO_TMP_DIR` to a persistent directory inside the Workshop uploads volume. All Workshop processes using the same state root share the configured number of episode slots. Successful delivery creates an editable draft. The authenticated API lists its materials at `GET /v1/video/jobs/{draft_id}/episodes/{episode}/materials` and serves the numbered entry below that path.
 

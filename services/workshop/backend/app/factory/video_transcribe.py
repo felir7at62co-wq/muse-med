@@ -1,5 +1,9 @@
 """Factory job that turns the data station's hit queue into Workshop screenplays.
 
+Archived: cloud Muse's transcription Bots now transcribe videos, and this module is kept only so old 视频转剧本
+jobs display. The job API, pipeline presets and runs, resume and startup recovery refuse or end the step with
+`ARCHIVED`.
+
 Each slot runs the shared hit-transcription worker for one series at a time: audience review, the complete
 Hongguo download, then checked episode transcription by cloud Muse. A delivered series becomes a factory script
 product, so later pipeline steps (spawn, distribute) consume it like any other script.
@@ -30,7 +34,7 @@ CHECK_SECONDS = 10
 PROGRESS_SECONDS = 30
 STOP_GRACE_SECONDS = 90
 _running: set[int] = set()
-RESUMABLE = ("stopped", "failed", "completed")
+ARCHIVED = "视频转剧本已归档：转写改由云端 Muse 的转写 Bot 完成"
 
 
 class Stopped(Exception):
@@ -62,7 +66,7 @@ def deployment():
 
 
 def options(config, dep):
-    """Normalize the parameters shared by the pipeline editor, the job API and Muse."""
+    """Normalize the parameters of a run: count, concurrency, quality, publish and the named series."""
     count = config.get("count", 0)
     concurrency = config.get("concurrency", 1)
     if type(count) is not int or count < 0:
@@ -81,20 +85,17 @@ def options(config, dep):
             "publish": bool(config.get("publish", False)), "only_series": list(dict.fromkeys(only))}
 
 
-def checked_config(config):
-    """Validate a job or step config for the API; unrelated keys such as task_name are kept."""
+def archived():
+    """HTTP 410 for a request that would create, save or resume the archived step."""
     from fastapi import HTTPException
-    try:
-        return {**(config or {}), **options(config or {}, deployment())}
-    except (OSError, ValueError, KeyError) as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    return HTTPException(status_code=410, detail=ARCHIVED)
 
 
 def checked_steps(steps):
-    """Validate the 视频转剧本 steps of a pipeline preset before it is saved."""
-    return [{**step, "config": checked_config(step.get("config"))}
-            if isinstance(step, dict) and step.get("type") == "video_transcribe" else step
-            for step in steps or []]
+    """Refuse a pipeline preset that contains the archived 视频转剧本 step; other steps are returned unchanged."""
+    if any(isinstance(step, dict) and step.get("type") == "video_transcribe" for step in steps or []):
+        raise archived()
+    return list(steps or [])
 
 
 def slot_paths(dep, index):
@@ -189,16 +190,22 @@ async def station_get(dep, route):
 
 
 async def status():
-    """Readiness and queue counts for the editor."""
-    try:
-        dep = deployment()
-    except (OSError, ValueError, KeyError) as error:
-        return {"ready": False, "error": str(error)}
-    try:
-        counts = (await station_get(dep, "/candidates?limit=1"))["counts"]
-    except Exception as error:  # noqa: BLE001 - the editor shows the station as unreachable
-        return {"ready": False, "error": f"数据站暂时无法访问（{type(error).__name__}）", "maxSlots": dep["maxSlots"]}
-    return {"ready": True, "queue": counts, "maxSlots": dep["maxSlots"]}
+    """GET /factory/video-transcribe/status: the archived step is never ready."""
+    return {"ready": False, "error": ARCHIVED}
+
+
+async def end_interrupted(job_id):
+    """Startup recovery: end a job that was running when the service stopped instead of running it again."""
+    from ..db.session import session_scope
+    from .models import FactoryJob
+    async with session_scope() as session:
+        job = await session.get(FactoryJob, job_id, with_for_update=True)
+        if job is None or job.status != "running":
+            return
+        job.status = "failed"
+        job.error_message = ARCHIVED
+        job.finished_at = datetime.utcnow()
+        await session.commit()
 
 
 def acquire(path):
@@ -429,31 +436,11 @@ class Run:
         self.rejected = list(result.get("rejected") or [])
 
 
-def reopen(job):
-    """Mark a job to run again in place: clear its stop request and previous end, keep its results and claimed series."""
-    result = dict(job.result or {})
-    result.pop("manual_stop_requested", None)
-    job.result = result
-    job.status = "pending"
-    job.finished_at = None
-    job.error_message = None
-
-
-async def resume_job(job, session, background_tasks):
-    """POST /factory/jobs/{id}/resume for the user's own 视频转剧本 job: continue it with its saved parameters."""
-    from fastapi import HTTPException
-    if job.status not in RESUMABLE:
-        stopping = bool((job.result or {}).get("manual_stop_requested"))
-        raise HTTPException(status_code=409, detail="任务正在停止，停下后再续跑" if stopping else "任务正在运行，无需续跑")
-    config = checked_config(job.config)
-    reopen(job)
-    await session.commit()
-    background_tasks.add_task(run_video_transcribe_job, job.id, config, job.user_id)
-    return {"job_id": job.id, "resumed": True, "message": "已续跑视频转剧本任务"}
-
-
 async def run_video_transcribe_job(job_id: int, config: dict, user_id: int):
-    """Factory entry point. A second call for a job already running in this process returns at once."""
+    """Run one job in this process; nothing calls it while the step is archived.
+
+    A second call for a job already running in this process returns at once.
+    """
     if job_id in _running:
         return
     _running.add(job_id)

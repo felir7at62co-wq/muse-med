@@ -10,7 +10,7 @@
 
 ## 安装
 
-在从备份提取的发布副本运行。镜流后端源码位于 [`../jingliu`](../jingliu/README.zh.md)，`install.py --audience jingliu` 把此适配写入其发布副本。工坊源码位于 [`../workshop`](../workshop/README.zh.md)，已含 `--audience script-workshop` 及上传路径、base path、视频转剧本和剧本库的改动；在从该源码构建发布之前，工坊的安装路径保留。脚本会预先核对挂载位置，重复运行可更新适配代码。工坊修改 Next 源码后须使用原项目的构建方式重新构建，镜流直接发布修改后的静态目录。生产运行原 FastAPI、Web 及工作队列，适配器随业务后端加载。
+在从备份提取的发布副本运行。镜流后端源码位于 [`../jingliu`](../jingliu/README.zh.md)，`install.py --audience jingliu` 把此适配写入其发布副本。工坊源码位于 [`../workshop`](../workshop/README.zh.md)，已含 `--audience script-workshop` 及上传路径、base path 和剧本库的改动，其视频转剧本工厂步骤已归档；在从该源码构建发布之前，工坊的安装路径保留。脚本会预先核对挂载位置，重复运行可更新适配代码。工坊修改 Next 源码后须使用原项目的构建方式重新构建，镜流直接发布修改后的静态目录。生产运行原 FastAPI、Web 及工作队列，适配器随业务后端加载。
 
 ```sh
 python3 install.py --audience script-workshop \
@@ -85,7 +85,7 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 
 ## Muse 视频反推
 
-工坊的本地上传、视频链接、TOS 直传、失败续跑及抖音导入草稿，统一调用数据站使用的 [Muse 逐集反推](../../integrations/muse-hit-transcription/native.py)。工坊继续保存草稿归属。续跑沿用原 Muse 会话、原片摘要和参考内容，明确选择全部重做才创建新版本。语音识别、全片字幕识别、画面审查、对白比对和 Word 校验完成后，工坊在同一次数据库事务中写入可编辑的章节和本集素材索引。
+工坊的本地上传、视频链接、TOS 直传、失败续跑及抖音导入草稿，统一调用 [Muse 逐集反推](../../integrations/muse-hit-transcription/native.py)。工坊继续保存草稿归属。续跑沿用原 Muse 会话、原片摘要和参考内容，明确选择全部重做才创建新版本。语音识别、全片字幕识别、画面审查、对白比对和 Word 校验完成后，工坊在同一次数据库事务中写入可编辑的章节和本集素材索引。
 
 已有部署使用 `install.py --audience script-workshop --reverse-only --backend <工坊目录>` 更新反推入口。[配置脚本](shared-host/configure_reverse.py)根据管理员授权的云端转写配置安装指定版本的执行程序，为工坊建立独立的 Muse 账号目录。把 `MUSE_WORKSHOP_REVERSE_CONFIG` 指向生成的私有配置文件，`VIDEO_TMP_DIR` 指向工坊上传卷内的持久目录。使用同一卷的工坊进程共用配置中的并发名额。登录后通过 `GET /v1/video/jobs/{draft_id}/episodes/{episode}/materials` 查看本集清单，按返回的序号在该路径下下载。
 

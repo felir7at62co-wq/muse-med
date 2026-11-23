@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write services/workshop/README.md
 /script-workshop:
-  en: 6861c7f576fffa95
-  zh: 5f7e5462e3d84415
+  en: 77c31c4082eba5e7
+  zh: 1a9d8a0b780f51c5
 /script-workshop/how-it-runs-in-the-cloud:
   en: 5bd5abb2a66d43f7
   zh: 5af263034b12ff51
@@ -14,12 +14,15 @@
 /script-workshop/finalized-script-library-readers:
   en: 78135871b02961d8
   zh: 72a1476864c97dc0
+/script-workshop/archived-step:
+  en: 6b537ad751221289
+  zh: 8a891436e0645e6d
 /script-workshop/source:
-  en: b731731bfb066914
-  zh: 7693f79db8da6e10
+  en: 93385a000ec767a7
+  zh: f63d222e8f994a43
 /script-workshop/layout:
-  en: be814c35359891e4
-  zh: 43b714190a39710f
+  en: 47de572adbb70ca7
+  zh: 9af6d245ef75b07e
 /script-workshop/tests-and-checks:
   en: d7c33a4bf1057a66
   zh: fd793e0910a66514
