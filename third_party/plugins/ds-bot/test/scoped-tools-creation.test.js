@@ -13,7 +13,7 @@ import { fakeContext } from './fake-ctx.js'
 
 // tools.js keeps the DSH names a Bot Session never serves in one place; the
 // assemble must add none of them.
-const HIDDEN = ['ask_user_question', 'subagent', 'list_subagent_models', 'send_message']
+const HIDDEN = ['ask_user_question', 'subagent_fork', 'workflow', 'spawn_teammate']
 
 // A Bot-owned Session gets its Agent before ds-bot records the owner, so the
 // scoped show_view and the hidden-tool restrict used to wait for a later
@@ -283,27 +283,22 @@ test("another plugin's global recall cannot stop ds-bot or shadow its own", asyn
   assert.match(String(recall?.tool?.description), /^Search your memory/)
 })
 
-test('a Bot given the subagents capability keeps the sub-agent tools and no other delegation tool', async (t) => {
-  const team = {
-    ...TEAM,
-    bots: { ...TEAM.bots, b: { ...TEAM.bots.b, capabilities: ['subagents'] } },
-    capabilities: { items: { subagents: { name: 'subagents', kind: 'skill', description: 'Sub-agents', content: 'At most three at once.', createdAt: 1, updatedAt: 1 } } },
-  }
-  const host = start(team)
+test('every Bot keeps the sub-agent tools and no other delegation tool', async (t) => {
+  const host = start()
   t.after(host.stop)
   const schemas = host.ctx.tools.schemas
-  host.ctx.tools.schemas = agent => [...schemas(agent), { name: 'subagent' }, { name: 'list_agents' }, { name: 'workflow' }]
+  host.ctx.tools.schemas = agent => [...schemas(agent), { name: 'subagent' }, { name: 'list_agents' }, { name: 'workflow' }, { name: 'subagent_fork' }]
   await host.call('state', {})
   await host.agentCreated('a')
   await host.agentCreated('b')
   const deniedNames = id => host.restricted.filter(entry => entry.sessionId === id).flatMap(entry => entry.deny)
-  assert.ok(deniedNames('a').includes('subagent'), 'a Bot without the capability loses subagent')
-  assert.ok(!deniedNames('b').includes('subagent') && !deniedNames('b').includes('list_agents'), 'the capability keeps the sub-agent tools')
-  assert.ok(deniedNames('b').includes('workflow') && deniedNames('b').includes('ask_user_question'), 'the other hidden tools stay hidden')
+  for (const id of ['a', 'b']) {
+    assert.ok(!deniedNames(id).includes('subagent') && !deniedNames(id).includes('list_agents'), `Bot ${id} keeps the sub-agent tools`)
+    assert.ok(deniedNames(id).includes('workflow') && deniedNames(id).includes('subagent_fork'), `Bot ${id} loses workflows and forks`)
+  }
   const guard = (name, sessionId) => host.ctx.guards.map(check => check({ name, agent: { id: sessionId } })).find(reason => reason !== undefined)
   assert.equal(guard('subagent', 'b'), undefined)
-  assert.match(guard('subagent', 'a'), /Bots do not start subagents/)
-  assert.match(guard('workflow', 'b'), /Bots do not start subagents/)
+  assert.match(guard('workflow', 'b'), /Use subagent, or hand the work to another Bot/)
 })
 
 test('a Bot made without a model has the scoped tools before its first step', async (t) => {
