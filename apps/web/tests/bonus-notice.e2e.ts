@@ -544,6 +544,9 @@ describe.skipIf(MODE === 'record')('web e2e: bonus notice', () => {
     await page.keyboard.press('Escape')
     await failedEventDialog.waitFor({ state: 'detached', timeout: 30_000 })
     await noticeCards(page).getByRole('button', { name: '关闭', exact: true }).click()
+    // The Platform double still removes dismissed notices during this phase.
+    await expect.poll(() => platform.dismissals.filter(item => item.orderId === ORDER_FAILED_EVENT).length,
+      { timeout: 30_000 }).toBe(1)
 
     // Display follows each response: the double keeps serving an acknowledged order, which
     // is what makes a second display of the same order observable.
