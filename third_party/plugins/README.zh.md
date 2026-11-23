@@ -75,7 +75,9 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。归档的 Codex 构
 
 远程 provider 复用 `CustomTunnelClient` 的连接建立和原生 WebSocket 升级处理。Muse 适配器直接流式转发原生字节，不积累完整数据帧，包含 Host Ping 和浏览器 Pong；同时提供账号/设备认证、流式 HTTP 上传与下载、逐块确认、取消、按配置间隔持续重连和等待完成的关闭。本地传输测试覆盖二进制上传、Range 响应、不完整原生数据帧、`/api/remote.mux` 心跳往返、取消及凭证拒绝。握手在安装 UUID 之外增加电脑名称和操作系统。云端 relay 验证账号，把每个浏览器标签页路由到其选择的安装，并保持其他电脑连接；桌面仅转发至自身回环 Host。这是一条私有出站连接，不创建公共隧道域名。
 
-`@xmanrui/dsh-im` 提供原生 IM机器人设置、飞书实时过程卡和通道管理。[sources.json](sources.json) 固定其 MIT 源码。[IM 适配层](compatibility/im-desktop.mjs) 在私有暂存区构建上游 Host 和 Client，并在根入口放置 Muse 导入器。空 bundle patch 避免建立第二个 Host 连接。旧 PGZXB 源码以 `desktop: false` 保留，不再激活。账号远程访问继续使用桥接包独立的 `./remote` 提供方。Muse Desktop 产品补丁停用 `feishu-channel` 行，因此该提供方因打包需要保持安装，但不会启动任何 IM 机器人，也不显示其设置页。
+`@xmanrui/dsh-im` 提供原生 IM机器人设置、飞书实时过程卡和通道管理。[sources.json](sources.json) 固定其 MIT 源码。[IM 适配层](compatibility/im-desktop.mjs) 在私有暂存区构建上游 Host 和 Client，并在根入口放置 Muse 导入器。空 bundle patch 避免建立第二个 Host 连接。旧 PGZXB 源码以 `desktop: false` 保留，不再激活。账号远程访问继续使用桥接包独立的 `./remote` 提供方。Muse Desktop 产品补丁停用 `feishu-channel` 行，因此该提供方因打包需要保持安装，但不会启动任何 IM 机器人，也不显示其设置页。嵌入的飞书设置页以单列显示状态错误与诊断，管理接口提示使用 Muse 名称。
+
+桌面版启用原生飞书时，在产品配置中启用 `feishu-channel`，保持旧的 `feishu` 设置条目停用，并在 Bot 条目中配置[已验证的飞书绑定](ds-bot/README.md#use-dsh-im-for-an-existing-feishu-connection)。将 `feishu-channel.config.deliveryHttp` 设为 `false` 可关闭主动投递的 HTTP 路由，同时保留飞书连接与 Bot 回复。
 
 导入器通过 Host 凭据服务迁移已启用的旧凭证；只有真实已授权消息证明旧聊天对应的发送者后才导入私聊绑定。原文件和完整旧消息认领记录保留。只有原生 `dsh-im` 接收飞书消息和卡片回调，旧数据迁移不参与这些事件的授权。消息和卡片操作使用原生 IM 设置中保存的访问策略，不再叠加旧群名单或私聊名单限制。群消息仍须精确 @ 当前机器人，已登记的主人保留原生特权访问。已有原生 IM 机器人不会被覆盖。没有旧凭证时仍可使用原生 IM 设置。飞书消息由普通 Muse Session 处理，无需已归档的 Muse Bot 服务。现有聊天键、Session ID、模型选择、工作区绑定，以及持久化的消息认领和话题回复记录继续使用。详见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-im-channel/guide.zh.md)。
 
