@@ -126,6 +126,8 @@ Character and scene fields accept a plain name followed by its `@[name](key)` re
 
 A standalone `场次54-1：地点 时段 内/外` heading applies to subsequent shots until the next such heading; it never enters the previous shot. Each affected prompt retains the literal heading before any `｜` or `|` annotation as `来源场次（原文段落）` context, including an initial heading before the first shot. Cast-list annotations, scene-summary lines and mentions inside directions or dialogue do not supply this context. It preserves the source paragraph's time and location without selecting assets or overriding a shot's own interior/exterior insert: the shot's picture and `核心场景` still determine its view and registered scene. Source offsets and issue line numbers remain unchanged.
 
+After the final shot, a level-two Markdown heading at the start of the line named `覆盖表`, `分包`, `衔接缺口` or `风险` starts the review appendix. An optional parenthesized label is accepted. The compiler ends the shot before this appendix.
+
 The result separates `failures` from `warnings`; in strict mode, failures prevent a packaging plan and writes. Advisory mode reports the same content issues as non-blocking warnings.
 
 Style declarations preserve the project medium: `真人短剧写实风格` for live action or `写实3D CG渲染风格` for 3D CG. The compiler retains the declared line and never substitutes one medium for another. Matched `production_mode: "live_action"` is a legacy compilation-pipeline label, not a medium selector. Use each shot's explicit style and the project's confirmed visual references; an unmapped provider code such as `0` does not establish live action.
