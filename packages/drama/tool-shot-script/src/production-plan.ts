@@ -1,6 +1,7 @@
 /** Source-preserving packaging and per-shot candidate comparison for Muse. */
 import { createHash } from 'node:crypto'
 import { stableSha256 } from '@deepseek-ai/dsh-jubian-api'
+import { ToolArgsError } from '@deepseek-ai/dsh-tools'
 import { materialFieldLabel } from './assets.ts'
 import { MIN_CONTENT_SECONDS, packEpisode } from './episode.ts'
 import { DEFAULT_SPEECH_CHARS_PER_SECOND, parseShotScript } from './script.ts'
@@ -31,8 +32,36 @@ export function requirementKey(value: ProductionRequirement): string {
   return JSON.stringify([value.shot, value.kind, value.name])
 }
 
+/** Require an unambiguous identity for each authored shot in a production plan.
+ * @param shots - Shot numbers from a new source or a saved package list.
+ * @throws If a number is repeated.
+ */
+export function assertDistinctProductionShotNumbers(shots: Iterable<number>): void {
+  const seen = new Set<number>()
+  const duplicates = new Set<number>()
+  for (const shot of shots) {
+    if (seen.has(shot)) duplicates.add(shot)
+    seen.add(shot)
+  }
+  if (duplicates.size) {
+    throw new ToolArgsError([`分镜原稿存在重复镜号：${[...duplicates].join('、')}。请核对原稿并修正镜号后重新预览，保留每镜内容。`])
+  }
+}
+
 function names(field: string): string[] {
-  return [...new Set(field.split(/[、,，;；]/u).map(productionName).filter(name => name && name !== '无'))]
+  const entries: string[] = []
+  let start = 0
+  let depth = 0
+  // A reference is a single token, even when its label contains list punctuation.
+  for (const token of field.matchAll(/@\[[^\]]+\]\([^()\s]+\)|([（(])|([）)])|([、,，;；])/gu)) {
+    if (token[1]) depth++
+    if (token[2]) depth = Math.max(0, depth - 1)
+    if (!token[3] || depth !== 0) continue
+    entries.push(field.slice(start, token.index))
+    start = token.index + token[0].length
+  }
+  entries.push(field.slice(start))
+  return [...new Set(entries.map(productionName).filter(name => name && name !== '无'))]
 }
 
 function sameName(asset: ProductionAsset, req: ProductionRequirement): boolean {
@@ -93,10 +122,12 @@ function match(req: ProductionRequirement, assets: ProductionAsset[], choices: P
  * @param actionShotSeconds - Estimated duration for unlabelled silent shots.
  * @param speechCharsPerSecond - Resolved spoken-character rate shared with the compiler.
  * @returns All shots, candidate evidence, complete packages and advisory findings.
+ * @throws If duplicate shot numbers make asset selection ambiguous.
  */
 export function buildProductionPlan(input: Omit<ProductionPlan, 'version' | 'operation' | 'matches' | 'packages' | 'warnings' | 'fingerprint'>,
   candidateLimit: number, actionShotSeconds: number, speechCharsPerSecond = DEFAULT_SPEECH_CHARS_PER_SECOND): ProductionPlan {
   const parsed = parseShotScript(input.source, { actionShotSeconds, speechCharsPerSecond })
+  assertDistinctProductionShotNumbers(parsed.shots.map(({ shot }) => shot))
   const warnings: ProductionWarning[] = parsed.issues.map(issue => ({ code: issue.code, shot: issue.shot || null, message: issue.message }))
   const requirements = new Map<string, ProductionRequirement>()
   for (const shot of parsed.shots) {

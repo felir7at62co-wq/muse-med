@@ -57,6 +57,39 @@ it('uses the current model ceiling and keeps overlong complete shots as warnings
   expect(long.warnings.some(row => row.code === 'shot_exceeds_package_budget')).toBe(true)
 })
 
+it('refuses duplicate shot numbers before mixing their scene and prop bindings', () => {
+  const first = '【镜头1】\n核心场景：后厨\n关键道具：奶瓶\n画面：奶瓶落地\n发声类型：action\n时长：3秒'
+  const second = '【镜头2】\n核心场景：客厅\n关键道具：杯子\n画面：杯子放回桌面\n发声类型：action\n时长：3秒'
+  const inventory = [...assets,
+    { ...assets[2]!, asset_id: 202, name: '客厅' },
+    { ...assets[3]!, asset_id: 302, name: '杯子' }]
+  const duplicated = `${first}\n\n${second.replace('镜头2', '镜头1')}`
+  expect(() => buildProductionPlan({ ...base, source: duplicated, assets: inventory }, 8, 2))
+    .toThrow('重复镜号：1')
+
+  const correct = buildProductionPlan({ ...base, source: `${first}\n\n${second}`, assets: inventory }, 8, 2)
+  expect(correct.packages.map(pack => pack.images.map(image => image.asset_id))).toEqual([[201, 301], [202, 302]])
+
+  const repeatedAction = `${first}\n\n${first.replace('镜头1', '镜头2')}`
+  const repeated = buildProductionPlan({ ...base, source: repeatedAction, assets: inventory }, 8, 2)
+  expect(repeated.packages.flatMap(pack => pack.shots)).toEqual([1, 2])
+})
+
+it('preserves asset labels when annotations include list punctuation', () => {
+  const annotated = '【镜头1】\n核心场景：@[后厨（室内、白天）](old-scene)\n'
+    + '关键道具：@[奶瓶（有水、半满）](old-bottle)、杯子（小号，蓝色）；纸袋\n'
+    + '画面：奶瓶落地\n发声类型：action\n时长：3秒'
+  const plan = buildProductionPlan({ ...base, source: annotated, assets: [...assets,
+    { ...assets[3]!, asset_id: 302, name: '杯子' }] }, 8, 2)
+  expect(plan.matches.filter(row => row.kind === 'prop').map(row => [row.name, row.selected_asset_id]))
+    .toEqual([['奶瓶', 301], ['杯子', 302], ['纸袋', null]])
+  expect(plan.warnings).toContainEqual(expect.objectContaining({ code: 'asset_missing', name: '纸袋' }))
+  expect(plan.packages[0]?.images.map(row => row.asset_id)).toEqual([201, 301, 302])
+  expect(plan.packages[0]?.prompt).toContain('@[奶瓶](asset_301)')
+  expect(plan.packages[0]?.prompt).not.toContain('old-bottle')
+  expect(plan.source).toBe(annotated)
+})
+
 it('uses sequential performance budgets in automatic production packages without sending budget metadata', () => {
   const timed = source.replaceAll('时长：6秒', [
     '动作预算：6秒', '发声预算：3秒', '反应预算：2秒', '表演顺序：先动作后台词',
