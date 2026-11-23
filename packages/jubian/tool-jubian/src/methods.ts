@@ -16,7 +16,7 @@
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { downloadedMediaPath, resumeMediaDownload } from './media-download.ts'
-import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
+import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   MODEL_TASK_TYPES as TASKS, FAILED_STATUSES, SUCCESS_STATUSES, buildImageRequest, buildSubtitleEraseRequest,
@@ -259,9 +259,6 @@ export function resolveStoryboardBatchOptions(config: {
   }
   return { concurrency, maxItems }
 }
-
-/** One provider response, as the transport returns it. */
-type ClientResponse = JubianResponse
 
 /**
  * Everything the paid image path takes from outside the transport.
@@ -1219,34 +1216,34 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }),
         ...(args.references === undefined ? {} : { references: args.references }),
       }))
-      // Ordinary replays skip this catalogue read. A batch supplies its one
-      // preflight catalogue so every row is validated before any paid request.
-      let cached: ClientResponse | undefined
-      const catalogue = async (): Promise<unknown> => {
-        if (deps.imageCatalogue !== undefined) return imageCatalogue(deps.imageCatalogue, deps.image?.allowedStandardIds)
-        cached = await client.request({
-          method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })
-        return imageCatalogue(cached.data, deps.image?.allowedStandardIds)
-      }
+      // Use the same permitted catalogue rows to build the request and reserve its cost.
+      let catalogueRows: unknown
       let selectors: ImageModelSelectors | undefined
       let result: Awaited<ReturnType<typeof writeUnderLedger>>
       try {
         result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
           async () => {
-            const rows = await catalogue()
-            selectors = resolveImageModel(imageCatalogue(rows, deps.image?.allowedStandardIds), selection, args.image_aspect_ratio)
+            const rows = deps.imageCatalogue !== undefined ? deps.imageCatalogue : (await client.request({
+              method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data
+            catalogueRows = imageCatalogue(rows, deps.image?.allowedStandardIds)
+            selectors = resolveImageModel(catalogueRows, selection, args.image_aspect_ratio)
             return buildImageRequest({ scriptId: need(args.script_id), assetName,
               assetType, prompt: need(args.prompt), imageStyle,
               references: managedReference === undefined ? (await reference()).references : [managedReference.materialUri],
               ...(args.image_aspect_ratio === undefined ? {} : { aspectRatio: args.image_aspect_ratio }),
-              ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
+              ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, catalogueRows, selection)
           },
           body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
             path: '/aigc/asset', body: need(body) }),
           () => {
-            const price = readImageDisplayPrice(deps.imageCatalogue ?? (cached as ClientResponse).data, selection)
-            return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
-              observedAt: new Date().toISOString() }
+            const price = readImageDisplayPrice(catalogueRows, selection)
+            const observedAt = new Date().toISOString()
+            const pricingUnit = typeof price.unit === 'string' ? price.unit.trim() : undefined
+            if (price.status === 'available'
+              && (pricingUnit === '张' || pricingUnit === '条' || pricingUnit === '元/张' || pricingUnit === '元/条')) {
+              return { amount: String(price.unit_price), unit: 'CNY', observedAt }
+            }
+            return { observedAt }
           }, { scriptId: need(args.script_id), verifyReplayBody: true,
             beforeReserve: async () => {
               deps.signal?.throwIfAborted()
