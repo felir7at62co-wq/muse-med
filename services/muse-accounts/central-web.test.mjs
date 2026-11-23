@@ -26,13 +26,14 @@ async function listen(t,server){
  return `http://127.0.0.1:${server.address().port}`;
 }
 
-async function fixture(t){
+async function fixture(t,{allowEditor=false}={}){
  const dir=await mkdtemp(join(tmpdir(),'muse-central-web-'));
  t.after(()=>rm(dir,{recursive:true,force:true}));
  const store=await openStore(join(dir,'accounts.json'));
  const ownerAccount=await store.create('owner',secret,{admin:true});
- await store.create('editor',secret);
- await store.create('different-admin',secret,{admin:true});
+ const editorAccount=await store.create('editor',secret);
+ const otherAdminAccount=await store.create('different-admin',secret,{admin:true});
+ await store.create('unlisted-admin',secret,{admin:true});
  const accounts=createAccountServer({store,publicOrigin,workspaceMode:'desktop',devOnlyAdmin:false,environment:'production',cookieName:'__Host-muse'});
  const accountsOrigin=await listen(t,accounts);
  const login=async(username)=>{
@@ -42,7 +43,7 @@ async function fixture(t){
   assert.match(cookie??'',/^__Host-muse=/u);
   return cookie;
  };
- const [owner,editor,otherAdmin]=await Promise.all(['owner','editor','different-admin'].map(login));
+ const [owner,editor,otherAdmin,unlistedAdmin]=await Promise.all(['owner','editor','different-admin','unlisted-admin'].map(login));
  const requests=[],upgrades=[];
  const record=req=>({url:req.url,cookie:req.headers.cookie,origin:req.headers.origin,host:req.headers.host,authorization:req.headers.authorization});
  const backend=http.createServer((req,res)=>{
@@ -70,6 +71,7 @@ async function fixture(t){
  const backendOrigin=await listen(t,backend);
  let cookieReads=0;
  const central=createCentralServer({publicOrigin,accountsOrigin,backendOrigin,ownerAccountId:ownerAccount.id,authorizationIntervalMs:100,
+  ...(allowEditor?{allowedAccountIds:[ownerAccount.id,editorAccount.id,otherAdminAccount.id]}:{}),
   getBackendCookie:async()=>{cookieReads++;return nativeCookie;},
  });
  const origin=await listen(t,central);
@@ -81,8 +83,23 @@ async function fixture(t){
   t.after(()=>socket.terminate());
   return socket;
  };
- return {store,ownerAccount,owner,editor,otherAdmin,requests,upgrades,backend,backendOrigin,accountsOrigin,origin,request,openSocket,cookieReads:()=>cookieReads};
+ return {store,ownerAccount,editorAccount,owner,editor,otherAdmin,unlistedAdmin,requests,upgrades,backend,backendOrigin,accountsOrigin,origin,request,openSocket,cookieReads:()=>cookieReads};
 }
+
+test('explicitly granted accounts can enter and lose access when disabled',async t=>{
+ const f=await fixture(t,{allowEditor:true});
+ assert.equal((await f.request('/central/',f.owner)).status,200);
+ assert.equal((await f.request('/central/',f.editor)).status,200);
+ assert.equal((await f.request('/central/',f.otherAdmin)).status,200);
+ assert.equal((await f.request('/central/',f.unlistedAdmin)).status,403);
+ const socket=f.openSocket(f.editor);
+ await once(socket,'open',{signal:AbortSignal.timeout(3000)});
+ const closed=once(socket,'close',{signal:AbortSignal.timeout(3000)});
+ await f.store.setDisabled(f.editorAccount.id,true);
+ await closed;
+ assert.equal((await f.request('/central/',f.editor)).status,200);
+ assert.equal((await f.request('/central/bundle.js',f.editor)).status,303);
+});
 
 test('the central host is visible only to the designated administrator',async t=>{
  const f=await fixture(t);

@@ -1,12 +1,12 @@
 # Central Muse Web deployment
 
-The loopback gateway serves the existing Muse Web under `/central/`. It validates the existing Muse account session on every new request and restricts access to the configured production administrator account. The public account gateway still owns sign-in, device selection, and account revocation. The native Web Host keeps its private listener and browser authentication.
+The loopback gateway serves the existing Muse Web under `/central/`. It validates the existing Muse account session on every new request and restricts access to the configured production account IDs. The public account gateway still owns sign-in, device selection, and account revocation. The native Web Host keeps its private listener and browser authentication.
 
 ## Install privately
 
 Create the system user and group `muse-central-web` without a login shell. Install `central-web.mjs` from the account service and `refresh-backend-cookie.py` from this directory under `/opt/muse/central-web`, owned by root. The unit uses the existing Cloud Web Node runtime. Verify its path if that runtime changes.
 
-Create `/etc/muse-central-web/config.json` with mode `0640` and ownership `root:muse-central-web`. Use the existing production administrator account ID. The configuration needs no passwords or native credentials.
+Create `/etc/muse-central-web/config.json` with mode `0640` and ownership `root:muse-central-web`. Use the existing production account IDs authorized for Central Muse. The configuration needs no passwords or native credentials.
 
 ```json
 {
@@ -14,6 +14,7 @@ Create `/etc/muse-central-web/config.json` with mode `0640` and ownership `root:
   "accountsOrigin": "http://127.0.0.1:19389",
   "backendOrigin": "http://100.123.97.104:19490",
   "ownerAccountId": "<existing 16-character account ID>",
+  "allowedAccountIds": ["<owner account ID>", "<another authorized account ID>"],
   "backendCookieFile": "/run/muse-central-web-auth/backend-cookie",
   "port": 19584
 }
@@ -29,6 +30,8 @@ systemctl start muse-central-web.service
 ```
 
 Verify local access through the gateway before adding the Nginx include. The native startup URL must be present in the running `muse-cloud.service` invocation's journal. The timer refreshes the private Cookie every minute and uses the new startup URL after a Cloud Web restart.
+
+When `allowedAccountIds` is present, it must include `ownerAccountId` and every ID permitted to enter Central Muse. Each request still requires a valid, enabled production account session. If the list is omitted, the owner must also retain the administrator role.
 
 ## Enable HTTPS access
 

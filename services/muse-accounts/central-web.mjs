@@ -106,13 +106,16 @@ function keepAuthorized(authorize, interval, shutdown) {
  * @returns {import('node:http').Server} A server ready to listen on loopback.
  */
 export function createCentralServer({
-  publicOrigin, accountsOrigin, backendOrigin, ownerAccountId, getBackendCookie, authorizationIntervalMs = 5000,
+  publicOrigin, accountsOrigin, backendOrigin, ownerAccountId, allowedAccountIds, getBackendCookie, authorizationIntervalMs = 5000,
 }) {
   const account = privateOrigin(accountsOrigin, true)
   const backend = privateOrigin(backendOrigin)
   const origin = new URL(publicOrigin)
   if (origin.protocol !== 'https:' || origin.href !== origin.origin + '/' ||
       !/^[a-f0-9]{16}$/.test(ownerAccountId) || typeof getBackendCookie !== 'function' ||
+      (allowedAccountIds !== undefined && (!Array.isArray(allowedAccountIds) || allowedAccountIds.length === 0 ||
+        allowedAccountIds.some(id => typeof id !== 'string' || !/^[a-f0-9]{16}$/.test(id)) ||
+        !allowedAccountIds.includes(ownerAccountId))) ||
       !Number.isSafeInteger(authorizationIntervalMs) || authorizationIntervalMs <= 0) {
     throw new Error('Invalid Central Web configuration')
   }
@@ -134,8 +137,10 @@ export function createCentralServer({
         return 503
       }
       const profile = await reply.json()
-      return profile?.accountId === ownerAccountId && profile.admin === true &&
-        profile.environment === 'production' ? 200 : 403
+      const allowed = allowedAccountIds === undefined
+        ? profile?.accountId === ownerAccountId && profile.admin === true
+        : allowedAccountIds.includes(profile?.accountId)
+      return allowed && profile.environment === 'production' ? 200 : 403
     } catch {
       return 503
     }
