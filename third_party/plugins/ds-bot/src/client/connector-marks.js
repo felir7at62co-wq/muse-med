@@ -148,6 +148,13 @@ const envelope = fill => mark(
 const EnvelopeBlue = envelope('#3B82F6')
 const EnvelopeRed = envelope('#E60012')
 
+// Muse: Feishu / Lark, three folded wings, drawn here for the chat-app mark on a Bot's
+// avatar (mark.js). Not in MARKS: no connector goes by this id.
+export const FeishuMark = mark(
+  path('M7.2 4.5h7.6c1.2 0 2.1.55 2.7 1.58 1.05 1.8 1.55 3.45 1.58 4.95-2.04-.62-4.2-.15-6.22 1.45C11.3 9.7 9.42 7.04 7.2 4.5Z', '#00D6B9'),
+  path('M10.8 13.55c3.3-2.93 5.72-4.24 9.47-2.52-1.2 1.45-2.27 4.18-3.86 5.43-1.67 1.31-3.9.5-5.61-.64v-2.27Z', '#1456B8'),
+  path('M4.4 8.35c3.47 3.61 7.25 6.1 10.33 5.7 1.06-.14 2.2-.72 3.4-1.72-1.04 2.65-2.6 4.8-5.06 6-2.46 1.2-5.56.52-7.42-.72A2.76 2.76 0 0 1 4.4 15.3V8.35Z', '#3370FF'))
+
 export const MARKS = {
   github: GithubBrandMark,
   ...siMarks,

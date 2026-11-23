@@ -1765,6 +1765,7 @@ export const JA = {
   'Follows Feishu': 'Feishu に従う',
   'Department': '部署',
   'Feishu account': 'Feishu アカウント',
+  'Linked to {name}': '{name} と連携中',
   'Job title': '役職',
   'Manager': '上長',
   'Quota': '利用枠',

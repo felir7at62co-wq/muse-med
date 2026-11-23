@@ -104,6 +104,11 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 @media (prefers-reduced-motion:reduce){.bt-mark *{animation:none!important;transition:none!important}}
 ${SPIDER_DETAIL_CSS}
 .bt-badge{position:absolute;right:0;bottom:0;width:12px;height:12px;border-radius:50%;corner-shape:round;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-sidebar)}
+/* Muse: the chat app a Bot is linked to, on the avatar's right edge above the state, Main
+   and admin badge. The app's mark sits on white, the IM marks' ink, in both themes. */
+.bt-badge-im{width:14px;height:14px;right:-1px;bottom:15px;overflow:hidden;background:var(--bt-im-mark-ink);pointer-events:none;z-index:1}
+.bt-badge-im-main{bottom:calc(clamp(14px,calc(var(--bt-size,36px) * .36),22px) - var(--bt-size,36px) * .07 + 5px)}
+.bt-badge-im svg{display:block;width:100%;height:100%}
 .bt-badge-admin{background:color-mix(in srgb,var(--bt-star) 82%,var(--bt-sidebar))}
 .bt-badge-admin svg{width:7px;height:7px}
 .bt-badge-main{right:calc(var(--bt-size,36px) * -.07);bottom:calc(var(--bt-size,36px) * -.07);width:clamp(14px,calc(var(--bt-size,36px) * .36),22px);height:clamp(14px,calc(var(--bt-size,36px) * .36),22px);border-radius:0;box-shadow:none}
@@ -139,6 +144,15 @@ ${SPIDER_DETAIL_CSS}
 .bt-tile[aria-current=page]{background:var(--bt-active)}
 .bt-tile-name{font-size:13px;line-height:18px;font-weight:500;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-chip{font-size:11px;line-height:16px;padding:1px 7px;border-radius:999px;background:var(--bt-tag-bg);border:.5px solid var(--bt-line);color:var(--bt-ink-2);white-space:nowrap;max-width:92px;overflow:hidden;text-overflow:ellipsis}
+/* Muse: every Main Bot is a tile. One sits as it always did; several share the row, three
+   abreast at the column's narrowest, and wrap past what fits. A shared tile keeps its name,
+   its label and the avatar's hover area inside its own width, or the list scrolls sideways. */
+.bt-tiles{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 6px;padding:20px 0 15px}
+.bt-tiles>.bt-tile-wrap{flex:1 1 70px;min-width:0;max-width:95px;padding:0}
+.bt-tiles .bt-tile{width:100%;min-width:0}
+.bt-tiles>.bt-tile-wrap:not(:only-child) .bt-tile{box-sizing:border-box;padding-left:4px;padding-right:4px}
+.bt-tiles>.bt-tile-wrap:not(:only-child) :is(.bt-tile-name,.bt-chip){max-width:100%;box-sizing:border-box}
+.bt-tiles>.bt-tile-wrap:not(:only-child) .bt-tile>.bt-mark::before{left:-5px;right:-5px}
 .bt-row{display:flex;align-items:center;gap:8px;min-height:54px;padding:8px;border:0;border-radius:12px;background:transparent;color:var(--bt-ink);text-align:left;cursor:pointer;width:100%;box-sizing:border-box;font-family:inherit;transition:background-color .12s ease}
 .bt-row:hover{background:var(--bt-hover)}
 .bt-row[aria-current=page]{background:var(--bt-active)}

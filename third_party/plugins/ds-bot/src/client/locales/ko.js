@@ -1800,6 +1800,7 @@ export const KO = {
   'Follows Feishu': 'Feishu 연동',
   'Department': '부서',
   'Feishu account': 'Feishu 계정',
+  'Linked to {name}': '{name}에 연결됨',
   'Job title': '직책',
   'Manager': '상급자',
   'Quota': '한도',

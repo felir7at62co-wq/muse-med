@@ -19,6 +19,7 @@
     "test/muse-account-page.test.js",
     "test/quota-button.test.js",
     "test/schedule-summary.test.js",
+    "test/sidebar-mains.test.js",
     "test/station-events.test.js",
     "test/terminal-tabs.test.js",
     "test/work-files.test.js"
@@ -49,6 +50,7 @@
     "src/client/locales/fr.js",
     "src/client/locales/ja.js",
     "src/client/locales/ko.js",
+    "src/client/mark.js",
     "src/client/member-status.js",
     "src/client/notify.js",
     "src/client/overlays.js",
@@ -57,6 +59,7 @@
     "src/client/settings.js",
     "src/client/side-model.js",
     "src/client/sidebar.js",
+    "src/client/sources.js",
     "src/client/storage.js",
     "src/client/styles.js",
     "src/client/team-actions.js",
@@ -197,6 +200,7 @@
     "The details page and the settings behind its gear no longer repeat each other, and the page opens with what runs in the background. `BotSettingsForm` takes `lean`: the details panel passes it and the form then leaves out the name, label, model, working folder, instructions, memory and scheduled tasks, which the details page edits; Settings → Bots keeps the full form. `background-panel.js` replaces the details page's last block: a Background section right under the run statistics, shown even when empty, lists the live jobs of the conversation as Tasks or Commands (`bash` / `pwsh` jobs) and its running terminals as Services, each with Stop. A group's details page has the same section after its members, watching the group's own Session and each member's Session there (`memberSessions` in the room view, from the saved `sessions` map) and leading every row with the member's mark. With tasks listed, the scheduled-tasks title carries a plus that starts a new task for the Bot",
     "IM names and access (`im/index.js`, `im/platforms/feishu.js`, `im-page.js`, `account-page.js`): the Feishu adapter reads each chat's name and its members' names (`im:chat:readonly`, cached ten minutes, ids stand in when it cannot) and still hands messages on in arrival order. A chat Bot is named after the group, or after the person in a private chat; a Bot that still carries an id takes the real name once it can be read, and a Bot renamed by hand keeps its name. Settings → IM gains the old IM plugin's access settings per connection: for private chats and for groups, who can talk (approved people or everyone) and who can use commands and approvals (`/stop`, `/new`, approval answers and buttons: everyone who can talk, or only the owner), with a per-person Commands switch (`im-person`) and the A Bot for each chat switch. The Account page reads the Feishu name from the profile and the departments from the account-level organization, so a relay sign-in shows them, each as its path below the enterprise root",
     "Account page job title and manager (`account-page.js`): 职位 and 上级 show the Feishu job title and direct manager's name that the account gateway's organization sync now sends with the account-level organization (`jobTitle`, `managerName`); either stays a dash when Feishu gives none or the application may not read it",
-    "Sidebar foot: a round quota button right of the user's capsule in the open column and below it on the rail (`src/client/quota.js`) shows the Muse user's Jingliu credit (积分, 1 积分 = 1 元) read through the `jingliuConnection` Remote that ui-jingliu mounts (`balance`, injected with 'remote'), on mount, every minute (five while the window is hidden), when the window shows again (or a minute after a read that started less than 15 s before), after a Muse sign-in change or a reconnect, and when its popover opens; it renders only once a read has answered that the Host serves that namespace, and a sign-in change or a reconnect never brings it back where the Host does not; a failed read shows an unknown state instead of a figure, a used-up balance (nothing left, not unlimited) adds a red dot, the button's accessible name carries the figure, and the popover above it takes focus and shows what is left (or 不限额), 已用 and 冻结中, the line 额度已用完，生成已停下，请找组长划拨。 when used up, and a row that opens Settings → 用量"
+    "Sidebar foot: a round quota button right of the user's capsule in the open column and below it on the rail (`src/client/quota.js`) shows the Muse user's Jingliu credit (积分, 1 积分 = 1 元) read through the `jingliuConnection` Remote that ui-jingliu mounts (`balance`, injected with 'remote'), on mount, every minute (five while the window is hidden), when the window shows again (or a minute after a read that started less than 15 s before), after a Muse sign-in change or a reconnect, and when its popover opens; it renders only once a read has answered that the Host serves that namespace, and a sign-in change or a reconnect never brings it back where the Host does not; a failed read shows an unknown state instead of a figure, a used-up balance (nothing left, not unlimited) adds a red dot, the button's accessible name carries the figure, and the popover above it takes focus and shows what is left (or 不限额), 已用 and 冻结中, the line 额度已用完，生成已停下，请找组长划拨。 when used up, and a row that opens Settings → 用量",
+    "Sidebar: every Main Bot is a tile at the top of the open column, side by side in `mainBotIds` order (`mainBotsOf` in `sources.js`, `.bt-tiles` in `styles.js`): three fit the narrowest column, more wrap to the next line, a long name or label is cut with an ellipsis, and one Main Bot looks as it did. On the rail they are avatar rows above the rule. A Main Bot is no longer listed below, and what asked whether a Bot is the tile now answers for every Main Bot: no pin, no drag into a section, no section entries in its menu or in a section's add list, no Sidebar card in its settings (`sidebar.js`, `context-menu.js`, `bot-settings.js`); removing the role returns it to the list. `mainBotId`, the first one, stays where the app lands and where the start window's hand-off glides. A Bot linked to a chat app wears that app's mark on its avatar in the sidebar, tile and row (`imLinksOf` in `sources.js`, `im` on `BotAvatar` and `imLabel` in `mark.js`, `.bt-badge-im`): the Bot of an enabled IM connection and the Bot each of its chats is bound to, read from the roster's `im` view. Feishu / Lark takes precedence on a Bot linked to several chat apps, and its mark is drawn in `connector-marks.js`; Telegram, WeChat, QQ, Discord and Slack reuse theirs; DingTalk and WeCom have no mark and show none. The mark sits on the avatar's right edge above the state, Main and admin badge, and the row's accessible name says \"Linked to {name}\" in every locale"
   ]
 }

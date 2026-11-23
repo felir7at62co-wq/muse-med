@@ -17,8 +17,29 @@ export function createSource(initial) {
 }
 
 export const EMPTY_ROSTER = { revision: -1, mainBotId: null, mainBotIds: [], bots: [], rooms: [], agents: [], sections: [], exchangeTurns: {}, questions: {}, btwCards: {}, sideChats: {}, learning: {}, secrets: [], capabilities: [], capabilityStatuses: {}, phone: null, secretRequests: {}, models: [], defaultModel: null, modelsKey: null, prefs: {}, byId: {}, roomsById: {}, agentsById: {}, agentOf: {}, ready: false }
-// Any Main Bot holds the Main Bot powers; `mainBotId`, the first one, is the sidebar tile.
+// Any Main Bot holds the Main Bot powers. Muse: every Main Bot is a sidebar tile, in
+// `mainBotIds` order; `mainBotId`, the first one, is where the app lands.
 export const isMainOf = (roster, id) => id !== undefined && (roster.mainBotIds ?? []).includes(id)
+export const mainBotsOf = roster => (roster.mainBotIds ?? []).map(id => roster.byId[id]).filter(Boolean)
+
+// Muse: the chat app each Bot answers in, by Bot id, from the roster's IM view: the Bot of
+// an enabled IM connection and the Bot each of that connection's chats is bound to. `lark`
+// is Feishu's international edition. Feishu and Lark take precedence on multi-channel Bots.
+export function imLinksOf(im) {
+  const links = new Map()
+  for (const conn of im?.connections ?? []) {
+    if (!conn.enabled) continue
+    const app = conn.platform === 'feishu' && conn.settings?.domain === 'lark' ? 'lark' : conn.platform
+    for (const botId of [conn.botId, ...Object.values(conn.chats ?? {}).map(chat => chat.target?.botId)]) {
+      if (typeof botId !== 'string') continue
+      const previous = links.get(botId)
+      if (previous === undefined || (conn.platform === 'feishu' && previous !== 'feishu' && previous !== 'lark')) {
+        links.set(botId, app)
+      }
+    }
+  }
+  return links
+}
 
 // A Bot's chat is a chain of Sessions ("parts"): the Bot id is its first part's id
 // and `sessionId` its current one. Every part id finds the Bot; Session state

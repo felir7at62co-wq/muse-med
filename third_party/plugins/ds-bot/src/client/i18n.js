@@ -797,6 +797,7 @@ const ZH = {
   'Follows Feishu': '跟随飞书',
   Department: '部门',
   'Feishu account': '飞书账号',
+  'Linked to {name}': '已连接{name}',
   'Job title': '职位',
   'Manager': '上级',
   Quota: '额度',

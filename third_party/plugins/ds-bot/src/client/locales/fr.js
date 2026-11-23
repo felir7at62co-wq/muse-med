@@ -1765,6 +1765,7 @@ export const FR = {
   'Follows Feishu': 'Suit Feishu',
   'Department': 'Service',
   'Feishu account': 'Compte Feishu',
+  'Linked to {name}': 'Lié à {name}',
   'Job title': 'Poste',
   'Manager': 'Responsable',
   'Quota': 'Quota',

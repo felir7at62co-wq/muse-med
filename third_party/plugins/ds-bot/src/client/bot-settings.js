@@ -214,7 +214,8 @@ export function BotSettingsForm({ bot, roster, actions, run, lean = false }) {
   }, [confirming])
   const isMainBot = isMainOf(roster, bot.id)
   const onlyMain = isMainBot && (roster.mainBotIds ?? []).length === 1
-  const isTile = roster.mainBotId === bot.id
+  // Muse: every Main Bot is a sidebar tile, not only the first.
+  const isTile = isMainBot
   const inGroup = (roster.rooms ?? []).some(room => room.members?.includes(bot.id))
   const privateHint = t('Other Bots cannot read its folder, memory or chats, and you approve what it shares with them.')
   const privacyHint = bot.private === true ? privateHint : isMainBot ? t('A Main Bot cannot be private.') : inGroup ? t('Leave its group chats before making it private.') : !bot.workDir ? t('Choose a working folder of its own first.') : privateHint
@@ -274,7 +275,7 @@ export function BotSettingsForm({ bot, roster, actions, run, lean = false }) {
           disabled: bot.private === true,
           onChange: on => run(actions.setMain(bot.id, on)),
         })),
-    // The Main Bot tile is always first and always shown, like in the context menu.
+    // A Main Bot tile is always at the top and always shown, like in the context menu.
     isTile ? null : h(Card, { title: t('Sidebar') },
       h(SwitchRow, { label: t('Pin'), hint: t('Kept above the other chats.'), on: bot.pinned === true, onChange: pinned => run(actions.setFlags(bot.id, { pinned })) }),
       isMainBot ? null : h(SwitchRow, { label: t('Hide from sidebar'), hint: t('Search still finds it.'), on: bot.hidden === true, onChange: hidden => run(actions.setFlags(bot.id, { hidden })) })),

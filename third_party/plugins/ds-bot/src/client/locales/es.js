@@ -1800,6 +1800,7 @@ export const ES = {
   'Follows Feishu': 'Según Feishu',
   'Department': 'Departamento',
   'Feishu account': 'Cuenta de Feishu',
+  'Linked to {name}': 'Vinculado a {name}',
   'Job title': 'Cargo',
   'Manager': 'Responsable',
   'Quota': 'Cuota',
