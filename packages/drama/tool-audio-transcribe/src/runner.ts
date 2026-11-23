@@ -60,7 +60,7 @@ export interface AudioRunResult extends Omit<MuseAsrMetadata, 'error_code'> {
 
 /** Bounded native polling and media verification for original task readback. */
 export interface AudioQueryOptions {
-  /** Maximum polling delay budget; an individual request still uses its account timeout. */
+  /** Maximum read-only network wait across queries and delays; 0 makes one pass without polling. */
   readonly waitMs: number
   /** Delay between read-only queries, configured by the tool owner. */
   readonly pollIntervalMs: number
@@ -288,6 +288,26 @@ function timestamp(seconds: number): string {
   return `${hours}:${minutes}:${remainder}.${(ms % 1000).toString().padStart(3, '0')}`
 }
 
+function overlappingStart(file: string): Error {
+  return new Error('Another transcription has started. Inspect the receipt before retrying: ' + file.replaceAll('\\', '/'))
+}
+
+async function createReceipt(file: string, receipt: Receipt, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  const handle = await open(file, 'wx', 0o600).catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'EEXIST') throw overlappingStart(file)
+    throw error
+  })
+  let written = false
+  try {
+    await handle.writeFile(JSON.stringify(receipt, null, 2) + '\n')
+    written = true
+  } finally {
+    await handle.close()
+    if (!written) await rm(file, { force: true })
+  }
+}
+
 async function save(file: string, receipt: Receipt, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   const staged = `${file}.${randomUUID()}.tmp`
@@ -390,15 +410,17 @@ function resolvePurpose(purpose: MuseAsrPurpose | undefined): MuseAsrPurpose {
 }
 
 function rejectedResult(project: string, file: string, receipt: Receipt, error: MuseAsrError): AudioRunResult {
-  const resumable = error.code === 'server_draining' || error.code === 'queue_full' || error.code === 'upload_busy' || error.code === 'request_rate'
+  const timedOut = error.code === 'upload-timeout' || error.code === 'query-timeout'
+  const resumable = timedOut || error.code === 'server_draining' || error.code === 'queue_full' || error.code === 'upload_busy' || error.code === 'request_rate'
     || error.code === 'provider_rate'
     || error.code === 'server-unavailable' || error.code === 'response-invalid'
   return {
-    status: error.code === 'server-unavailable' || error.code === 'response-invalid' ? 'uncertain'
+    status: timedOut || error.code === 'server-unavailable' || error.code === 'response-invalid' ? 'uncertain'
       : receipt.status === 'prepared' ? 'preparing' : receipt.status,
     receipt: file, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), error_code: error.code,
     ...(error.retryAfterSeconds === undefined ? {} : { retry_after_seconds: error.retryAfterSeconds }),
-    ...(resumable && receipt.recovery?.next_action !== 'inspect_receipt' ? { resume_status: { method: 'status', project, receipt: file } as const } : {}),
+    ...(resumable && receipt.recovery?.next_action !== 'inspect_receipt'
+      ? { resume_status: { method: timedOut ? 'inspect' : 'status', project, receipt: file } as const } : {}),
   }
 }
 
@@ -423,7 +445,7 @@ function storedResult(file: string, receipt: Receipt): AudioRunResult {
 function portableResult(result: AudioRunResult): AudioRunResult {
   const pending = ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
   const lifetimeQuota = result.provider_diagnostic?.quota_type?.endsWith('_lifetime') === true
-  if (pending && lifetimeQuota) {
+  if (pending && lifetimeQuota && result.recovery?.capability !== 'no_query') {
     result = { ...result,
       resume_status: { method: 'inspect', project: dirname(dirname(dirname(result.receipt))), receipt: result.receipt },
       polling_note: '原供应商应用的试用额度已用完，需要管理员在原应用恢复对应语音资源额度。恢复后沿此原收据 inspect 查询；不要重新 start、换应用或把额度耗尽当作普通排队。' }
@@ -593,18 +615,23 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     await chmod(transcript, 0o700)
     await chmod(jobs, 0o700)
   }
+  let sourceDigest: Promise<string> | undefined
+  const currentSourceDigest = () => sourceDigest ??= digest(source, signal)
+  const assertReceiptLanguage = (file: string, receipt: Receipt) => {
+    if (receipt.language !== language) {
+      throw new Error('The recognition language changed. Check the original transcription receipt ' + file.replaceAll('\\', '/'))
+    }
+  }
+  const receiptNames = new Set(await readdir(jobs))
   let finished: { file: string; receipt: Receipt } | undefined
   let unproven: string | undefined
-  // A receipt describes the bytes it staged; the same path with other bytes is a different input.
-  let current: Promise<string> | undefined
-  const sourceDigest = (): Promise<string> => current ??= digest(source, signal)
-  for (const name of await readdir(jobs)) {
+  for (const name of receiptNames) {
     if (!name.endsWith('.json')) continue
     const file = join(jobs, name)
     const prior = await readReceipt(file)
     signal?.throwIfAborted()
     if (prior.source !== source) continue
-    if (prior.sourceSha256 !== undefined && prior.sourceSha256 !== await sourceDigest()) continue
+    if (prior.sourceSha256 !== undefined && prior.sourceSha256.toLowerCase() !== await currentSourceDigest()) continue
     if (!['complete', 'silent', 'failed'].includes(prior.status) || prior.recovery?.next_action === 'resume_upload') {
       if (prior.accountUsername !== identity.username) throw new Error('Existing transcription receipt belongs to another Muse account')
       if ((prior.purpose ?? 'subtitles') !== resolvedPurpose) {
@@ -613,6 +640,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
         if (purpose === undefined) throw new Error(`Existing transcription receipt has a different purpose; query status with receipt ${file} or specify purpose explicitly`)
         continue
       }
+      assertReceiptLanguage(file, prior)
       // A batch finishes a never-confirmed submission the way `status` does: query first, then upload under the original ID.
       if (batch && prior.status === 'prepared') {
         return await settleReceipt(project, file, account, signal, true, budget, probe)
@@ -626,7 +654,10 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     }
   }
   // A resent batch must not pay again for a source whose same-purpose task already ended.
-  if (finished !== undefined) return { result: storedResult(finished.file, finished.receipt), refused: false }
+  if (finished !== undefined) {
+    assertReceiptLanguage(finished.file, finished.receipt)
+    return { result: storedResult(finished.file, finished.receipt), refused: false }
+  }
   // Nor may it pay again, unasked, for a source an older ended task may already cover.
   if (unproven !== undefined) {
     throw new Error(`An ended transcription receipt without a source digest exists for this input (${unproven}); it cannot show whether it `
@@ -642,10 +673,11 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     signal?.throwIfAborted()
     const prefix = `${stem}-v${version}`
     const existing = await Promise.all([join(jobs, prefix + '.json'), join(project, 'transcript', 'raw', prefix + '.txt'), join(project, 'transcript', 'raw', prefix + '.json')].map(async path => stat(path).then(() => true, () => false)))
+    if (existing[0] && !receiptNames.has(prefix + '.json')) throw overlappingStart(join(jobs, prefix + '.json'))
     if (!existing.some(Boolean)) break
     version += 1
   }
-  const sourceSha256 = await sourceDigest()
+  const sourceSha256 = await currentSourceDigest()
   const chunkSeconds = config.chunkSeconds ?? 600
   if (!Number.isSafeInteger(chunkSeconds) || chunkSeconds < 1 || chunkSeconds > 7200) throw new Error('Invalid cloud audio chunk duration')
   if (duration > chunkSeconds) {
@@ -653,6 +685,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
       stem, version, language, resolvedPurpose, identity.username, account, config, media, signal, budget)
   }
   const id = randomUUID(), mp3 = join(jobs, `.${id}.wav`), receiptPath = join(jobs, `${stem}-v${version}.json`)
+  let persisted = false
   try {
     const staged = await open(mp3, 'wx', 0o600)
     await staged.close()
@@ -665,7 +698,8 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     if (!size || size > config.maxAudioBytes) throw new Error('Compressed audio exceeds the cloud transcription size limit')
     if (await digest(source, signal) !== sourceSha256) throw new Error('Media changed during audio extraction')
     const receipt: Receipt = { id, source, sourceSha256, accountUsername: identity.username, stem, version, language, purpose: resolvedPurpose, sha256: await digest(mp3, signal), mp3, status: 'prepared' }
-    await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
+    await createReceipt(receiptPath, receipt, signal)
+    persisted = true
     signal?.throwIfAborted()
     const job = await submitStaged(account, mp3, id, receipt.sha256, language, receipt.purpose, budget, signal)
     signal?.throwIfAborted()
@@ -678,7 +712,6 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
       refused: false,
     }
   } catch (error) {
-    const persisted = await stat(receiptPath).then(() => true, () => false)
     if (!persisted) await rm(mp3, { force: true })
     else if (!signal?.aborted && error instanceof MuseAsrError) {
       return { result: rejectedResult(project, receiptPath, await readReceipt(receiptPath), error), refused: true }
@@ -716,15 +749,27 @@ async function settleReceipt(
   projectPath: string, receiptPath: string, account: AudioAccount, signal: AbortSignal | undefined, allowResumeUpload: boolean,
   budget: UploadRetryBudget, probe: AudioMediaOperations['probe'] | undefined, polling?: Pick<AudioQueryOptions, 'waitMs' | 'pollIntervalMs'>,
 ): Promise<ReceiptOutcome> {
+  const waitMs = polling?.waitMs ?? 0
+  const deadline = performance.now() + waitMs
+  const expiry = new AbortController()
+  using timer = waitMs > 0 ? setTimeout(() => { expiry.abort(new MuseAsrError('query-timeout')) }, waitMs).unref() : undefined
+  const readSignal = timer === undefined ? signal : signal === undefined ? expiry.signal : AbortSignal.any([signal, expiry.signal])
+  const query = async (id: string): Promise<MuseAsrJob> => {
+    signal?.throwIfAborted()
+    if (waitMs > 0 && performance.now() >= deadline) throw new MuseAsrError('query-timeout')
+    try { return await account.audioStatus(id, readSignal) }
+    finally { readSignal?.throwIfAborted() }
+  }
   try {
-    const deadline = Date.now() + (polling?.waitMs ?? 0)
-    let result = await finishReceipt(projectPath, receiptPath, account, budget, signal, allowResumeUpload, probe)
-    while (polling && Date.now() < deadline && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
+    let result = await finishReceipt(projectPath, receiptPath, account, budget, query, signal, allowResumeUpload, probe)
+    while (polling && ['preparing', 'processing', 'submitting', 'uncertain'].includes(result.status)
       && result.error_code === undefined && result.recovery?.next_action !== 'inspect_receipt' && result.recovery?.next_action !== 'resume_upload') {
-      if ((result.recovery?.retry_after ?? 0) * 1000 >= deadline - Date.now()) break
-      await delay(Math.min(polling.pollIntervalMs, deadline - Date.now()), undefined, { signal })
+      const intervalMs = Math.max(polling.pollIntervalMs, (result.recovery?.retry_after ?? 0) * 1000)
+      if (intervalMs >= deadline - performance.now()) break
+      await delay(intervalMs, undefined, { signal })
       signal?.throwIfAborted()
-      result = await finishReceipt(projectPath, receiptPath, account, budget, signal, false, probe)
+      if (performance.now() >= deadline) break
+      result = await finishReceipt(projectPath, receiptPath, account, budget, query, signal, false, probe)
     }
     signal?.throwIfAborted()
     return { result: await withSpeakerSummary(result, signal), refused: false }
@@ -737,8 +782,10 @@ async function settleReceipt(
   }
 }
 
+type AudioQuery = (id: string) => Promise<MuseAsrJob>
+
 async function finishReceipt(
-  projectPath: string, receiptPath: string, account: AudioAccount, budget: UploadRetryBudget, signal?: AbortSignal,
+  projectPath: string, receiptPath: string, account: AudioAccount, budget: UploadRetryBudget, query: AudioQuery, signal?: AbortSignal,
   allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   signal?.throwIfAborted()
@@ -752,14 +799,14 @@ async function finishReceipt(
   if (![join(jobs, `.${receipt.id}.mp3`), join(jobs, `.${receipt.id}.wav`)].includes(receipt.mp3)
     || basename(receiptFile) !== `${receipt.stem}-v${receipt.version}.json`) throw new Error('Receipt paths do not match this project')
   if (receipt.parts !== undefined) {
-    return await finishParts(project, receiptFile, receipt, receipt.parts, account, budget, signal, allowResumeUpload, probe)
+    return await finishParts(project, receiptFile, receipt, receipt.parts, account, budget, query, signal, allowResumeUpload, probe)
   }
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.txt).then(() => true, () => false)
     && await stat(target.json).then(() => true, () => false)) return { status: 'complete', receipt: receiptFile, job_id: receipt.id, ...purposeField(receipt.purpose), ...metadataFields(receipt), output_txt: target.txt, output_json: target.json, ...(await stat(target.srt).then(() => true, () => false) ? { output_srt: target.srt } : {}) }
   let job: MuseAsrJob
   let submitted = false
-  try { signal?.throwIfAborted(); job = await account.audioStatus(receipt.id, signal) }
+  try { job = await query(receipt.id) }
   catch (error) {
     signal?.throwIfAborted()
     const unaccepted = error instanceof MuseAsrError && error.code === 'job-not-found'
@@ -826,7 +873,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
     if (await digest(source, signal) !== sourceSha256) throw new Error('Media changed during audio extraction')
     let receipt: Receipt = { id, source, sourceSha256, stem, version, language, purpose, accountUsername: username,
       mp3: join(jobs, `.${id}.wav`), sha256: sourceSha256, parts, status: 'prepared' }
-    await writeFile(receiptFile, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
+    await createReceipt(receiptFile, receipt, signal)
     persisted = true
     for (const [index, part] of parts.entries()) {
       signal?.throwIfAborted()
@@ -856,7 +903,7 @@ async function startParts(project: string, source: string, sourceSha256: string,
 
 async function finishParts(
   project: string, receiptFile: string, receipt: Receipt, parts: readonly AudioPart[],
-  account: AudioAccount, budget: UploadRetryBudget, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
+  account: AudioAccount, budget: UploadRetryBudget, query: AudioQuery, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   const target = paths(project, receipt)
   if (receipt.status === 'complete' && await stat(target.json).then(() => true, () => false)
@@ -875,7 +922,7 @@ async function finishParts(
   for (const part of parts) {
     let job: MuseAsrJob
     let submitted = false
-    try { signal?.throwIfAborted(); job = await account.audioStatus(part.id, signal) }
+    try { job = await query(part.id) }
     catch (error) {
       signal?.throwIfAborted()
       if (!(error instanceof MuseAsrError) || error.code !== 'job-not-found' || part.retentionExpired || part.service_version !== undefined || part.recovery !== undefined) throw error

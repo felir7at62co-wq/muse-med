@@ -103,7 +103,7 @@ Successful local sign-in, sign-out and browser-login completion emit ordinary `m
 
 ### Cloud transcription
 
-Cloud transcription responses retain only validated provider quota categories and an optional `recovery.retry_after` delay in seconds. A lifetime quota requires restoring the original application's allowance before querying its existing task; neither this metadata nor an HTTP 429 authorizes a new paid submission.
+Cloud transcription responses retain only validated provider quota categories and an optional `recovery.retry_after` delay in seconds. A lifetime quota requires restoring the original application's allowance before querying its existing task; neither this metadata nor an HTTP 429 authorizes a new paid submission. The Host caps ASR error bodies at 4 MiB before classifying their JSON. An HTTP 404 permits original-job recovery only when the Muse gateway confirms that the job is missing. Proxy or storage failures leave submission unconfirmed and retain the original receipt.
 
 After the native importer finishes verification and publication, the account transport sends one bounded, owner-scoped import confirmation using the exact file lease and digest. Ordinary reads, failed decodes and incomplete transfers do not confirm imports. A failed or lost confirmation is not retried and leaves the longer cloud retention period; it does not invalidate an otherwise verified local file. Old servers without a lease remain usable. Account changes and cancellation before local commit still refuse delivery; confirmation cannot roll back an already committed local file.
 
@@ -163,7 +163,9 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `feedbackExcerptChars` | 1,000 | Visible characters per optional related request or answer excerpt, from 100 to 1,200. |
 | `activityReportIntervalMs` | 30,000 | Minimum interval between activity reports for one login, from 1,000 to 3,600,000 milliseconds. |
 | `activityRequestTimeoutMs` | 5,000 | Best-effort activity request deadline, from 100 to 30,000 milliseconds. |
-| `asrRequestTimeoutMs` | 300,000 | Timeout for one compressed-audio upload and gateway response, from 10,000 to 1,800,000 milliseconds. |
+| `asrRequestTimeoutMs` | 300,000 | Total ceiling for one upload and gateway response, from 10,000 to 1,800,000 milliseconds. |
+| `asrUploadIdleTimeoutMs` | 30,000 | Time without the transport reading audio bytes or receiving the reply before an upload times out, from 1,000 to 1,800,000 milliseconds. The total ceiling still applies. |
+| `asrQueryTimeoutMs` | 10,000 | Ceiling for one status query and response body, from 1,000 to 30,000 milliseconds, capped by the total ceiling. |
 | `remoteAccess` | `false` | Enable the account-bound desktop connector; Muse Desktop enables it. Requires bridge, Connection and Web server providers. |
 | `remoteChunkBytes` | 32,768 | Acknowledged chunk size, from 1,024 to 32,768 bytes. |
 | `remoteAckTimeoutMs` | 15,000 | Handshake and acknowledgement deadline, from 1,000 to 120,000 milliseconds. |

@@ -30,7 +30,7 @@
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
 | `@deepseek-ai/dsh-tool-episode-subtitles` | `episode_subtitles` | `ctx.tools`、`ctx.systemPrompt`、`ctx.museAccount`、`ctx.subprocess`、PATH 中（或已配置）的 FFmpeg 与 FFprobe、带 pypinyin 0.55.0 的 Python（source 或 pythonPath）、镜流项目需能存本机素材的 `ctx.jingliuConnection`（可选） | `tool/call`、`tool/result`，`transcript/packs`、`transcript/jobs` 与 `transcript/shots`，`editing/<集>-shots.json`，`editing/<集>.srt` 及其第 2 版 `.clock.json`，`subtitles/<集>.state.json`、`.review.json` 与 `.decisions.json`，镜流项目在 `jingliu/<项目>` 下的素材、转写与 `subtitles/ep<集>.*`，以及镜流的 `auto_subtitles` segments 任务 | - | `build` 把没有转写缓存的镜头拼成少量云端上传，再把字词按镜头拆回，用与镜流共用的规则对照锁定剧本纠正，并按实测时长排布时钟；用相同参数重复调用，直到不再是 `waiting`。`review` 分页列出待核处，并在不新转写的情况下应用 `heard`、`script` 或 `drop` 选择。 |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`、TOS 访问密钥的凭据引用、可访问火山引擎 TOS 的网络 | `tool/call`、`tool/result`，`download-video-date/{platform}/{date}/{work_id}/` 下的公开 TOS 对象，`remove_local` 为 true 时删除本地文件 | - | 可选包：只由云端转写部署组合，并由它提供凭据引用。 |
-| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`、`jingliu_media`、`jingliu_narration`、`jingliu_projects`、`jingliu_run`、`jingliu_studio`、`jingliu_workflows` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、会话项目关联、生图与解说剧任务回执、本地剪映草稿 | - | - |
+| `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`、`jingliu_media`、`jingliu_narration`、`jingliu_projects`、`jingliu_run`、`jingliu_studio`、`jingliu_workflows`、`muse_billing` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、会话项目关联、生图与解说剧任务回执、本地剪映草稿、下载到工作区的镜流媒体、上传到镜流媒体库的文件 | - | - |
 | `@deepseek-ai/dsh-tool-workshop` | `script_finalize`、`script_library`、`workshop_script_editor`、`workshop_video_transcribe` | `ctx.tools`、`ctx.workshopConnection`，开始任务需 `ctx.approval`，剧本文件需 `ctx.fs` 与 `ctx.sandboxPolicy` | `tool/call`、`tool/result`，所配置剧本工坊上的 `video_transcribe` 工厂任务、定稿库版本与投产登记，工作区 `剧本库/` 下的剧本文件，Muse 剧本面板中的待审单集候选稿 | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`、数据站服务令牌的凭据引用、可访问数据站服务接口的网络 | `tool/call`、`tool/result`，数据站转写任务状态 | - | 可选包：只由云端转写部署组合。每个被派出的工人自己领取作品，主会话路由器不调用它。 |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
@@ -1802,14 +1802,14 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "inputs": {
       "type": "array",
-      "description": "start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。",
+      "description": "start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；请求语种变化时停止并提示核对原收据；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。",
       "items": {
         "type": "string"
       }
     },
     "wait_seconds": {
       "type": "number",
-      "description": "inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。"
+      "description": "只读查询总等待（0–30 秒）；默认 0，仅查一轮。超时后沿原收据查询；status 经确认补传的时间另计。"
     },
     "receipt": {
       "type": "string",
@@ -2309,6 +2309,24 @@ Source: [`packages/drama/tool-jingliu/src/studio.ts`](../packages/drama/tool-jin
     "offset": {
       "type": "integer",
       "description": "下一页起点，来自 next_offset。"
+    }
+  }
+}
+```
+
+Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jingliu/src/index.ts)
+
+### `muse_billing`
+
+查询当前 Muse 登录用户的镜流积分余额、已用和占用额度，或查看近期积分流水。1 积分等于 1 元。流水显示有正负号的余额变动，结算调整只记录该次调整。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "include_ledger": {
+      "type": "boolean",
+      "description": "需要消费明细时传 true，返回最多 10 条近期流水；省略时只查余额。"
     }
   }
 }
@@ -6633,7 +6651,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
   "properties": {
     "method": {
       "type": "string",
-      "description": "task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
+      "description": "task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，按 subtasks.rows 展开合并任务，使用子结果 storyboard_id 归卡；无该字段时按原卡查 sources 核实归属；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
       "enum": [
         "task",
         "tasks",
@@ -6734,10 +6752,11 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
           },
           "image_style": {
             "type": "string",
-            "description": "本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。",
+            "description": "本项风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时读提示词首行声明，再读项目设置。",
             "enum": [
               "live_action",
-              "anime"
+              "anime",
+              "realistic_3d"
             ]
           },
           "image_spec_id": {
@@ -6785,10 +6804,11 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     },
     "image_style": {
       "type": "string",
-      "description": "image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。",
+      "description": "image_generate 的风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时先识别提示词首行声明（可带“项目风格：”），再读取项目风格；项目未保存风格时默认真人。与首行冲突或无法继承项目风格时不提交收费请求。image_generate_batch 仅接受每项 items.image_style。",
       "enum": [
         "live_action",
-        "anime"
+        "anime",
+        "realistic_3d"
       ]
     },
     "image_spec_id": {
@@ -7027,7 +7047,7 @@ Read and validate the Jianying draft root from Settings, or save and reread the 
 
 ### `drama_project`
 
-Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.
+Read a project bible, preview confirmed changes, save the reviewed revision or create a minimal Jubian binding. Verify the project ID, model and video settings through Jubian before production.
 
 ```json
 {
@@ -7035,10 +7055,12 @@ Read the authoritative project bible, preview a confirmed change and its downstr
   "properties": {
     "action": {
       "type": "string",
+      "description": "For bind_only, verify that the directory belongs to the target project and has no project_config.json. Pass only changes.jubian_script_id.",
       "enum": [
         "read",
         "preview",
-        "update"
+        "update",
+        "bind_only"
       ]
     },
     "project_dir": {
@@ -7491,6 +7513,25 @@ Read the authoritative project bible, preview a confirmed change and its downstr
           }
         }
       }
+    },
+    "migration_from": {
+      "type": "object",
+      "description": "Preview/update to a different empty directory. Copy creative settings and local character identities while retaining the original project.",
+      "additionalProperties": false,
+      "properties": {
+        "project_dir": {
+          "type": "string",
+          "description": "Existing absolute source project directory."
+        },
+        "script_id": {
+          "type": "integer",
+          "description": "Verified source Jubian script ID, different from the target in changes."
+        }
+      },
+      "required": [
+        "project_dir",
+        "script_id"
+      ]
     },
     "reason": {
       "type": "string",

@@ -12,6 +12,8 @@ _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
+from draft_inputs import verify_draft_episode_scope
+
 EPISODE_DRAFTS = '02_剪映草稿'
 EPISODE_MATERIALS = Path('制作资料') / '剪映素材'
 
@@ -405,6 +407,8 @@ def generate_request(request, drafts_dir):
             or any(isinstance(shot, bool) or not isinstance(shot, int) or shot < 1 for shot in shots)
             or len(set(shots)) != len(shots)):
         raise ValueError('timeline shots and videos must match one-to-one with distinct positive integer shot IDs')
+    verify_draft_episode_scope(project, episode, root, video_paths, shots, timeline=paths['timeline'],
+                              subtitle=paths['subtitle_srt'], audio=paths['audio'])
     overlay = read_subtitle_overlay_report(request)
     verify_draft_subtitle_clock(request, clips, video_paths, overlay)
     switches = delivery_switches(request)

@@ -40,7 +40,7 @@ kind: "package-reference"
 
 `encodeVoiceSlot` 与 `readVoiceSlot` 在规范的音频资产名称后缀中保留精确的项目、人物及人生时期标识。解码后的标签表示预期声线身份，不证明说话人质量，也不表示不同录音可以互换。
 
-`ImageRequestInput.imageStyle` 选择 `anime` 或 `live_action`，分别向提供方发送 `style: 1` 或 `style: 0`。省略字段时，`resolveImageStyle` 识别提示词开头的正向动漫或真人声明，可带首行内精确的 `项目风格:` 或 `项目风格：` 前缀；未标记的旧提示词保留真人。其他位置的文字及否定指令不提供媒介。显式选择与开头声明冲突时，在提交前失败。完整提示词保持原字节，包括3D细分画风。该选择只描述请求媒介，不证明生成图像质量。
+`ImageRequestInput.imageStyle` 接受 `live_action`、`anime` 和 `realistic_3d`，分别向提供方发送 `modelConfig.style` 值 `0`、`1` 和 `3`。`resolveImageStyle` 识别首行开头的正向风格声明，可带精确的 `项目风格:` 或 `项目风格：` 前缀。显式选择与已识别的声明冲突时，请求在提交前失败。调用方可将项目保存的 `scriptStyle` 作为 `resolveImageStyle` 的第三个参数。未传显式选择且未识别到开头声明时才读取该设置。未设置时仍用真人写实。完整提示词逐字节保留。
 
 图片请求设置 `skipAssetReferenceTemplate: true`，要求提供方使用调用者的构图、脸部遮罩与画风，跳过其资产参考模板。创建和编辑均保留完整提示词及有序参考图。此请求设置不代表视觉验收通过。
 
@@ -97,6 +97,8 @@ async function readResults(client: JubianClient) {
   }
 }
 ```
+
+一个生成任务覆盖多张分镜卡时，用每条子结果的 `storyboard_id` 对应原卡。提供方未给出有效的子结果分镜卡 ID 时，读取器省略此字段。
 
 `needsUpscale()` 把当前文件与交付目标作比较。已记录的 SeedVR2 处理会把当前文件视为 1080p，即使生成行仍保留旧标签；经过 MediaKit 等其他模型处理后，低于目标的来源行返回 `null`，因为输出分辨率只记录在提供方的转高清行上。其他情况下，低于目标返回 `true`，等于或高于目标返回 `false`，现有证据无法对任一侧排序时返回 `null`。要使用的文件是 `row.video_url`：转高清之后，提供方把生成输出保留在 `row.base_video_url`，并在 `video_url` 里报告最新的那个文件。
 

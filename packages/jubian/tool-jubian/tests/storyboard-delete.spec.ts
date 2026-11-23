@@ -19,6 +19,7 @@ let linked: Record<string, unknown>[]
 let linkedEnvelope: Record<string, unknown> | undefined
 let deletes: string[]
 let interrupted: boolean
+let emptyDeleteResponse: boolean
 let beforeRequest: ((path: string, method: string) => Promise<void>) | undefined
 let boardOverride: ((id: number) => unknown) | undefined
 let tasksOverride: unknown
@@ -31,6 +32,7 @@ beforeEach(async () => {
     storyboardName: `旧测试${id}`, isGenerate: 1,
     modelConfig: JSON.stringify({ prompt: '测试内容', duration: 8.7 }), storyboardMaterialList: [] }))
   linked = []; linkedEnvelope = undefined; deletes = []; interrupted = false
+  emptyDeleteResponse = false
   beforeRequest = undefined; boardOverride = undefined; tasksOverride = undefined; retainDeleted = false
   client = new JubianClient({ credential: async () => 'mock-token', fetch: async (url, init) => {
     const path = new URL(url instanceof Request ? url.url : url.toString()).pathname.replace('/prod-api', '')
@@ -45,6 +47,7 @@ beforeEach(async () => {
       deletes.push(path)
       if (!retainDeleted) boards = boards.filter(board => board.id !== Number(path.split('/').pop()))
       if (interrupted) throw new Error('response lost after server deletion')
+      if (emptyDeleteResponse) return new Response(null, { status: 200 })
       return answer(null)
     }
     throw new Error(`Unexpected request ${String(init?.method)} ${path}`)
@@ -392,18 +395,18 @@ it('refuses active generation even when completed media removal is authorized', 
   await expect(apply(plan)).rejects.toThrow(/运行|active/)
   expect(deletes).toEqual([])
 })
-it('reconciles a lost delete response and never resends the original plan', async () => {
+it.each(['network', 'empty-response'])('continues reviewed targets after verified %s deletion and never resends', async (failure) => {
   const plan = await preview()
-  interrupted = true
-  expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
+  interrupted = failure === 'network'; emptyDeleteResponse = failure === 'empty-response'
+  expect(await apply(plan)).toMatchObject({ status: 'deleted', items: [
     { storyboard_id: 1, status: 'deleted', response_status: 'unknown' },
-    { storyboard_id: 2, status: 'not_attempted' },
+    { storyboard_id: 2, status: 'deleted', response_status: 'unknown' },
   ] })
   interrupted = false
   expect(await apply(plan)).toMatchObject({ replayed: true, items: [
-    { storyboard_id: 1, status: 'deleted' }, { storyboard_id: 2, status: 'not_attempted' },
+    { storyboard_id: 1, status: 'deleted' }, { storyboard_id: 2, status: 'deleted' },
   ] })
-  expect(deletes).toHaveLength(1)
+  expect(deletes).toEqual(['/aigc/storyboard/1', '/aigc/storyboard/2'])
 })
 
 it('refuses a partial linked-task page before authorizing any deletion', async () => {
@@ -462,7 +465,55 @@ it('reports readback separately from the lost response during replay', async () 
   interrupted = false
   expect(await apply(plan)).toMatchObject({ replayed: true, items: [
     { storyboard_id: 1, status: 'deleted', response_status: 'unknown', verified_readback: true },
+    { storyboard_id: 2, status: 'deleted', response_status: 'unknown', verified_readback: true },
+  ] })
+  expect(deletes).toHaveLength(2)
+})
+
+it('stops after a lost response when readback still finds the target', async () => {
+  const plan = await preview()
+  interrupted = true; retainDeleted = true
+  expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
+    { storyboard_id: 1, status: 'still_present', response_status: 'unknown', verified_readback: false },
     { storyboard_id: 2, status: 'not_attempted', verified_readback: false },
   ] })
-  expect(deletes).toHaveLength(1)
+  expect(deletes).toEqual(['/aigc/storyboard/1'])
+})
+
+it.each(['missing', 'pending', 'unreadable', 'foreign'] as const)(
+  'keeps later targets untouched when the post-send claim becomes %s despite absent readback', async (fault) => {
+    ledger = new class extends JubianLedger {
+      override async find(key: string) {
+        const record = await super.find(key)
+        if (deletes.length === 0 || !key.endsWith(':1')) return record
+        if (fault === 'missing') return undefined
+        if (fault === 'unreadable') throw new Error('Original claim cannot be read')
+        if (record === undefined) throw new Error('Expected the actual original claim')
+        return fault === 'pending' ? { ...record, outcome: null }
+          : { ...record, script_id: 999 }
+      }
+    }({ root: join(root, 'ledger') })
+    const plan = await preview()
+    interrupted = true
+    expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
+      { storyboard_id: 1, status: 'deleted', response_status: 'unknown', verified_readback: true },
+      { storyboard_id: 2, status: 'not_attempted', verified_readback: false },
+    ] })
+    expect(deletes).toEqual(['/aigc/storyboard/1'])
+  },
+)
+
+it('rechecks the next target after reconciling a lost response and rejects changed contents', async () => {
+  const plan = await preview()
+  interrupted = true
+  beforeRequest = async (path, method) => {
+    if (method === 'GET' && path === '/aigc/storyboard/1' && deletes.length === 1) {
+      boards.find(board => board.id === 2)!.storyboardName = 'new user content'
+    }
+  }
+  expect(await apply(plan)).toMatchObject({ status: 'partial', items: [
+    { storyboard_id: 1, status: 'deleted', verified_readback: true },
+    { storyboard_id: 2, status: 'stale', verified_readback: false },
+  ] })
+  expect(deletes).toEqual(['/aigc/storyboard/1'])
 })

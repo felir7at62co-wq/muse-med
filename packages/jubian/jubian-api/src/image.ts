@@ -83,20 +83,25 @@ function imageAspectRatio(value: unknown): ImageAspectRatio {
   return value
 }
 
-/** Provider image media: anime includes both 2D and 3D animation described by the prompt. */
-export type ImageStyle = 'live_action' | 'anime'
+const IMAGE_STYLES = ['live_action', 'anime', 'realistic_3d'] as const
+
+/** Provider image style choices. Anime includes 2D and 3D animation. */
+export type ImageStyle = typeof IMAGE_STYLES[number]
+
+const IMAGE_STYLE_CODES: Record<ImageStyle, number> = { live_action: 0, anime: 1, realistic_3d: 3 }
 
 /**
- * Resolve the image medium without rewriting the prompt.
- * @param prompt - Complete prompt; a leading positive medium declaration supplies an omitted choice.
+ * Read the caller's image style without rewriting the prompt.
+ * @param prompt - Complete prompt whose leading positive style declaration supplies an omitted choice.
  *   The declaration may follow the exact `项目风格:` or `项目风格：` prefix on the same first line.
- * @param requested - Explicit image medium; must agree with a leading medium declaration.
- * @returns The explicit or declared medium; unmarked legacy requests retain live action.
+ * @param requested - Explicit image style, which must agree with a leading declaration.
+ * @returns The explicit or declared style, or undefined when the caller provided neither.
  * @throws {JubianError} INVALID_ARGUMENT for an unsupported choice or contradictory declarations.
  */
-export function resolveImageStyle(prompt: string, requested?: unknown): ImageStyle {
-  if (requested !== undefined && requested !== 'live_action' && requested !== 'anime') {
-    throw new JubianError('INVALID_ARGUMENT', 'image_style must be live_action or anime')
+export function requestedImageStyle(prompt: string, requested?: unknown): ImageStyle | undefined {
+  const explicit = IMAGE_STYLES.find(style => style === requested)
+  if (requested !== undefined && explicit === undefined) {
+    throw new JubianError('INVALID_ARGUMENT', 'image_style must be live_action, anime, or realistic_3d')
   }
   const firstLine = prompt.trimStart().replace(/[\r\n][\s\S]*$/u, '')
   const declaration = firstLine.replace(/^项目风格[:：]\s*/u, '')
@@ -110,11 +115,43 @@ export function resolveImageStyle(prompt: string, requested?: unknown): ImageSty
     String.raw`^(?:【(?:真人|真人写实|写实真人)】|真人(?:写实)?(?:摄影|实拍)?(?:[／/，,:：\s]|$)|`,
     String.raw`(?:photorealistic\s+(?:portrait\s+)?photography|live[- ]action)\b)`,
   ].join(''), 'iu').test(declaration)
-  const declared = anime ? 'anime' : liveAction ? 'live_action' : undefined
-  if (requested !== undefined && declared !== undefined && requested !== declared) {
+  const realistic3d = /^(?:【(?:3d|三维)\s*写实】|(?:3d|三维)\s*写实(?:[／/，,:：。.!?！？\s]|$))/iu.test(declaration)
+  let declared: ImageStyle | undefined
+  if (anime) declared = 'anime'
+  else if (liveAction) declared = 'live_action'
+  else if (realistic3d) declared = 'realistic_3d'
+  if (explicit !== undefined && declared !== undefined && explicit !== declared) {
     throw new JubianError('INVALID_ARGUMENT', 'image_style conflicts with the leading prompt medium; align both before generation')
   }
-  return requested ?? declared ?? 'live_action'
+  return explicit ?? declared
+}
+
+/**
+ * Resolve a project setting to its supported image style.
+ * @param projectStyle - The project's `scriptStyle` value.
+ * @returns The corresponding image style, or live action for an absent value.
+ * @throws {JubianError} INVALID_ARGUMENT when the project uses a style outside the supported choices.
+ */
+export function resolveProjectImageStyle(projectStyle: unknown): ImageStyle {
+  const value = typeof projectStyle === 'string' ? projectStyle.trim() : projectStyle
+  if (value === undefined || value === null || value === '') return 'live_action'
+  const style = IMAGE_STYLES.find(style => value === IMAGE_STYLE_CODES[style] || value === String(IMAGE_STYLE_CODES[style]))
+  if (style === undefined) {
+    throw new JubianError('INVALID_ARGUMENT', 'The project style is unsupported for image generation. Set a supported image_style explicitly before submitting.')
+  }
+  return style
+}
+
+/**
+ * Resolve the image style while preserving the caller's prompt.
+ * @param prompt - Complete prompt whose leading positive style declaration may supply the image style.
+ * @param requested - Explicit image style, which must agree with a leading declaration.
+ * @param projectStyle - Optional project `scriptStyle` used when the caller provides neither.
+ * @returns The caller's style, supported project style, or the legacy live-action default.
+ * @throws {JubianError} INVALID_ARGUMENT for an unsupported style or conflicting caller choices.
+ */
+export function resolveImageStyle(prompt: string, requested?: unknown, projectStyle?: unknown): ImageStyle {
+  return requestedImageStyle(prompt, requested) ?? resolveProjectImageStyle(projectStyle)
 }
 
 /** The default model when a caller omits an explicit model selection. */
@@ -288,7 +325,7 @@ export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
   const references = input.references.map((materialUrl, index) =>
     ({ materialUrl, materialType: 'image', sortOrder: index + 1 }))
   const config = { ...selectors, duration: 1, resolution, ratio: aspectRatio, genNum: 1, backupModelList: [],
-    prompt: input.prompt, style: resolveImageStyle(input.prompt, input.imageStyle) === 'anime' ? 1 : 0,
+    prompt: input.prompt, style: IMAGE_STYLE_CODES[resolveImageStyle(input.prompt, input.imageStyle)],
     materialList: references, quality: quality ?? '', skipAssetReferenceTemplate: true }
   return { scriptId: input.scriptId, assetName: input.assetName, assetType: input.assetType,
     modelConfig: JSON.stringify(config), isLocal: 0, isGenerate: 1,

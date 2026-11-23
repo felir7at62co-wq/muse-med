@@ -98,6 +98,25 @@ test('project and life-period slot identities are independent', async t => {
   assert.notEqual(one.lease_id, child.lease_id); assert.equal((await readdir(f.root)).length, 3);
 });
 
+test('replaces an explicitly deleted ready voice under a new operation and keeps the retired operation closed after restart', async t => {
+  let response = asset();
+  const f = await fixture(t, {verifyAsset: async () => response}), original = await claimed(f);
+  await f.request('start', original);
+  await f.request('complete', {...original, asset_id: 51});
+  response = {...asset(), delFlag: 1};
+  const replacement = await f.request('acquire', {operation_key: 'replacement-key'}, 'bob');
+  assert.equal(replacement.state, 'reserved');
+  assert.equal(replacement.replaces_asset_id, 51);
+  await assert.rejects(f.request('acquire'), {code: 'operation_retired'});
+  const request = {operation_key: 'replacement-key', lease_id: replacement.lease_id};
+  assert.equal((await f.request('start', request, 'bob')).started_now, true);
+  response = asset(slot, 52);
+  assert.equal((await f.request('complete', {...request, asset_id: 52}, 'bob')).asset.asset_id, 52);
+  const restarted = f.restart(); await restarted.ready();
+  await assert.rejects(restarted.request('alice', 'private-token', {...slot, action: 'acquire'}), {code: 'operation_retired'});
+  assert.equal((await f.request('acquire', {operation_key: 'third-key'}, 'charlie')).asset.asset_id, 52);
+});
+
 test('wrong remote project, category, identity or URL never settles or releases a submitted receipt', async t => {
   let response = asset(); const f = await fixture(t, {verifyAsset: async () => response}), lease = await claimed(f); await f.request('start', lease);
   for (const change of [{scriptId: 99}, {assetType: 1}, {id: 52}, {delFlag: 1}, {delFlag: 'unreadable'}, {assetName: `wrong ${tag({...slot, voice_period_id: 'child'})}`}, {assetName: 'same human name'}, {assetUrl: 'http://media.test/ref.wav'}, {assetUrl: 'https://user:password@media.test/ref.wav'}, {assetUrl: 'https://media.test/ref.wav#fragment'}, {assetUrl: null}]) {
@@ -105,6 +124,111 @@ test('wrong remote project, category, identity or URL never settles or releases 
   }
   assert.equal((await f.request('read')).state, 'submitted'); response = {...asset(), delFlag: '0'}; await f.request('complete', {...lease, asset_id: 51});
   response = null; await assert.rejects(f.request('acquire', {}, 'bob'), {code: 'asset_unverified'});
+});
+
+test('deleted ready replacement preserves the permission through unused lease expiry and abandonment', async t => {
+  let response = asset();
+  const f = await fixture(t, {verifyAsset: async () => response}), original = await claimed(f);
+  await f.request('start', original); await f.request('complete', {...original, asset_id: 51});
+  response = {...asset(), delFlag: '1', deleted: true};
+  const first = await f.request('acquire', {operation_key: 'new-one'}, 'bob');
+  f.clock.value += 1001;
+  const next = await f.request('acquire', {operation_key: 'new-two'}, 'carol');
+  assert.equal(next.replaces_asset_id, 51); assert.notEqual(next.lease_id, first.lease_id);
+  await assert.rejects(f.request('start', {operation_key: 'new-one', lease_id: first.lease_id}, 'bob'), {code: 'lease_conflict'});
+  await f.request('abandon', {operation_key: 'new-two', lease_id: next.lease_id}, 'carol');
+  const restarted = f.restart(); await restarted.ready();
+  const last = await restarted.request('bob', 'token', {...slot, operation_key: 'new-three', action: 'acquire'});
+  assert.equal(last.replaces_asset_id, 51);
+  assert.equal((await f.request('read', {operation_key: 'new-three'}, 'bob')).replaces_asset_id, 51);
+  assert.equal((await f.request('read', {}, 'outsider')).replaces_asset_id, undefined);
+  await f.request('start', {operation_key: 'new-three', lease_id: last.lease_id}, 'bob');
+  await assert.rejects(f.request('complete', {operation_key: 'new-three', lease_id: last.lease_id, asset_id: 51}, 'bob'), {code: 'asset_conflict'});
+  f.clock.value += 100000;
+  const blocked = await f.request('acquire', {operation_key: 'another'}, 'other');
+  assert.equal(blocked.state, 'busy'); assert.equal(blocked.blocking_state, 'submitted');
+});
+
+test('replacement rechecks deletion before starting and before renewing an unused expired lease', async t => {
+  let response = asset();
+  const f = await fixture(t, {verifyAsset: async () => response}), original = await claimed(f);
+  await f.request('start', original); await f.request('complete', {...original, asset_id: 51});
+  response = {...asset(), delFlag: 1};
+  const next = await f.request('acquire', {operation_key: 'replacement'}, 'bob');
+  response = asset();
+  await assert.rejects(f.request('start', {operation_key: 'replacement', lease_id: next.lease_id}, 'bob'), {code: 'asset_unverified'});
+  assert.equal((await f.request('read', {operation_key: 'replacement'}, 'bob')).state, 'reserved');
+  f.clock.value += 1001;
+  await assert.rejects(f.request('acquire', {operation_key: 'replacement-2'}, 'bob'), {code: 'asset_unverified'});
+  await assert.rejects(f.request('acquire'), {code: 'operation_retired'});
+});
+
+test('absence, ambiguous deletion and mismatched identities never retire a ready operation', async t => {
+  let response = asset();
+  const f = await fixture(t, {verifyAsset: async () => response}), original = await claimed(f);
+  await f.request('start', original); await f.request('complete', {...original, asset_id: 51});
+  for (const value of [null, {...asset(), delFlag: undefined}, {...asset(), delFlag: '1', deleted: false},
+    {...asset(), delFlag: '1', deleted: null}, {...asset(), delFlag: '1', scriptId: 43},
+    {...asset(), delFlag: '1', id: 52}, {...asset(), delFlag: '1', assetType: 1},
+    {...asset(), delFlag: '1', assetName: 'untagged'}, {...asset(), delFlag: '1', assetUrl: 'http://media.test/voice.wav'}]) {
+    response = value;
+    await assert.rejects(f.request('acquire', {operation_key: 'replacement'}, 'bob'), {code: 'asset_unverified'});
+    assert.equal((await readdir(f.root)).filter(name => name.startsWith('retired-')).length, 0);
+  }
+  response = {...asset(), delFlag: '1'};
+  await assert.rejects(f.request('acquire'), {code: 'asset_unverified'});
+  assert.equal((await readdir(f.root)).filter(name => name.startsWith('retired-')).length, 0);
+  response = asset(); assert.equal((await f.request('acquire')).asset.asset_id, 51);
+});
+
+test('two gateway instances admit one replacement and recover a crash after retiring the original operation', async t => {
+  let response = asset();
+  const f = await fixture(t, {verifyAsset: async () => response}), original = await claimed(f);
+  await f.request('start', original); await f.request('complete', {...original, asset_id: 51});
+  const currentFile = join(f.root, (await readdir(f.root)).find(name => name.endsWith('.json')));
+  const originalReceipt = await readFile(currentFile, 'utf8');
+  response = {...asset(), delFlag: 1};
+  await f.request('acquire', {operation_key: 'unused-new-key'}, 'bob');
+  await writeFile(currentFile, originalReceipt);
+  const other = f.restart(); await other.ready();
+  await assert.rejects(other.request('alice', 'token', {...slot, action: 'acquire'}), {code: 'operation_retired'});
+  const results = await Promise.all([
+    f.request('acquire', {operation_key: 'replacement-one'}, 'bob'),
+    other.request('carol', 'token', {...slot, action: 'acquire', operation_key: 'replacement-two'}),
+  ]);
+  assert.equal(results.filter(value => value.state === 'reserved' && value.replaces_asset_id === 51).length, 1);
+  assert.equal(results.filter(value => value.state === 'busy' && value.lease_id === undefined).length, 1);
+  assert.equal((await readdir(f.root)).filter(name => name.startsWith('retired-')).length, 1);
+});
+
+test('revocation during deletion verification leaves the original ready operation unchanged', async t => {
+  let response = asset(), authorized = true, revoke = false;
+  const f = await fixture(t, {verifyAsset: async () => { if (revoke) authorized = false; return response; }});
+  const original = await claimed(f); await f.request('start', original); await f.request('complete', {...original, asset_id: 51});
+  response = {...asset(), delFlag: 1}; revoke = true;
+  await assert.rejects(f.service.request('bob', 'token', {...slot, action: 'acquire', operation_key: 'replacement'},
+    {isAuthorized: () => authorized}), {code: 'account_session_expired'});
+  assert.equal((await readdir(f.root)).filter(name => name.startsWith('retired-')).length, 0);
+  response = asset(); revoke = false; assert.equal((await f.request('acquire')).asset.asset_id, 51);
+});
+
+test('corrupt or inconsistent retired receipts prevent both replay and a new reservation', async t => {
+  let response = asset();
+  const f = await fixture(t, {verifyAsset: async () => response}), original = await claimed(f);
+  await f.request('start', original); await f.request('complete', {...original, asset_id: 51});
+  const currentFile = join(f.root, (await readdir(f.root)).find(name => name.endsWith('.json')));
+  const saved = JSON.parse(await readFile(currentFile, 'utf8'));
+  response = {...asset(), delFlag: 1}; await f.request('acquire', {operation_key: 'replacement'}, 'bob');
+  const retiredFile = join(f.root, (await readdir(f.root)).find(name => name.startsWith('retired-')));
+  for (const change of [{owner_account_id: 'other'}, {operation_key: 'other'}, {state: 'submitted', asset_id: undefined},
+    {replaces_asset_id: 0}, {replaces_asset_id: 51}]) {
+    await writeFile(retiredFile, JSON.stringify({...saved, ...change}));
+    await assert.rejects(f.request('acquire'), {code: 'receipt_unreadable'});
+  }
+  await writeFile(currentFile, JSON.stringify(saved));
+  await writeFile(retiredFile, JSON.stringify({...saved, updated_at: saved.updated_at + 1}));
+  await assert.rejects(f.request('acquire', {operation_key: 'another-replacement'}, 'bob'), {code: 'receipt_unreadable'});
+  assert.equal(JSON.parse(await readFile(currentFile, 'utf8')).state, 'ready');
 });
 
 test('ready requires explicit live evidence and consistent wire aliases without releasing the original registration', async t => {

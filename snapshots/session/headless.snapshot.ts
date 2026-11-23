@@ -5,10 +5,13 @@ import { sessionProductBudgetInput } from './muse-session-product/budget.ts'
 import { creationBudgetInput } from './muse-creation-ptc/budget.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
+import { expectedMigrationFingerprint, migrationSnapshot } from './drama-project-migration/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
 import { assertAsyncChildOutcome, assertAsyncChildPreset, assertAsyncChildQuestion, assertAsyncChildWithoutMessageTool } from './subagent-child-question-rejection/assertions.ts'
 import { assertAcpSubagentDiagnostics, assertProductSubagentDiagnostics } from './managed-subagent-assertions.ts'
+import { assertProductionDelivery, normalizeProductionDeliveryPaths, prepareProductionDeliveryExpectedWorkspace } from './muse-production-delivery/assertions.ts'
 import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
+import { prepareCharacterObservationWorkspace } from './muse-source-character-observation/assertions.ts'
 import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -326,6 +329,7 @@ async function writeSessionFixtures(
   const output = videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(redacted)
     : scenario.name === 'muse-video-novel-ocr-capability'
       ? redacted.map(log => capabilityOcrRecords(log, '0'.repeat(64), false).map(row => JSON.stringify(row)).join('\n') + '\n')
+      : scenario.name === 'drama-project-migration' ? redacted.map(log => migrationSnapshot(log))
       : redacted
   await Promise.all(output.map((content, index) => writeFile(join(scenario.dir, names[index] as string), content)))
   return output
@@ -1164,7 +1168,7 @@ function sessionReferenceSpillExpected(actual: readonly JsonObject[], expectedLo
   return expected
 }
 
-const videoObservationOwners = new Set(['muse-video-observation', 'muse-video-review-lifecycle'])
+const videoObservationOwners = new Set(['muse-video-observation', 'muse-video-review-lifecycle', 'muse-source-character-observation'])
 
 // These owners derive exact request and compaction-span prices from expected inputs at the replay cwd.
 const workspaceSensitiveBudgetScenarios = new Set([
@@ -1182,7 +1186,10 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-session-product',
   'muse-short-drama-draft-ending',
   'muse-small-window-compaction',
+  'muse-skill-market-bounded-catalog-ptc',
+  'muse-skill-market-creation-binding-ptc',
   'muse-time-context',
+  'muse-video-screenplay-entry-creation',
   'muse-visualize',
   'muse-working-budget-stop',
 ])
@@ -1342,14 +1349,20 @@ function visualizationBudgetValue(value: unknown, paths: VisualizationBudgetPath
   return value
 }
 
-async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths) {
+async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths, sessionId?: string, recordingIndex = 0) {
   const pin = pinOf(scenario)
   const promptOwner = scenarioByName.get(pin.manifest.header.systemPromptSource ?? pin.name)
   const schemaOwner = scenarioByName.get(pin.manifest.header.toolSchemasSource ?? pin.name)
   if (promptOwner === undefined || schemaOwner === undefined) throw new Error(`${scenario.name}: missing budget sidecar owner`)
+  if (recordingIndex !== 0 && (scenario.name !== 'muse-skill-market-creation-binding-ptc'
+    || !scenario.manifest.header.childSystemPrompts?.includes(recordingIndex)
+    || !scenario.manifest.header.childToolSchemas?.includes(recordingIndex))) {
+    throw new Error(`${scenario.name}: missing child budget sidecars`)
+  }
+  const suffix = recordingIndex === 0 ? '' : `.${recordingIndex}`
   const [prompt, schemaText] = await Promise.all([
-    readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8'),
-    readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'),
+    readFile(join(promptOwner.dir, `system-prompt${suffix}.expected.md`), 'utf8'),
+    readFile(join(schemaOwner.dir, `tool-schemas${suffix}.expected.json`), 'utf8'),
   ])
   const schemas = parseToolSchemasSnapshot(schemaText)
   const headers = [schemas.initial, ...schemas.changes]
@@ -1370,14 +1383,16 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
   const input = { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
   return scenario.name === 'muse-creation-ptc' || scenario.name === 'muse-creation-review-guidance'
     || scenario.name === 'muse-creation-stage-diagnostics'
-    ? creationBudgetInput(scenario.name, input, { join }) : input
+    || scenario.name === 'muse-skill-market-bounded-catalog-ptc' || scenario.name === 'muse-skill-market-creation-binding-ptc'
+    || scenario.name === 'muse-video-screenplay-entry-creation'
+    ? creationBudgetInput(scenario.name, input, { join }, sessionId, recordingIndex) : input
 }
 
 async function workspaceBudgetExpected(
-  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths,
+  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string, visualize?: VisualizationRuntimePaths, sessionId?: string, recordingIndex = 0,
 ): Promise<JsonObject[]> {
   if (actual.length !== expected.length) return expected
-  const independentInput = await workspaceBudgetInputs(scenario, expectedLog, cwd, visualize)
+  const independentInput = await workspaceBudgetInputs(scenario, expectedLog, cwd, visualize, sessionId, recordingIndex)
   const input = scenario.name === 'muse-session-product' ? sessionProductBudgetInput(independentInput) : independentInput
   const counts = deriveWorkingBudgetExpectations(input)
   const shadowed = deriveShadowedBudgetExpectations(input)
@@ -3213,6 +3228,9 @@ describe('headless recorded-session snapshots', () => {
               expect(changes.filter((status, index) => status !== changes[index - 1])).toEqual(['closed', 'active'])
               expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
             }
+            if (scenario.name === 'muse-source-character-observation') {
+              expectedWorkspaceRoot = await prepareCharacterObservationWorkspace(cwd, scenario.dir, actualLogs[0]!.content)
+            }
             if (scenario.name === 'muse-video-observation') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
@@ -3553,6 +3571,10 @@ describe('headless recorded-session snapshots', () => {
               expect(refused).toMatchObject({ method: 'preview', ok: false, packages: [], written: [],
                 failures: [{ code: 'material_reference_mismatch', shot: 1 }] })
               expect(refused.failures[0].message).toContain('@[温雪](asset_71001)')
+            }
+            if (scenario.name === 'muse-production-delivery') {
+              assertProductionDelivery(actualLogs[0]!.content, cwd)
+              expectedWorkspaceRoot = await prepareProductionDeliveryExpectedWorkspace(await realpath(cwd), scenario.dir)
             }
             if (scenario.name === 'muse-audio-asset-usage') {
               const events = parseSessionLog(actualLogs[0]!.content)
@@ -3924,7 +3946,8 @@ describe('headless recorded-session snapshots', () => {
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
       expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)
       expect(result.stderr).toBe(stderrFromSession(outputLog))
-      const normalizeOutput = (logs: string[]) => videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(logs) : logs
+      const normalizeOutput = (logs: string[]) => scenario.name === 'muse-production-delivery' ? normalizeProductionDeliveryPaths(logs)
+        : videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(logs) : logs
       const actualSnapshots = normalizeOutput(normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true }))
       const expectedSnapshots = normalizeOutput(normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true }))
       for (const [index, actual] of actualSnapshots.entries()) {
@@ -3946,11 +3969,20 @@ describe('headless recorded-session snapshots', () => {
           if (capabilityOcrHash === undefined) throw new Error('OCR capability report bytes were not checked')
           expectedRecords = capabilityOcrRecords(expectedSnapshots[index] as string, capabilityOcrHash, false)
         }
-        if (index === 0 && workspaceSensitiveBudgetScenarios.has(scenario.name)) {
-          const sessionId = actualContext.sessionIds[0]
+        if (scenario.name === 'drama-project-migration' && index === 0) {
+          const fingerprint = await expectedMigrationFingerprint(actualContext.cwd, scenario.dir)
+          const actualMigration = migrationSnapshot(actual, fingerprint)
+          expect(() => migrationSnapshot(actualMigration, fingerprint))
+            .toThrow('Migration fingerprint differs from independently derived project files')
+          expectedRecords = records(migrationSnapshot(expectedSnapshots[index] as string))
+          expect(records(actualMigration), `${scenario.name}: session ${index}`).toEqual(expectedRecords)
+          continue
+        }
+        if ((index === 0 || scenario.name === 'muse-skill-market-creation-binding-ptc') && workspaceSensitiveBudgetScenarios.has(scenario.name)) {
+          const sessionId = actualContext.sessionIds[index]
           if (scenario.name === 'muse-visualize' && (allocatedCwd === undefined || sessionId === undefined || visualizationAssets === undefined)) throw new Error('Visualization budget has no store identity or selected assets')
           expectedRecords = await workspaceBudgetExpected(scenario, actualRecords, expectedRecords as JsonObject[], expected[index] as string, actualContext.cwd,
-            scenario.name === 'muse-visualize' ? { cwd: allocatedCwd!, sessionId: sessionId!, assets: visualizationAssets! } : undefined)
+            scenario.name === 'muse-visualize' ? { cwd: allocatedCwd!, sessionId: sessionId!, assets: visualizationAssets! } : undefined, sessionId, index)
         }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }

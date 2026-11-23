@@ -7,7 +7,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -27,7 +27,14 @@ afterEach(async () => {
 })
 const digest = (value: Uint8Array | string) => createHash('sha256').update(value).digest('hex')
 
-async function fixture(options: { ocr?: boolean; report?: boolean; reportTool?: 'video_inspect' | 'video_source_review' } = {}) {
+type CharacterChecks = NonNullable<VideoReview['frames'][number]['observation']>['character_checks']
+async function fixture(options: {
+  ocr?: boolean
+  report?: boolean
+  reportTool?: 'video_inspect' | 'video_source_review'
+  characterChecks?: CharacterChecks
+  decodedTime?: number
+} = {}) {
   const root = await mkdtemp(join(tmpdir(), 'muse-source-qa-consumer-')), ctx = new Context()
   fixtures.push({ ctx, root })
   await mountAgentLoopTestDependencies(ctx)
@@ -45,8 +52,10 @@ async function fixture(options: { ocr?: boolean; report?: boolean; reportTool?: 
   const review: VideoReview = { id: VideoReviewId('original-review'), episode: '50', path: mediaPath,
     source_version: info.version, duration: 3, scanned_until: 3, scan_complete: true,
     frames: [{ id: 'F00001', time: 1, reasons: ['fixture'], exposed: true,
+      ...options.decodedTime === undefined ? {} : { decoded_time: options.decodedTime },
       image: { attachmentId: 'fixture-frame', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
-      observation: { visible: '测试画面中的人物站在门口', change: '人物转头', uncertainty: '' } }] }
+      observation: { visible: '测试画面中的人物站在门口', change: '人物转头', uncertainty: '',
+        ...options.characterChecks === undefined ? {} : { character_checks: options.characterChecks } } }] }
   saveReview(readReviews, session, review)
   const issue = (name: string, value: Record<string, JsonValue>, isError = false) => {
     const callId = ToolCallId(randomUUID())
@@ -76,6 +85,30 @@ it('rejects a missing source Session before using any report', async () => {
   const f = await fixture()
   await expect(f.verifySourceQa(undefined, f.binding, new AbortController().signal))
     .rejects.toThrow('SOURCE_QA_SESSION')
+})
+
+it.each([
+  { status: 'mismatch', reference_asset_id: '42', reason: '近景的下颌及眼距与正式参考不同', message: '与正式角色参考不一致', decodedTime: 1.2 },
+  { status: 'needs_review', reason: '正脸始终被遮挡', message: '需要补看角色证据', decodedTime: undefined },
+] as const)('holds strict adoption of the exact viewed source for $status', async ({ message, decodedTime, ...check }) => {
+  const f = await fixture({ ...decodedTime === undefined ? {} : { decodedTime }, characterChecks: [
+    { character: '周律师', reference_asset_id: '41', status: 'match', reason: '眉眼与正式参考一致' },
+    { character: '顾青', ...check },
+  ] })
+  await expect(f.verifyObservation()).resolves.toBeUndefined()
+  await expect(f.verify()).rejects.toThrow(`SOURCE_QA_CHARACTER_IDENTITY: 50 源片 ${(decodedTime ?? 1).toFixed(2)} 秒，顾青 ${message}。${check.reason}`)
+  const restored = Session.create(f.session.id, f.session.snapshotEvents(), f.session.header)
+  await expect(f.verifySourceQa(restored, f.binding, new AbortController().signal)).rejects.toThrow('SOURCE_QA_CHARACTER_IDENTITY')
+  const copied = join(f.root, 'unissued-review.json')
+  await writeFile(copied, reviewEvidenceJson(f.review))
+  await expect(f.verify({ ...f.binding, inspectionPath: copied })).rejects.toThrow('SOURCE_QA_REVIEW')
+})
+
+it('allows a completed source whose recorded character comparison matches', async () => {
+  const f = await fixture({ characterChecks: [
+    { character: '周律师', reference_asset_id: '41', status: 'match', reason: '眉眼与正式参考一致' },
+  ] })
+  await expect(f.verify()).resolves.toBeUndefined()
 })
 
 it('uses the available complete-review tool while rejecting OCR-free source adoption', async () => {

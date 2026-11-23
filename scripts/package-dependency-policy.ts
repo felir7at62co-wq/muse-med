@@ -85,7 +85,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/cosmokit': ['isVolatile'],
   '@deepseek-ai/dsh-credentials': ['credentialRef'],
   '@deepseek-ai/dsh-jubian': [
-    'JUBIAN_TOKEN_REF', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
+    'JUBIAN_TOKEN_REF', 'SPENDING_METHODS', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
     'configuredJubianClient', 'workspacePipelineToken',
     'describePayload', 'readProjectBudget', 'updateProjectBudget',
   ],
@@ -108,7 +108,8 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'readReferenceAudio', 'readReferenceImage', 'readScript',
     'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
     'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'readVoiceSlot', 'referenceAudioUrls', 'referenceMaterialItem',
-    'resolveImageModel', 'resolveImageStyle', 'resolvePostProcessModel', 'resolveVideoModel', 'responseRecords', 'seedanceVideoVersion', 'signTosObjectPut', 'stableJson',
+    'requestedImageStyle', 'resolveImageModel', 'resolvePostProcessModel', 'resolveProjectImageStyle', 'resolveVideoModel',
+    'responseRecords', 'seedanceVideoVersion', 'signTosObjectPut', 'stableJson',
     'stableSha256', 'storyboardMaterials', 'submissionSemantics', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
     'terminalOutcome', 'trustedSubjectId', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled',

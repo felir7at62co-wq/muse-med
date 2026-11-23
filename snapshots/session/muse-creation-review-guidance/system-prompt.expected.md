@@ -115,9 +115,9 @@ interface ToolArgsMap {
     project: string;
     /** start 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。 */
     input?: string;
-    /** start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。 */
+    /** start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；请求语种变化时停止并提示核对原收据；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。 */
     inputs?: string[];
-    /** inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。 */
+    /** 只读查询总等待（0–30 秒）；默认 0，仅查一轮。超时后沿原收据查询；status 经确认补传的时间另计。 */
     wait_seconds?: number;
     /** inspect/status 必填：start 返回的 transcript/jobs 收据路径；相对路径以 project 为基准。 */
     receipt?: string;
@@ -647,7 +647,7 @@ interface ToolArgsMap {
       uncertainty: string;
     }[];
     /** observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。 */
-    observations?: {
+    observations?: ({
       frame_id: string;
       /** 具体可见人物、位置、动作、神态或道具；至少8个字符。 */
       visible: string;
@@ -655,7 +655,14 @@ interface ToolArgsMap {
       change: string;
       /** 需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。 */
       uncertainty?: string;
-    }[];
+      /** 短剧源片角色核对。实际并排看正式参考和本帧，记录角色、正式参考资产ID、结果和可见理由。证据不足填needs_review，缺参考时可省略其ID。同一帧角色用同一标识；复看后更新该角色，其余旧记录保留。mismatch与needs_review会停住该源片的正式选源。 */
+      character_checks?: ({
+        character: string;
+        reference_asset_id?: string;
+        status: "match" | "mismatch" | "needs_review";
+        reason: string;
+      })[];
+    })[];
   } & Record<string, JsonValue>;
   /** Fetch the content of a specific HTTP(S) URL and return it decoded to text. */
   web_fetch: {

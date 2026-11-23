@@ -1354,6 +1354,7 @@ it.each([
   ['@deepseek-ai/dsh-error', 'HarnessError'],
   ['@deepseek-ai/dsh-llm', 'HarnessError'],
   ['@deepseek-ai/dsh-subprocess', 'SubprocessExecutableNotFoundError'],
+  ['@deepseek-ai/dsh-jubian', 'SPENDING_METHODS'],
   ['@deepseek-ai/dsh-jubian-api', 'MEDIA_LIMITS'],
 ] as const)('keeps the recovery export %s#%s on the provider peer', async (dependency, exportName) => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-recovery-peer-policy-'))
@@ -1369,6 +1370,11 @@ it.each([
   const captured = await readPackageDependencyFacts(root, subject, 'client-host', workspaceNames, PACKAGE_DEPENDENCY_POLICY)
   const state = { facts: [captured], packages: [], policyViolations: [], workspaceNames }
   expect(collectPackageDependencyViolations(state)).toEqual([])
+  delete subject.manifest.peerDependencies?.[dependency]
+  expect(collectPackageDependencyViolations(state)).toContainEqual(
+    expect.stringContaining(`${dependency} must be matching peerDependencies + devDependencies`),
+  )
+  subject.manifest.peerDependencies = { [CORDIS]: 'workspace:~', [dependency]: 'workspace:*' }
   subject.manifest.dependencies = { [dependency]: 'workspace:*' }
   delete subject.manifest.devDependencies?.[dependency]
   delete subject.manifest.peerDependencies?.[dependency]

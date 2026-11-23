@@ -27,6 +27,7 @@
     "apps/web/tests/muse-visualize.e2e.ts",
     "snapshots/session/headless.snapshot.ts",
     "snapshots/session/drama-subtitle-visual-review/evidence.ts",
+    "snapshots/session/drama-project-migration/evidence.ts",
     "apps/web/tests/home-whale.e2e.ts",
 
     "apps/web/tests/sidebar-drawer.e2e.ts",
@@ -79,6 +80,7 @@
     "apps/web/tests/declared-reasoning.e2e.ts",
     "apps/web/tests/support.ts",
     "apps/web/tests/model-input-layout.ts",
+    "apps/web/tests/model-browser-case.ts",
     "apps/web/tests/scaffold-hermetic.e2e.ts",
     "apps/web/tests/startup-rpc-budget.e2e.ts",
     "apps/web/tests/minimal-preset.snapshot.ts",
@@ -296,7 +298,9 @@
     "apps/web/tests/websocket-host-diagnostics.ts",
     "third_party/plugins/dsh-visualize/src/**/*.ts",
     "snapshots/session/subagent-child-question-rejection/assertions.ts",
-    "snapshots/session/managed-subagent-assertions.ts"
+    "snapshots/session/managed-subagent-assertions.ts",
+    "snapshots/session/muse-production-delivery/assertions.ts",
+    "snapshots/session/muse-source-character-observation/assertions.ts"
   ],
   "exclude": [
     "apps/desktop/tests/keyboard.spec.ts",

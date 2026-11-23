@@ -305,6 +305,12 @@ async submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'au
 async audioStatus(id: string, signal?: AbortSignal): Promise<MuseAsrJob>
 
 /**
+ * Read the saved identity for Host tools without refreshing Desktop consumers.
+ * @returns Current local account state without credentials.
+ */
+async readLocalStatus(): Promise<MuseAccountStatus>
+
+/**
  * Read the stored identity or confirm it with the gateway.
  * @param request - Whether to verify the cookie online.
  * @returns A browser-safe status without a cookie.

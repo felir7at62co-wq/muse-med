@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { once } from 'node:events'
+import { createServer, type ServerResponse } from 'node:http'
+import { buffer } from 'node:stream/consumers'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -36,15 +39,47 @@ it('uses the current account cookie and a persisted UUID without returning crede
   expect(JSON.stringify(await client.get(id))).not.toContain('secret-session')
 })
 
-it('reports an unconfigured server and a missing old task as distinct failures', async () => {
+it('requires an explicit gateway job-missing response to report an absent original task', async () => {
   const id = randomUUID()
-  const missing = await fixture(async () => new Response('{}', { status: 404 }))
-  await expect(missing.client.submit(missing.file, id, 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server-not-configured' })
-  await expect(missing.client.get(id)).rejects.toMatchObject({ code: 'job-not-found' })
-  const unavailable = await fixture(async () => new Response('{}', { status: 503 }))
-  await expect(unavailable.client.get(id)).rejects.toMatchObject({ code: 'server-not-configured' })
+  const absent = await fixture(async () => Response.json({ error: 'ASR job not found' }, { status: 404 }))
+  await expect(absent.client.get(id)).rejects.toMatchObject({ code: 'job-not-found' })
+  await expect(absent.client.submit(absent.file, id, 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server-not-configured' })
+  const proxy = await fixture(async () => new Response('<html>Not Found</html>', { status: 404 }))
+  await expect(proxy.client.get(id)).rejects.toMatchObject({ code: 'server-not-configured' })
+  const other = await fixture(async () => Response.json({ error: 'Not Found' }, { status: 404 }))
+  await expect(other.client.get(id)).rejects.toMatchObject({ code: 'server-not-configured' })
 })
 
+it('reports only the documented gateway disabled response as unconfigured for HTTP 503', async () => {
+  const disabled = await fixture(async () => Response.json({ error: 'Muse cloud transcription is not configured on this server' }, { status: 503 }))
+  await expect(disabled.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-not-configured' })
+  const temporary = await fixture(async () => Response.json({ error: 'ASR job storage is unavailable' }, { status: 503 }))
+  await expect(temporary.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable' })
+})
+
+it.each([
+  { status: 404, envelope: { error: 'ASR job not found' }, code: 'server-not-configured' },
+  { status: 503, envelope: { error: 'Muse cloud transcription is not configured on this server' }, code: 'server-unavailable' },
+])('caps a $status error body before trusting its JSON and releases the reader', async ({ status, envelope, code }) => {
+  const cancel = vi.fn()
+  const body = new ReadableStream<Uint8Array>({
+    start(stream) {
+      stream.enqueue(new Uint8Array(4 * 1024 * 1024 + 1).fill(0x20))
+      stream.enqueue(new TextEncoder().encode(JSON.stringify(envelope)))
+      stream.close()
+    },
+    cancel,
+  })
+  const { client } = await fixture(async () => new Response(body, { status }))
+  await expect(client.get(randomUUID())).rejects.toMatchObject({ code })
+  expect(cancel).toHaveBeenCalledOnce()
+  expect(body.locked).toBe(false)
+})
+
+it.each([502, 504])('treats HTTP %s during upload as an unconfirmed result', async (status) => {
+  const setup = await fixture(async () => new Response('Proxy error', { status }))
+  await expect(setup.client.submit(setup.file, randomUUID(), 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server-unavailable' })
+})
 
 it('retains word times and rejects invalid nested timing from the gateway', async () => {
   const id = randomUUID()
@@ -142,11 +177,11 @@ it('bounds network failures and unreadable error bodies without leaking provider
   const offline = await fixture(async () => { throw new Error('PRIVATE_PROVIDER_DETAIL') })
   await expect(offline.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable' })
   const invalidError = await fixture(async () => new Response('PRIVATE_PROVIDER_DETAIL', { status: 500 }))
-  await expect(invalidError.client.get(randomUUID())).rejects.toMatchObject({ code: 'request-rejected' })
+  await expect(invalidError.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable' })
   const nonObject = await fixture(async () => Response.json(null, { status: 400 }))
   await expect(nonObject.client.get(randomUUID())).rejects.toMatchObject({ code: 'request-rejected' })
   const hugeRetry = await fixture(async () => Response.json({}, { status: 503, headers: { 'retry-after': '9007199254740992' } }))
-  await expect(hugeRetry.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-not-configured' })
+  await expect(hugeRetry.client.get(randomUUID())).rejects.toMatchObject({ code: 'server-unavailable', retryAfterSeconds: undefined })
 })
 
 it.each([null, [], 'string', { id: undefined }, { id: 7 }, { id: 'bad' }, { status: 'private' }, { retentionExpired: 1 }])(
@@ -217,14 +252,14 @@ it.each(['submit', 'get'] as const)('cancels %s transport and awaits it before r
   await expect(task).rejects.toBe(reason)
 })
 
-it.each([200, 429])('preserves cancellation while reading a %s response body', async (status) => {
+it.each([200, 404, 429, 503])('preserves cancellation while reading a %s response body', async (status) => {
   const reading = Promise.withResolvers<undefined>(), controller = new AbortController(), reason = new Error('cancelled body')
   const f = await fixture(async (_url, init) => new Response(new ReadableStream({
     start(stream) {
       init!.signal!.addEventListener('abort', () => { stream.error(init!.signal!.reason) }, { once: true })
     },
     pull() { reading.resolve(undefined) },
-  }), { status }))
+  }, { highWaterMark: 0 }), { status }))
   const task = f.client.get(randomUUID(), controller.signal)
   const observed = task.catch(() => {})
   await reading.promise
@@ -308,3 +343,103 @@ it('reports a confirmed gateway admission pause without calling it a full ASR po
   const setup = await fixture(async () => Response.json({ error_code: 'server_draining' }, { status: 503, headers: { 'retry-after': '2' } }))
   await expect(setup.client.submit(setup.file, randomUUID(), 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'server_draining', retryAfterSeconds: 2 })
 })
+
+it('allows an active upload to exceed the idle interval without changing its bytes or task ID', async () => {
+  const id = randomUUID(), bytes = Buffer.alloc(192 * 1024, 17)
+  const { file, sessionFile } = await fixture()
+  await writeFile(file, bytes)
+  const slices: Uint8Array[] = []
+  const fetcher: typeof fetch = async (_url, init) => {
+    const transport = init?.signal
+    const reader = new Response(init?.body).body?.getReader()
+    if (reader === undefined) throw new Error('missing upload stream')
+    try {
+      for (;;) {
+        const next = await reader.read()
+        if (next.done) break
+        slices.push(next.value)
+        await vi.advanceTimersByTimeAsync(800)
+        transport?.throwIfAborted()
+      }
+    } finally {
+      await reader.cancel()
+      reader.releaseLock()
+    }
+    return Response.json({ id, status: 'processing' })
+  }
+  const client = new MuseAsrClient({ baseUrl: 'https://muse.test', sessionFile, requestTimeoutMs: 8000,
+    uploadIdleTimeoutMs: 1000, fetcher })
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try { expect(await client.submit(file, id, 'a'.repeat(64), 'zh')).toEqual({ id, status: 'processing' }) }
+  finally { vi.useRealTimers() }
+  expect(slices.length).toBeGreaterThan(1)
+  expect(Buffer.concat(slices)).toEqual(bytes)
+})
+
+it('does not restart the idle timer or accept a late upload reply after the deadline', async () => {
+  const id = randomUUID(), { file, sessionFile } = await fixture()
+  let lateBody: string | undefined, pendingTimers: number | undefined
+  const client = new MuseAsrClient({ baseUrl: 'https://muse.test', sessionFile, requestTimeoutMs: 8000, uploadIdleTimeoutMs: 1000,
+    fetcher: async (_url, init) => {
+      await vi.advanceTimersByTimeAsync(1100)
+      lateBody = await new Response(init?.body).text()
+      pendingTimers = vi.getTimerCount()
+      return Response.json({ id, status: 'processing' })
+    },
+  })
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try { await expect(client.submit(file, id, 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'upload-timeout' }) }
+  finally { vi.useRealTimers() }
+  expect(lateBody).toBe('mock mp3')
+  expect(pendingTimers).toBe(0)
+})
+
+it('recovers an accepted upload and a stalled response body by querying the same UUID without sending audio again', async () => {
+  const id = randomUUID(), bytes = Buffer.from('test PCM audio')
+  const seen: string[] = []
+  let received: { body: Buffer; length: string | undefined; key: string | string[] | undefined } | undefined
+  let uploadError: unknown, stalled: ServerResponse | undefined
+  let queries = 0
+  const server = createServer((req, res) => {
+    seen.push(`${req.method ?? ''} ${req.url ?? ''}`)
+    if (req.method === 'POST') {
+      void buffer(req).then((body) => {
+        received = { body, length: req.headers['content-length'], key: req.headers['idempotency-key'] }
+      }, (error: unknown) => { uploadError = error })
+      return // The gateway receives the audio without acknowledging it.
+    }
+    res.setHeader('content-type', 'application/json')
+    if (++queries === 1) {
+      stalled = res
+      res.write('{"status":')
+      return // Headers arrived. The read timeout must also cover the response body.
+    }
+    res.end(JSON.stringify({ id, status: 'complete', segments: [{ start: 0, end: 1, text: 'recovered' }] }))
+  })
+  server.listen(0, '127.0.0.1')
+  try {
+    await once(server, 'listening')
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('Missing local test server address')
+    const { file, sessionFile } = await fixture()
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    await writeFile(file, bytes)
+    await writeMuseSession(sessionFile, { baseUrl, cookie: '__Host-muse=fixture', username: 'alice' })
+    const client = new MuseAsrClient({ baseUrl, sessionFile, requestTimeoutMs: 8000, uploadIdleTimeoutMs: 1000, queryTimeoutMs: 400 })
+    await expect(client.submit(file, id, 'a'.repeat(64), 'zh')).rejects.toMatchObject({ code: 'upload-timeout' })
+    expect(uploadError).toBeUndefined()
+    expect(received).toEqual({ body: bytes, length: String(bytes.length), key: id })
+    await expect(client.get(id)).rejects.toMatchObject({ code: 'query-timeout' })
+    if (stalled === undefined) throw new Error('Missing stalled response')
+    if (!stalled.destroyed) await once(stalled, 'close', { signal: AbortSignal.timeout(2000) })
+    expect(await client.get(id)).toMatchObject({ id, status: 'complete' })
+    const lookup = 'GET /api/asr/jobs/' + id
+    expect(seen).toEqual(['POST /api/asr/jobs', lookup, lookup])
+  } finally {
+    const close = new Promise<void>((resolve, reject) => {
+      server.close((error) => { if (error) reject(error); else resolve() })
+    })
+    server.closeAllConnections()
+    await close
+  }
+}, 15_000)

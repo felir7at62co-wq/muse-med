@@ -1,0 +1,13 @@
+version: 1
+scenario: drama-project-migration
+profile: headless
+composition: drama-project-migration
+recording: authored
+writerOutput: true
+header:
+  class: drama-project-migration
+  pin: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-project-migration-fixture
+workspace:
+  final: true

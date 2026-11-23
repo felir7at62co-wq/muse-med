@@ -434,6 +434,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       jingliu_image: 'packages/drama/tool-jingliu/src/production.ts',
       jingliu_studio: 'packages/drama/tool-jingliu/src/studio.ts',
       jingliu_media: 'packages/drama/tool-jingliu/src/media.ts',
+      muse_billing: 'packages/drama/tool-jingliu/src/index.ts',
     },
     requires: ['ctx.tools', 'ctx.jingliuConnection', 'ctx.approval for changes and paid workflows'],
     writes: ['tool/call', 'tool/result', 'project updates and jobs on the configured Jingliu service', 'conversation project selections, image and narration job receipts, local Jianying drafts, downloaded studio media under the workspace, and uploads to the Jingliu media store'],

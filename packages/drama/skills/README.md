@@ -30,7 +30,7 @@ Create and review drama scripts, reuse assets, maintain project state, prepare e
 
 Before generating, redrawing, or changing a protagonist's costume, load [the protagonist asset sheet skill](skills/protagonist-asset-sheet/SKILL.md). It preserves the approved identity across costume and story-state versions, with generation and visual review following the project's photorealistic or 3D asset guidance. This is a skill workflow requirement; it does not intercept paid tool calls.
 
-The [Jubian project-upload skill](skills/jubian-project-upload/SKILL.md) guides authorized document upload, manuscript registration and manual project creation with native tools. It keeps source files, copyright metadata, manuscript IDs and production project IDs distinct, and reconciles original operation keys after an unknown result.
+The [Jubian project-upload skill](skills/jubian-project-upload/SKILL.md) guides authorized document upload, manuscript registration, manual project creation and migration into a separate local project directory with native tools. It keeps source files, copyright metadata, manuscript IDs and production project IDs distinct, and reconciles original operation keys after an unknown result.
 
 The shot-writing skill metadata identifies creation, revision and source-to-shot requests for either confirmed 9:16 live-action projects or confirmed 16:9 3D CG projects. Confirm existing project settings when the medium or aspect ratio is unknown; skill selection does not change those settings or apply shot-writing guidance to ordinary scene-script formatting.
 

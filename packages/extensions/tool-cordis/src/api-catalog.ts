@@ -2965,6 +2965,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Task state and timed segments when complete.',
       },
       {
+        signature: 'async readLocalStatus(): Promise<MuseAccountStatus>',
+        description: 'Read the saved identity for Host tools without refreshing Desktop consumers.',
+        parameters: [],
+        returns: 'Current local account state without credentials.',
+      },
+      {
         signature: '@Remote(\'status\') async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus>',
         description: 'Read the stored identity or confirm it with the gateway.',
         parameters: [{ name: 'request', description: 'Whether to verify the cookie online.' }],

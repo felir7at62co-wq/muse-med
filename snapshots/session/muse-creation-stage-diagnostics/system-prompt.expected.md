@@ -85,9 +85,9 @@ interface ToolArgsMap {
     project: string;
     /** start 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。 */
     input?: string;
-    /** start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。 */
+    /** start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；请求语种变化时停止并提示核对原收据；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。 */
     inputs?: string[];
-    /** inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。 */
+    /** 只读查询总等待（0–30 秒）；默认 0，仅查一轮。超时后沿原收据查询；status 经确认补传的时间另计。 */
     wait_seconds?: number;
     /** inspect/status 必填：start 返回的 transcript/jobs 收据路径；相对路径以 project 为基准。 */
     receipt?: string;
@@ -845,7 +845,7 @@ interface ToolArgsMap {
   } & Record<string, JsonValue>;
   /** 剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。tasks 默认不按任务类型筛选；显式 task_type 只查该类型，total_verified/complete 仅对应返回的 scope，筛选结果为空不能推断项目没有任务。project_complete 仅表示本次读全未按类型筛选的提供方列表。（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。ASR 等未返回费用时保持未知，不填零，也不把已知任务行合计称为整集官方总实扣。逐项核对 parent_task_id 等于查询 task_id、status 为 succeeded/completed 且 video_url 非空后，把该 video_url 交 jubian_media download。运行中继续读原任务，失败则停止空轮询并报告；不能只凭 URL 判成功。**image_generate 会真实计费且不可撤销**：生成或重生成一张主体资产图；使用人物库参考图时只传 upload_character_reference 返回的 managed_reference_id 及同一组授权身份；Host 会重读当前项目、角色、Catalog 原图、SHA、授权版本和一次性范围，再私下注入参考 URL。本人上传图的逐项目自授权只允许一次项目私有参考生图；结果仍须人工验收，不得自动 confirm_casting、正式绑定、发布或跨项目复用。仅当用户明确要求替换现有资产时给 parent_asset_id 做重生成（PUT）；否则新建候选资产（POST）。它只在同一个 idempotency_key 下发送一次；新建后核实新父资产的生成图，才返回 material_id 与 image_url。重生成旧资产时不以其旧 Active 状态或旧材质认领新图，回显 requested_parent_asset_id 并保持未核实，须只读核对该资产最新任务与新材质。候选图须先审图再确认出演。返回里的 asset_status 说明回读结论：active 或 generated 才是拿到图（此时才可落盘/审核）；generation_status 明确区分未提交、已提交待完成、成功、失败及待对账；返回原 idempotency_key 与父资产 ID。timeout 表示受理后尚未核实可用图片，不要换 key 重投，稍后用精确资产的 jubian_asset generated_image 续读；failed 表示提供方判失败，先核对实际费用与原因，不自动换 key；unverified 表示本次新图尚未证实，不能用同名资产或旧材质代替。**image_generate_batch 会真实计费且不可撤销**：短剧门禁在整批开始前核对项目资产对账证据。工具先检查同一项目的全部图片提示词与资产身份，再一次读取实时目录核对全部所选通道。顶层 image_model_id/image_platform_id/image_spec_id/image_resolution/image_aspect_ratio 是批次默认，每项可覆盖；单项切换到不同模型时重新匹配通道和规格，切换到不同通道时重新匹配规格；重复相同选择保留规格，画幅与分辨率仍沿用批次默认。随后按配置的并发上限逐项提交计费请求，全部提交返回后再并发回读图像；慢轮询不会占用提交槽。每项独立 idempotency_key、预算占用与账本记录；返回顺序与 items 一致；每项 status=returned 只表示调用返回，是否拿到图仍看 asset_status=active/generated；generated 仍须审图后确认出演。逐项给出 outcome、回读状态和错误。任何一项超时或结果未知都先按原 key 对账，不能换 key 重投。账户目录里 gpt-image-2 可能有多行（不同平台、不同单价）；插件不替你挑平台：没有锁定行而目录多于一行时，请求体构造阶段就会报错并列出全部候选行（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。仿真人剧默认使用原片，不自动转高清。SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。普通导出尺寸与真实源分辨率须分别如实报告；本地缩放不等于恢复源画质。1080p 是高清目标档位，不承诺精确 1080×1920；实际宽高以输出文件探测为准，不能仅凭档位宣称精确像素或画质改善。它是异步的，实测要十几分钟，提交后立刻返回、绝不等待——先做别的，之后用 subtasks 回读 hd_count / last_task_type / resolution 判断是否转好。**retry 是服务端状态变更**：只在父子任务全部终止失败、没有结果 URL、也没有真实费用时才会发出；重试响应异常时不要盲目重提，先回读父任务与生成子素材。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
   jubian_video: {
-    /** task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。 */
+    /** task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，按 subtasks.rows 展开合并任务，使用子结果 storyboard_id 归卡；无该字段时按原卡查 sources 核实归属；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。 */
     method: "task" | "tasks" | "subtasks" | "sources" | "unresolved" | "image_generate" | "image_generate_batch" | "upscale" | "retry";
     /** task / subtasks 必填：视频任务 ID。 */
     task_id?: number;
@@ -881,8 +881,8 @@ interface ToolArgsMap {
       episode?: string;
       /** 本项图片提示词。 */
       prompt: string;
-      /** 本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。 */
-      image_style?: "live_action" | "anime";
+      /** 本项风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时读提示词首行声明，再读项目设置。 */
+      image_style?: "live_action" | "anime" | "realistic_3d";
       /** 本项可选：模型 videoStandards 中的精确 id；同画幅/分辨率有多条规格时指定。 */
       image_spec_id?: number;
       /** 本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。 */
@@ -898,8 +898,8 @@ interface ToolArgsMap {
       /** 可选：重生成的父资产 ID；省略则新建。 */
       parent_asset_id?: number;
     })[];
-    /** image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。 */
-    image_style?: "live_action" | "anime";
+    /** image_generate 的风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时先识别提示词首行声明（可带“项目风格：”），再读取项目风格；项目未保存风格时默认真人。与首行冲突或无法继承项目风格时不提交收费请求。image_generate_batch 仅接受每项 items.image_style。 */
+    image_style?: "live_action" | "anime" | "realistic_3d";
     /** image_generate 可选或 image_generate_batch 默认：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。 */
     image_spec_id?: number;
     /** image_generate 可选或 image_generate_batch 默认：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。 */
@@ -1689,7 +1689,7 @@ interface ToolArgsMap {
       uncertainty: string;
     }[];
     /** observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。 */
-    observations?: {
+    observations?: ({
       frame_id: string;
       /** 具体可见人物、位置、动作、神态或道具；至少8个字符。 */
       visible: string;
@@ -1697,7 +1697,14 @@ interface ToolArgsMap {
       change: string;
       /** 需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。 */
       uncertainty?: string;
-    }[];
+      /** 短剧源片角色核对。实际并排看正式参考和本帧，记录角色、正式参考资产ID、结果和可见理由。证据不足填needs_review，缺参考时可省略其ID。同一帧角色用同一标识；复看后更新该角色，其余旧记录保留。mismatch与needs_review会停住该源片的正式选源。 */
+      character_checks?: ({
+        character: string;
+        reference_asset_id?: string;
+        status: "match" | "mismatch" | "needs_review";
+        reason: string;
+      })[];
+    })[];
   } & Record<string, JsonValue>;
   /** Wait for input at your next step, including agent messages, completion notifications, and user steering. Returns immediately if new input is pending. `timedOut: false` means new input is pending. Pending input is delivered to the model after code execution finishes. */
   wait_agent: {
@@ -3242,6 +3249,8 @@ interface ToolOutputMap {
         subtask_id: number;
         /** 所属父任务；下载前必须与查询的 task_id 一致。 */
         parent_task_id: number | null;
+        /** 子结果关联的原分镜卡 ID；供应商未提供可用身份时省略。 */
+        storyboard_id?: number;
         /** 提供方子结果状态；保留未知值，不能仅凭 URL 判成功。 */
         status: string | null;
         /** 当前成片 URL；本任务子结果成功且 URL 非空时才可交 jubian_media download。 */

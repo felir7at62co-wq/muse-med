@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-image-registration-receipt
+profile: headless
+composition: muse-image-registration-receipt
+recording: authored
+writerOutput: true
+header:
+  class: muse-image-registration-receipt
+  pin: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-image-registration

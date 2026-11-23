@@ -280,7 +280,7 @@ it('accepts trimmed decimal identities and a BOM-prefixed project binding', asyn
   await writeFile(join(directory, 'project_config.json'), '\uFEFF{"jubian_script_id":"2708"}')
   expect(await validateProjectBinding(directory, ' 2708 ')).toEqual({ project_root: directory, script_id: 2708 })
   await writeFile(join(directory, 'project_config.json'), '{broken')
-  await expect(validateProjectBinding(directory, 2708)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  await expect(validateProjectBinding(directory, 2708)).rejects.toMatchObject({ code: 'PROJECT_BINDING_INVALID' })
 })
 
 it.each([
@@ -1425,6 +1425,8 @@ describe('submit_video', () => {
   it.each([
     { label: 'negative total', page: () => ({ total: -1, rows: [] }) },
     { label: 'duplicate IDs', page: () => ({ total: 2, rows: [{ id: 1 }, { id: 1 }] }) },
+    { label: 'duplicate type-3 history', page: () => ({ total: 2, rows:
+      Array.from({ length: 2 }, () => ({ id: 1, scriptId: 2708, taskType: 3 })) }) },
     { label: 'more rows than total', page: () => ({ total: 1, rows: [{ id: 1 }, { id: 2 }] }) },
     { label: 'short incomplete page', page: () => ({ total: 2, rows: [{ id: 1 }] }) },
     { label: 'changing total', page: (page: number) => ({ total: page === 1 ? 200 : 201,
@@ -2242,6 +2244,10 @@ describe('submit_video_batch', () => {
     await expect(submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })).rejects.toThrow()
     expect(putCalls(provider)).toHaveLength(0)
     expect(await auto.records()).toEqual([])
+    await auto.begin({ idempotencyKey: 'earlier-project-reservation', method: 'video_upscale', scriptId: 2708,
+      requestSha256: 'sha256:earlier', quotedAmount: '97.69', quoteUnit: 'CNY' })
+    await auto.settle('earlier-project-reservation', { httpStatus: 200, applicationCode: 200,
+      responseSha256: null, outcome: 'accepted' })
     estimates[0]!.estimated_cost_cny = '8.00'
     estimates[1]!.estimated_cost_cny = '9.00'
     provider.onPut = (payload) => {
@@ -2250,7 +2256,14 @@ describe('submit_video_batch', () => {
       provider.tasks.push({ id: taskId, scriptId: 2708, taskType: 1 })
       provider.subtasks[String(taskId)] = [childOf(payload, { aigcVideoTaskId: taskId, storyboardId: id })]
     }
-    await submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })
+    const submitted = await submitVideoBatchMethod(clientFor(provider), auto, { items: estimates })
+    expect(submitted.results.map(result => result.budget)).toEqual(['8.00', '9.00'].map(amount => ({
+      status: 'authorized', reason: '',
+      this_submission: { reservation: { status: 'recorded', amount, unit: 'CNY', basis: 'quote_or_estimate' },
+        provider_billing: 'not_observed' },
+      project_accounting: { scope: 'project_before_submission', basis: 'local_reservations', unit: 'CNY',
+        accepted_reservations_cents: 9769, pending_reservations_cents: 0 },
+    })))
     expect(putCalls(provider)).toHaveLength(2)
     expect((await auto.find(items[0]!.idempotency_key))?.quoted_amount).toBe('8.00')
     expect((await auto.find(items[1]!.idempotency_key))?.quoted_amount).toBe('9.00')
@@ -2464,6 +2477,50 @@ describe('select_assets', () => {
   const selections = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
   const emptyStoryboard = { ...STORYBOARD, storyboardMaterialList: [] }
 
+  it.each(['object', 'JSON string'])('reports a %s saved model when a free selection differs from the session choice', async (encoding) => {
+    const expected = { modelId: 'doubao-seedance-2.5-flash', platformId: 'YU_DIAN', standardId: 101, resolution: '720p' }
+    const legacyConfig = { ...MODEL_CONFIG, modelId: 'doubao-seedance-2.5', standardId: 93 }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...emptyStoryboard, modelConfig: JSON.stringify({ ...legacyConfig, ...expected }) },
+      onPut: (payload) => {
+        const config = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
+        const saved = { ...config, modelId: legacyConfig.modelId, standardId: '93' }
+        provider.storyboard.modelConfig = encoding === 'JSON string' ? JSON.stringify(saved) : saved
+      } }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-model-readback' }
+    const client = clientFor(provider)
+    const difference = { status: 'differs_from_session',
+      expected: { ...expected, standardId: '101' },
+      actual: { modelId: legacyConfig.modelId, platformId: 'YU_DIAN', standardId: '93', resolution: '720p', videoStandardId: '91' },
+      differing_fields: ['modelId', 'standardId'] }
+    const first = await selectAssetsMethod(client, ledger, args, expected)
+    expect(first).toMatchObject({ status: 'applied', paid_requests: 0, video_model_readback: difference })
+    expect(first.next).toContain('会话选择不一致')
+    expect(await selectAssetsMethod(client, ledger, args, expected)).toMatchObject({
+      status: 'already_applied', video_model_readback: difference,
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body?.isGenerate).toBe(0)
+  })
+
+  it('matches the same saved model with a numeric-string ID and a sub-specification alias', async () => {
+    const { platformId, modelId, standardId, resolution, videoStandardId, ...rest } = MODEL_CONFIG
+    const savedConfig = { ...rest, platformId, modelId, standardId: String(standardId), resolution,
+      modelVideoStandardId: videoStandardId, materialList: MATERIALS }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, modelConfig: savedConfig } }
+    const client = clientFor(provider)
+    const actual = { platformId, modelId, standardId: String(standardId), resolution,
+      videoStandardId: String(videoStandardId) }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-model-match' }
+    expect(await selectAssetsMethod(client, ledger, args, MODEL_CONFIG)).toMatchObject({
+      status: 'already_applied',
+      video_model_readback: { status: 'matches_session', actual, differing_fields: [] },
+    })
+    expect(await selectAssetsMethod(client, ledger, args)).not.toHaveProperty('video_model_readback')
+    expect(putCalls(provider)).toEqual([])
+  })
+
   it('saves with isGenerate=0, reads the order back and proves no task appeared', async () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {} }
     const result = await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
@@ -2473,6 +2530,105 @@ describe('select_assets', () => {
     expect(result).toMatchObject({ status: 'applied', applied: true, paid_requests: 0,
       verified_readback: [{ materialKey: 'lead', materialAssetId: '81285' }, { materialKey: 'guest', materialAssetId: '83670' }] })
     expect((await ledger.find('select-1'))?.method).toBe('storyboard_select_assets')
+  })
+
+  it('selects assets over HTTP with repeated type-3 history rows on one page', async () => {
+    const history = { id: 197, scriptId: 2708, taskType: 3, taskStatus: 'succeeded' }
+    const tasks = Array.from({ length: 200 }, (_, index) => index >= 196
+      ? { ...history } : { id: index + 1, scriptId: 2708, storyboardId: 999999, taskType: 1 })
+    const pages: number[] = []
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks, subtasks: {},
+      taskPage: (page) => {
+        pages.push(page)
+        return { total: tasks.length, rows: tasks.slice((page - 1) * 100, page * 100) }
+      },
+    }
+    const local = await localClientFor(provider)
+    try {
+      const result = await selectAssetsMethod(local.client, ledger, { storyboard_id: 916953,
+        selections, idempotency_key: 'select-repeated-history' })
+      expect(result).toMatchObject({ status: 'applied', paid_requests: 0, outcome: 'accepted',
+        verification: { matches: true },
+        verified_readback: [{ materialKey: 'lead', materialAssetId: '81285' },
+          { materialKey: 'guest', materialAssetId: '83670' }] })
+      expect(pages).toEqual([1, 2, 1, 2])
+      expect(putCalls(provider)).toHaveLength(1)
+      expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
+      const records = await ledger.records()
+      expect(records).toHaveLength(1)
+      expect(records[0]).toMatchObject({ method: 'storyboard_select_assets', outcome: 'accepted', quoted_amount: null })
+    } finally { await local.close() }
+  })
+
+  it.each([
+    { label: 'generation rows', types: [1, 1] },
+    { label: 'unknown task types', types: [undefined, undefined] },
+    { label: 'generation and history sharing an ID', types: [3, 1] },
+    { label: 'a history row from another project', types: [3, 3], secondProject: 2709 },
+    { label: 'history without a declared total', types: [3, 3], noTotal: true },
+    { label: 'history duplicated across page boundaries', types: [3, 3], crossPage: true },
+  ])('rejects a repeated task ID for $label before writing', async ({ types, secondProject, noTotal, crossPage }) => {
+    const first = { id: 1, scriptId: 2708, taskType: types[0] }
+    const repeat = { id: 1, scriptId: secondProject ?? 2708, taskType: types[1] }
+    const tasks = crossPage
+      ? [first, ...Array.from({ length: 99 }, (_, index) => ({ id: index + 2, scriptId: 2708, taskType: 1 })), repeat]
+      : [first, repeat]
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks, subtasks: {},
+      taskPage: page => ({ ...(noTotal ? {} : { total: tasks.length }), rows: tasks.slice((page - 1) * 100, page * 100) }),
+    }
+    const detail: unknown = expect.stringContaining(
+      `stage=before_save_task_audit. No selection PUT was sent by this call. Duplicate video task ID on inventory page ${crossPage ? '2' : '1'}.`)
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
+      selections, idempotency_key: 'select-reject-duplicate' })).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+    })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('reports an empty selection save response as unresolved and keeps the original write identity', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {},
+      putResponse: () => new Response(null, { status: 200 }) }
+    const client = clientFor(provider)
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-empty-write-response' }
+    const detail: unknown = expect.stringMatching(/stage=save_response.*Read back the storyboard.*HTTP 200.*0 bytes/)
+    await expect(selectAssetsMethod(client, ledger, args)).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+      responseEvidence: { httpStatus: 200, applicationCode: null },
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
+    expect(await ledger.find(args.idempotency_key)).toMatchObject({ outcome: 'unknown', http_status: 200 })
+    expect(await selectAssetsMethod(client, ledger, args)).toMatchObject({ status: 'already_applied', applied: false })
+    expect(putCalls(provider)).toHaveLength(1)
+  })
+
+  it('reports an incomplete task audit after a recorded selection save', async () => {
+    const duplicate = { id: 1, scriptId: 2708, taskType: 1 }
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {},
+      onPut: () => { provider.tasks = [duplicate, duplicate] } }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-after-save-task-audit' }
+    const detail: unknown = expect.stringMatching(/stage=after_save_task_audit.*Keep the original key.*Duplicate video task ID/)
+    await expect(selectAssetsMethod(clientFor(provider), ledger, args)).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
+    expect(await ledger.find(args.idempotency_key)).toMatchObject({ outcome: 'accepted' })
+  })
+
+  it('preserves an unexpected local task audit error before a selection write', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {} }
+    const client = clientFor(provider)
+    const request = client.request.bind(client)
+    const failure = new Error('Unexpected task audit failure')
+    vi.spyOn(client, 'request').mockImplementation(args => args.path.startsWith('/admin/aigc/video/task/list')
+      ? Promise.reject(failure) : request(args))
+    await expect(selectAssetsMethod(client, ledger, {
+      storyboard_id: 916953, selections, idempotency_key: 'select-unexpected-task-audit-error',
+    })).rejects.toBe(failure)
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
   })
 
   it('shouts when a selection-only save created a task', async () => {

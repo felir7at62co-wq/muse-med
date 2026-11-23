@@ -5,7 +5,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
-import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, startAudioTranscriptionBatch } from './runner.ts'
+import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, startAudioTranscriptionBatch, type AudioAccount } from './runner.ts'
 
 /** Cordis row name for model-visible speech transcription. */
 export const name = 'tool-audio-transcribe'
@@ -103,6 +103,39 @@ const outputSchema = { oneOf: [{ type: 'object', additionalProperties: false, pr
 /** Prepended to a screenplay-purpose result the service reported as silent; the gateway's recovery fields stay unchanged. */
 const SILENT_SCREENPLAY_NOTE = '剧本用途音轨被云端判为无语音（silent），不等于本集没有对白。先用 video_ocr 读硬字幕、用 video_inspect 核对口型和画面，不要只凭少量抽帧补写台词。确有对白时可用单个 input 并带 purpose: screenplay 再 start 重转一次（新版本，会计费；批量 inputs 只返回原 silent 收据）；重转仍为 silent 就以字幕和画面为准，不再重转。'
 
+interface BatchStage {
+  readonly status?: string
+  readonly error?: string
+  readonly error_code?: string
+  readonly queued?: boolean
+}
+
+/** Display the known status for each input in its original batch order. */
+function batchProgress(batch: { readonly items: readonly BatchStage[]; readonly not_started?: readonly string[] }): string {
+  const stages = batch.items.map((item, index) => `第${index + 1}项${batchItemStage(item)}`)
+  if (batch.not_started?.length) stages.push(`另有 ${batch.not_started.length} 项本次未开始`)
+  return `转写进度：${stages.join('、')}。`
+}
+
+function batchItemStage(item: BatchStage): string {
+  if (item.error !== undefined) return '出错'
+  switch (item.status) {
+    case 'complete': return '已完成'
+    case 'silent': return '无语音'
+    case 'failed': return '失败'
+    case 'uncertain': return '待确认'
+    default: break
+  }
+  if (item.error_code !== undefined) return '暂未推进'
+  if (item.queued === true) return '已排队'
+  switch (item.status) {
+    case 'processing': return '处理中'
+    case 'preparing':
+    case 'submitting': return '提交中'
+    default: return '待核对'
+  }
+}
+
 /**
  * Anchor a relative project root to the calling Session workspace, never to the Host process directory.
  * @param project - Model-supplied project root.
@@ -121,7 +154,12 @@ function projectRoot(project: string, workspace: string | undefined): string {
  * @param config - Media binaries and local size/time limits.
  */
 export function apply(ctx: Context, config: Config): void {
-  const account = ctx.get('museAccount') as MuseAccountService
+  const museAccount = ctx.get('museAccount') as MuseAccountService
+  const account: AudioAccount = {
+    status: () => museAccount.readLocalStatus(),
+    submitAudio: (...args) => museAccount.submitAudio(...args),
+    audioStatus: (...args) => museAccount.audioStatus(...args),
+  }
   ctx.tools.register(defineTool({
     name: 'audio_transcribe',
     description: '使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；多集用 inputs 一次提交，工具逐集上传，上传繁忙或请求过频时按服务端提示等待，并沿用同一收据重试。inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件，也不要删除收据。需要先登录 Muse。',
@@ -129,8 +167,8 @@ export function apply(ctx: Context, config: Config): void {
       method: { type: 'string', required: true, enum: ['start', 'inspect', 'status'], description: 'start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。' },
       project: { type: 'string', required: true, description: '项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。' },
       input: { type: 'string', description: 'start 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。' },
-      inputs: { type: 'array', items: { type: 'string' }, description: `start 多集输入（与 input 二选一，1–${config.maxBatchInputs} 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。` },
-      wait_seconds: { type: 'number', description: 'inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。' },
+      inputs: { type: 'array', items: { type: 'string' }, description: `start 多集输入（与 input 二选一，1–${config.maxBatchInputs} 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途且源文件字节未变的收据沿用原收据，不重新计费；请求语种变化时停止并提示核对原收据；源文件字节变化按新输入提交；已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。` },
+      wait_seconds: { type: 'number', description: '只读查询总等待（0–30 秒）；默认 0，仅查一轮。超时后沿原收据查询；status 经确认补传的时间另计。' },
       receipt: { type: 'string', description: 'inspect/status 必填：start 返回的 transcript/jobs 收据路径；相对路径以 project 为基准。' },
       language: { type: 'string', enum: ['zh', 'auto'], description: 'start 识别语种；默认 zh。' },
       purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。' },
@@ -140,6 +178,9 @@ export function apply(ctx: Context, config: Config): void {
       return [
         ...(results.some(item => item.error_code === 'queue_full') ? [{ type: 'text' as const, text: 'Muse 转写队列已满，请稍后重试' }] : []),
         ...(results.some(item => item.status === 'silent' && item.purpose === 'screenplay') ? [{ type: 'text' as const, text: SILENT_SCREENPLAY_NOTE }] : []),
+        ...('items' in value ? [{ type: 'text' as const, text: batchProgress(value) }] : []),
+        ...(results.some(item => item.error_code === 'upload-timeout' || item.error_code === 'query-timeout')
+          ? [{ type: 'text' as const, text: '本次未能确认转写状态。请用原收据查询，已受理的任务仍可继续处理。' }] : []),
         { type: 'text', text: JSON.stringify(value) },
       ]
     } },

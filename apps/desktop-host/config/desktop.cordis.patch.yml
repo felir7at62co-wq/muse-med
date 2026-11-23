@@ -311,7 +311,7 @@
           jingliu_projects: [制片项目, 搜索云项目, 关联项目, 当前项目]
           jingliu_studio: [镜流字幕, 校对字幕, 共享素材, 导入素材, 高清历史]
           jingliu_image: [镜流生图, image2, GPT Image 2, 自由生图]
-          jingliu_workflows: [镜流, 镜流工作台, 镜流项目, 新建项目, 分集, 查询模型, Jingliu, ShotFlow]
+          jingliu_workflows: [镜流, 镜流工作台, 镜流项目, 新建项目, 分集, 查询模型, 原有分镜, 已有分镜, 现有分镜, Jingliu, ShotFlow]
           jingliu_run: [镜流执行, 镜流制作, 镜流分镜, 镜流任务, 制作分镜, 角色素材, 生成视频, 任务进度, ShotFlow]
           jingliu_narration: [镜流解说剧, 解说剧拆镜, 角色开口, 解说剧交付]
           jingliu_media: [镜流素材下载, 下载镜流素材, 上传到镜流, 镜流上传, 镜头视频下载]

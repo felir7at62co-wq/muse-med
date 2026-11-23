@@ -29,7 +29,7 @@ CORE_SCRIPTS = SCRIPT_ROOT.parents[1] / 'tweet-drama-core' / 'scripts'
 sys.path.insert(0, str(CORE_SCRIPTS))
 from video_bans import check_videos, find_project
 from draft_inputs import (audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues,
-                          subtitle_font_request, write_product_subtitles)
+                          subtitle_font_request, verify_draft_episode_scope, write_product_subtitles)
 from generate_draft_request import (attach_episode_source_receipt, delivery_switches, read_subtitle_overlay_report,
                                     verify_draft_subtitle_clock)
 from draft_stage_guard import BuildLease, DraftStageGuard
@@ -298,7 +298,6 @@ def prepare_plan(request: dict, drafts_dir: str, *, lifetime: ExitStack | None =
     if not isinstance(inputs, list) or not inputs:
         raise ValueError('videos must contain the selected episode files in shot order')
     sources = [require_file(path, 'videos') for path in inputs]
-    check_videos(find_project(project, str(project)), sources)
     timeline_path = require_file(request['timeline'], 'timeline')
     subtitle_path = require_file(request['subtitle_srt'], 'subtitle_srt')
     timeline = json.loads(timeline_path.read_text(encoding='utf-8-sig'))
@@ -308,6 +307,8 @@ def prepare_plan(request: dict, drafts_dir: str, *, lifetime: ExitStack | None =
     shots = [row.get('shot') if isinstance(row, dict) else None for row in clips]
     if any(isinstance(shot, bool) or not isinstance(shot, int) or shot < 1 for shot in shots) or len(set(shots)) != len(shots):
         raise ValueError('Timeline shot IDs must be distinct positive integers')
+    verify_draft_episode_scope(project, episode, root, sources, shots, timeline=timeline_path, subtitle=subtitle_path)
+    check_videos(find_project(project, str(project)), sources)
     ordered = sorted(clips, key=lambda row: row.get('start_us', -1))
     cursor = 0
     for row in ordered:

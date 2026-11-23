@@ -125,6 +125,8 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 
 操作为 acquire、start、complete、abandon 与 read，键包含项目／人物／人生时期及原登记操作。排他文件系统锁在多个网关进程间串行化写入。只有尚未开始的认领会到期，持久化 submitted 操作不会放行第二次创建。完成后保留精确资产 ID，不悄悄更换。未知结果沿原操作对账。遗留锁目录须确认写进程已停止后由运维核查，不能删除 submitted 回执，不能把登录过期当成重新创建许可。未配置返回 503。服务协调参与的新 Muse 客户端，不阻止剧变网页或旧客户端写入，也不自动删除资产。
 
+替换已就绪声线前，须独立核验精确旧资产所属项目、槽位及明确删除状态，仅成功的 data:null 不能释放槽位。新操作接收仅向其所有者返回的 replaces_asset_id 许可，start 再次核验删除状态。当前回执改变前，原账号／key 已通过 retired-<hash>.json 持久化关闭。未使用的替代登记预留在到期或放弃后仍保留此许可，重新预留时再次核验删除状态。备份整个 MUSE_VOICE_SLOTS_DIR，包含已退役回执；参见[升级指南](../../docs/upgrade-guide/v0.2.2-rc.2/deleted-voice-replacement/guide.zh.md)。不要通过移除 submitted 或已退役回执来解除登记阻塞。
+
 ## Release inputs
 
 网关开始监听后，启动日志报告实际回环端口。隔离部署检查可设置 `MUSE_PORT=0`，由操作系统分配可用端口。
@@ -157,7 +159,7 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 | 组 `submitQps`、`queryQps` | 标准版提交与查询的独立频率，各默认 10；合计不超过 20 QPS，不表示在途任务数。 |
 | 组 `rollingAudioWindowSeconds`、`maxRollingAudioSeconds` | 可选且成对配置的组时长上限，覆盖所有账号与版本。标准版部署使用 1,800 秒／1,800,000 音频秒，对应官方半小时提交 500 小时限制。 |
 | `legacyAppId` | 用于迁移无资源字段收据的原应用 ID，默认取保留的顶层 `appId`。显式资源池存在旧收据时必须提供此归属，并与默认应用一致。 |
-| `maxConcurrentJobs`、`maxQueuedJobs` | 全局工作线程上限与真实等待容量（默认 20）。旧线程默认 5 且不能超过 5；资源池按组与应用／服务组合计算容量，显式全局上限不得更大。标准版名额保留到完成，包括未知结果；连续确认终止失败时释放名额，不重提原任务；等待队列满时返回 429。 |
+| `maxConcurrentJobs`、`maxQueuedJobs` | 全局工作线程上限与真实等待容量（默认 20）。旧线程默认 5 且不能超过 5；资源池按组与应用／服务组合计算容量，显式全局上限不得更大。标准版名额保留到完成，包括未知结果；连续确认终止失败时释放名额，不重提原任务。提供方排队超时 `55001011` 属于终止失败。等待队列满时返回 429。 |
 | `requestRatePerMinute` | 每账号／IP 每分钟共享的 ASR 提交／状态请求上限，默认 60；须覆盖并发客户端轮询需求，不改变提供方提交／查询 QPS。 |
 | `maxPendingUploadsPerAccount` | 每账号未完成上传上限（默认 4）；请求等待前次账号上传与额度预约后才暂存，超过上限返回 429。 |
 | `storageKind`、`gatewayStorage` | 标准版存储：`tos`（旧默认）或显式 `gateway`。网关需要独立的绝对私有 `root`、路径严格为 `/api/asr/audio/` 的 HTTPS `baseURL` 及至少 32 UTF-8 字节的服务器私密 `secret`；极速版均不需要。 |
@@ -198,7 +200,7 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 
 预约优先使用有空位的应用／服务；调度轮流处理账号，在可用资源内保留等待顺序并执行资源／组／全局限制。只有尚无提交时间戳的排队请求可以在核验共享日额度和滚动预约后，转到原服务版本的空闲应用；重新绑定先持久化再向提供方发请求。用途、任务 ID、音频摘要和预约时间戳不变；提交中、处理中及未知任务始终保留原应用和服务。启动先核验全部归属，再给旧收据补缺失绑定，原字段、提供方类型与未提供用途不变；缺应用字段时要求 `legacyAppId` 与保留默认资源一致，旧单应用代码不能恢复新绑定。资源缺失或应用／组／服务／存储变更会拒绝启动。存在收据时保留定义；私有账本字段不改变已发布 Session 数据。
 
-响应保留旧状态值、可选 `queued: true` 和实际 `service_version`；带用途请求再增加 `purpose`。失败可报告 `provider_rejected`、`provider_unavailable` 或提交前的 `storage_unavailable`。可选 `provider_diagnostic` 只含校验过的操作、HTTP／提供方状态和固定原因 `timeout`、`transport`、`http`、`response`、`json`、`result` 或 `audio`；旧收据缺原因时仍省略。`recovery` 说明支持的操作：查询原标准任务、等待当前极速响应、核查已结束的未知极速收据、使用结果，或用同 ID 恢复未提交上传；不授权再次付费提交。未知极速任务没有提供方查询能力，反复读取不变的服务器收据无法恢复丢失的同步响应。诊断不证明收费或退款；凭据、签名 URL、响应正文、原始异常与应用身份不进入响应。
+响应保留旧状态值、可选 `queued: true` 和实际 `service_version`；带用途请求再增加 `purpose`。失败可报告 `provider_rejected`、`provider_unavailable` 或提交前的 `storage_unavailable`。可选 `provider_diagnostic` 只含校验过的操作、HTTP／提供方状态和固定原因 `timeout`、`transport`、`http`、`response`、`json`、`result` 或 `audio`；旧收据缺原因时仍省略。标准版提交或极速版识别收到 HTTP 429 时，`quota_type` 保留提供方明确返回且在白名单内的额度类型。仍须按原任务对账。`recovery` 说明支持的操作：查询原标准任务、等待当前极速响应、核查已结束的未知极速收据、使用结果，或用同 ID 恢复未提交上传；不授权再次付费提交。未知极速任务没有提供方查询能力，反复读取不变的服务器收据无法恢复丢失的同步响应。诊断不证明收费或退款；凭据、签名 URL、响应正文、原始异常与应用身份不进入响应。
 
 账号自己的音频仍在暂存、持久收据尚未写入时，查询返回 `preparing` 和恢复动作 `wait`。此临时响应不代表已向提供方提交，也不会跨网关重启保留；上传失败后仍可能返回 404。
 

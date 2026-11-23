@@ -2,9 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import * as timers from 'node:timers/promises'
+import { afterEach, expect, it, vi } from 'vitest'
 import { MuseAsrError, type MuseAsrJob } from '@deepseek-ai/dsh-muse-account'
 import { finishAudioTranscription, startAudioTranscription, startAudioTranscriptionBatch, type AudioAccount, type AudioMediaOperations } from '../src/runner.ts'
+
+vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
+vi.mock('node:timers/promises', async original => ({ ...await original<typeof import('node:timers/promises')>() }))
 
 const directories: string[] = []
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
@@ -40,6 +44,86 @@ it('saves an account-bound receipt before submit and publishes versioned timed o
   expect((await finishAudioTranscription(fixture.project, first.receipt, fixture.account)).status).toBe('complete')
   expect(fixture.counts().queries).toBe(1)
   expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.srt', 'clip-v1.txt'])
+})
+
+it.each(['probing', 'staging'] as const)('stops overlapping starts at %s before creating a second job', async (phase) => {
+  const fixture = await setup()
+  const firstEntered = Promise.withResolvers<undefined>(), secondEntered = Promise.withResolvers<undefined>()
+  const releaseFirst = Promise.withResolvers<undefined>(), releaseSecond = Promise.withResolvers<undefined>()
+  let pauses = 0
+  const pause = async () => {
+    const first = ++pauses === 1
+    const entered = first ? firstEntered : secondEntered
+    const release = first ? releaseFirst : releaseSecond
+    entered.resolve(undefined)
+    await release.promise
+  }
+  const media: AudioMediaOperations = {
+    probe: async () => { if (phase === 'probing') await pause(); return 20 },
+    encode: async (_source, target) => {
+      if (phase === 'staging') await pause()
+      await writeFile(target, 'audio for one task')
+    },
+  }
+  const start = () => startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)
+  const first = start()
+  const outcomes = [first]
+  void first.catch(() => undefined)
+  try {
+    await firstEntered.promise
+    const second = start()
+    outcomes.push(second)
+    void second.catch(() => undefined)
+    await secondEntered.promise
+    releaseFirst.resolve(undefined)
+    expect((await first).status).toBe('processing')
+    releaseSecond.resolve(undefined)
+    await expect(second).rejects.toThrow('Another transcription has started')
+    expect(fixture.counts().submits).toBe(1)
+    const files = await readdir(join(fixture.project, 'transcript', 'jobs'))
+    expect(files.filter(file => file.endsWith('.json'))).toEqual(['clip-v1.json'])
+    expect(files.filter(file => file.endsWith('.wav'))).toHaveLength(1)
+  } finally {
+    releaseFirst.resolve(undefined)
+    releaseSecond.resolve(undefined)
+    await Promise.allSettled(outcomes)
+  }
+})
+
+it.each(['open', 'write'] as const)('cleans up a failed receipt %s before submitting', async (phase) => {
+  const fixture = await setup()
+  const jobs = join(fixture.project, 'transcript', 'jobs')
+  const receipt = join(jobs, 'clip-v1.json')
+  const failure = Object.assign(new Error('Synthetic receipt I/O failure'), { code: phase === 'open' ? 'EACCES' : 'ENOSPC' })
+  const fs = await import('node:fs/promises')
+  const originalOpen = fs.open
+  let restoreWrite: (() => void) | undefined
+  const open = vi.spyOn(fs, 'open').mockImplementation(async (file, flags, mode) => {
+    if (file !== receipt || flags !== 'wx') return await originalOpen(file, flags, mode)
+    if (phase === 'open') throw failure
+    const handle = await originalOpen(file, flags, mode)
+    const originalWrite = handle.writeFile.bind(handle)
+    const write = vi.spyOn(handle, 'writeFile').mockImplementationOnce(async () => {
+      await originalWrite('{')
+      throw failure
+    })
+    restoreWrite = () => {
+      write.mockRestore()
+    }
+    return handle
+  })
+  try {
+    const media: AudioMediaOperations = {
+      probe: async () => 20,
+      encode: async (_source, target) => { await writeFile(target, 'staged audio') },
+    }
+    await expect(startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)).rejects.toBe(failure)
+    expect(fixture.counts()).toEqual({ submits: 0, queries: 0 })
+    expect(await readdir(jobs)).toEqual([])
+  } finally {
+    restoreWrite?.()
+    open.mockRestore()
+  }
 })
 
 it('resolves a relative input and receipt against the project root instead of the process directory', async () => {
@@ -80,6 +164,21 @@ it('reports exhausted provider allowance and later publishes the same original t
   expect(await readFile(done.output_txt!, 'utf8')).toContain('原任务已完成')
 })
 
+it('retains Flash lifetime-quota evidence without promising a provider query', async () => {
+  const fixture = await setup()
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, shortMedia)
+  const metadata = { service_version: 'flash', error_code: 'provider_rejected',
+    provider_diagnostic: { operation: 'flash', http_status: 429, quota_type: 'audio_duration_lifetime' },
+    recovery: { capability: 'no_query', next_action: 'inspect_receipt', automatic_resubmit: false } } as const
+  fixture.setJob({ id: first.job_id, status: 'uncertain', ...metadata })
+  const result = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false,
+    { waitMs: 30_000, pollIntervalMs: 1000, probe: shortMedia.probe })
+  expect(result).toMatchObject({ job_id: first.job_id, status: 'uncertain', ...metadata })
+  expect(result).not.toHaveProperty('resume_status')
+  expect(result).not.toHaveProperty('polling_note')
+  expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+})
+
 it('returns the gateway delay instead of polling a pending original task before its next query', async () => {
   const fixture = await setup()
   const media = { probe: async () => 45, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
@@ -89,6 +188,42 @@ it('returns the gateway delay instead of polling a pending original task before 
     { waitMs: 30_000, pollIntervalMs: 1, probe: media.probe })
   expect(pending.retry_after_seconds).toBe(60)
   expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+})
+
+it('waits for the longer gateway retry delay before querying the original task', async () => {
+  const fixture = await setup()
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, shortMedia)
+  fixture.setJob({ id: first.job_id, status: 'processing', recovery: { capability: 'query_original_task', next_action: 'poll_original', automatic_resubmit: false, retry_after: 4 } })
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(0)
+  const wait = vi.spyOn(timers, 'setTimeout').mockImplementationOnce(async (milliseconds) => {
+    clock.mockReturnValue(milliseconds ?? 0)
+    fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] })
+  })
+  try {
+    const result = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false,
+      { waitMs: 5000, pollIntervalMs: 1000, probe: shortMedia.probe })
+    expect(wait).toHaveBeenCalledExactlyOnceWith(4000, undefined, { signal: undefined })
+    expect(result).toMatchObject({ job_id: first.job_id, status: 'complete' })
+    expect(fixture.counts()).toEqual({ submits: 1, queries: 2 })
+  } finally { wait.mockRestore(); clock.mockRestore() }
+})
+
+it.each([
+  { waitMs: 1000, pollIntervalMs: 1000, elapsedMs: 1000, delays: 0 },
+  { waitMs: 2000, pollIntervalMs: 1000, elapsedMs: 2000, delays: 1 },
+])('returns the current result when a polling delay reaches the deadline ($waitMs ms)', async ({ waitMs, pollIntervalMs, elapsedMs, delays }) => {
+  const fixture = await setup()
+  const first = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, shortMedia)
+  fixture.setJob({ id: first.job_id, status: 'processing', queued: true })
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(0)
+  const wait = vi.spyOn(timers, 'setTimeout').mockImplementationOnce(async () => { clock.mockReturnValue(elapsedMs) })
+  try {
+    const result = await finishAudioTranscription(fixture.project, first.receipt, fixture.account, undefined, false,
+      { waitMs, pollIntervalMs, probe: shortMedia.probe })
+    expect(wait).toHaveBeenCalledTimes(delays)
+    expect(result).toMatchObject({ job_id: first.job_id, status: 'processing', queued: true })
+    expect(fixture.counts()).toEqual({ submits: 1, queries: 1 })
+  } finally { wait.mockRestore(); clock.mockRestore() }
 })
 
 it.each([
@@ -633,6 +768,7 @@ it('retains a legacy receipt without a source digest and preserves processing st
   const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
   delete receipt.sourceSha256
   await writeFile(first.receipt, JSON.stringify(receipt))
+  expect((await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)).job_id).toBe(first.job_id)
   const account: AudioAccount = { ...f.account, audioStatus: async () => { throw new MuseAsrError('queue_full') } }
   expect(await finishAudioTranscription(f.project, first.receipt, account)).toMatchObject({ status: 'processing', error_code: 'queue_full' })
   expect(f.counts().submits).toBe(1)
@@ -959,6 +1095,86 @@ it('polls original tasks inside one bounded call and publishes without another u
   expect(await readFile(done.output_txt!, 'utf8')).toContain('ready')
 })
 
+it.each([false, true])('bounds the active GET for a split=%s receipt and publishes only after a later read of the same IDs', async (split) => {
+  const f = await setup(), submitted: string[] = [], reads: string[] = []
+  let slow = true, interrupted = false
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => { submitted.push(id); return { id, status: 'processing' } },
+    audioStatus: async (id, signal) => {
+      reads.push(id)
+      if (slow) {
+        try { await timers.setTimeout(1500, undefined, { signal }) }
+        finally { interrupted = signal?.aborted === true }
+      }
+      return { id, status: 'complete', segments: [{ start: 0, end: 1, text: 'original task' }] }
+    },
+  }
+  const first = await startAudioTranscription(f.project, f.input, 'zh', account, { ...config, chunkSeconds: split ? 20 : 600 }, shortMedia)
+  const before = await readFile(first.receipt, 'utf8')
+  const result = await finishAudioTranscription(f.project, first.receipt, account, undefined, false,
+    { waitMs: 400, pollIntervalMs: 1, probe: shortMedia.probe })
+  expect(result).toMatchObject({ status: 'uncertain', error_code: 'query-timeout', job_id: first.job_id,
+    resume_status: { method: 'inspect', receipt: first.receipt } })
+  expect(interrupted).toBe(true)
+  expect(reads).toEqual(submitted.slice(0, 1))
+  expect(await readFile(first.receipt, 'utf8')).toBe(before)
+  await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
+  slow = false
+  const recovered = await finishAudioTranscription(f.project, first.receipt, account, undefined, false)
+  expect(recovered).toMatchObject({ status: 'complete', job_id: first.job_id })
+  expect(await readFile(recovered.output_txt!, 'utf8')).toContain('original task')
+  expect(submitted).toHaveLength(split ? 2 : 1)
+  expect(reads).toEqual([submitted[0], ...submitted])
+})
+
+it('does not dispatch a status request after the wait expires during local receipt validation', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const account: AudioAccount = { ...f.account, status: async (options) => {
+    await timers.setTimeout(40)
+    return await f.account.status(options)
+  } }
+  const result = await finishAudioTranscription(f.project, first.receipt, account, undefined, false,
+    { waitMs: 20, pollIntervalMs: 1, probe: shortMedia.probe })
+  expect(result).toMatchObject({ job_id: first.job_id, error_code: 'query-timeout', resume_status: { method: 'inspect' } })
+  expect(f.counts()).toEqual({ submits: 1, queries: 0 })
+})
+
+it('keeps the last confirmed status when the next poll falls outside the wait', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const pending = await finishAudioTranscription(f.project, first.receipt, f.account, undefined, false,
+    { waitMs: 400, pollIntervalMs: 30_000, probe: shortMedia.probe })
+  expect(pending).toMatchObject({ job_id: first.job_id, status: 'processing', resume_status: { method: 'inspect' } })
+  expect(pending.error_code).toBeUndefined()
+  expect(f.counts()).toEqual({ submits: 1, queries: 1 })
+})
+
+it('reports unconfirmed upload and remaining inputs, then safely continues the same batch', async () => {
+  const f = await setup(), another = join(f.project, 'source', 'next.mp4'), attempts: string[] = [], reads: string[] = []
+  await writeFile(another, 'next episode')
+  const account: AudioAccount = { ...f.account,
+    submitAudio: async (_file, id) => {
+      attempts.push(id)
+      if (attempts.length === 1) throw new MuseAsrError('upload-timeout')
+      return { id, status: 'processing' }
+    },
+    audioStatus: async (id) => { reads.push(id); return { id, status: 'processing', queued: true } },
+  }
+  const args = [f.project, [f.input, another], 'zh', account, config, shortMedia] as const
+  const first = await startAudioTranscriptionBatch(...args)
+  expect(first).toMatchObject({ items: [{ input: f.input, status: 'uncertain', error_code: 'upload-timeout', job_id: attempts[0],
+    resume_status: { method: 'inspect' } }], not_started: [another] })
+  expect(attempts).toHaveLength(1)
+  const followup = await startAudioTranscriptionBatch(...args)
+  expect(followup).toMatchObject({ items: [{ input: f.input, job_id: attempts[0], status: 'processing', queued: true },
+    { input: another, job_id: attempts[1], status: 'processing' }] })
+  expect(followup).not.toHaveProperty('not_started')
+  expect(attempts).toHaveLength(2)
+  expect(new Set(attempts).size).toBe(2)
+  expect(reads).toEqual(attempts.slice(0, 1))
+})
+
 it('does not wait through a no-query recovery blocker or start a recovery upload', async () => {
   const f = await setup()
   const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
@@ -1136,19 +1352,20 @@ it('cancels native waiting without a later query or publication', async () => {
   const f = await setup()
   const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
   const controller = new AbortController(), reason = new Error('stop waiting')
-  let queries = 0, timer: ReturnType<typeof setTimeout> | undefined
-  const account: AudioAccount = { ...f.account, audioStatus: async (id) => {
-    queries++
-    timer = setTimeout(() =>{  controller.abort(reason) }, 50)
-    return { id, status: 'processing' }
-  } }
+  const realDelay = timers.setTimeout
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(0)
+  const wait = vi.spyOn(timers, 'setTimeout').mockImplementationOnce(async (milliseconds, value, options) => {
+    const pending = realDelay(milliseconds, value, options)
+    controller.abort(reason)
+    return await pending
+  })
   try {
-    await expect(finishAudioTranscription(f.project, first.receipt, account, controller.signal, false,
-      { waitMs: 30_000, pollIntervalMs: 30_000, probe: shortMedia.probe })).rejects.toBe(reason)
-    expect(queries).toBe(1)
-    expect(f.counts().submits).toBe(1)
+    await expect(finishAudioTranscription(f.project, first.receipt, f.account, controller.signal, false,
+      { waitMs: 30_000, pollIntervalMs: 1000, probe: shortMedia.probe })).rejects.toBe(reason)
+    expect(wait).toHaveBeenCalledExactlyOnceWith(1000, undefined, { signal: controller.signal })
+    expect(f.counts()).toEqual({ submits: 1, queries: 1 })
     await expect(stat(join(f.project, 'transcript', 'raw'))).rejects.toMatchObject({ code: 'ENOENT' })
-  } finally { clearTimeout(timer) }
+  } finally { wait.mockRestore(); clock.mockRestore() }
 })
 
 const batchNote = '各集收据是上次查询的快照，不会自行刷新。按各集 resume_status 继续调用 audio_transcribe，inspect 可带 wait_seconds；把同一 inputs 原样再次 start 会沿用已有收据，不会重复计费。不要用 Bash 循环读取收据，也不要删除收据。'
@@ -1313,6 +1530,32 @@ it('returns complete and failed same-purpose receipts from a batch while a singl
   expect(result).not.toHaveProperty('polling_note')
   expect({ encodes: f.calls.encodes.length, submits: f.calls.submits.length }).toEqual(before)
   expect((await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)).receipt).toContain('ep1-v2.json')
+})
+
+it('refuses an unfinished reused receipt with a changed language', async () => {
+  const f = await setup()
+  const first = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
+  const receipt = await readFile(first.receipt, 'utf8')
+  await expect(startAudioTranscription(f.project, f.input, 'auto', f.account, config, shortMedia))
+    .rejects.toThrow('Check the original transcription receipt')
+  expect(f.counts()).toEqual({ submits: 1, queries: 0 })
+  expect(await readFile(first.receipt, 'utf8')).toBe(receipt)
+})
+
+it('refuses a completed batch receipt with a changed language', async () => {
+  const f = await episodes(1)
+  const input = f.inputs[0]!
+  const first = await startAudioTranscription(f.project, input, 'zh', f.account, config, f.media)
+  f.accepted.set(first.job_id, { id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: 'speech' }] })
+  const completed = await finishAudioTranscription(f.project, first.receipt, f.account, undefined, false)
+  const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'auto', f.account, config, f.media)
+  expect(result.items).toHaveLength(1)
+  const [item] = result.items
+  expect(item?.input).toBe(input)
+  expect(item && 'error' in item ? item.error : undefined).toContain('Check the original transcription receipt')
+  expect(f.calls.submits).toHaveLength(1)
+  expect(f.calls.queries).toEqual([first.job_id])
+  expect(JSON.parse(await readFile(completed.output_json!, 'utf8'))).toEqual([{ start: 0, end: 1, text: 'speech' }])
 })
 
 it('returns the latest complete same-purpose version of a source from a batch', async () => {

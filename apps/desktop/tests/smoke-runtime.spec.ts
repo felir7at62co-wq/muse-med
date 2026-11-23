@@ -10,6 +10,7 @@ import type { ToolBatchInput, ToolBatchResult, ToolExecutionResult } from '@deep
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { desktopSmokePluginSource, smokeDesktopRuntime, prepareDesktopSmokeSkills, assertOfficeSkillsLoadable } from '../scripts/smoke-runtime.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
+import { CREATION_SKILL_NAMES } from '../../desktop-host/src/creation-skills.ts'
 import { runtimeFixture } from './runtime-fixture.ts'
 
 const editingModelInput = JSON.parse(readFileSync(new URL('./expected/editing-model-input.json', import.meta.url), 'utf8')) as {
@@ -166,7 +167,7 @@ function fixture(packaged = false) {
     writeFileSync(path, '# fixture')
     skills.push({ name, path, source: 'bundled', invocation: { modelInvocable: true } })
   }
-  const creationSkills = [...skills]
+  const creationSkills = skills.filter(skill => skill.source !== 'bundled' || CREATION_SKILL_NAMES.includes(skill.name))
   const selected = new Set<string>()
   const agentFiber = { uid: 101 as number | null, state: 2, runtime: { name: 'scope' } }
   const agentCtx = { fiber: agentFiber }
@@ -1006,7 +1007,7 @@ it.each(['strict', 'development'] as const)('rejects incomplete smoke in %s mode
     if (mode === 'development') {
       expect(cliEntry).toBe(join(smokeEnvironment.DSH_HOME, 'desktop-cli.mjs'))
       expect(cliSource).toContain('import { runDesktopCli } from ')
-      expect(cliSource).toContain(`await runDesktopCli(${JSON.stringify(root)}, ${JSON.stringify(resources)})`)
+      expect(cliSource).toContain(`await runDesktopCli(${JSON.stringify(resources)})`)
     } else {
       expect(cliEntry).toBe(join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js'))
       expect(cliSource).toBeUndefined()

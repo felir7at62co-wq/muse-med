@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { draftDirectory } from './draft-directory.ts'
 import { DramaSettingsSchema, type DramaDeliverySpec } from './settings.ts'
-import { PROJECT_BIBLE_CHANGES, readProjectBible, previewProjectBible, updateProjectBible } from './project-bible.ts'
+import { PROJECT_BIBLE_CHANGES, readProjectBible, previewProjectBible, updateProjectBible, createProjectBinding } from './project-bible.ts'
 import type { ProjectBudgetReader } from './project-bible.ts'
 import { standaloneScriptTool } from './standalone-script.ts'
 
@@ -103,14 +103,25 @@ export function apply(ctx: Context, config?: Config): void {
         } } },
       } } }, bgm_feedback: PROJECT_BIBLE_CHANGES.bgm_feedback,
     } : PROJECT_BIBLE_CHANGES
+    const actions = ['read', 'preview', 'update'] as const
+    const migrationFields = local ? {} : {
+      migration_from: { type: 'object', additionalProperties: false,
+        description: 'Preview/update to a different empty directory. Copy creative settings and local character identities while retaining the original project.',
+        properties: {
+          project_dir: { type: 'string', required: true, description: 'Existing absolute source project directory.' },
+          script_id: { type: 'integer', required: true, description: 'Verified source Jubian script ID, different from the target in changes.' },
+        } },
+    } as const
     toolCtx.effect(() => toolCtx.tools.register(defineTool({
       name: 'drama_project',
       description: local ? 'Read, preview or update the local project bible, episode plan, character identities, aspect ratio, visual style and delivery settings. Historical provider identifiers belong to the original project. For operations on a Jingliu project use jingliu_workflows and its project ID.'
-        : 'Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. Preserves legacy project bindings, stable package/storyboard IDs, completed tasks and version history. Validate exact model/platform/ratio/resolution through Jubian catalogue tools before selecting video settings.',
+        : 'Read a project bible, preview confirmed changes, save the reviewed revision or create a minimal Jubian binding. Verify the project ID, model and video settings through Jubian before production.',
       parameters: {
-        action: { type: 'string', required: true, enum: ['read', 'preview', 'update'] },
+        action: { type: 'string', required: true, enum: local ? actions : [...actions, 'bind_only'] as const,
+          ...(local ? {} : { description: 'For bind_only, verify that the directory belongs to the target project and has no project_config.json. Pass only changes.jubian_script_id.' }) },
         project_dir: { type: 'string', required: true, description: 'Existing absolute project directory.' },
         changes: { type: 'object', additionalProperties: false, properties: changeFields, description: 'Fields to merge for preview/update; omit for read.' },
+        ...migrationFields,
         reason: { type: 'string', description: 'Preview/update reason recorded in version history.' },
         expected_revision: { type: 'string', description: 'Update only: exact current-file revision from preview, including missing for first creation.' },
         preview_fingerprint: { type: 'string', description: 'Update only: fingerprint from the same reviewed preview.' },
@@ -121,15 +132,26 @@ export function apply(ctx: Context, config?: Config): void {
       },
       execute: async (args, exec) => {
         const budget = local ? undefined : toolCtx.get('jubianBudget') as ProjectBudgetReader | undefined
-        if (args.action === 'read') return await readProjectBible(toolCtx.settings, args.project_dir, budget)
+        if (args.action === 'bind_only') {
+          const changes = args.changes
+          if (args.migration_from !== undefined || !changes || Object.keys(changes).length !== 1
+            || !('jubian_script_id' in changes) || typeof changes.jubian_script_id !== 'number')
+            throw new Error('bind_only requires exactly changes.jubian_script_id and no migration_from.')
+          return await createProjectBinding(args.project_dir, changes.jubian_script_id, exec.signal)
+        }
+        if (args.action === 'read') {
+          if (args.migration_from !== undefined) throw new Error('migration_from is only valid for preview/update.')
+          return await readProjectBible(toolCtx.settings, args.project_dir, budget)
+        }
         if (!args.changes || !args.reason) throw new Error('Preview/update requires changes and reason.')
         if (local && Object.keys(args.changes).some(key => !Object.hasOwn(changeFields, key))) {
           throw new Error('The local project bible accepts only local production metadata.')
         }
-        if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason, budget)
+        if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir,
+          args.changes, args.reason, budget, args.migration_from)
         if (!args.expected_revision || !args.preview_fingerprint) throw new Error('Update requires the expected_revision and preview_fingerprint from preview.')
         return await updateProjectBible(toolCtx.settings, args.project_dir, args.changes, args.reason,
-          args.expected_revision, args.preview_fingerprint, exec.signal, budget)
+          args.expected_revision, args.preview_fingerprint, exec.signal, budget, args.migration_from)
       },
     })))
   })

@@ -29,6 +29,7 @@ async function mount(options: {
   qaStore?: boolean
   services?: Readonly<Record<string, unknown>>
   videoSelection?: Pick<JubianVideoSelection, 'initialize' | 'catalogue' | 'ask' | 'reconcile' | 'assertCurrent'>
+    & Partial<Pick<JubianVideoSelection, 'selectionFor'>>
 } = {})
   : Promise<{ registered: Registered[]; mounted: unknown[]; root: string }> {
   const registered: Registered[] = []
@@ -600,6 +601,27 @@ it('requires a conversation and an active video-selection service at registered 
   await expect(board.execute({ method: 'prepare_video', storyboard_id: 1, project_dir: '/unused' }, { agent: {} }))
     .rejects.toThrow('selection unavailable')
 })
+it.each([true, false])('forwards the current session video selection on asset binding when present=%s', async (selected) => {
+  const selection = { key: '61:480p', modelId: 'fixture-model', modelName: 'Fixture model',
+    platformId: 'fixture-platform', standardId: 61, resolution: '480p', genTypes: [3],
+    ratios: ['9:16'], maxDurationSeconds: 30, revision: 1 }
+  const videoSelection = { initialize: vi.fn(async () => null), catalogue: vi.fn(async () => []),
+    ask: vi.fn(async () => ({ action: 'unchanged' as const, selection: null, paid_requests: 0 as const })),
+    reconcile: vi.fn(async () => {}), assertCurrent: vi.fn(), selectionFor: vi.fn(() => selected ? selection : null) }
+  const executor = vi.spyOn(Methods, 'storyboardMethod').mockResolvedValue({ status: 'bound' })
+  onTestFinished(() => { executor.mockRestore() })
+  const { registered } = await mount({ config: { sessionVideoSelection: true }, videoSelection })
+  const board = registered.find(tool => tool.name === 'jubian_storyboard')!
+  const session = { id: 'selection-fixture' }, signal = new AbortController().signal
+  await expect(board.execute({ method: 'select_assets', storyboard_id: 1, selections: [],
+    idempotency_key: 'bind-fixture' }, { agent: { session }, signal })).resolves.toEqual({ status: 'bound' })
+  expect(videoSelection.selectionFor).toHaveBeenCalledWith(session)
+  const deps = executor.mock.calls[0]?.[3]
+  expect(deps?.selectionVideoModel).toEqual(selected ? selection : undefined)
+  expect(Object.hasOwn(deps ?? {}, 'selectionVideoModel')).toBe(selected)
+  expect(videoSelection.reconcile).not.toHaveBeenCalled()
+})
+
 it('dispatches model reads and explicit questions and hands the frozen paid model to the selection guard', async () => {
   const videoSelection = { initialize: vi.fn(async () => null), catalogue: vi.fn(async () => []),
     ask: vi.fn(async () => ({ action: 'unchanged' as const, selection: null, paid_requests: 0 as const })),

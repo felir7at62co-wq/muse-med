@@ -28,6 +28,7 @@ import type { VideoSourceOptions } from './video-sources.ts'
 import { join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianLedgerRecord, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import {
   assertImageReferenceConsistency, buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
   classifyNewNativeCandidates, isExplicitUnusedSubject, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
@@ -37,8 +38,9 @@ import {
 } from '@deepseek-ai/dsh-jubian-api'
 import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { acceptedWriteResponse, bodyHash, estimatedCostReservation, need, requireKey, writeUnderLedger } from './write.ts'
-import type { CostEstimate } from './write.ts'
+import { acceptedWriteResponse, bodyHash, checkedWriteBudget, estimatedCostReservation, need, recordedWriteBudget, requireKey, writeUnderLedger } from './write.ts'
+import type { CostEstimate, WriteBudgetReceipt } from './write.ts'
+import type { VideoModelOption } from './video-session-types.ts'
 import { atomicWriteJson } from './json-file.ts'
 import { assertSelectionReady, clearReselection } from './reselection.ts'
 export { atomicWriteJson } from './json-file.ts'
@@ -54,6 +56,13 @@ const MAX_HYDRATED_TASKS = 100
 
 /** The project binding every prepared preview must satisfy. */
 interface ProjectBinding { project_root: string; script_id: number }
+
+/** The local configuration cannot establish the intended remote project. */
+class JubianProjectBindingError extends HarnessError {
+  constructor(detail: string) {
+    super(`Muse 无法核对本地项目绑定: ${detail}`, 'PROJECT_BINDING_INVALID')
+  }
+}
 
 /** Refuse one call whose input or provider state does not match the contract. */
 function fail(): never { throw new JubianError('CONTRACT_CHANGED') }
@@ -81,6 +90,28 @@ export function positiveInteger(value: unknown): number {
     throw new JubianError('CONTRACT_CHANGED')
   }
   return candidate
+}
+
+/** The axes that identify the video option chosen in the Session. */
+export type SelectedVideoOption = Pick<VideoModelOption, 'modelId' | 'platformId' | 'standardId' | 'resolution'>
+
+function selectedModelReadback(storyboard: Record<string, unknown>, selection: SelectedVideoOption | undefined) {
+  if (selection === undefined) return undefined
+  const modelConfig = object(typeof storyboard.modelConfig === 'string'
+    ? JSON.parse(storyboard.modelConfig) : storyboard.modelConfig)
+  const expected = { modelId: selection.modelId, platformId: selection.platformId,
+    standardId: String(selection.standardId), resolution: selection.resolution }
+  const actual = {
+    modelId: wireText(modelConfig.modelId),
+    platformId: wireText(modelConfig.platformId),
+    standardId: wireText(modelConfig.standardId),
+    resolution: wireText(modelConfig.resolution),
+    videoStandardId: wireText(modelConfig.videoStandardId) || wireText(modelConfig.modelVideoStandardId),
+  }
+  const fields = ['modelId', 'platformId', 'standardId', 'resolution'] as const
+  const differingFields = fields.filter(field => expected[field] !== actual[field])
+  return { status: differingFields.length === 0 ? 'matches_session' : 'differs_from_session',
+    expected, actual, differing_fields: differingFields }
 }
 
 /**
@@ -171,15 +202,19 @@ function checkedInventoryPage(response: JubianResponse, knownTotal: number | nul
  *
  * Page totals are cross-checked and duplicate stable ids are refused, because
  * the before/after id sets are the only boundary that can claim a task: an
- * incomplete list would turn "this task is new" into a guess.
+ * incomplete list would turn "this task is new" into a guess. A selection audit
+ * can count repeated same-page type-3 history rows toward the reported total,
+ * since those rows cannot represent a generated video for the selection.
  * @param client - Jubian transport.
  * @param scriptId - Project id.
- * @param signal - Optional cancellation of provider reads.
+ * @param options - Cancellation or the free selection audit mode.
  * @returns Every task record the provider lists, in provider order.
  */
-async function listAllVideoTasks(client: JubianClient, scriptId: number, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+async function listAllVideoTasks(client: JubianClient, scriptId: number,
+  options: { signal?: AbortSignal | undefined; selectionAudit?: true } = {}): Promise<Record<string, unknown>[]> {
+  const { signal, selectionAudit } = options
   const collected: Record<string, unknown>[] = []
-  const stable = new Set<string>()
+  const taskPages = new Map<string, number | null>()
   let knownTotal: number | null = null
   for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum += 1) {
     signal?.throwIfAborted()
@@ -191,8 +226,14 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number, signal?
     for (const record of page.rows) {
       const taskId = taskIdOf(record)
       if (taskId === null) throw new JubianError('CONTRACT_CHANGED', 'Video task list contains a row without a stable ID')
-      if (stable.has(taskId)) throw new JubianError('CONTRACT_CHANGED')
-      stable.add(taskId)
+      const historyPage = selectionAudit === true && page.total !== null
+        && wireText(record.taskType) === '3' && wireText(record.scriptId) === String(scriptId) ? pageNum : null
+      const previousPage = taskPages.get(taskId)
+      if (previousPage !== undefined && (historyPage === null || previousPage !== historyPage)) {
+        throw new JubianError('CONTRACT_CHANGED', selectionAudit
+          ? `Duplicate video task ID on inventory page ${String(pageNum)}.` : undefined)
+      }
+      taskPages.set(taskId, historyPage)
       collected.push(record)
     }
     const complete = completeInventoryPage(page, collected, knownTotal, TASK_PAGE_SIZE)
@@ -442,13 +483,42 @@ function statesStoryboard(record: Record<string, unknown>, storyboardId: number)
   return wireText(taskSemanticFields(record).storyboardId) === String(storyboardId)
 }
 
+/** Complete episode axes conflict when only one of the ID and number matches. */
+function conflictingEpisode(actual: NativeEpisodeScope, expected: NativeEpisodeScope): boolean {
+  return actual.episodeId !== null && expected.episodeId !== null
+    && actual.episodeCount != null && expected.episodeCount != null
+    && (actual.episodeId === expected.episodeId) !== (actual.episodeCount === expected.episodeCount)
+}
+
+/** Only task/project-correlated evidence can establish another storyboard. */
+function belongsToAnotherStoryboard(task: Record<string, unknown>, children: Record<string, unknown>[],
+  taskId: string, scriptId: number, storyboardId: number): boolean {
+  const matches = (value: unknown, expected: string) => value == null || value === '' || wireText(value) === expected
+  const project = String(scriptId)
+  if (![task.id, task.taskId, task.aigcVideoTaskId].every(value => matches(value, taskId))
+    || !matches(task.scriptId, project)
+    || children.some(child => !matches(child.aigcVideoTaskId, taskId) || !matches(child.scriptId, project))) return false
+  const different = (value: unknown) => value != null && value !== '' && positiveInteger(value) !== storyboardId
+  return different(task.storyboardId) || (children.length > 0 && children.every(child => different(child.storyboardId)))
+}
+
+/** Report only task identity and validated episode axes; this read never authorizes a replacement PUT. */
+function episodeConflict(taskId: string, storyboardId: number, actual: NativeEpisodeScope,
+  expected: NativeEpisodeScope, ownership: 'same_storyboard' | 'unverified'): never {
+  throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID', `VIDEO_EPISODE_CONFLICT: task_id=${taskId}; storyboard_id=${storyboardId}; `
+    + `ownership=${ownership}; task_episode_id=${actual.episodeId}; task_episode_count=${actual.episodeCount ?? null}; `
+    + `preview_episode_id=${expected.episodeId}; preview_episode_count=${expected.episodeCount ?? null}; `
+    + 'read_only=true; reconcile task ownership before submitting; keep the original preview and key.')
+}
+
 /**
  * Hydrate every task of one snapshot that is provably this storyboard's.
  *
  * A project holds the tasks of every storyboard it ever submitted, and most task rows
  * state no `storyboardId`. Such a row is this storyboard's only when its detail or one
- * child result names this storyboard; a row that proves neither belongs to another
- * storyboard, and its empty child list says nothing about this submission.
+ * child result names this storyboard. Conflicting episode axes require confirmed
+ * ownership before exclusion; missing ownership remains blocked. All retained rows
+ * count toward the hydration limit, including unresolved episode conflicts.
  * @param client - Jubian transport.
  * @param records - A complete task snapshot.
  * @param scriptId - Project id.
@@ -459,20 +529,30 @@ function statesStoryboard(record: Record<string, unknown>, storyboardId: number)
  */
 async function hydrateRelated(client: JubianClient, records: Record<string, unknown>[],
   scriptId: number, storyboardId: number, episode: NativeEpisodeScope, signal?: AbortSignal): Promise<HydratedTask[]> {
-  const related = records.filter((record) => {
-    if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) return false
-    return matchesNativeEpisode(record, episode)
+  const related = records.filter(record => isRelatedTaskCandidate(record, scriptId, storyboardId)).flatMap((record) => {
+    const scope = nativeEpisodeScope(record), conflict = conflictingEpisode(scope, episode)
+    return statesStoryboard(record, storyboardId) || conflict || matchesNativeEpisode({ ...scope }, episode)
+      ? [{ record, scope, conflict }] : []
   })
   if (related.length > MAX_HYDRATED_TASKS) throw new JubianError('VIDEO_TASK_EVIDENCE_INVALID',
     `VIDEO_TASK_SCAN_LIMIT: storyboard ${storyboardId} has ${related.length} candidate tasks after episode filtering (limit ${MAX_HYDRATED_TASKS}; episodeId=${episode.episodeId}, episodeCount=${episode.episodeCount ?? null}). Reconcile task ownership or repair missing episode fields before submitting. This check is read-only; keep the original preview and key.`)
   const hydrated: HydratedTask[] = []
-  for (const record of related) {
+  for (const { record, scope, conflict } of related) {
     const taskId = taskIdOf(record) as string
     signal?.throwIfAborted()
     const task = await taskDetail(client, taskId, signal)
-    const children = childrenOf(await listSubtasks(client, taskId, signal), storyboardId)
-    if (children.length === 0 && !statesStoryboard(record, storyboardId)
-      && !statesStoryboard(task, storyboardId)) continue
+    const allChildren = await listSubtasks(client, taskId, signal), children = childrenOf(allChildren, storyboardId)
+    if (children.length === 0 && !statesStoryboard(record, storyboardId) && !statesStoryboard(task, storyboardId)) {
+      if (conflict && !belongsToAnotherStoryboard(task, allChildren, taskId, scriptId, storyboardId)) {
+        episodeConflict(taskId, storyboardId, scope, episode, 'unverified')
+      }
+      continue
+    }
+    for (const actual of [scope, nativeEpisodeScope(task)]) {
+      if (conflictingEpisode(actual, episode) || !matchesNativeEpisode({ ...actual }, episode)) {
+        episodeConflict(taskId, storyboardId, actual, episode, 'same_storyboard')
+      }
+    }
     hydrated.push({ taskId, task, children })
   }
   return hydrated
@@ -533,18 +613,41 @@ function claimReport(claim: NativeClaim): VideoClaimReport {
  * @param projectDir - The project directory the preview will be written into.
  * @param scriptId - The live storyboard's project id.
  * @returns The resolved project root and the configured project id.
- * @throws {JubianError} `CONTRACT_CHANGED` when the file is missing, invalid or bound to another project.
+ * @throws {JubianProjectBindingError} `PROJECT_BINDING_INVALID` for local configuration failures.
+ * @throws {JubianError} `CONTRACT_CHANGED` for an invalid target ID.
  */
 export async function validateProjectBinding(projectDir: string, scriptId: unknown): Promise<ProjectBinding> {
   const projectRoot = resolve(projectDir)
   let text: string
   try {
     text = await readFile(join(projectRoot, 'project_config.json'), 'utf8')
-  } catch { throw new JubianError('CONTRACT_CHANGED') }
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      throw new JubianProjectBindingError('未找到 project_config.json。请打开包含该文件的原项目目录。')
+    }
+    throw new JubianProjectBindingError('无法读取 project_config.json。请检查它是否为可读文件。')
+  }
   let parsed: unknown
-  try { parsed = JSON.parse(text.replace(/^\uFEFF/, '')) } catch { throw new JubianError('CONTRACT_CHANGED') }
-  const configured = positiveInteger(object(parsed).jubian_script_id)
-  if (configured !== positiveInteger(scriptId)) throw new JubianError('CONTRACT_CHANGED')
+  try {
+    parsed = JSON.parse(text.replace(/^\uFEFF/u, ''))
+  } catch (_error) {
+    throw new JubianProjectBindingError('project_config.json 不是有效的 JSON。请核对原项目的配置文件。')
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new JubianProjectBindingError('project_config.json 必须是 JSON 对象。请核对原项目的配置文件。')
+  }
+  if (!('jubian_script_id' in parsed)) {
+    throw new JubianProjectBindingError('project_config.json 缺少 jubian_script_id。请核对原项目的配置文件。')
+  }
+  let configured: number
+  try {
+    configured = positiveInteger(parsed.jubian_script_id)
+  } catch (_error) {
+    throw new JubianProjectBindingError('project_config.json 的 jubian_script_id 必须是正整数。请核对原项目的配置文件。')
+  }
+  if (configured !== positiveInteger(scriptId)) {
+    throw new JubianProjectBindingError('project_config.json 的 jubian_script_id 与目标剧变项目不符。请打开和目标匹配的项目目录。')
+  }
   return { project_root: projectRoot, script_id: configured }
 }
 
@@ -742,19 +845,33 @@ signal?: AbortSignal): Promise<Record<string, unknown>> {
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。预算和预览指纹不代表提交授权。` }
 }
 
+async function selectionStage<T>(stage: string, recovery: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    if (!(error instanceof JubianError)) throw error
+    const detail = [`select_assets stage=${stage}.`, recovery]
+    if (error.responseEvidence !== undefined) detail.push(`HTTP ${String(error.responseEvidence.httpStatus)}.`)
+    if (error.detail !== undefined) detail.push(error.detail)
+    throw new JubianError(error.code, detail.join(' '), error.responseEvidence)
+  }
+}
+
 /**
  * Select the storyboard's subject assets and save them with generation disabled.
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger.
  * @param args - `storyboard_id`, ordered `selections` and the caller's `idempotency_key`.
+ * @param expectedModel - The invoking conversation's selected video model, if present.
  * @returns The before/after state, the read-back verification and the task audit.
- * @throws {JubianError} `CONTRACT_CHANGED` when any identity, order or read-back rule fails.
+ * @throws {JubianError} `CONTRACT_CHANGED` when an identity, order or readback rule fails. Diagnostics
+ * distinguish a task audit before any save from an unverified save response or a failed audit after the write.
  */
 export async function selectAssetsMethod(client: JubianClient, ledger: JubianLedger, args: {
   storyboard_id?: number | undefined
   selections?: SubjectSelectionRequest[] | undefined
   idempotency_key?: string | undefined
-}): Promise<Record<string, unknown>> {
+}, expectedModel?: SelectedVideoOption): Promise<Record<string, unknown>> {
   const key = requireKey(args.idempotency_key)
   const storyboardId = positiveInteger(need(args.storyboard_id))
   const storyboard = await storyboardSnapshot(client, storyboardId)
@@ -767,15 +884,20 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
     parents.push(await parentAsset(client, assetId))
   }
   const plan = buildSubjectSelection({ storyboard, selections, subjectRows, parentAssets: parents })
+  const modelMismatch = '卡片回读的模型设置与本次会话选择不一致。查看 video_model_readback，先准备并核对模型设置，再决定是否生成。'
   if (plan.status === 'already_applied') {
     await clearReselection(ledger, scriptId, storyboardId, (typeof storyboard.modelConfig === 'string'
       ? JSON.parse(storyboard.modelConfig) as Record<string, unknown> : object(storyboard.modelConfig)).prompt)
+    const modelReadback = selectedModelReadback(storyboard, expectedModel)
     return { operation: plan.operation, status: 'already_applied', applied: false,
       scriptId: plan.scriptId, storyboardId: plan.storyboardId, before: plan.before, after: plan.after,
       verified_readback: verifySubjectSelection(storyboard, plan.after).verified_readback,
-      next: '分镜已经保存的就是这个选择：没有发送 PUT，也没有收费。' }
+      ...(modelReadback === undefined ? {} : { video_model_readback: modelReadback }),
+      next: '分镜已经保存的就是这个选择：没有发送 PUT，也没有收费。'
+        + (modelReadback?.status === 'differs_from_session' ? modelMismatch : '') }
   }
-  const beforeRecords = await listAllVideoTasks(client, scriptId)
+  const beforeRecords = await selectionStage('before_save_task_audit', 'No selection PUT was sent by this call.',
+    () => listAllVideoTasks(client, scriptId, { selectionAudit: true }))
   const beforeIds = new Set<string>()
   for (const record of beforeRecords) {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) continue
@@ -784,8 +906,12 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   }
   const result = await writeUnderLedger(ledger, key, 'storyboard_select_assets',
     () => plan.payload,
-    payload => client.request({ method: 'PUT', path: '/aigc/storyboard', body: payload as Record<string, unknown> }))
-  const afterRecords = await listAllVideoTasks(client, scriptId)
+    payload => selectionStage('save_response',
+      'Read back the storyboard and check for new video tasks before continuing. Keep the original key.',
+      () => client.request({ method: 'PUT', path: '/aigc/storyboard', body: payload as Record<string, unknown> })))
+  const afterRecords = await selectionStage('after_save_task_audit',
+    'The selection write was recorded. Keep the original key and verify the storyboard and task inventory before continuing.',
+    () => listAllVideoTasks(client, scriptId, { selectionAudit: true }))
   const newRelated: string[] = []
   for (const record of afterRecords) {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) continue
@@ -800,14 +926,18 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
     `POST_PUT_VERIFY_MISMATCH: selection PUT accepted; expected=${JSON.stringify(plan.after.orderedMaterials)}, actual=${JSON.stringify(verification.verified_readback)}; referenceSources=${JSON.stringify(verification.source_matches)}; materialHashChanged=${plan.after.orderedMaterialsSha256 !== verification.state.orderedMaterialsSha256}; promptChanged=${plan.after.promptSha256 !== verification.state.promptSha256}. Read the storyboard to reconcile; do not submit video or assume the write failed.`)
   if (newRelated.length === 0) await clearReselection(ledger, scriptId, storyboardId, (typeof verified.modelConfig === 'string'
     ? JSON.parse(verified.modelConfig) as Record<string, unknown> : object(verified.modelConfig)).prompt)
+  const modelReadback = selectedModelReadback(verified, expectedModel)
   return { ...result, operation: plan.operation, scriptId, storyboardId,
     before: plan.before, after: plan.after, verification, verified_readback: verification.verified_readback,
+    ...(modelReadback === undefined ? {} : { video_model_readback: modelReadback }),
     status: newRelated.length > 0 ? 'billing_safety_violation' : 'applied',
     applied: true, paid_requests: 0,
     next: newRelated.length > 0
       ? `选择保存（isGenerate=0）不应创建任务，但出现了新任务 ${newRelated.join(', ')}：立即停机人工核对，`
         + '不要再调用 prepare_video/submit_video。'
-      : '选择已保存并回读一致（isGenerate=0，未收费）。下一步是 prepare_video。' }
+      : modelReadback?.status === 'differs_from_session'
+        ? '素材已保存并回读一致（isGenerate=0，未收费）。' + modelMismatch
+        : '选择已保存并回读一致（isGenerate=0，未收费）。下一步是 prepare_video。' }
 }
 
 /**
@@ -907,6 +1037,8 @@ export interface RecordedVideoReconciliation extends VideoClaimReport {
   replayed: true
   idempotency_key: string
   outcome: 'accepted' | 'unknown' | 'not_sent'
+  /** Original reservation without a repeated authorization check or current project totals. */
+  budget: WriteBudgetReceipt
 }
 
 function assertRecordedVideo(recorded: JubianLedgerRecord, preview: NativeVideoPreview): void {
@@ -919,13 +1051,14 @@ function assertRecordedVideo(recorded: JubianLedgerRecord, preview: NativeVideoP
 async function reconcileNativePreview(client: JubianClient, recorded: JubianLedgerRecord,
   preview: NativeVideoPreview, previewPath: string, signal?: AbortSignal): Promise<RecordedVideoReconciliation> {
   assertRecordedVideo(recorded, preview)
-  const records = await listAllVideoTasks(client, preview.scriptId, signal)
+  const records = await listAllVideoTasks(client, preview.scriptId, { signal })
   const hydrated = await hydrateRelated(client, records, preview.scriptId, preview.storyboardId,
     nativeEpisodeScope(preview.payload), signal)
   const claim = recorded.before_task_ids === undefined
     ? classifyExistingNativeMatches(hydrated, expectationOf(preview, []))
     : classifyNewNativeCandidates(hydrated, expectationOf(preview, recorded.before_task_ids))
   return { replayed: true, outcome: recorded.outcome ?? 'unknown', response_sha256: recorded.response_sha256,
+    budget: recordedWriteBudget(recorded),
     preview_path: previewPath, idempotency_key: preview.idempotencyKey, ...claimReport(claim),
     next: `同一个 idempotency_key 已有一条记录（outcome=${recorded.outcome ?? 'unknown'}），`
       + '因此不会再发送任何 PUT。上面是对账结果：submitted 表示这次提交确实已经创建了任务；'
@@ -996,7 +1129,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
   await assertSelectionReady(ledger, live.scriptId, live.storyboardId, object(JSON.parse(String(live.payload.modelConfig))).prompt)
   if (live.idempotencyKey !== preview.idempotencyKey) throw new JubianError('CONTRACT_CHANGED')
 
-  const preflightRecords = await listAllVideoTasks(client, preview.scriptId, signal)
+  const preflightRecords = await listAllVideoTasks(client, preview.scriptId, { signal })
   const preflight = await hydrateRelated(client, preflightRecords, preview.scriptId,
     preview.storyboardId, nativeEpisodeScope(preview.payload), signal)
   const expectation = expectationOf(preview, [])
@@ -1024,7 +1157,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
         + '保留原 preview，并用 original_idempotency_key 只读对账；旧文件缺失或远端任务暂未出现不允许换新 key 再付费。' }
   }
 
-  const beforeRecords = await listAllVideoTasks(client, preview.scriptId, signal)
+  const beforeRecords = await listAllVideoTasks(client, preview.scriptId, { signal })
   const firstIds = preflightRecords.map(taskIdOf).filter((value): value is string => value !== null).sort()
   const secondIds = beforeRecords.map(taskIdOf).filter((value): value is string => value !== null).sort()
   if (beforeRecords.length !== preflightRecords.length || stableJson(firstIds) !== stableJson(secondIds)) {
@@ -1061,7 +1194,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
           envelope_layout: 'unparsed', data: null }
       }
       try {
-        const afterRecords = await listAllVideoTasks(client, preview.scriptId, signal)
+        const afterRecords = await listAllVideoTasks(client, preview.scriptId, { signal })
         // The tasks that appeared across the PUT, whether or not any of them could be
         // claimed. An accepted PUT that claims nothing still created a task and may
         // already have billed it, so these ids are the caller's only handle on it.
@@ -1362,6 +1495,7 @@ Promise<VideoBatchReport> {
     item.beforeTaskIds = secondRecords.filter(record => isRelatedTaskCandidate(record, item.preview.scriptId,
       item.preview.storyboardId)).map(taskIdOf).filter((id): id is string => id !== null)
   }
+  const budgetReceipts: WriteBudgetReceipt[] = []
   await ledger.beginManyChecked(keys, async () => {
     const decisions = await Promise.all(items.map(item => checkBudget({ ledger,
       method: 'storyboard_native_submit', scriptId: item.preview.scriptId, quote: estimatedCostReservation(item) })))
@@ -1379,6 +1513,7 @@ Promise<VideoBatchReport> {
     if (aggregate.status === 'refused') throw new JubianError('BUDGET_EXCEEDED', aggregate.reason)
     await Promise.all(items.map(item => assertNoEpisodePaidHold(item.preview_path, item.preview)))
     for (const item of items) assertModel?.(object(JSON.parse(String(item.preview.payload.modelConfig))))
+    budgetReceipts.push(...decisions.map(decision => checkedWriteBudget('storyboard_native_submit', decision)))
     return items.map((item, index) => {
       const budget = budgets[index] as { amount: string; unit: string }
       return { idempotencyKey: item.idempotency_key,
@@ -1420,6 +1555,7 @@ Promise<VideoBatchReport> {
     const submitted = report?.status === 'submitted'
     return { preview_path: item.preview_path, idempotency_key: item.idempotency_key,
       storyboard_id: item.preview.storyboardId, replayed: false, put_sent: true,
+      budget: budgetReceipts[index] as WriteBudgetReceipt,
       outcome: write.outcome, response_sha256: write.response_sha256,
       status: submitted ? 'submitted' : 'reconcile_required',
       task_id: submitted ? report.task_id : null, put_ambiguous: write.put_ambiguous,

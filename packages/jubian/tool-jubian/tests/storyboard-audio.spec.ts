@@ -1045,6 +1045,16 @@ it('retains legacy unphased binding compatibility when deletion evidence is unav
   expect(writes()).toHaveLength(1)
 })
 
+it.each([{ delFlag: '0', deleted: true }, { delFlag: '1', deleted: false }, { delFlag: true }, { delFlag: null }])(
+  'refuses explicitly conflicting or unreadable deletion flags on legacy preview and apply: %j', async (flags) => {
+    const reference = { ...voice, audio_asset_id: 77 }
+    const plan = await preview([reference])
+    assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl, ...flags })
+    await expect(preview([reference])).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    await expect(apply(plan)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(writes()).toEqual([])
+  })
+
 
 it('keeps same-name references separate by their keys, URLs and group order', async () => {
   const first: Row = { ...voice, materialKey: 'voice-a', materialName: '同一显示名' }

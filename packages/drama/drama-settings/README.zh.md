@@ -14,6 +14,7 @@ kind: "package-bundle"
 ## 目录
 
 - [使用本包](#use-this-package)
+- [迁移到另一个制作项目](#project-migration)
 - [理解实现](#understand-the-implementation)
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
@@ -50,6 +51,8 @@ kind: "package-bundle"
 
 桌面版配置 `localProjectOnly: true` 时，可继续编辑本地剧名、人物、美术风格、分集计划、画幅、交付规格与配乐反馈。已有供应商标识留存在原文件。镜流制作使用镜流项目标识。剪映草稿目录和交付设置仍可在**设置 → 短剧**中修改。
 
+关闭 `localProjectOnly` 后，可以使用以下绑定流程。已有远端项目且已核对本地工作目录归属、但目录缺少 `project_config.json` 和 `project-bible.md` 时，可用 `drama_project action=bind_only` 指定该目录与 `changes: { jubian_script_id: <已核实的ID> }`，只建立本地绑定。该操作不覆盖已有配置，不创建项目圣经，也不写预算或交付默认值。调用前核对目录实际属于目标项目，不凭目录名称推断归属。报错时先回读同一目录的配置，确认是否已创建及实际 ID 再决定是否重试；不支持硬链接的文件系统会报错。完整项目设置仍使用预览和更新流程。
+
 `drama_project` 在已有绝对项目目录中读取、预览和更新项目。没有结构化圣经时，`read` 返回 `unconfigured`，保留旧配置并给出当前 Settings 默认值，不创建文件。新项目记录交付默认值与不可变的 `initial_budget_cents` 初始快照。`current_settings_budget_cents` 返回默认值；已绑定项目还返回来自计费调用同一授权来源的实时 `budget` 账务。明确项目额度覆盖默认值。可编辑项目 JSON 不复制当前金额；工具返回的 Markdown 包含实时回读，磁盘圣经指向实际授权。通过 `jubian_budget` 或项目预算编辑器调整额度。`preview` 合并已确认的修改并列出受影响阶段；`update` 要求相同 changes/reason、精确 `expected_revision` 和匹配的 `preview_fingerprint`。
 
 `project_config.json` 是权威数据。`project_bible` 保存风格、明确的视觉类型、比例、精确视频模型/平台/生成分辨率、独立的交付宽高/帧率/码率、灵活分集计划、可选角色身份与已确认声音描述、稳定视频包与分镜映射、已完成任务引用和版本历史。风格接受自由文本，保留已确认的自填答案。顶层 `jubian_script_id` 与 `delivery.max_effective_chars_per_shot` 继续供现有读取方使用。其他旧字段在更新后保留。已有项目和视频包绑定不能被静默替换；已完成任务引用只追加，不抹掉旧记录。
@@ -73,6 +76,13 @@ kind: "package-bundle"
 `voice_profiles` 保存同一 `character_id` 在童年、成年等不同人生时期的独立声线。每项包含唯一且非空的 `voice_period_id`、可选 `label` 及相同的平铺声音字段；新时期须提供 `description`。更新按时期 ID 合并，保留其他时期和旧 `voice_profile`。省略该数组或传 `[]` 不删除时期。`reference_audio: null` 只清除该时期的引用字段。服装和情绪变化不代表不同声音时期。删除检查分别报告每个仍引用资产的时期。
 
 工具在项目独占写入锁下原子替换 JSON，再原子替换派生的 `project-bible.md`。两次替换均通过共享原子写入器请求 `0600` mode；Windows 暂态重命名干扰有界重试，持续失败仍拒绝并保留原目标字节。含符号链接或 junction 的路径被拒绝。文件版本过期、预览被改、字段无效或锁被占用时，两份输出都不改变。JSON 提交后 Markdown 渲染失败时，错误给出已提交版本；重试前先读配置。遗留 `.project-bible.lock` 需检查后才能手工删除。视频选择仍须由实时剧变目录及准备工具验证；存储的声音指导不保证提供方能强制相同生成音色。
+
+<a id="project-migration"></a>
+### 迁移到另一个制作项目
+
+关闭 `localProjectOnly` 且用户明确要求迁移到另一个剧变项目时，先核实两个远端项目 ID，再预先创建空的独立本地目标目录。调用 `drama_project action=preview`，将 `project_dir` 设为目标目录，传入 `migration_from: { project_dir: <来源目录>, script_id: <来源ID> }`，并将 `changes.jubian_script_id` 设为不同的目标 ID。应用预览时使用相同的 `migration_from`、changes 和 reason，以及返回的 `expected_revision` 与 `preview_fingerprint`。预览同时绑定来源修订；来源数据变化后须重新预览。普通更新仍拒绝替换已有项目绑定。
+
+迁移以可移植的创作、生成、交付与分集设定、稳定角色身份及声音描述初始化目标，排除来源资产 ID、音频引用、视频包绑定、已完成任务、预算记录和版本历史。来源目录保持不变。迁移不复制或创建远端项目、资产或分镜；绑定前须另行核实并登记目标项目的引用。回读目标的 `jubian_script_id` 并核对目标映射后，才从目标目录继续制作。
 
 ### 设置页
 
@@ -177,7 +187,7 @@ Client 构建从已声明的 `@deepseek-ai/dsh-typert-protocol` 构建依赖内�
 
 #### 模型看到什么
 
-`drama_project` 返回当前配置、项目路径、精确文件修订与当前 Settings 默认值。预览增加拟议配置、审阅指纹、变更字段、受影响阶段和可读 Markdown；更新返回已提交配置与新修订。结果使用标准 JSON 文本展示。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 持有集中启动询问与现有剧变流程。
+`drama_project` 返回当前配置、项目路径、精确文件修订与当前 Settings 默认值。预览增加拟议配置、审阅指纹、变更字段、受影响阶段和可读 Markdown；更新返回已提交配置与新修订。迁移还返回来源目录、项目 ID 与修订、目标 ID、继承字段和排除的记录类别。结果使用标准 JSON 文本展示。[项目圣经技能](../skills/skills/tweet-drama-project-bible/SKILL.md) 持有集中启动询问与现有剧变流程。
 
 #### Token 影响
 

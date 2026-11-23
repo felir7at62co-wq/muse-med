@@ -22,6 +22,7 @@ import { STORYBOARD_WRITE_REMINDER } from './storyboard-edit.ts'
 import { resolvePromptRiskReview } from './prompt-risk.ts'
 import type { PromptRiskReviewConfig } from './prompt-risk.ts'
 import { audioDeletionInspectionReason, resolveAudioReferenceScanOptions } from './audio-asset-delete.ts'
+import { resolveAssetRegistrationScanOptions } from './asset-register.ts'
 import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CharacterReferenceAuthority } from '@deepseek-ai/dsh-tool-character-reference'
@@ -186,6 +187,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   imageReferencePageSize?: number
   /** Maximum pages per complete adopted-image scan; integer 1..100, default 100. */
   imageReferencePageLimit?: number
+  /** Rows per image-registration inventory page; integer 1..1000, default 1000. */
+  assetRegistrationPageSize?: number
+  /** Maximum pages per complete image-registration inventory; integer 1..100, default 100. */
+  assetRegistrationPageLimit?: number
   /** Maximum concurrent storyboard PUTs after a whole-batch preflight; integer 1..8, default 3. */
   videoBatchConcurrency?: number
   /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */
@@ -262,8 +267,8 @@ const ARGS = {
     asset_category: { type: 'string', enum: [...ASSET_CATEGORIES], description: '资产类别；给 episode 时必填。' },
     episode: { type: 'string', description: '集号或全剧；按规范组合资产名。' },
     prompt: { type: 'string', required: true, description: '本项图片提示词。' },
-    image_style: { type: 'string', enum: ['live_action', 'anime'],
-      description: '本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。' },
+    image_style: { type: 'string', enum: ['live_action', 'anime', 'realistic_3d'],
+      description: '本项风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时读提示词首行声明，再读项目设置。' },
     image_spec_id: { type: 'integer', description: '本项可选：模型 videoStandards 中的精确 id；同画幅/分辨率有多条规格时指定。' },
     image_model_id: { type: 'string', description: '本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。' },
     image_resolution: { type: 'string', description: '本项可选的目录分辨率，如 1K、2K、4K。' },
@@ -272,8 +277,8 @@ const ARGS = {
     references: { type: 'array', items: { type: 'string' }, description: '本项有序参考图 HTTPS URL；角色重生成省略时继承本项目该父资产唯一已采用图片，显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。' },
     parent_asset_id: { type: 'number', description: '可选：重生成的父资产 ID；省略则新建。' },
   } }, description: 'image_generate_batch 必填：同一 script_id 下各不相同的资产请求；每项独立 key，整批先校验后并发执行。' },
-  image_style: { type: 'string', enum: ['live_action', 'anime'],
-    description: 'image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。' },
+  image_style: { type: 'string', enum: ['live_action', 'anime', 'realistic_3d'],
+    description: 'image_generate 的风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时先识别提示词首行声明（可带“项目风格：”），再读取项目风格；项目未保存风格时默认真人。与首行冲突或无法继承项目风格时不提交收费请求。image_generate_batch 仅接受每项 items.image_style。' },
   image_spec_id: { type: 'integer', description: 'image_generate 可选或 image_generate_batch 默认：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。' },
   image_model_id: { type: 'string', description: 'image_generate 可选或 image_generate_batch 默认：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。' },
   image_resolution: { type: 'string', description: 'image_generate 可选或 image_generate_batch 默认：所选模型目录支持的分辨率，如 1K、2K、4K；批次每项可覆盖。' },
@@ -479,6 +484,7 @@ const VIDEO_OUTPUT = {
             subtask_id: { type: 'number', required: true },
             parent_task_id: { required: true, oneOf: [{ type: 'number' }, { type: 'null' }],
               description: '所属父任务；下载前必须与查询的 task_id 一致。' },
+            storyboard_id: { type: 'integer', description: '子结果关联的原分镜卡 ID；供应商未提供可用身份时省略。' },
             status: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }],
               description: '提供方子结果状态；保留未知值，不能仅凭 URL 判成功。' },
             video_url: { required: true, oneOf: [{ type: 'string' }, { type: 'null' }],
@@ -655,6 +661,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const deletionTaskScan = resolveDeletionTaskScanOptions(config)
   const promptRiskReview = resolvePromptRiskReview(config.promptRiskReview)
   const audioReferenceScan = resolveAudioReferenceScanOptions(config)
+  const assetRegistrationScan = resolveAssetRegistrationScanOptions(config)
   const videoSources = resolveVideoSourceOptions(config)
   ctx.plugin(JubianToken)
   const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
@@ -1108,7 +1115,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const bridge = await characterReferenceBridge(exec.agent)
         return await bridge.upload(exec.agent.session, characterReferenceUploadRequest(input), exec.signal)
       }
-      return await assetMethod(client, ledger, input, { naming, audioReferenceScan, voiceCoordinator })
+      return await assetMethod(client, ledger, input, { naming, audioReferenceScan, assetRegistrationScan, voiceCoordinator })
     })(args),
   }))
 
@@ -1295,14 +1302,21 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       const agent = exec.agent
       const service = config.sessionVideoSelection ? ctx.get('jubianVideoSelection') : undefined
       const assertVideoModel = agent && service ? (model: Record<string, unknown>) =>{  service.assertCurrent(agent, model) } : undefined
+      const selectionVideoModel = args.method === 'select_assets' && agent
+        ? service?.selectionFor(agent.session) ?? undefined
+        : undefined
       return await guarded('jubian_storyboard', async (input) => {
         let dispatchSignal = exec.signal
+        const creationWorkspaceDir = input.method === 'create' || input.method === 'create_batch'
+          ? agent && ctx.get('workingDirectory')?.get(agent.session)
+          : undefined
         const dispatch = async (beforeVideoSend?: (key: string) => Promise<void>) => {
           const result = await storyboardMethod(client, ledger, input, {
-            naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal,
+            naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal, creationWorkspaceDir,
             ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
             ...(promptRiskReview ? { promptRiskReview } : {}),
             ...(assertVideoModel ? { assertVideoModel } : {}),
+            ...(selectionVideoModel ? { selectionVideoModel } : {}),
           })
           // Only this Host's successful watch enrollment may issue these identities.
           const { generation_watch_id: _watchId, generation_watch_group_exchange_id: _groupId, ...safe } = result
@@ -1408,7 +1422,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         enum: ['task', 'tasks', 'subtasks', 'sources', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
         description: 'task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；'
           + 'sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；'
-          + 'subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；'
+          + 'subtasks=分页对象 subtasks，按 subtasks.rows 展开合并任务，使用子结果 storyboard_id 归卡；无该字段时按原卡查 sources 核实归属；'
           + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
           + 'image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；'
           + 'upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },

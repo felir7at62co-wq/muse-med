@@ -2,14 +2,14 @@
 import { resolve } from 'node:path'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import { Context, symbols } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { MuseAccountService, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config } from '../src/index.ts'
-import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, startAudioTranscriptionBatch, type AudioAccount, type AudioBatchResult, type AudioRunResult } from '../src/runner.ts'
+import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, startAudioTranscriptionBatch, type AudioBatchResult, type AudioRunResult } from '../src/runner.ts'
 
 vi.mock('../src/runner.ts', () => ({
   startAudioTranscription: vi.fn(async () => ({ status: 'processing', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job' })),
@@ -21,11 +21,6 @@ vi.mock('../src/runner.ts', () => ({
 type Agent = NonNullable<Parameters<typeof executeModelToolFixture>[1]['agent']>
 const contexts: Context[] = []
 const workspace = resolve('/workspace')
-function originalAccount(service: AudioAccount): MuseAccountService {
-  const original: unknown = Reflect.get(service, symbols.original)
-  if (!(original instanceof MuseAccountService)) throw new Error('Expected a Cordis account service receiver')
-  return original
-}
 afterEach(async () => {
   vi.clearAllMocks()
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
@@ -69,7 +64,7 @@ it('uses the Host account for start and preserves explicit language and purpose'
     const [project, input, language, receiver, options, unused, purpose, signal, pacing] = args
     expect([project, input, language, unused, purpose]).toEqual([resolve(workspace, 'project'), 'source.mp4',
       'language' in fields ? 'auto' : 'zh', undefined, 'purpose' in fields ? 'screenplay' : undefined])
-    expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
+    await expect(receiver.status({})).resolves.toEqual(await account.readLocalStatus())
     expect(options).toBe(config)
     expect(signal).toBeInstanceOf(AbortSignal)
     expect(pacing).toEqual({ retryBudgetMs: 120_000 })
@@ -89,7 +84,7 @@ it('routes inputs to one batch start with the configured upload pacing', async (
   if (!args) throw new Error('Expected a batch transcription start call')
   const [project, inputs, language, receiver, options, unused, purpose, signal, pacing] = args
   expect([project, inputs, language, unused, purpose]).toEqual([resolve(workspace, 'project'), ['ep1.mp4', 'ep2.mp4'], 'zh', undefined, 'screenplay'])
-  expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
+  await expect(receiver.status({})).resolves.toEqual(await account.readLocalStatus())
   expect(options).toBe(config)
   expect(signal).toBeInstanceOf(AbortSignal)
   expect(pacing).toEqual({ retryBudgetMs: 120_000 })
@@ -126,6 +121,8 @@ it('validates a batch result that stops at a local error and explains a queue re
     expect(result.value).toEqual(response)
     expect(result.content).toEqual([
       ...(index === 1 ? [{ type: 'text', text: 'Muse 转写队列已满，请稍后重试' }] : []),
+      { type: 'text', text: index === 1 ? '转写进度：第1项暂未推进、第2项暂未推进、另有 1 项本次未开始。'
+        : '转写进度：第1项处理中、第2项出错、另有 1 项本次未开始。' },
       { type: 'text', text: JSON.stringify(response) },
     ])
   }
@@ -139,7 +136,7 @@ it('queries the original receipt and renders the canonical response', async () =
   if (!args) throw new Error('Expected a transcription status call')
   const [project, receipt, receiver, signal, allowResumeUpload] = args
   expect([project, receipt]).toEqual([resolve(workspace, 'project'), 'original.json'])
-  expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
+  await expect(receiver.status({})).resolves.toEqual(await account.readLocalStatus())
   expect(signal).toBeInstanceOf(AbortSignal)
   expect(allowResumeUpload).toBe(true)
   expect(args[6]).toEqual({ retryBudgetMs: 120_000 })
@@ -149,6 +146,25 @@ it('queries the original receipt and renders the canonical response', async () =
   expect(probeMediaDuration).toHaveBeenCalledWith('original-staged.wav', config, signal)
   expect(startAudioTranscription).not.toHaveBeenCalled()
   expect(result.content).toEqual([{ type: 'text', text: JSON.stringify(result.value) }])
+})
+
+it('reports the batch stages in input order and points a timed-out item back to its original receipt', async () => {
+  const { call } = await fixture()
+  const stages = [{ status: 'complete' }, { status: 'silent' }, { status: 'failed' }, { status: 'processing', queued: true },
+    { status: 'preparing' }, { status: 'submitting' }, { status: 'uncertain', error_code: 'upload-timeout', resume_status: {
+      method: 'inspect', project: 'project', receipt: 'project/transcript/jobs/clip-7-v1.json',
+    } }] as const
+  const response: AudioBatchResult = { items: stages.map((stage, index) => ({
+    ...stage, input: `clip-${index + 1}.mp4`, receipt: `project/transcript/jobs/clip-${index + 1}-v1.json`, job_id: `job-${index + 1}`,
+  })), not_started: ['clip-8.mp4'] }
+  vi.mocked(startAudioTranscriptionBatch).mockResolvedValueOnce(response)
+  const result = await call({ method: 'start', project: 'project', inputs: [...response.items.map(item => item.input), 'clip-8.mp4'] })
+  expect(result.value).toEqual(response)
+  expect(result.content).toEqual([
+    { type: 'text', text: '转写进度：第1项已完成、第2项无语音、第3项失败、第4项已排队、第5项提交中、第6项提交中、第7项待确认、另有 1 项本次未开始。' },
+    { type: 'text', text: '本次未能确认转写状态。请用原收据查询，已受理的任务仍可继续处理。' },
+    { type: 'text', text: JSON.stringify(response) },
+  ])
 })
 
 it('routes inspect to the original receipt without permitting a recovery upload', async () => {

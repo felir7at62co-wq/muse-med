@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: a1fb85e2b2a677d2
-  zh: 0b36e3bb45801fa3
+  en: f62fb42f9a610d13
+  zh: 512f86c5109361af
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -132,8 +132,11 @@
   en: 758eda0ec85dcd19
   zh: 758eda0ec85dcd19
 /tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/jingliu-workflows:
-  en: 8f883442bfe654d0
-  zh: 8f883442bfe654d0
+  en: 487127fede57b247
+  zh: 487127fede57b247
+/tool-schema-catalog/deepseek-ai-dsh-tool-jingliu/muse-billing:
+  en: e63556f459a58abe
+  zh: e63556f459a58abe
 /tool-schema-catalog/deepseek-ai-dsh-tool-workshop:
   en: fc166b2c776f42f9
   zh: fc166b2c776f42f9
@@ -528,8 +531,8 @@
   en: 8268147b4329a759
   zh: 711c8b1f356599bc
 /tool-schema-catalog/deepseek-ai-dsh-drama-settings/drama-project:
-  en: c7f46f9379912499
-  zh: c7f46f9379912499
+  en: 573ab7e39cf56e1c
+  zh: 573ab7e39cf56e1c
 /tool-schema-catalog/deepseek-ai-dsh-tool-shot-script:
   en: 6f86adf127829946
   zh: 6f86adf127829946

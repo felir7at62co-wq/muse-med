@@ -1,0 +1,15 @@
+version: 1
+scenario: muse-episode-catalog-empty
+profile: headless
+composition: muse-episode-catalog-empty
+recording: authored
+header:
+  class: muse-episode-catalog-empty
+  pin: true
+  systemPromptSource: muse-image-material-readback
+  toolSchemasSource: muse-image-material-readback
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-episode-catalog-fixture

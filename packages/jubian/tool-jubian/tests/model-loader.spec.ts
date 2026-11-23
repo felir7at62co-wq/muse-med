@@ -34,7 +34,8 @@ it('loads model preview/apply, renders free outcomes, and disposes registration'
     calls.push(String(init?.method))
     const path = url instanceof Request ? url.url : url.toString()
     let data: unknown
-    if (path.includes('getSelectList?taskType=2')) data = [{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI',
+    if (path.endsWith('/aigc/script/2708')) data = { id: 2708, scriptStyle: 0 }
+    else if (path.includes('getSelectList?taskType=2')) data = [{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI',
       unitPrice: 0.12, unit: '张', videoStandards: [
         { id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720 },
         { id: 94, ratio: '9:16', resolution: '2K', width: 1440, height: 2560 },

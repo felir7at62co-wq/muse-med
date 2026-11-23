@@ -6,11 +6,85 @@ import math
 from fractions import Fraction
 import os
 from pathlib import Path
+import re
 
 _text_spec = importlib.util.spec_from_file_location(
     'draft_subtitle_display', Path(__file__).resolve().parents[2] / 'tweet-drama-core/scripts/subtitle_display.py')
 _text_policy = importlib.util.module_from_spec(_text_spec)
 _text_spec.loader.exec_module(_text_policy)
+
+
+def _prepared_source(path: Path, kind: str) -> tuple[Path, str, str | None] | None:
+    """Recognize episode identities in the renderer's prepared-file layout."""
+    if kind == 'video':
+        episode = path.parent.name
+        shot = re.fullmatch(r'shot_([0-9]+)\.mp4', path.name, re.I)
+        if path.parent.parent.name.lower() == 'video' and re.fullmatch(r'[0-9]+', episode) and shot:
+            return path.parents[2], episode, shot[1]
+        return None
+    directory, pattern = {
+        'timeline': ('editing', r'([0-9]+)-timeline\.json'),
+        'subtitle': ('editing', r'([0-9]+)\.srt'),
+        'audio': ('audio', r'([0-9]+)\.wav'),
+    }[kind]
+    match = re.fullmatch(pattern, path.name, re.I)
+    if path.parent.name.lower() == directory and match:
+        return path.parents[1], match[1], None
+    if kind == 'subtitle' and match:
+        if path.parent.name.startswith('.subtitle-display-') and path.parent.parent.name.lower() == 'editing':
+            return path.parents[2], match[1], None
+        cache_episode = path.parent.parent.name
+        if (path.parent.name.startswith('subtitle-display-') and re.fullmatch(r'[0-9]+', cache_episode)
+                and path.parent.parent.parent.name == '.render_cache'
+                and path.parent.parent.parent.parent.name.lower() == 'exports'):
+            if cache_episode.lstrip('0') != match[1].lstrip('0'):
+                raise ValueError(f'剪映草稿字幕 {path} 的文件名与渲染缓存目录集号不一致。')
+            return path.parents[4], match[1], None
+    return None
+
+
+def _draft_script_id(project: Path) -> str | None:
+    try:
+        config = json.loads((project / 'project_config.json').read_text(encoding='utf-8-sig'))
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeError):
+        return None
+    value = config.get('jubian_script_id') if isinstance(config, dict) else None
+    if type(value) is int and value > 0:
+        return str(value)
+    if isinstance(value, str) and re.fullmatch(r'[0-9]+', value):
+        return value.lstrip('0') or None
+    return None
+
+
+def verify_draft_episode_scope(project: Path, episode: int, draft_root: Path, videos: list[Path], shots: list[int], *,
+                               timeline: Path, subtitle: Path, audio: Path | None = None) -> None:
+    """Reject contradictory prepared-file identities before copying a draft's inputs."""
+    if draft_root.name == '02_剪映草稿':
+        folder = re.fullmatch(r'(?:第\s*([0-9]+)\s*集|EP[ _-]?([0-9]+))', draft_root.parent.name, re.I)
+        if folder and (folder[1] or folder[2]).lstrip('0') != str(episode):
+            raise ValueError(f'剪映草稿目录 {draft_root} 与请求的第 {episode} 集不一致。')
+    project = project.resolve(strict=True)
+    script_ids = {project: _draft_script_id(project)}
+    selections = [('timeline', timeline, None), ('subtitle', subtitle, None), ('audio', audio, None)]
+    selections.extend(('video', video, shot) for video, shot in zip(videos, sorted(shots)))
+    for kind, path, expected_shot in selections:
+        if path is None:
+            continue
+        identity = _prepared_source(path.resolve(strict=True), kind)
+        if identity is None:
+            continue
+        origin, source_episode, source_shot = identity
+        if origin != project:
+            if script_ids[project] is None:
+                continue
+            if origin not in script_ids:
+                script_ids[origin] = _draft_script_id(origin)
+            if script_ids[origin] is not None and script_ids[origin] != script_ids[project]:
+                raise ValueError(f'剪映草稿文件 {path} 属于另一部剧。请选择当前项目的同集素材。')
+        if source_episode.lstrip('0') != str(episode):
+            raise ValueError(f'剪映草稿文件 {path} 属于第 {source_episode} 集，与请求的第 {episode} 集不一致。')
+        if source_shot is not None and source_shot.lstrip('0') != str(expected_shot):
+            raise ValueError(f'剪映草稿选片 {path} 的镜号与时间线的第 {expected_shot} 镜不一致。')
 
 
 def product_subtitle_text(text: str) -> str:

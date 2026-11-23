@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-production-delivery
+profile: headless
+composition: muse-production-delivery
+recording: authored
+header:
+  class: muse-production-delivery
+  pin: true
+writerOutput: true
+workspace:
+  final: true

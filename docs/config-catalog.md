@@ -3110,8 +3110,12 @@ export interface Config {
   readonly modelRequestImageMaxBytes?: number
   /** Optional provider retry policy for every account model route; omission keeps the adapter default. */
   readonly modelRetryPolicy?: RetryPolicyConfig
-  /** Maximum time for one compressed-audio upload and gateway response. */
+  /** Total time ceiling for a transcription request, including an upload and the gateway response. */
   readonly asrRequestTimeoutMs: number
+  /** Time allowed without upload progress or a gateway reply, in milliseconds. */
+  readonly asrUploadIdleTimeoutMs: number
+  /** Maximum time for one transcription status request, in milliseconds. */
+  readonly asrQueryTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
   /** Register explicit feedback submission and owner-scoped status tools. */
@@ -5605,7 +5609,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:98`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:99`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -5700,6 +5704,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   imageReferencePageSize?: number
   /** Maximum pages per complete adopted-image scan; integer 1..100, default 100. */
   imageReferencePageLimit?: number
+  /** Rows per image-registration inventory page; integer 1..1000, default 1000. */
+  assetRegistrationPageSize?: number
+  /** Maximum pages per complete image-registration inventory; integer 1..100, default 100. */
+  assetRegistrationPageLimit?: number
   /** Maximum concurrent storyboard PUTs after a whole-batch preflight; integer 1..8, default 3. */
   videoBatchConcurrency?: number
   /** Maximum distinct storyboard previews in one paid batch; integer 1..100, default 100. */
@@ -6008,7 +6016,7 @@ export interface ProductionConfig {
   workspaceSecrets?: boolean
   /** Native storyboard ledger root; use the same location as tool-jubian when overridden. */
   ledgerRoot?: string
-  /** Maximum rows acquired per provider page, 1–1000; defaults to 1000. */
+  /** Maximum rows acquired per provider page, 1–1000; defaults to 50. */
   pageSize?: number
   /** Maximum pages per complete inventory; defaults to 100. */
   pageLimit?: number
