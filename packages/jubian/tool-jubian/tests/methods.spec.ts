@@ -105,6 +105,77 @@ function imageDeps(
   } }
 }
 
+describe('image request pricing', () => {
+  const tokenRate = { ...IMAGE_CATALOGUE[0]!, unitPrice: 135, unit: '元/百万 tokens' }
+  const image = { asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'image-budget' }
+
+  it('refuses a catalogue token rate without a per-request estimate', async () => {
+    const { client, calls } = imageProvider([tokenRate])
+    await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+      '2708': { limit: '200', unit: 'CNY' },
+    } }))
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, imageDeps()))
+      .rejects.toMatchObject({ code: 'BUDGET_EXCEEDED', message: expect.stringContaining('按张人民币价格') })
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('uses the authorized single-image estimate when the catalogue only has a token rate', async () => {
+    const { client, calls } = imageProvider([tokenRate])
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, imageDeps())
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(await ledger.find(image.idempotency_key)).toMatchObject({ quoted_amount: '1.00', quote_unit: 'CNY' })
+  })
+
+  it('submits only the item with an admissible price in a mixed image batch', async () => {
+    const flat = { ...IMAGE_CATALOGUE[0]!, id: 76, standardId: 76, platformId: 'DUO_YUAN_TAN_SUO', unit: ' 元/张 ' }
+    const { client, calls } = imageProvider([tokenRate, flat])
+    await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+      '2708': { limit: '200', unit: 'CNY' },
+    } }))
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [
+        { ...image, image_platform_id: tokenRate.platformId },
+        { ...image, idempotency_key: 'flat-image', asset_name: 'other', image_platform_id: flat.platformId },
+      ] }, imageDeps())
+    expect(result.results).toMatchObject([
+      { idempotency_key: image.idempotency_key, outcome: 'not_sent', generation_status: 'not_submitted' },
+      { idempotency_key: 'flat-image', outcome: 'accepted' },
+    ])
+    expect(calls.filter(call => call.method === 'POST').map(call => call.body?.assetName)).toEqual(['other'])
+    expect(await ledger.find(image.idempotency_key)).toBeUndefined()
+    expect(await ledger.find('flat-image')).toMatchObject({ quoted_amount: '0.5', quote_unit: 'CNY' })
+  })
+
+  it('quotes the admitted row selected from a filtered catalogue', async () => {
+    const flat = { ...IMAGE_CATALOGUE[0]!, id: 76, standardId: 76, platformId: 'DUO_YUAN_TAN_SUO', unit: '元/条' }
+    const { client, calls } = imageProvider([tokenRate, flat])
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, allowedStandardIds: [76] }
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, deps)
+    const sent = calls.filter(call => call.method === 'POST')
+    expect(sent).toHaveLength(1)
+    expect(JSON.parse(String(sent[0]?.body?.modelConfig))).toMatchObject({ standardId: 76 })
+    expect(await ledger.find(image.idempotency_key)).toMatchObject({ quoted_amount: '0.5', quote_unit: 'CNY' })
+  })
+
+  it('replays an accepted legacy token-priced image without changing its reservation', async () => {
+    const { client, calls } = imageProvider([tokenRate])
+    const payload = buildImageRequest({ scriptId: 2708, assetName: image.asset_name, assetType: image.asset_type,
+      prompt: image.prompt, references: [] }, [tokenRate])
+    await ledger.begin({ idempotencyKey: image.idempotency_key, method: 'image_generate', scriptId: 2708,
+      requestSha256: bodyHash(payload), quotedAmount: '135', quoteUnit: 'CNY' })
+    await ledger.settle(image.idempotency_key, { outcome: 'accepted', httpStatus: 200, applicationCode: 200,
+      responseSha256: bodyHash({ code: 200, data: 83749 }) })
+    const before = await ledger.records()
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, imageDeps()))
+      .resolves.toMatchObject({ replayed: true, outcome: 'accepted',
+        budget: { this_submission: { reservation: { amount: '135', unit: 'CNY' } } } })
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+    expect(await ledger.records()).toEqual(before)
+  })
+})
+
 describe('explicit image catalogue selection', () => {
   const catalogue = [...IMAGE_CATALOGUE, { ...IMAGE_CATALOGUE[0]!, id: 71,
     modelId: 'doubao-seedream-5-0-260128', platformId: 'FANG_ZHOU', videoStandards: [
