@@ -1,0 +1,15 @@
+[Unit]
+Description=Refresh private Muse Central Web backend authorization
+After=systemd-tmpfiles-setup.service muse-cloud.service
+
+[Service]
+Type=oneshot
+Environment=MUSE_CENTRAL_CONFIG=/etc/muse-central-web/config.json
+ExecStart=/usr/bin/python3 -B /opt/muse/central-web/refresh-backend-cookie.py
+TimeoutStartSec=18
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/muse-central-web-auth
+UMask=0077
