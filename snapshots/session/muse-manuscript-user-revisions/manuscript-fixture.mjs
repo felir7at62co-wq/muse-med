@@ -104,62 +104,51 @@ export async function apply(ctx, { correctionTool = 'bash' } = {}) {
     assert.equal(readRevision.comparison_source.read_call_id, 'call_manuscript_source_read')
     const returnedText = await readFile(join(cwd, 'documents', 'user-returned.md'), 'utf8')
     assert.equal(readRevision.comparison_source.read_text_sha256, hash(returnedText.trimEnd()))
-    assert.ok(readRevision.hunks.flatMap(hunk => hunk.before).some(line => line.text === '秦明枝：这一次，我替自己作主。'))
-    assert.ok(readRevision.hunks.flatMap(hunk => hunk.after).some(line => line.text === '秦明枝：我不会走。'))
+    const lineOf = (text, line) => text.split('\n').indexOf(line) + 1
+    const covers = (ranges, line) => ranges.some(([first, last]) => first <= line && line <= last)
+    assert.ok(readRevision.hunks.some(hunk => covers(hunk.source_lines, lineOf(returnedText, '秦明枝：这一次，我替自己作主。'))))
     const sourcePackets = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
       .map(block => JSON.parse(block.text).manuscript_source_packet)
     const sourceIndex = JSON.parse(candidateSource.content.find(block => block.type === 'text'
       && block.text.startsWith('{"manuscript_video_source":')).text).manuscript_video_source
-    assert.equal(sourceIndex.presentation_version, 'source-and-line-temporal-packets-v7')
+    assert.equal(sourceIndex.presentation_version, 'source-and-line-temporal-packet-refs-v8')
     assert.equal(sourceIndex.document_sha256, firstSource.receipt.sha256)
-    assert.equal(sourceIndex.source_change_timeline.interpretation_source, 'unverified_prior_model_observations')
-    assert.deepEqual(sourceIndex.draft_speech_lines.find(line => line.line === 6).candidate_segment_ids, [],
+    assert.ok(sourceIndex.dialogue_lines.unmatched_lines.includes(6),
       'An ASR character difference remains unmatched rather than becoming a corrected-name anchor')
-    const widerAction = sourceIndex.visual_query_anchor_skips.find(query => query.line === 7)
-    assert.deepEqual(widerAction.nearest_aligned_dialogue_lines, { previous_line: 5 })
-    assert.deepEqual(widerAction.skipped_unaligned_dialogue_lines, [6])
-    assert.equal(widerAction.scope, 'nearest_literal_dialogue_candidates_not_semantic_alignment')
     const initialWrite = events.find(event => event.type === 'tool/call' && event.data.callId === 'call_manuscript_write_bad')
     const initialText = JSON.parse(initialWrite.data.arguments).content
     assert.equal(hash(initialText), sourceIndex.document_sha256)
-    assert.ok(sourceIndex.changed_visual_line_sampling.length > 0, 'Changed visual line candidates stay visible in the logged source return')
-    for (const row of sourceIndex.changed_visual_line_sampling) {
-      assert.equal(row.actual_current_line.quote, initialText.split('\n')[row.actual_current_line.line - 1])
-      assert.ok(['action_line', 'dialogue_parenthetical'].includes(row.actual_current_line.kind))
+    assert.ok(covers(readRevision.hunks.flatMap(hunk => hunk.current_lines), lineOf(initialText, '秦明枝：我不会走。')))
+    const sampling = Object.entries(sourceIndex.changed_visual_line_sampling)
+    assert.ok(sampling.some(([, lines]) => lines.length > 0), 'Changed visual line candidates stay visible in the logged source return')
+    for (const [status, lines] of sampling) {
       assert.ok(['temporal_samples_not_action_verification', 'no_distinct_cached_sample_after_shared_selection',
-        'no_literal_time_candidate', 'no_available_cached_sample', 'not_selected_within_shared_image_allowance'].includes(row.sampling_status))
+        'no_literal_time_candidate', 'no_available_cached_sample', 'not_selected_within_shared_image_allowance'].includes(status))
+      for (const entry of lines) {
+        const line = typeof entry === 'number' ? entry : entry.line
+        assert.ok(/^▲|^[^：:]+[（(][^）)]+[）)][：:]/u.test(initialText.split('\n')[line - 1]), 'Sampling names actual action or parenthetical lines')
+      }
     }
-    assert.ok(sourceIndex.visual_candidates.some(packet => packet.changed_visual_line_candidates?.length > 0),
-      'Actual changed-line candidates remain visible when the independent source tail uses the only cached image')
+    assert.ok(!JSON.stringify(candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{')))
+      .includes('秦明枝：我不会走。'), 'Source references do not quote the saved draft')
     const sourceTail = sourcePackets.find(packet => packet.time_candidate.relation === 'source_tail_not_aligned_to_draft_ending')
     assert.ok(sourceTail)
     assert.deepEqual(sourceTail.actual_current_lines, [])
     assert.equal(sourceTail.origin, 'source_timeline')
     assert.ok(sourceTail.candidate_current_lines.some(line => line.line === 7),
       'An existing event can relate tail images to same-scene literal candidates without asserting ending alignment')
-    assert.equal(sourceTail.previous_text.mapping, 'text_diff_hunk_not_semantic_line_pair')
-    assert.equal(sourceTail.previous_text.adoption, 'not_asserted')
     assert.ok(sourceTail.previous_text.hunks.some(hunk => hunk.basis === 'complete_read_source_difference'))
-    const lastImageIndex = candidateSource.content.findLastIndex(block => block.type === 'image')
-    const eventIndex = candidateSource.content.findIndex(block => block.type === 'text'
-      && block.text.startsWith('{"manuscript_prior_event_interpretations":'))
-    assert.ok(eventIndex > lastImageIndex, 'Unverified event interpretation follows the actual referenced cached image')
-    const priorEvents = JSON.parse(candidateSource.content[eventIndex].text).manuscript_prior_event_interpretations
-    assert.equal(priorEvents.interpretation_source, 'prior_model_authored_unverified')
-    assert.equal(priorEvents.events.length, 1)
-    assert.equal(priorEvents.events[0].event.event_id, 'fixture-cache-event')
-    const sourceSpeech = candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_speech":'))
-      .flatMap(block => JSON.parse(block.text).manuscript_source_speech.original_asr_remaining)
-    const originalRows = [...sourcePackets.flatMap(packet => packet.original_asr_first_occurrences), ...sourceSpeech]
-    assert.ok(originalRows.some(row => row.text === '我不会走。'))
+    assert.deepEqual(sourceTail.event_refs.map(event => event.event_id), ['fixture-cache-event'])
+    assert.ok(!candidateSource.content.some(block => block.type === 'text'
+      && block.text.startsWith('{"manuscript_prior_event_interpretations":')), 'Event notes stay in video_inspect results')
+    const originalRows = sourcePackets.flatMap(packet => packet.original_asr)
     assert.equal(new Set(originalRows.map(row => row.segment_id)).size, originalRows.length)
     assert.ok(sourcePackets.every(packet => packet.document_sha256 === firstSource.receipt.sha256))
-    assert.ok(sourcePackets.every(packet => packet.scene_sha256 === firstSource.scenes
-      .find(scene => scene.manuscript.current.id === packet.scene_id)?.manuscript.current.sha256))
+    assert.ok(sourcePackets.every(packet => firstSource.scenes.some(scene => scene.manuscript?.current.id === packet.scene_id)))
     assert.ok(candidateSource.content.filter(block => block.type === 'text' && block.text.startsWith('VIDEO_FRAME '))
       .every(block => block.text.startsWith(`VIDEO_FRAME ${firstSource.scenes[0].source.review_id}/`)))
-    assert.equal(firstSource.scenes[0].transcript_resolution.kind, 'successful_read_candidate')
-    assert.equal(firstSource.scenes[0].transcript_resolution.read_receipts[0].readCallId, 'call_manuscript_asr_read')
+    assert.equal(sourceIndex.transcript_resolution.kind, 'successful_read_candidate')
+    assert.ok(sourceIndex.transcript.path.endsWith('.json'))
     assert.ok(candidateSource.content.some(block => block.type === 'image'), 'The candidate source return carries the cached image block')
     assert.equal(sourceNotices[0].content.some(block => block.type === 'image'), true,
       'A cached source-tail image is available before ASR without claiming alignment to manuscript lines')
@@ -215,9 +204,9 @@ export async function apply(ctx, { correctionTool = 'bash' } = {}) {
     assert.equal(presentation.ending.marker_status, 'not_found')
     assert.equal(presentation.ending.marker_count, 0)
     assert.equal(presentation.ending.suspense_assessment, 'not_performed')
-    for (const line of [...presentation.action_locations.findings, ...presentation.ending.last_scene_lines.findings]) {
-      assert.equal(line.quote, finalText.split('\n')[line.line - 1])
-    }
+    for (const line of presentation.action_lines) assert.ok(finalText.split('\n')[line - 1].startsWith('▲'))
+    const lastAction = presentation.ending.last_material_locations.action
+    assert.ok(lastAction === null || finalText.split('\n')[lastAction.line - 1].startsWith('▲'))
     for (const [id, attribution] of [['call_guidance_write', 'current_model_tool_mutation'],
       ['call_guidance_read', 'document_read_authorship_unknown']]) {
       const result = results.find(message => message.toolCallId === id)

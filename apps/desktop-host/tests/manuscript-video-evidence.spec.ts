@@ -53,24 +53,24 @@ function literalSourceTimeline(rows: { start: number; end: number; text: string 
 }
 
 const speechRowSchema = z.object({ segment_id: z.string(), text: z.string(), start_seconds: z.number(), end_seconds: z.number(),
-  draft_line_refs: z.array(z.object({ scene_id: z.string(), line: z.number() })) })
-const readRevisionSchema = z.object({ status: z.string(), relationship: z.string(), adopted_authorization: z.string(),
-  normalization: z.string(), omitted_read_snapshots: z.number(),
+  draft_line_refs: z.array(z.number()) })
+const rangesSchema = z.array(z.tuple([z.number(), z.number()]))
+const readRevisionSchema = z.object({ episode: z.string(), status: z.string(), relationship: z.string().optional(),
+  adopted_authorization: z.string().optional(), normalization: z.string().optional(), omitted_read_snapshots: z.number().optional(),
   candidates: z.array(z.object({ path: z.string(), read_text_sha256: z.string().optional(), current_status: z.string(),
-    read_scope: z.object({ status: z.string() }) })),
+    read_scope: z.object({ status: z.string() }) })).default([]),
   comparison_source: z.object({ path: z.string(), read_text_sha256: z.string(), read_call_id: z.string() }).optional(),
-  hunks: z.array(z.object({ kind: z.string(), before: z.array(z.object({ number: z.number(), text: z.string() })),
-    after: z.array(z.object({ number: z.number(), text: z.string() })) })) })
+  hunks: z.array(z.object({ kind: z.string(), source_lines: rangesSchema, current_lines: rangesSchema })).default([]) })
+const sceneRefSchema = z.object({ id: z.string(), start_line: z.number(), end_line: z.number() })
 
 const materialSchema = z.object({ manuscript_video_evidence: z.object({ advisory: z.boolean(), semantic_assessment: z.string(),
   changed_scenes: z.number(), returned_scenes: z.number(), not_returned_scenes: z.number(), remaining_image_scenes: z.number(),
   output_association: z.object({ basis: z.string() }),
-  format_reference: z.object({ action_line: z.string(), parenthetical: z.string(), source_scope: z.string() }).optional(),
   presentation_evidence: z.object({ advisory: z.boolean(), semantic_assessment: z.string(), episodes: z.array(z.object({
     episode: z.string(), ending: z.object({ marker_status: z.string(), suspense_assessment: z.string() }),
-    action_locations: z.object({ findings: z.array(z.object({ line: z.number(), quote: z.string() })) }),
+    action_lines: z.array(z.number()),
   })) }).optional(),
-  changed_line_selection: z.object({ basis: z.string(), current_file_sha256: z.string(), after_changed_lines: z.array(z.number()),
+  changed_line_selection: z.object({ basis: z.string(), current_file_sha256: z.string(), after_changed_line_ranges: rangesSchema,
     native_mutation_status: z.string(), semantic_assessment: z.string() }).optional(),
   receipt: z.object({ path: z.string(), sha256: z.string(), complete_lf_text_sha256: z.string().optional(),
     evidence_key: z.string(), source_material_sha256: z.string(),
@@ -78,27 +78,37 @@ const materialSchema = z.object({ manuscript_video_evidence: z.object({ advisory
     returned_frames: z.array(z.object({ frame_id: z.string() })) }),
   scenes: z.array(z.object({ source_alignment: z.string(), semantic_assessment: z.string().optional(),
     read_source_revision: readRevisionSchema.optional(),
-    manuscript: z.object({ current: z.object({ text: z.string() }),
-      previous: z.object({ text: z.string() }).nullable(), next: z.object({ text: z.string() }).nullable() }).optional(),
-    manuscript_scene_refs: z.array(z.object({ id: z.string(), start_line: z.number(), end_line: z.number() })).optional(),
-    anchors: z.array(z.object({ source_text: z.string() })).default([]),
+    manuscript: z.object({ current: sceneRefSchema, previous: sceneRefSchema.nullable(), next: sceneRefSchema.nullable() }).optional(),
+    manuscript_scene_refs: z.array(sceneRefSchema).optional(),
     source: z.object({ episode: z.string(), follow_up: z.object({ status: z.string(), reason: z.string().optional() }).optional() }).default({ episode: '' }),
-    source_candidates: z.array(z.unknown()).default([]),
     speech_unavailable: z.object({ reference: z.object({ path: z.string() }) }).optional(),
     image_selection_scope: z.string().optional(), source_ending_ref: z.string().optional(),
-    source_ending: z.object({ original_asr: z.array(speechRowSchema.omit({ draft_line_refs: true })),
+    source_ending: z.object({ tail_asr_segment_ids: z.array(z.string()),
       last_recorded_asr: speechRowSchema.omit({ draft_line_refs: true }).nullable(), selection: z.string(),
       source_end_seconds: z.number(), scan_complete: z.boolean(), scanned_until: z.number(),
       relationship: z.string(), suspense_assessment: z.string(),
       window: z.object({ start_seconds: z.number(), end_seconds: z.number(),
         frame_refs: z.array(z.object({ frame_id: z.string(), time: z.number() })) }) }).optional(),
-    observation_locations: z.object({ relationship: z.string(), unmatched: z.string(), semantic_assessment: z.string(),
-      candidates: z.array(z.object({ line: z.number(), kind: z.string(), observation_refs: z.array(z.object({
-        window_id: z.string(), frame_id: z.string(), time: z.number(),
-      })) })) }).optional(),
+    observation_locations: z.object({ relationship: z.string(), unmatched: z.string(),
+      rows: z.array(z.tuple([z.number(), z.number(), z.number(), z.number(), z.number()])) }).optional(),
     images: z.object({ returned: z.number(), returned_frame_ids: z.array(z.string()), not_returned_from_selected_windows: z.number() })
       .default({ returned: 0, returned_frame_ids: [], not_returned_from_selected_windows: 0 }),
   })) }) })
+
+const sourceHeaderSchema = z.object({ manuscript_video_source: z.object({ review_id: z.string(), document_sha256: z.string(),
+  dialogue_lines: z.object({ total: z.number(), asr_matched: z.number(), unmatched_lines: z.array(z.number()),
+    ambiguous_lines: z.array(z.number()), same_utterance_line_pairs: z.array(z.tuple([z.number(), z.number()])) }),
+  changed_visual_line_sampling: z.record(z.string(), z.array(z.unknown())) }) })
+
+/** @param content - One logged material message. @returns Its JSON reference blocks, without the ending cue or format reference. */
+function materialText(content: readonly { type: string; text?: string }[]): string {
+  return content.flatMap(block => block.type === 'text' && block.text?.startsWith('{') ? [block.text] : []).join('\n')
+}
+
+/** @param ranges - Inclusive line runs from a material notice. @returns Every line number they cover. */
+function rangeLines(ranges: readonly (readonly [number, number])[] | undefined): number[] {
+  return (ranges ?? []).flatMap(([first, last]) => Array.from({ length: last - first + 1 }, (_, index) => first + index))
+}
 
 const fixtures: { ctx: Context; root: string }[] = []
 afterEach(async () => {
@@ -166,14 +176,14 @@ async function fixture(script = [textResponse('已完成。')], config: Partial<
   const sourceRows = () => agent.session.deriveMessages().flatMap(message => message.role === 'user' && message.source.kind === 'muse-manuscript'
     ? message.content.flatMap((block) => {
       if (block.type !== 'text' || !block.text.startsWith('{')) return []
-      const packet = z.object({ manuscript_source_packet: z.object({ original_asr_first_occurrences: z.array(speechRowSchema) }) })
+      const packet = z.object({ manuscript_source_packet: z.object({ original_asr: z.array(speechRowSchema) }) })
         .safeParse(JSON.parse(block.text))
-      if (packet.success) return packet.data.manuscript_source_packet.original_asr_first_occurrences
-      const remaining = z.object({ manuscript_source_speech: z.object({ original_asr_remaining: z.array(speechRowSchema) }) })
-        .safeParse(JSON.parse(block.text))
-      return remaining.success ? remaining.data.manuscript_source_speech.original_asr_remaining : []
+      return packet.success ? packet.data.manuscript_source_packet.original_asr : []
     }) : [])
-  return { root, ctx, agent, adapter, addReview, run, evidence, evidenceContent, endingCues, sourceRows, image }
+  const sourceHeaders = () => agent.session.deriveMessages().flatMap(message => message.role === 'user' && message.source.kind === 'muse-manuscript'
+    ? message.content.flatMap(block => block.type === 'text' && block.text.startsWith('{"manuscript_video_source":')
+      ? [sourceHeaderSchema.parse(JSON.parse(block.text)).manuscript_video_source] : []) : [])
+  return { root, ctx, agent, adapter, addReview, run, evidence, evidenceContent, endingCues, sourceRows, sourceHeaders, image }
 }
 
 /** Emit a legacy tool call in the test log without installing the removed product tool. */
@@ -224,7 +234,7 @@ function savedSourcePackets(f: Awaited<ReturnType<typeof fixture>>, sha256: stri
     origin: z.string(), actual_current_lines: z.array(z.object({ line: z.number() })),
     time_candidate: z.object({ relation: z.string() }),
     sampling_interval: z.object({ start_seconds: z.number(), end_seconds: z.number() }),
-    changed_visual_line_candidates: z.array(z.object({ line: z.number(), quote: z.string(), kind: z.string() })).optional(),
+    changed_visual_line_candidates: z.array(z.object({ line: z.number(), kind: z.string() })).optional(),
     requested_frame_ids: z.array(z.string()) }) })
   return f.agent.session.deriveMessages().flatMap(message => message.role === 'user' && message.source.kind === 'muse-manuscript'
     ? message.content.flatMap(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":')
@@ -233,9 +243,9 @@ function savedSourcePackets(f: Awaited<ReturnType<typeof fixture>>, sha256: stri
 }
 
 const localPreviousSchema = z.object({ manuscript_source_packet: z.object({
-  document_sha256: z.string(), actual_current_lines: z.array(z.object({ line: z.number(), quote: z.string() })),
-  previous_text: z.object({ status: z.string(), context_document_sha256: z.string().optional(), mapping: z.string(), adoption: z.string(),
-    hunks: z.array(z.object({ basis: z.string(), before: z.array(z.object({ line: z.number(), quote: z.string() })),
+  document_sha256: z.string(), actual_current_lines: z.array(z.object({ line: z.number(), kind: z.string() })),
+  previous_text: z.object({ status: z.string(),
+    hunks: z.array(z.object({ basis: z.string(), before_lines: z.array(z.number()),
       after_lines: z.array(z.number()), source_path: z.string().optional(), source_text_sha256: z.string().optional() })) }),
 }) })
 
@@ -244,7 +254,7 @@ function localPrevious(content: ReturnType<Awaited<ReturnType<typeof fixture>>['
     ? [localPreviousSchema.parse(JSON.parse(block.text)).manuscript_source_packet] : [])
 }
 
-it('returns event-referenced cached images with current lines and complete-read old quotes before unverified interpretations', async () => {
+it('returns event-referenced cached images with line, hunk and event references but no draft, note or event text', async () => {
   const intermediate = visualBefore.replace('▲乙把碗放在桌中央。', '▲乙把碗收进抽屉。')
   const f = await fixture([toolCallResponse('read-original', 'read', { file_path: 'source.md' }),
     toolCallResponse('edit-current', 'edit', { file_path: 'draft.md', old_string: intermediate, new_string: visualAfter }),
@@ -260,23 +270,18 @@ it('returns event-referenced cached images with current lines and complete-read 
   assert.ok(content)
   const sha = createHash('sha256').update(visualAfter).digest('hex')
   const local = localPrevious(content).find(packet => packet.actual_current_lines.some(line => line.line === 6))
-  expect(local).toMatchObject({ document_sha256: sha, previous_text: { context_document_sha256: sha,
-    status: 'same_text_diff_hunk_candidates', mapping: 'text_diff_hunk_not_semantic_line_pair', adoption: 'not_asserted' } })
+  expect(local).toMatchObject({ document_sha256: sha, previous_text: { status: 'same_text_diff_hunk_candidates' } })
   expect(local?.previous_text.hunks).toContainEqual(expect.objectContaining({ basis: 'complete_read_source_difference',
-    source_path: join(f.root, 'source.md'), before: [{ line: 6, quote: '▲乙把碗放在桌中央。' }], after_lines: [6] }))
-  expect(JSON.stringify(local)).not.toContain('收进抽屉')
+    source_path: join(f.root, 'source.md'), before_lines: [6], after_lines: [6] }))
   const label = content.findIndex(block => block.type === 'text' && block.text.startsWith('VIDEO_FRAME changed-visual.mp4/F00004 '))
   expect(label).toBeGreaterThan(-1); expect(content[label + 1]?.type).toBe('image')
-  const interpretationIndex = content.findIndex(block => block.type === 'text' && block.text.startsWith('{"manuscript_prior_event_interpretations":'))
-  expect(interpretationIndex).toBeGreaterThan(label + 1)
-  const interpretation = content[interpretationIndex]
-  assert.ok(interpretation?.type === 'text')
-  expect(interpretation.text).toContain('碗在桌边。')
-  expect(JSON.stringify(content.slice(0, label))).not.toContain('仅为测试模型原有记录')
+  expect(localPrevious(content).length).toBeGreaterThan(0)
+  expect(materialText(content)).toContain('"event_refs":[{"event_id":"bowl-movement"')
+  for (const text of ['收进抽屉', '放在桌中央', '碗在桌边。', '仅为测试模型原有记录', '合成缓存']) expect(materialText(content)).not.toContain(text)
   expect(f.agent.session.deriveMessages().at(-1)?.content).toEqual([{ type: 'text', text: '首次自主交付。' }])
 })
 
-it('uses the last native saved text when no complete-read source exists and keeps raw frame notes after cached images', async () => {
+it('uses the last native saved text as the hunk basis when no complete-read source exists and leaves frame notes out', async () => {
   const f = await fixture([toolCallResponse('edit-current', 'edit', { file_path: 'draft.md', old_string: visualBefore, new_string: visualAfter }),
     textResponse('正常交付。')], { videoEvidenceMaxFrames: 6 })
   await addChangedVisualSource(f); await writeFile(join(f.root, 'draft.md'), visualBefore)
@@ -285,14 +290,9 @@ it('uses the last native saved text when no complete-read source exists and keep
   assert.ok(content)
   const local = localPrevious(content).find(packet => packet.actual_current_lines.some(line => line.line === 6))
   expect(local?.previous_text.hunks).toContainEqual(expect.objectContaining({ basis: 'successful_native_mutation',
-    source_path: join(f.root, 'draft.md'), before: [{ line: 6, quote: '▲乙把碗放在桌中央。' }], after_lines: [6] }))
-  const lastImage = content.findLastIndex(block => block.type === 'image')
-  const notes = content.findIndex(block => block.type === 'text' && block.text.startsWith('{"manuscript_prior_frame_observations":'))
-  expect(notes).toBeGreaterThan(lastImage)
-  const observations = content[notes]
-  assert.ok(observations?.type === 'text')
-  expect(observations.text).toContain('合成缓存')
-  expect(JSON.stringify(content.slice(0, lastImage))).not.toContain('合成缓存 T1。')
+    source_path: join(f.root, 'draft.md'), before_lines: [6], after_lines: [6] }))
+  expect(content.some(block => block.type === 'image')).toBe(true)
+  expect(JSON.stringify(content)).not.toContain('合成缓存')
 })
 
 it('does not invent previous local quotes for a new manuscript without a complete source read', async () => {
@@ -337,11 +337,11 @@ it('returns native edit changed visual lines and their source samples without re
   await f.run()
   const report = f.evidence().at(-1), sha256 = createHash('sha256').update(visualAfter).digest('hex')
   expect(report?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation', current_file_sha256: sha256,
-    after_changed_lines: [6, 8], native_mutation_status: 'current', semantic_assessment: 'not_performed' })
-  expect(report?.format_reference).toBeUndefined()
-  expect(f.endingCues().at(-1)).toContain('忠实转写')
+    after_changed_line_ranges: [[6, 6], [8, 8]], native_mutation_status: 'current', semantic_assessment: 'not_performed' })
+  expect(JSON.stringify(f.evidenceContent()[0])).toContain('忠实转写')
+  expect(JSON.stringify(f.evidenceContent().at(-1))).not.toContain('忠实转写')
   expect(report?.returned_scenes).toBe(1)
-  expect(report?.scenes[0]?.manuscript?.current.text).toContain('4-2 餐厅')
+  expect(report?.scenes[0]?.manuscript?.current).toEqual({ id: '4:2', start_line: 4, end_line: 8 })
   expect(report?.scenes[0]?.images.returned_frame_ids.sort()).toEqual(['F00004', 'F00006', 'F00010', 'F00012', 'F00013', 'F00014'])
   const packets = savedSourcePackets(f, sha256)
   const changedCandidateLines = packets.flatMap(packet => packet.changed_visual_line_candidates?.map(line => line.line) ?? [])
@@ -351,15 +351,16 @@ it('returns native edit changed visual lines and their source samples without re
     .toMatchObject({ origin: 'source_timeline', actual_current_lines: [],
       requested_frame_ids: ['changed-visual.mp4/F00013', 'changed-visual.mp4/F00014'] })
   expect(report?.presentation_evidence).toMatchObject({ advisory: true, semantic_assessment: 'not_performed' })
-  expect(report?.presentation_evidence?.episodes[0]?.action_locations.findings.map(line => line.line)).toEqual([6, 8])
+  expect(report?.presentation_evidence?.episodes[0]?.action_lines).toEqual([6, 8])
   expect(report?.presentation_evidence?.episodes[0]?.ending).toMatchObject({ marker_status: 'not_found', suspense_assessment: 'not_performed' })
   const local = report?.scenes[0]
-  expect(local?.source_ending?.original_asr.map(row => row.text)).toContain('未入正文的片尾原声。')
+  expect(local?.source_ending?.last_recorded_asr).toMatchObject({ text: '未入正文的片尾原声。' })
   expect(local?.source_ending).toMatchObject({ relationship: 'source_tail_not_aligned_to_draft_ending', suspense_assessment: 'not_performed' })
   expect(local?.observation_locations).toMatchObject({ relationship: 'time_overlap_candidates_not_event_equivalence',
-    unmatched: 'unjudged_not_an_omission', semantic_assessment: 'not_performed' })
-  expect(local?.observation_locations?.candidates.find(row => row.line === 6)?.observation_refs.map(row => row.frame_id)).toContain('F00005')
-  expect(local?.observation_locations?.candidates.find(row => row.line === 8)?.observation_refs.map(row => row.frame_id)).toContain('F00011')
+    unmatched: 'unjudged_not_an_omission' })
+  expect(local?.observation_locations?.rows.find(row => row[0] === 6)?.[3]).toBeGreaterThan(0)
+  expect(local?.observation_locations?.rows.find(row => row[0] === 8)?.[3]).toBeGreaterThan(0)
+  expect(materialText(f.evidenceContent().at(-1) ?? [])).not.toContain('甲：这一大段没有改过的台词')
   const count = f.evidence().length
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(count)
@@ -371,9 +372,9 @@ it('allocates the shared image budget to source-difference visual lines before a
   await addChangedVisualSource(f); await writeFile(join(f.root, 'source.md'), visualBefore)
   await f.run()
   const report = f.evidence()[0]
-  expect(report?.changed_line_selection).toMatchObject({ basis: 'complete_read_source_difference', after_changed_lines: [6, 8] })
-  expect(report?.scenes[0]?.manuscript?.current.text).toContain('4-2 餐厅')
-  const unchanged = report?.scenes.find(scene => scene.manuscript?.current.text.includes('4-1 厨房'))
+  expect(report?.changed_line_selection).toMatchObject({ basis: 'complete_read_source_difference', after_changed_line_ranges: [[6, 6], [8, 8]] })
+  expect(report?.scenes[0]?.manuscript?.current.id).toBe('4:2')
+  const unchanged = report?.scenes.find(scene => scene.manuscript?.current.id === '4:1')
   expect(unchanged?.images.returned).toBe(0)
   expect(report?.scenes[0]?.images.returned_frame_ids.sort()).toEqual(['F00010', 'F00012', 'F00013', 'F00014'])
   expect(report?.scenes.reduce((total, scene) => total + scene.images.returned, 0)).toBe(4)
@@ -397,7 +398,7 @@ it('reports only episode scenes when a title precedes the first episode and stay
   await f.run()
   expect(f.evidence()).toHaveLength(1)
   expect(f.evidence()[0]).toMatchObject({ changed_scenes: 1, returned_scenes: 1 })
-  expect(f.evidence()[0]?.scenes.map(scene => scene.manuscript?.current.text)).toEqual(['8-1 家 日 内\n甲：最后一句已转出的原声。'])
+  expect(f.evidence()[0]?.scenes.map(scene => scene.manuscript?.current.id)).toEqual(['8:1'])
   expect(f.endingCues()[0]).toContain('第8集当前结尾')
   expect(f.endingCues()[0]).not.toContain('unassigned')
   await f.run('把标题改一下。')
@@ -415,7 +416,7 @@ it('keeps the last recorded ASR separate when a partial episode has no cached im
   f.agent.session.append('video/review', { kind: 'start', review: { ...review, duration: 60, scanned_until: 48, scan_complete: false } })
   await f.run()
   expect(f.evidence()[0]?.scenes[0]?.source_ending).toMatchObject({ source_end_seconds: 60, scanned_until: 48,
-    scan_complete: false, window: { start_seconds: 52, end_seconds: 60, frame_refs: [] }, original_asr: [],
+    scan_complete: false, window: { start_seconds: 52, end_seconds: 60, frame_refs: [] }, tail_asr_segment_ids: [],
     last_recorded_asr: { start_seconds: 40, end_seconds: 41, text: '最后一句已转出的原声。' },
     relationship: 'source_tail_not_aligned_to_draft_ending',
     selection: 'rolling_source_tail_last_recorded_speech_separate_from_silent_tail' })
@@ -426,7 +427,7 @@ it('keeps the last recorded ASR separate when a partial episode has no cached im
   expect(f.evidence()).toHaveLength(count)
 })
 
-it('logs the ending cue before the large source report and actually returns independent tail images within the default shared budget', async () => {
+it('logs the ending cue and the format reference once before the source report and returns independent tail images within the default shared budget', async () => {
   const f = await fixture([toolCallResponse('read-original', 'read', { file_path: 'source.md' }),
     toolCallResponse('save-current', 'write', { file_path: 'draft.md', content: visualAfter }), textResponse('首次交付。')])
   await addChangedVisualSource(f); await writeFile(join(f.root, 'source.md'), visualBefore)
@@ -435,7 +436,8 @@ it('logs the ending cue before the large source report and actually returns inde
   assert.ok(content, 'Successful saved draft must log source materials')
   expect(content[0]?.type === 'text' ? content[0].text : '').toMatch(/^第4集当前结尾：/u)
   expect(content[0]?.type === 'text' ? content[0].text : '').toContain('未入正文的片尾原声。')
-  expect(content[1]?.type === 'text' ? content[1].text : '').toMatch(/^\{"manuscript_video_evidence":/u)
+  expect(content[1]?.type === 'text' ? content[1].text : '').toMatch(/^标注参考：/u)
+  expect(content[2]?.type === 'text' ? content[2].text : '').toMatch(/^\{"manuscript_video_evidence":/u)
   const sha256 = createHash('sha256').update(visualAfter).digest('hex'), packets = savedSourcePackets(f, sha256)
   const tail = packets.find(packet => packet.time_candidate.relation === 'source_tail_not_aligned_to_draft_ending')
   expect(tail).toMatchObject({ origin: 'source_timeline', actual_current_lines: [],
@@ -443,7 +445,7 @@ it('logs the ending cue before the large source report and actually returns inde
     requested_frame_ids: ['changed-visual.mp4/F00013', 'changed-visual.mp4/F00014'] })
   for (const id of tail?.requested_frame_ids ?? []) {
     const label = content.findIndex(block => block.type === 'text' && block.text.startsWith(`VIDEO_FRAME ${id} `))
-    expect(label).toBeGreaterThan(1)
+    expect(label).toBeGreaterThan(2)
     expect(content[label + 1]?.type).toBe('image')
   }
   expect(content.filter(block => block.type === 'image')).toHaveLength(4)
@@ -469,9 +471,9 @@ it('rejects a native mutation after hash mismatch and falls back to the actual c
   })
   await f.run()
   expect(f.evidence().at(-1)?.changed_line_selection).toMatchObject({ basis: 'complete_read_source_difference',
-    current_file_sha256: createHash('sha256').update(external).digest('hex'), after_changed_lines: [6, 8],
+    current_file_sha256: createHash('sha256').update(external).digest('hex'), after_changed_line_ranges: [[6, 6], [8, 8]],
     native_mutation_status: 'after_hash_mismatch' })
-  expect(f.evidence().at(-1)?.scenes[0]?.manuscript?.current.text).toContain('把碗移到椅子上')
+  expect(f.evidence().at(-1)?.scenes[0]?.manuscript?.current.id).toBe('4:2')
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('仍然交付')
 })
 
@@ -487,8 +489,7 @@ it('ignores legacy bind mode changes without refreshing an unchanged saved draft
   await f.addReview('第4集'); await writeFile(join(f.root, 'source.md'), '第4集\n4-1 家 日 内\n甲：你好。')
   await f.run()
   expect(f.evidence()).toHaveLength(1)
-  expect(f.evidence()[0]?.format_reference).toBeUndefined()
-  expect(f.endingCues()[0]).toContain('格式整理不授权新增或改写原片事实')
+  expect(JSON.stringify(f.evidenceContent()[0])).toContain('格式整理不授权新增或改写原片事实')
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(1)
   await f.run('继续。')
@@ -506,7 +507,7 @@ it('matches a native CRLF edit by normalized after text while retaining the exac
   expect(bytes.toString()).toBe(visualAfter.replaceAll('\n', '\r\n'))
   expect(rawSha).not.toBe(createHash('sha256').update(visualAfter).digest('hex'))
   expect(f.evidence()[0]?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation', current_file_sha256: rawSha,
-    after_changed_lines: [6, 8], native_mutation_status: 'current' })
+    after_changed_line_ranges: [[6, 6], [8, 8]], native_mutation_status: 'current' })
   expect(f.evidence()[0]?.receipt.sha256).toBe(rawSha)
 })
 
@@ -520,7 +521,7 @@ it.each(['create', 'update'] as const)('uses the actual %s operation to interpre
   await f.run()
   expect(await write.mock.results[0]?.value).toMatchObject({ operation, before: null })
   expect(f.evidence()[0]?.changed_line_selection).toMatchObject({ basis: operation === 'create' ? 'new_saved_document' : 'unavailable',
-    after_changed_lines: operation === 'create' ? [1, 2, 3, 4] : [] })
+    after_changed_line_ranges: operation === 'create' ? [[1, 4]] : [] })
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('继续交付')
 })
 
@@ -532,8 +533,8 @@ it('associates a successful native edit through a symlinked parent with the cano
   await writeFile(join(f.root, 'physical/draft.md'), visualBefore)
   await f.run()
   expect(f.evidence()[0]?.receipt.path).toBe(join(f.root, 'physical/draft.md'))
-  expect(f.evidence()[0]?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation', after_changed_lines: [6, 8],
-    native_mutation_status: 'current' })
+  expect(f.evidence()[0]?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation',
+    after_changed_line_ranges: [[6, 6], [8, 8]], native_mutation_status: 'current' })
   const count = f.evidence().length
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(count)
@@ -561,7 +562,7 @@ it.each([['第 四 集', '4'], ['EP004', '4'], ['八十', '80'], ['第十集', '
   expect(manuscriptEpisodeNumber(value)).toBe(expected)
 })
 
-it('automatically admits real cached images and exact source rows after a normal successful write without a bind call', async () => {
+it('automatically admits real cached images with scene, line and ASR segment references after a normal successful write', async () => {
   const manuscript = '第4集\n4-1 家 日 内\n甲：你好。\n4-2 门口 日 外\n▲她走向门口。\n甲：回来。'
   const f = await fixture([toolCallResponse('write-draft', 'write', { file_path: 'draft.md', content: manuscript }), textResponse('已完成。')])
   await f.addReview('第4集')
@@ -570,15 +571,17 @@ it('automatically admits real cached images and exact source rows after a normal
   expect(material).toMatchObject({ advisory: true, semantic_assessment: 'not_performed', changed_scenes: 2, returned_scenes: 2,
     receipt: { path: join(f.root, 'draft.md') } })
   expect(material?.scenes[0]?.source_alignment).toBe('literal_asr_text_candidates')
-  expect(f.sourceRows().map(row => row.text)).toEqual(expect.arrayContaining(['你好。', '回来。']))
-  const home = material?.scenes.find(scene => scene.manuscript?.current.text.includes('4-1 家'))
-  const doorway = material?.scenes.find(scene => scene.manuscript?.current.text.includes('4-2 门口'))
-  expect(home?.manuscript?.next?.text).toContain('她走向门口')
-  expect(doorway?.manuscript?.previous?.text).toContain('甲：你好')
+  expect(f.sourceHeaders()[0]?.dialogue_lines).toEqual({ total: 2, asr_matched: 2, unmatched_lines: [], ambiguous_lines: [],
+    same_utterance_line_pairs: [] })
+  const home = material?.scenes.find(scene => scene.manuscript?.current.id === '4:1')
+  const doorway = material?.scenes.find(scene => scene.manuscript?.current.id === '4:2')
+  expect(home?.manuscript?.next).toEqual({ id: '4:2', start_line: 4, end_line: 6 })
+  expect(doorway?.manuscript?.previous).toEqual({ id: '4:1', start_line: 2, end_line: 3 })
+  expect(materialText(f.evidenceContent()[0] ?? [])).not.toContain('她走向门口')
   expect(f.evidenceContent()[0]?.at(-1)).toEqual({ type: 'text',
     text: '以上是保存文稿后自动附上的参考材料，不是用户的新要求；不用回复或确认，继续当前任务。' })
   const request = f.adapter.requests[1]
-  expect(JSON.stringify(request)).toContain('unverified_prior_model_observations')
+  expect(JSON.stringify(request)).not.toContain('合成测试画面中的物体')
   const imageBlocks = request?.messages.flatMap(message => message.content.filter(block => block.type === 'image'))
   expect(imageBlocks?.length).toBeGreaterThan(0)
   const before = JSON.stringify(reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session))
@@ -592,8 +595,8 @@ it('automatically admits real cached images and exact source rows after a normal
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(2)
   expect(f.evidence()[1]?.changed_scenes).toBe(1)
-  expect(f.evidence()[1]?.scenes[0]?.manuscript?.current.text).toContain('她停在门边')
-  expect(f.evidence()[1]?.scenes[0]?.manuscript?.previous?.text).toContain('你好')
+  expect(f.evidence()[1]?.scenes[0]?.manuscript?.current.id).toBe('4:2')
+  expect(f.evidence()[1]?.scenes[0]?.manuscript?.previous?.id).toBe('4:1')
 })
 
 it('keeps different episode sources separate inside one file and reports unreturned scenes and images', async () => {
@@ -651,7 +654,7 @@ it('sends no saved-draft material without a matching video timeline or a differi
   expect(f.evidence()).toEqual([])
   expect(f.evidenceContent()).toEqual([])
   expect(f.agent.session.deriveMessages().some(message => message.source.kind === 'muse-manuscript'
-    && JSON.stringify(message.source).includes('已保存正文与局部视频来源材料'))).toBe(false)
+    && JSON.stringify(message.source).includes('已保存稿件变化行与来源对照引用'))).toBe(false)
   expect(f.adapter.requests[3]?.messages.flatMap(message => message.content.filter(block => block.type === 'image'))).toHaveLength(0)
   expect(f.agent.session.deriveMessages().at(-1)?.content).toEqual([{ type: 'text', text: '照常完成。' }])
 })
@@ -724,7 +727,7 @@ it.each(['close', 'reopen', 'status', 'list'])('does not treat %s bookkeeping as
   expect(f.evidenceContent()).toEqual([])
 })
 
-it('retains explicit ASR failure and a whole-source index without pretending unaligned images are local evidence', async () => {
+it('retains explicit ASR failure without pretending unaligned images are local evidence', async () => {
   const f = await fixture([toolCallResponse('write-draft', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n▲她走向门口。' }), textResponse('已完成。')])
   const source = await f.addReview('第4集')
   await writeFile(source.transcript, 'changed ASR')
@@ -765,7 +768,7 @@ it('ignores a legacy future path until a normal write registers the draft', asyn
   expect(f.evidence()).toHaveLength(0)
   await f.run('继续。')
   expect(f.evidence()[0]?.receipt.path).toBe(join(f.root, 'future.md'))
-  expect(f.evidence()[0]?.scenes[0]?.manuscript?.current.text).toContain('甲：你好。')
+  expect(f.evidence()[0]?.scenes[0]?.manuscript?.current.id).toBe('4:1')
 })
 
 it('selects the independent source ending despite an uncertain old caption without replaying the entire cache', async () => {
@@ -1173,21 +1176,20 @@ it('returns the current dialogue-time frame even when an earlier frame contains 
   expect(manuscriptEvidenceFrames(scene, location, 4, new Set())).toEqual(['cue2'])
 })
 
-it('returns both plain dialogue lines and the whole original utterance once on a text-only model route', async () => {
+it('marks plain dialogue lines inside one original utterance on a text-only model route without quoting the draft', async () => {
   const f = await fixture([toolCallResponse('write-dialogue', 'write', { file_path: 'draft.md',
     content: '第4集\n4-1 家 日 内\n甲：你好。\n甲：今天回来。' }), textResponse('首次交付。')], {}, false)
   const source = await f.addReview('第4集')
   await replaceTranscript(f, source, [{ start: 1, end: 3, text: '你好，今天回来。', speaker_id: '1' }])
   await f.run()
-  expect(f.sourceRows()).toEqual([{ segment_id: 'S00001', start_seconds: 1, end_seconds: 3, text: '你好，今天回来。',
-    draft_line_refs: [{ scene_id: '4:1', line: 3 }, { scene_id: '4:1', line: 4 }] }])
+  expect(f.sourceHeaders()[0]?.dialogue_lines).toEqual({ total: 2, asr_matched: 2, unmatched_lines: [], ambiguous_lines: [],
+    same_utterance_line_pairs: [[3, 4]] })
   const request = f.adapter.requests[1]
   assert.ok(request, 'The successful write must be followed by an actual model request')
   expect(request.messages.flatMap(message => message.content.filter(block => block.type === 'image'))).toEqual([])
-  const text = request.messages.flatMap(message => message.content.flatMap(block => block.type === 'text' ? [block.text] : [])).join('\n')
-  expect(text).toContain('within_same_speech')
-  expect(text).toContain('"actual_quote":"甲：你好。"')
-  expect(text).toContain('"actual_quote":"甲：今天回来。"')
+  const notice = materialText(f.evidenceContent()[0] ?? [])
+  expect(notice).not.toContain('甲：你好。')
+  expect(notice).not.toContain('甲：今天回来。')
   expect(f.evidence()[0]?.returned_scenes).toBe(1)
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('首次交付')
 })
@@ -1198,13 +1200,14 @@ it('keeps equal original utterance texts separate by their actual source segment
   const source = await f.addReview('第4集')
   await replaceTranscript(f, source, [{ start: 1, end: 2, text: '妈。' }, { start: 10, end: 11, text: '妈。' }])
   await f.run()
-  expect(f.sourceRows().map(row => [row.segment_id, row.text])).toEqual([['S00001', '妈。'], ['S00002', '妈。']])
-  const text = f.adapter.requests[1]?.messages.flatMap(message => message.content.flatMap(block => block.type === 'text' ? [block.text] : [])).join('\n')
-  expect(text).toContain('"candidate_segment_ids":["S00001","S00002"]')
-  expect(text).toContain('"ambiguous_source_matches":true')
+  expect(f.sourceHeaders()[0]?.dialogue_lines.ambiguous_lines).toEqual([3])
+  const rows = f.sourceRows()
+  expect(rows.length).toBeGreaterThan(0)
+  expect(new Set(rows.map(row => row.segment_id)).size).toBe(rows.length)
+  expect(rows.every(row => row.text === '妈。' && ['S00001', 'S00002'].includes(row.segment_id))).toBe(true)
 })
 
-it('puts the actual line and ASR beside qualified before-anchor-after images with distinct document and scene hashes', async () => {
+it('puts line numbers and the packet ASR row beside qualified before-anchor-after images bound to the document hash', async () => {
   const f = await fixture(), source = await f.addReview('第4集')
   const material = await readVideoSourceTimeline(f.ctx, f.agent.session, source.id, {
     windowSeconds: 4, maxBytes: 100_000, maxFrames: 4, maxTranscriptBytes: 4096,
@@ -1222,32 +1225,29 @@ it('puts the actual line and ASR beside qualified before-anchor-after images wit
   assert.ok(scene, 'The saved scene must retain its real hash and line number')
   const plan = planManuscriptVideoPackets(scene, manuscriptSourceWindows(scene, timeline), 4, new Set())
   const image = { type: 'image' as const, attachment: f.image }
-  const content = manuscriptVideoPacketContent({ timeline, documentSha256: 'whole-document-sha', plans: [plan], indexRows: 3,
+  const content = manuscriptVideoPacketContent({ timeline, documentSha256: 'whole-document-sha', plans: [plan],
     images: new Map(frames.map(frame => [frame.frame_id, image])) })
   const packet = content.find(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":')
     && block.text.includes('"origin":"draft_candidates"'))
   assert.ok(packet?.type === 'text', 'The line packet must immediately precede its raw images')
-  expect(packet.text).toContain('甲（抬手）：你好。')
+  expect(packet.text).not.toContain('甲（抬手）：你好。')
+  expect(packet.text).toContain('"actual_current_lines":[{"line":3,"kind":"dialogue_parenthetical"}]')
   expect(packet.text).toContain('"asr_segment_refs":["S00001"]')
+  expect(materialText(content)).toContain('"segment_id":"S00001","start_seconds":1,"end_seconds":2,"text":"你好。"')
   expect(packet.text).toContain('"document_sha256":"whole-document-sha"')
-  expect(packet.text).toContain(`"scene_sha256":"${scene.sha256}"`)
-  expect(packet.text).not.toContain('"draft_sha256"')
   const labels = content.flatMap(block => block.type === 'text' && block.text.startsWith('VIDEO_FRAME ') ? [block.text] : [])
   expect(labels.map(label => /^VIDEO_FRAME (\S+)/u.exec(label)?.[1])).toEqual(['F00109', 'F00110', 'F00071'].map(id => `${source.id}/${id}`))
   for (const [index, block] of content.entries()) if (block.type === 'text' && block.text.startsWith('VIDEO_FRAME ')) {
     expect(content[index + 1]?.type).toBe('image')
   }
   expect(content.filter(block => block.type === 'image')).toHaveLength(3)
-  expect(JSON.stringify(content)).toContain('unverified_prior_model_observations')
-  const withoutIndex = manuscriptVideoPacketContent({ timeline, documentSha256: 'whole-document-sha', plans: [plan],
-    indexRows: 0, images: new Map() })
-  const withoutIndexHeader = withoutIndex[0]
-  assert.ok(withoutIndexHeader?.type === 'text', 'The explicit omitted-index summary must remain visible')
-  expect(withoutIndexHeader.text).toContain('"omitted_for_budget":3')
-  const missingPacket = withoutIndex[1]
+  expect(JSON.stringify(content)).not.toContain(template.observation?.visible ?? 'missing observation')
+  const missing = manuscriptVideoPacketContent({ timeline, documentSha256: 'whole-document-sha', plans: [plan], images: new Map() })
+  const missingPacket = missing[1]
   assert.ok(missingPacket?.type === 'text', 'Missing cache blocks must retain their packet metadata')
-  expect(missingPacket.text).toContain('"selection_anchor_returned":false')
-  expect(withoutIndex.filter(block => block.type === 'image')).toHaveLength(0)
+  expect(missingPacket.text).toContain('"requested_frame_ids"')
+  expect(missing.filter(block => block.type === 'text' && block.text.includes('cache_block_not_returned'))).toHaveLength(3)
+  expect(missing.filter(block => block.type === 'image')).toHaveLength(0)
 })
 
 it('ranks original change anchors inside a real candidate interval ahead of a shorter static or padding-only range', async () => {
@@ -1275,11 +1275,12 @@ it('ranks original change anchors inside a real candidate interval ahead of a sh
   expect(current?.selection_anchor).toEqual({ frame_id: 'anchor', time: 11 })
   expect(plan.selected.some(packet => packet.origin === 'source_timeline')).toBe(true)
   const copied = { ...plan, selected: plan.selected.map(packet => ({ ...packet, lines: packet.lines.map(line => ({ ...line })) })) }
-  const content = manuscriptVideoPacketContent({ timeline, documentSha256: 'actual-document', plans: [copied], images: new Map(), indexRows: 5 })
+  const content = manuscriptVideoPacketContent({ timeline, documentSha256: 'actual-document', plans: [copied], images: new Map() })
   const header = content[0], packet = content[1]
   assert.ok(header?.type === 'text' && packet?.type === 'text', 'Copied plans must retain source and packet metadata')
-  expect(header.text).toContain('"selected_for_images":true')
-  expect(packet.text).toContain('"selection_anchor_returned":false')
+  expect(header.text).toContain(`"selected_packets":${copied.selected.length}`)
+  expect(packet.text).toContain('"requested_frame_ids"')
+  expect(JSON.stringify(content)).toContain('cache_block_not_returned')
 })
 
 it('reads an older presentation receipt without allowing it to suppress the new representation or repeat it indefinitely', async () => {
@@ -1320,8 +1321,8 @@ it('automatically returns actual complete-read before and after lines for a new 
   expect(report).toMatchObject({ status: 'compared', relationship: 'current_task_read_source_candidate', adopted_authorization: 'not_inferred',
     comparison_source: { path: join(f.root, 'source.md'), read_text_sha256: createHash('sha256').update(manuscriptReadText(before)).digest('hex') } })
   expect(report?.comparison_source?.read_text_sha256).not.toBe(createHash('sha256').update(before).digest('hex'))
-  expect(report?.hunks.flatMap(hunk => hunk.before)).toContainEqual({ number: 3, text: '▲甲把杯子放回桌上。' })
-  expect(report?.hunks.flatMap(hunk => hunk.after)).toContainEqual({ number: 3, text: '甲（端杯）：我不走。' })
+  expect(report?.hunks).toEqual([{ kind: 'replace', source_lines: [[3, 4]], current_lines: [[3, 3]] }])
+  expect(JSON.stringify(content)).not.toContain('甲把杯子放回桌上')
   expect(report?.normalization).toContain('not_file_bytes')
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('首次交付')
   const snapshots = manuscriptTextReadSnapshots(f.ctx, f.agent.session)
@@ -1349,8 +1350,8 @@ it('returns one read-source comparison per episode without scene text and does n
   expect(first[0]?.scenes[0]?.manuscript_scene_refs?.map(ref => ref.id)).toEqual(['4:1', '4:2'])
   const report = first[0]?.scenes[0]?.read_source_revision
   expect(report?.status).toBe('compared')
-  expect(report?.hunks.flatMap(hunk => hunk.before.map(line => line.text))).toContain('乙：原句二。')
-  expect(report?.hunks.flatMap(hunk => hunk.after.map(line => line.text))).toContain('乙：改句二。')
+  expect(report?.hunks.flatMap(hunk => rangeLines(hunk.source_lines))).toEqual([3, 5])
+  expect(report?.hunks.flatMap(hunk => rangeLines(hunk.current_lines))).toEqual([3, 5])
   expect(first[0]).toMatchObject({ changed_scenes: 2, returned_scenes: 2, not_returned_scenes: 0 })
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(1)
@@ -1360,7 +1361,7 @@ it('returns one read-source comparison per episode without scene text and does n
   const last = f.evidence().at(-1)
   expect(last?.scenes).toHaveLength(1)
   expect(last?.scenes[0]?.manuscript_scene_refs?.map(ref => ref.id)).toEqual(['4:2'])
-  expect(last?.scenes[0]?.read_source_revision?.hunks.flatMap(hunk => hunk.after.map(line => line.text))).toContain('乙：再改二。')
+  expect(last?.scenes[0]?.read_source_revision?.hunks.flatMap(hunk => rangeLines(hunk.current_lines))).toContain(5)
 })
 
 it('does not refresh an unchanged saved body after a legacy bind', async () => {
@@ -1479,7 +1480,7 @@ it.each(['partial_then_complete', 'complete_then_partial'])('uses the current co
   expect(report?.status).toBe('compared')
   expect(report?.candidates).toHaveLength(1)
   expect(report?.comparison_source?.read_call_id).toBe('read-complete')
-  expect(report?.hunks.flatMap(hunk => hunk.before)).toContainEqual({ number: 3, text: '甲：完整原句。' })
+  expect(report?.hunks.flatMap(hunk => rangeLines(hunk.source_lines))).toEqual([3])
   expect(manuscriptTextReadSnapshots(f.ctx, f.agent.session)?.reads.map(read => read.status).sort()).toEqual(['complete', 'partial'])
 })
 
@@ -1496,7 +1497,7 @@ it('replaces a same-path old complete read with the newly read current text with
   expect(report?.status).toBe('compared')
   expect(report?.candidates).toHaveLength(1)
   expect(report?.comparison_source?.read_call_id).toBe('read-new')
-  expect(report?.hunks.flatMap(hunk => hunk.before)).toContainEqual({ number: 3, text: '甲：最新来源。' })
+  expect(report?.hunks.flatMap(hunk => rangeLines(hunk.source_lines))).toEqual([3])
   expect(manuscriptTextReadSnapshots(f.ctx, f.agent.session)?.reads).toHaveLength(1)
 })
 
@@ -1523,8 +1524,8 @@ it('compares only the actual matching episode from a multi-episode complete read
   await f.run('处理第四集，保存为draft.md。')
   const report = f.evidence()[0]?.scenes[0]?.read_source_revision
   expect(report?.status).toBe('compared')
-  expect(JSON.stringify(report?.hunks)).toContain('原第四集')
-  expect(JSON.stringify(report?.hunks)).not.toContain('第五集不在本轮范围')
+  expect(report?.hunks.flatMap(hunk => rangeLines(hunk.source_lines))).toEqual([3])
+  expect(report?.hunks.flatMap(hunk => rangeLines(hunk.current_lines))).toEqual([3])
 })
 
 function nativeEditBatch(calls: readonly { id: string; name: 'edit' | 'write'; args: object }[]): StreamChunk[] {
@@ -1546,7 +1547,7 @@ it('returns both native edits from one tool batch relative to the last version w
   await addChangedVisualSource(f); await writeFile(join(f.root, 'draft.md'), visualBefore)
   await f.run()
   const report = f.evidence().at(-1)
-  expect(report?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation', after_changed_lines: [6, 8] })
+  expect(report?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation', after_changed_line_ranges: [[6, 6], [8, 8]] })
   expect(report?.receipt.complete_lf_text_sha256).toBe(createHash('sha256').update(visualAfter).digest('hex'))
   const count = f.evidence().length
   await f.run('继续。')
@@ -1563,7 +1564,8 @@ it.each([
   ]), textResponse('直接交付。')])
   await addChangedVisualSource(f); await writeFile(join(f.root, 'draft.md'), visualBefore)
   await f.run()
-  expect(f.evidence().at(-1)?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation', after_changed_lines: expected })
+  expect(f.evidence().at(-1)?.changed_line_selection?.basis).toBe('successful_native_mutation')
+  expect(rangeLines(f.evidence().at(-1)?.changed_line_selection?.after_changed_line_ranges)).toEqual(expected)
 })
 
 it('starts a fresh known baseline when an intervening external change breaks the native before-to-after chain', async () => {
@@ -1580,7 +1582,7 @@ it('starts a fresh known baseline when an intervening external change breaks the
     return decision
   })
   await f.run()
-  expect(f.evidence().at(-1)?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation', after_changed_lines: [8] })
+  expect(f.evidence().at(-1)?.changed_line_selection).toMatchObject({ basis: 'successful_native_mutation', after_changed_line_ranges: [[8, 8]] })
 })
 
 it('discards a pending native chain when a later update has no complete before text even if it writes identical bytes', async () => {
@@ -1591,7 +1593,7 @@ it('discards a pending native chain when a later update has no complete before t
   ]), textResponse('不推定未知修改。')], {}, true, { diffBasisMaxBytes: 1 })
   await addChangedVisualSource(f); await writeFile(join(f.root, 'draft.md'), visualBefore)
   await f.run()
-  expect(f.evidence().at(-1)?.changed_line_selection).toMatchObject({ basis: 'unavailable', after_changed_lines: [] })
+  expect(f.evidence().at(-1)?.changed_line_selection).toMatchObject({ basis: 'unavailable', after_changed_line_ranges: [] })
 })
 
 it('resets the native baseline after a logged source receipt without replaying an already returned change', async () => {
@@ -1604,9 +1606,9 @@ it('resets the native baseline after a logged source receipt without replaying a
   ])
   await addChangedVisualSource(f); await writeFile(join(f.root, 'draft.md'), visualBefore.replaceAll('\n', '\r\n'))
   await f.run()
-  expect(f.evidence()[0]?.changed_line_selection?.after_changed_lines).toEqual([6])
-  expect(f.evidence().at(-1)?.changed_line_selection?.after_changed_lines).toEqual([3, 9])
-  expect(f.evidence().at(-1)?.changed_line_selection?.after_changed_lines).not.toContain(7)
+  expect(rangeLines(f.evidence()[0]?.changed_line_selection?.after_changed_line_ranges)).toEqual([6])
+  expect(rangeLines(f.evidence().at(-1)?.changed_line_selection?.after_changed_line_ranges)).toEqual([3, 9])
+  expect(rangeLines(f.evidence().at(-1)?.changed_line_selection?.after_changed_line_ranges)).not.toContain(7)
   const current = await readFile(join(f.root, 'draft.md'), 'utf8')
   expect(f.evidence().at(-1)?.receipt.sha256).toBe(createHash('sha256').update(current).digest('hex'))
   expect(f.evidence().at(-1)?.receipt.complete_lf_text_sha256)
@@ -1624,11 +1626,12 @@ it('keeps native changes pending when source materials were prepared but never a
   const parse = (content: typeof prepared) => content.flatMap(block => block.type === 'text'
     && block.text.startsWith('{"manuscript_video_evidence":')
     ? [materialSchema.parse(JSON.parse(block.text)).manuscript_video_evidence] : [])
-  expect(parse(prepared)[0]?.changed_line_selection?.after_changed_lines).toEqual([6])
+  expect(rangeLines(parse(prepared)[0]?.changed_line_selection?.after_changed_line_ranges)).toEqual([6])
   expect(f.evidence()).toHaveLength(0)
   await writeFile(path, visualAfter)
   await evidence.remember(f.agent, path, { before: first, after: visualAfter, operation: 'update' })
-  expect(parse(await evidence.refresh(f.ctx, f.agent, signal))[0]?.changed_line_selection?.after_changed_lines).toEqual([6, 8])
+  const combined = parse(await evidence.refresh(f.ctx, f.agent, signal))
+  expect(rangeLines(combined[0]?.changed_line_selection?.after_changed_line_ranges)).toEqual([6, 8])
 })
 
 it('keeps nested-dispatch saved paths only within the request that saved them', async () => {
@@ -1681,7 +1684,7 @@ it.each(['other_message_source', 'different_path', 'different_lf_hash', 'legacy_
     const combined = await evidence.refresh(f.ctx, f.agent, signal)
     const reports = combined.flatMap(block => block.type === 'text' && block.text.startsWith('{"manuscript_video_evidence":')
       ? [materialSchema.parse(JSON.parse(block.text)).manuscript_video_evidence] : [])
-    expect(reports[0]?.changed_line_selection?.after_changed_lines).toEqual([6, 8])
+    expect(rangeLines(reports[0]?.changed_line_selection?.after_changed_line_ranges)).toEqual([6, 8])
   },
 )
 
@@ -1701,11 +1704,13 @@ it('locates an action between the nearest actual anchors while retaining correct
   const plan = planManuscriptVideoPackets(scene, location, 1, new Set(), new Set([5]))
   expect(plan.selected[0]).toMatchObject({ changed_literal_selection: { preferred: true, tier: 0 },
     interval: { start_seconds: 2, end_seconds: 30 }, images: [{ frame_id: 'F1' }] })
-  const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [plan], images: new Map(), indexRows: 20 })
+  const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [plan], images: new Map() })
   const raw: unknown = JSON.parse(blocks[0]?.type === 'text' ? blocks[0].text : '{}')
-  expect(raw).toMatchObject({ manuscript_video_source: { visual_query_anchor_skips: [{ line: 5,
-    nearest_aligned_dialogue_lines: { previous_line: 3, next_line: 7 }, skipped_unaligned_dialogue_lines: [4, 6],
-    scope: 'nearest_literal_dialogue_candidates_not_semantic_alignment' }] } })
+  expect(raw).toMatchObject({ manuscript_video_source: { dialogue_lines: { total: 4, asr_matched: 2, unmatched_lines: [4, 6] },
+    changed_visual_line_sampling: { temporal_samples_not_action_verification: [{ line: 5 }] } } })
+  const packet: unknown = JSON.parse(blocks[1]?.type === 'text' ? blocks[1].text : '{}')
+  expect(packet).toMatchObject({ manuscript_source_packet: { actual_current_lines: [{ line: 5, kind: 'action_line' }],
+    time_candidate: { start_seconds: 2, end_seconds: 30, segment_ids: ['S1', 'S3'] } } })
 })
 
 it('retains every ordered repeated-anchor combination when an action skips unaligned dialogue', () => {
@@ -1837,14 +1842,15 @@ it('returns every draft when the combined materials exactly reach the per-refres
 })
 
 it('reports a single draft whose material exceeds the byte limit instead of truncating it', async () => {
-  const { f, a, signal, timelineBytes, instance } = await twoDraftMaterials()
-  const whole = await (await instance({}, [a])).refresh(f.ctx, f.agent, signal)
-  const block = whole.find(content => content.type === 'text' && content.text.startsWith('{"manuscript_video_evidence":'))
-  assert.ok(block?.type === 'text', 'The default limit must return the draft material')
-  const blockBytes = Buffer.byteLength(JSON.stringify(block)), sourceBytes = timelineBytes[0] ?? Infinity
-  expect(blockBytes).toBeGreaterThan(sourceBytes)
-  const limit = Math.floor((sourceBytes + blockBytes) / 2)
-  await expect((await instance({ videoEvidenceMaxBytes: limit }, [a])).refresh(f.ctx, f.agent, signal))
+  const { f, signal, timelineBytes, instance } = await twoDraftMaterials()
+  const many = join(f.root, 'many.md'), scenes = 24
+  await writeFile(many, `第4集\n${Array.from({ length: scenes }, (_, index) => `4-${index + 1} 家 日 内\n甲：你好。`).join('\n')}`)
+  const whole = await (await instance({ videoEvidenceMaxScenes: scenes }, [many])).refresh(f.ctx, f.agent, signal)
+  expect(materialPaths(whole)).toEqual([many])
+  const wholeBytes = Buffer.byteLength(JSON.stringify(whole)), sourceBytes = timelineBytes[0] ?? Infinity
+  expect(wholeBytes).toBeGreaterThan(sourceBytes)
+  const limit = Math.floor((sourceBytes + wholeBytes) / 2)
+  await expect((await instance({ videoEvidenceMaxScenes: scenes, videoEvidenceMaxBytes: limit }, [many])).refresh(f.ctx, f.agent, signal))
     .rejects.toThrow(/MANUSCRIPT_VIDEO_RESULT_SIZE/)
 })
 
@@ -1869,13 +1875,13 @@ it('continues a multi-scene draft from its cumulative receipt after compaction',
   await f.run()
   const first = loggedNotices(f)
   expect(first).toHaveLength(1)
-  const firstScenes = first[0]!.report.scenes.map(scene => scene.manuscript?.current.text)
+  const firstScenes = first[0]!.report.scenes.map(scene => scene.manuscript?.current.id)
   expect(firstScenes).toHaveLength(1)
   for (const notice of first) compactEvent(f, notice.seq)
   await f.run('继续。')
   const second = loggedNotices(f)
   expect(second).toHaveLength(2)
-  const secondScenes = second[1]!.report.scenes.map(scene => scene.manuscript?.current.text)
+  const secondScenes = second[1]!.report.scenes.map(scene => scene.manuscript?.current.id)
   expect(secondScenes).toHaveLength(1)
   expect(secondScenes[0]).not.toBe(firstScenes[0])
   const receipts = loggedManuscriptVideoReceipts(f.ctx, f.agent.session)

@@ -1,6 +1,6 @@
 /** Screenplay presentation evidence preserves literal positions without adding creative decisions. */
 import { expect, it } from 'vitest'
-import { manuscriptEndingCue, manuscriptFormatReference, manuscriptPresentationEvidence } from '../src/manuscript-presentation.ts'
+import { manuscriptEndingCue, manuscriptFormatReference, manuscriptFormatReferenceText, manuscriptPresentationEvidence } from '../src/manuscript-presentation.ts'
 import { manuscriptScenes } from '../src/manuscript-scenes.ts'
 
 function evidence(text: string, maximumFindings = 40, maxTextCharacters = 200_000,
@@ -143,9 +143,13 @@ it('retains the default format reference without granting adaptation permission'
   expect(manuscriptFormatReference().source_scope).toBe('依用户当前任务区分忠实转写与改编；格式整理不授权新增或改写原片事实。')
   expect(manuscriptFormatReference().ending).toContain('只是格式标注，不改变剧情')
   expect(manuscriptFormatReference().ending).toContain('完全收束或大结局不强编悬念')
+  const text = manuscriptFormatReferenceText()
+  const { dialogue: _dialogue, ...referenced } = manuscriptFormatReference()
+  for (const part of Object.values(referenced)) expect(text).toContain(part)
+  expect(text.split('\n')).toHaveLength(2)
 })
 
-it('places the actual missing marker, final quotes and distinct source times before the existing format reference', () => {
+it('reports the actual missing marker, final quotes and distinct source times without repeating the format reference', () => {
   const current = evidence('第8集\n8-1 餐厅 日 内\n贺景川：妈，你非要这么咄咄逼人吗？\n▲乔静仪转眼看向他们，露出笑意。')
   const cue = manuscriptEndingCue(current, [{ episode: '8', last_asr: {
     text: '妈，你非要这么咄咄逼人吗？', start_seconds: 53.489, end_seconds: 55.009 },
@@ -156,11 +160,7 @@ it('places the actual missing marker, final quotes and distinct source times bef
   expect(cue).toContain('末对白第3行「贺景川：妈，你非要这么咄咄逼人吗？」')
   expect(cue).toContain('来源最后已有ASR（53.489—55.009秒）：「妈，你非要这么咄咄逼人吗？」')
   expect(cue).toContain('末图引用56.5秒/F-56，两者不作同步认定')
-  expect(cue.indexOf('当前稿原句')).toBeLessThan(cue.indexOf('标注参考'))
-  expect(cue).toContain(manuscriptFormatReference().ending)
-  expect(cue).toContain(manuscriptFormatReference().action_line)
-  expect(cue).toContain(manuscriptFormatReference().parenthetical)
-  expect(cue).toContain(manuscriptFormatReference().source_scope)
+  for (const part of Object.values(manuscriptFormatReference())) expect(cue).not.toContain(part)
 })
 
 it('acknowledges an existing marker without claiming its suspense succeeded or asking for another copy', () => {
@@ -168,7 +168,7 @@ it('acknowledges an existing marker without claiming its suspense succeeded or a
     [{ episode: '1', last_asr: null }], { maximumFindings: 40, maxTextCharacters: 200_000 })
   expect(cue).toContain('已有钩子标识1处（只记结构，不判悬念质量）')
   expect(cue).not.toContain('未找到【下集钩子】')
-  expect(cue).toContain('不另抄一遍末段')
+  expect(manuscriptFormatReferenceText()).toContain('不另抄一遍末段')
   expect(cue).toContain('没有可用末句')
 })
 
@@ -176,7 +176,7 @@ it('keeps a closed source ending conditional and does not turn missing ASR into 
   const cue = manuscriptEndingCue(evidence('第1集\n1-1 家 日 内\n▲两人并肩走远。\n【全剧终】'),
     [{ episode: '1', last_asr: null, frames: [{ frame_id: 'last', time: 90 }] }],
     { maximumFindings: 40, maxTextCharacters: 200_000 })
-  expect(cue).toContain('完全收束或大结局不强编悬念')
+  expect(manuscriptFormatReferenceText()).toContain('完全收束或大结局不强编悬念')
   expect(cue).toContain('来源最后已有ASR：没有可用末句')
   expect(cue).toContain('不代表无声或台词同步')
   expect(cue).not.toContain('原片结尾没有台词')
@@ -188,7 +188,7 @@ it('keeps source ambiguity and a missing source distinct without granting adapta
   const limits = { maximumFindings: 40, maxTextCharacters: 200_000 }
   const ambiguous = manuscriptEndingCue(current, [{ episode: '1', last_asr: null }, { episode: '1', last_asr: null }], limits)
   expect(ambiguous).toContain('来源末段有2份候选，未选择唯一来源')
-  expect(ambiguous).toContain('格式整理不授权新增或改写原片事实')
+  expect(ambiguous).not.toContain('格式整理不授权')
   expect(manuscriptEndingCue(current, [], limits)).toContain('没有可用候选，未推定原片结尾')
   expect(manuscriptEndingCue(current, [{ episode: '1', draft_path: '/other.md', last_asr: null }], limits))
     .toContain('没有可用候选')
@@ -213,7 +213,7 @@ it('bounds episode entries and names omitted episodes without cross-file source 
   expect(cue).toContain('第1集当前结尾')
   expect(cue).not.toContain('第2集当前结尾')
   expect(cue).toContain('另有1集因条目预算未列')
-  expect(cue).toContain(manuscriptFormatReference().source_scope)
+  expect(cue).not.toContain(manuscriptFormatReference().source_scope)
 })
 
 it('keeps the real ending positions when a shared quote budget omits the final dialogue', () => {

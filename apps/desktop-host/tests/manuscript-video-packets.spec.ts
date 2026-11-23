@@ -227,12 +227,12 @@ describe('saved manuscript temporal packets', () => {
       source: { review_id: VideoReviewId('review-test'), episode: '1', path: '/source.mp4', source_version: 'v1', duration_seconds: 24,
         follow_up: { status: 'active' }, scan_complete: true, scanned_until: 24 }, scope: { start_seconds: 0, end_seconds: 24, full_episode: true, window_seconds: 8 },
       material_sha256: 'material', windows: location.windows, notice: '候选材料。' }
-    const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'document-hash', plans: [plan], images: new Map(), indexRows: 9 })
+    const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'document-hash', plans: [plan], images: new Map() })
     const raw: unknown = JSON.parse(blocks[0]?.type === 'text' ? blocks[0].text : '{}')
-    expect(raw).toMatchObject({ manuscript_video_source: { changed_visual_line_sampling: [
-      { actual_current_line: { line: firstLine }, selected_ranges: 1, sampling_status: 'temporal_samples_not_action_verification' },
-      { actual_current_line: { line: secondLine }, selected_ranges: 0, sampling_status: 'not_selected_within_shared_image_allowance' },
-    ] } })
+    expect(raw).toMatchObject({ manuscript_video_source: { changed_visual_line_sampling: {
+      temporal_samples_not_action_verification: [{ line: firstLine, returned_frame_ids: [] }],
+      not_selected_within_shared_image_allowance: [secondLine],
+    } } })
   })
 
   it('does not let a shared weak line suppress that changed line’s own preferred temporal range', () => {
@@ -266,19 +266,19 @@ describe('saved manuscript temporal packets', () => {
     if (count === 0) expect(plan.selected).toEqual([])
   })
 
-  it('returns independent detector anchors and identifies their interpretations as unverified', () => {
+  it('references the source and document without frame indexes, recorded notes or images when no packet is selected', () => {
     const { scene, location, windows } = fixture()
     const timeline: VideoSourceTimeline = { advisory: true, semantic_assessment: 'not_performed',
       source: { review_id: VideoReviewId('review-test'), episode: '1', path: '/source.mp4', source_version: 'v1', duration_seconds: 24,
         follow_up: { status: 'active' }, scan_complete: true, scanned_until: 24 }, scope: { start_seconds: 0, end_seconds: 24, full_episode: true, window_seconds: 8 },
       material_sha256: 'material', windows, notice: '候选材料。' }
     const plan = planManuscriptVideoPackets(scene, { ...location, visual_queries: [], line_candidates: [] }, 0, new Set())
-    const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'document-hash', plans: [plan], images: new Map(), indexRows: 9 })
+    const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'document-hash', plans: [plan], images: new Map() })
+    expect(blocks).toHaveLength(1)
     const raw: unknown = JSON.parse(blocks[0]?.type === 'text' ? blocks[0].text : '{}')
-    expect(raw).toMatchObject({ manuscript_video_source: { document_sha256: 'document-hash',
-      source_change_timeline: { total_anchors: 3, omitted_for_budget: 0,
-        interpretation_source: 'unverified_prior_model_observations', rows: [['B', 3.5, ['cut']], ['E', 12, ['cut']], ['H', 20, ['cut']]] } } })
-    expect(blocks.some(block => block.type === 'image')).toBe(false)
+    expect(raw).toMatchObject({ manuscript_video_source: { review_id: 'review-test', document_sha256: 'document-hash',
+      source_material_sha256: 'material', transcript: null, selected_packets: 0 } })
+    expect(JSON.stringify(blocks)).not.toContain('实际缓存图中的人物与道具记录')
   })
 
   it('samples the source ending after final ASR rather than an earlier cut and keeps draft lines empty', () => {
@@ -292,15 +292,14 @@ describe('saved manuscript temporal packets', () => {
     const plan = planManuscriptVideoPackets(scene, { ...fixture().location, windows: timeline.windows }, 0, new Set())
     plan.candidates.push(packet)
     plan.selected.push(packet)
-    const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'tail-document', plans: [plan], images: new Map(), indexRows: 10 })
+    const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'tail-document', plans: [plan], images: new Map() })
     const header: unknown = JSON.parse(blocks[0]?.type === 'text' ? blocks[0].text : '{}')
     const body = blocks.find(block => block.type === 'text' && block.text.includes('"manuscript_source_packet"'))
     expect(header).toHaveProperty('manuscript_video_source.presentation_version', MANUSCRIPT_VIDEO_PRESENTATION)
-    expect(header).toHaveProperty(`manuscript_video_source.visual_candidates.${plan.candidates.length - 1}.sampling_interval`,
-      { start_seconds: 84, end_seconds: 86 })
+    expect(header).toHaveProperty('manuscript_video_source.transcript', { path: '/source.asr.json', sha256: 'asr-hash' })
     const packetBody: unknown = JSON.parse(body?.type === 'text' ? body.text : '{}')
     expect(packetBody).toMatchObject({ manuscript_source_packet: {
-      actual_current_lines: [], sampling_interval: { start_seconds: 84, end_seconds: 86 },
+      actual_current_lines: [], sampling_interval: { start_seconds: 84, end_seconds: 86 }, original_asr: [],
       time_candidate: { relation: 'source_tail_not_aligned_to_draft_ending' } } })
   })
 
@@ -510,54 +509,59 @@ it('deduplicates a shared event across windows and packets without suppressing i
   expect(plan.selected_event_ids).toEqual(['E1'])
   const ids = plan.selected.flatMap(packet => packet.images.map(image => image.frame_id))
   const timeline = packetTimeline(windows), blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [plan],
-    images: cachedImages(ids), indexRows: 50 })
+    images: cachedImages(ids) })
   expect(manuscriptPacketEventIds(timeline, [plan], new Set(ids))).toEqual(['E1'])
   const text = blocks.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
-  expect([...text.matchAll(/OLD_EVENT_ACTION/gu)]).toHaveLength(1)
+  expect(text).not.toContain('OLD_EVENT_ACTION')
+  expect(text).toContain('"event_refs":[{"event_id":"E1"')
   const prior: PacketContext = { document_sha256: 'draft', previous_status: 'available', excluded_event_ids: new Set(['E1']) }
   const next = planManuscriptVideoPackets(scene, { ...location, windows }, 2, new Set(), changed, prior)
   expect(next.selected_event_ids).toEqual([])
   const nextIds = next.selected.flatMap(packet => packet.images.map(image => image.frame_id))
-  const repeated = manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [next], images: cachedImages(nextIds), indexRows: 50 })
+  const repeated = manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [next], images: cachedImages(nextIds) })
+  expect(repeated[0]?.type === 'text' ? JSON.parse(repeated[0].text) : undefined)
+    .toHaveProperty('manuscript_video_source.already_presented_event_refs')
   expect(JSON.stringify(repeated)).not.toContain('OLD_EVENT_ACTION')
-  expect(JSON.stringify(repeated)).toContain('already_presented_event_refs')
 })
 
-it('places original image blocks before prior frame observations and full event interpretation beside text-hunk candidates', () => {
+it('places each packet header before its image blocks and references text hunks and events without their text', () => {
   const { scene, location, timeline, changed } = eventFixture(), line = location.visual_queries[0]!.line
   const context: PacketContext = { document_sha256: 'current-file', previous_status: 'available', previous_hunks: [{
-    basis: 'complete_read_source_difference', before: [{ line: 9, quote: 'OLD_SOURCE_QUOTE' }], after_lines: [line],
+    basis: 'complete_read_source_difference', before_lines: [9], after_lines: [line],
     source_path: '/read-draft.md', source_text_sha256: 'read-text-hash' }] }
   const plan = planManuscriptVideoPackets(scene, location, 2, new Set(), changed, context)
   const ids = plan.selected.flatMap(packet => packet.images.map(image => image.frame_id))
-  const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'current-file', plans: [plan], images: cachedImages(ids), indexRows: 50 })
-  const lastImage = blocks.findLastIndex(block => block.type === 'image')
-  const observations = blocks.findIndex(block => block.type === 'text' && block.text.startsWith('{"manuscript_prior_frame_observations":'))
-  const events = blocks.findIndex(block => block.type === 'text' && block.text.includes('OLD_EVENT_ACTION'))
-  expect(observations).toBeGreaterThan(lastImage)
-  expect(events).toBeGreaterThan(lastImage)
-  const packet = blocks.find(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
+  const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'current-file', plans: [plan], images: cachedImages(ids) })
+  const packetIndex = blocks.findIndex(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
+  const firstImage = blocks.findIndex(block => block.type === 'image')
+  expect(packetIndex).toBeGreaterThan(0)
+  expect(firstImage).toBeGreaterThan(packetIndex)
+  expect(blocks.at(-1)?.type).toBe('image')
+  const text = JSON.stringify(blocks)
+  for (const quote of ['OLD_EVENT_ACTION', '旧道具记录', '实际缓存图中的人物与道具记录', '你这是什么意思']) expect(text).not.toContain(quote)
+  const packet = blocks[packetIndex]
   const raw: unknown = JSON.parse(packet?.type === 'text' ? packet.text : '{}')
   expect(raw).toMatchObject({ manuscript_source_packet: { document_sha256: 'current-file', previous_text: {
-    status: 'same_text_diff_hunk_candidates', context_document_sha256: 'current-file', adoption: 'not_asserted',
-    mapping: 'text_diff_hunk_not_semantic_line_pair', hunks: [{ before: [{ line: 9, quote: 'OLD_SOURCE_QUOTE' }],
-      source_path: '/read-draft.md', source_text_sha256: 'read-text-hash', source_role: 'read_text_comparison_candidate_not_approved_baseline' }] } } })
+    status: 'same_text_diff_hunk_candidates', hunks: [{ basis: 'complete_read_source_difference', before_lines: [9],
+      after_lines: [line], source_path: '/read-draft.md', source_text_sha256: 'read-text-hash' }] },
+  event_refs: [{ event_id: 'E1', frame_ids: ['D', 'E'], evidence_current: true }] } })
 })
 
-it('distinguishes missing corresponding hunks from unavailable previous context and labels native prior text separately', () => {
+it('distinguishes missing corresponding hunks from unavailable previous context and labels the native hunk basis', () => {
   const { scene, location, timeline, changed } = eventFixture(), line = location.visual_queries[0]!.line
   for (const [context, expected] of [
     [undefined, 'context_not_supplied'], [{ document_sha256: 'draft', previous_status: 'unavailable' }, 'previous_context_unavailable'],
     [{ document_sha256: 'draft', previous_status: 'available', previous_hunks: [] }, 'no_corresponding_hunk_supplied'],
   ] satisfies [PacketContext | undefined, string][]) {
     const plan = planManuscriptVideoPackets(scene, location, 1, new Set(), changed, context)
-    const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [plan], images: new Map(), indexRows: 0 })
+    const blocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [plan], images: new Map() })
     expect(JSON.stringify(blocks)).toContain(expected)
   }
   const native = planManuscriptVideoPackets(scene, location, 1, new Set(), changed, { document_sha256: 'draft', previous_status: 'available',
-    previous_hunks: [{ basis: 'successful_native_mutation', before: [{ line: 4, quote: '上次原生保存原句' }], after_lines: [line] }] })
-  expect(JSON.stringify(manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [native], images: new Map(), indexRows: 0 })))
-    .toContain('previous_native_saved_text_not_approved_baseline')
+    previous_hunks: [{ basis: 'successful_native_mutation', before_lines: [4], after_lines: [line] }] })
+  const nativeBlocks = manuscriptVideoPacketContent({ timeline, documentSha256: 'draft', plans: [native], images: new Map() })
+  expect(nativeBlocks[1]?.type === 'text' ? JSON.parse(nativeBlocks[1].text) : undefined).toMatchObject({ manuscript_source_packet: {
+    previous_text: { status: 'same_text_diff_hunk_candidates', hunks: [{ basis: 'successful_native_mutation', before_lines: [4] }] } } })
 })
 
 it('pairs already selected source-tail images with an event and scene-time candidates without relabeling the tail as draft alignment', () => {
@@ -575,17 +579,17 @@ it('pairs already selected source-tail images with an event and scene-time candi
   const ids = tail.images.map(image => image.frame_id)
   const plan = planManuscriptVideoPackets(scene, location, 0, new Set(ids), new Set([4]))
   plan.selected.push(tail)
-  const blocks = manuscriptVideoPacketContent({ timeline: source, documentSha256: 'tail-draft', plans: [plan], images: cachedImages(ids), indexRows: 50 })
+  const blocks = manuscriptVideoPacketContent({ timeline: source, documentSha256: 'tail-draft', plans: [plan], images: cachedImages(ids) })
   expect(manuscriptPacketEventIds(source, [plan], new Set(ids))).toEqual(['tail-event'])
   const packet = blocks.find(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
   const raw: unknown = JSON.parse(packet?.type === 'text' ? packet.text : '{}')
   expect(raw).toMatchObject({ manuscript_source_packet: { origin: 'source_timeline', actual_current_lines: [],
-    candidate_current_lines: [{ line: 4, quote: '▲甲抬起手。' }], event_refs: [{ event_id: 'tail-event' }] } })
+    candidate_current_lines: [{ line: 4, kind: 'action_line' }], event_refs: [{ event_id: 'tail-event' }] } })
   expect(blocks.filter(block => block.type === 'image')).toHaveLength(2)
-  expect([...JSON.stringify(blocks).matchAll(/OLD_TAIL_EVENT/gu)]).toHaveLength(1)
+  expect(JSON.stringify(blocks)).not.toContain('OLD_TAIL_EVENT')
 })
 
-it('places a returned source-tail event interpretation after images even when no manuscript line has a time candidate', () => {
+it('references a returned source-tail event even when no manuscript line has a time candidate', () => {
   const { scene, timeline } = sourceTailFixture()
   const note: VideoSourceTimeline['windows'][number]['event_notes'][number] = { event_id: 'unaligned-tail',
     frame_ids: ['tail-first', 'tail-last'], actor: '旧人物解释', action: 'UNALIGNED_TAIL_EVENT', object: '', before: '', after: '',
@@ -599,18 +603,12 @@ it('places a returned source-tail event interpretation after images even when no
   const plan = planManuscriptVideoPackets(scene, location, 0, new Set(ids))
   plan.selected.push(tail)
   const blocks = manuscriptVideoPacketContent({ timeline: source, documentSha256: 'unaligned-draft', plans: [plan],
-    images: cachedImages(ids), indexRows: 50 })
-  const lastImage = blocks.findLastIndex(block => block.type === 'image')
-  const interpretation = blocks.findIndex(block => block.type === 'text' && block.text.includes('UNALIGNED_TAIL_EVENT'))
-  expect(interpretation).toBeGreaterThan(lastImage)
+    images: cachedImages(ids) })
+  expect(JSON.stringify(blocks)).not.toContain('UNALIGNED_TAIL_EVENT')
   expect(blocks.filter(block => block.type === 'image')).toHaveLength(2)
   expect(manuscriptPacketEventIds(source, [plan], new Set(ids))).toEqual(['unaligned-tail'])
   const packet = blocks.find(block => block.type === 'text' && block.text.startsWith('{"manuscript_source_packet":'))
   const raw: unknown = JSON.parse(packet?.type === 'text' ? packet.text : '{}')
   expect(raw).toMatchObject({ manuscript_source_packet: { origin: 'source_timeline', actual_current_lines: [],
     candidate_current_lines: [], event_refs: [{ event_id: 'unaligned-tail' }] } })
-  const prior = blocks.find(block => block.type === 'text' && block.text.startsWith('{"manuscript_prior_event_interpretations":'))
-  const explanation: unknown = JSON.parse(prior?.type === 'text' ? prior.text : '{}')
-  expect(explanation).toMatchObject({ manuscript_prior_event_interpretations: { events: [{
-    event: { event_id: 'unaligned-tail', action: 'UNALIGNED_TAIL_EVENT' }, candidate_current_lines: [] }] } })
 })

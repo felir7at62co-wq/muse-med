@@ -11,7 +11,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
 import { MANUSCRIPT_PREAMBLE_EPISODE, manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
-import { manuscriptEndingCue, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
+import { manuscriptEndingCue, manuscriptFormatReferenceText, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
 import { manuscriptDeliveryIntent } from './manuscript-task-intent.ts'
 import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates, manuscriptVideoReviewReader } from './manuscript-video-reads.ts'
 import { loggedManuscriptVideoReceipts, manuscriptVideoReceiptOf, type ManuscriptVideoReceipt } from './manuscript-video-receipts.ts'
@@ -86,6 +86,15 @@ function registeredPaths(messages: readonly Message[], cwd: string, cache: Mater
     for (const path of selected) if (isManuscript(path)) paths.add(resolve(cwd, path))
   }
   return [...paths]
+}
+
+const offloadDiagnosticSchema = z.object({ manuscript_video_image_delivery: z.object({ offloaded_frames: z.array(z.string()) }) })
+
+/** @param text - One logged notice text block. @returns Frame labels named by an offload diagnostic, otherwise none. */
+function offloadDiagnosticFrames(text: string): string[] {
+  if (!text.startsWith('{"manuscript_video_image_delivery":')) return []
+  const parsed = offloadDiagnosticSchema.safeParse(parsedJson(text))
+  return parsed.success ? parsed.data.manuscript_video_image_delivery.offloaded_frames : []
 }
 
 function receipts(messages: readonly Message[], cache: MaterialCache): Receipt[] {
@@ -295,6 +304,48 @@ async function readSourceRevisions(ctx: Context, agent: Agent, document: Awaited
   return { reports, identity: manuscriptTextHash(JSON.stringify(identity)) }
 }
 
+/** @param lines - Line numbers in any order. @returns Sorted inclusive `[first, last]` runs. */
+function lineRanges(lines: Iterable<number>): [number, number][] {
+  const ranges: [number, number][] = []
+  for (const line of [...new Set(lines)].sort((left, right) => left - right)) {
+    const last = ranges.at(-1)
+    if (last !== undefined && last[1] + 1 === line) last[1] = line
+    else ranges.push([line, line])
+  }
+  return ranges
+}
+
+/**
+ * Line-range form of one read-source comparison; the compared text stays in the source file and the current draft.
+ * An episode without any same-episode read keeps only its status.
+ */
+function readRevisionRefs(report: Awaited<ReturnType<typeof readSourceRevisions>>['reports'][number]) {
+  const { candidates, comparison_source: comparison, hunks, ...rest } = report
+  if (candidates.length === 0) return { episode: report.episode, status: report.status,
+    ...report.omitted_read_snapshots > 0 ? { omitted_read_snapshots: report.omitted_read_snapshots } : {} }
+  return { ...rest, candidates: candidates.map(candidate => ({ path: candidate.path, read_call_id: candidate.read_call_id,
+    read_text_sha256: candidate.read_text_sha256, read_scope: candidate.read_scope, current_status: candidate.current_status,
+    ...candidate.reason === undefined ? {} : { reason: candidate.reason },
+    other_reads: candidate.read_diagnostics.length })),
+  ...comparison === undefined ? {} : { comparison_source: { path: comparison.path, read_text_sha256: comparison.read_text_sha256,
+    read_call_id: comparison.read_call_id, read_result_seq: comparison.read_result_seq } },
+  hunks: hunks.map(hunk => ({ kind: hunk.kind, source_lines: lineRanges(hunk.before.map(line => line.number)),
+    current_lines: lineRanges(hunk.after.map(line => line.number)) })) }
+}
+
+/** Positions-only form of {@link manuscriptPresentationEvidence}; quotes stay in the current draft. */
+function presentationRefs(presentation: ReturnType<typeof manuscriptPresentationEvidence>) {
+  return { advisory: true, semantic_assessment: 'not_performed', scope: presentation.scope,
+    episodes: presentation.episodes.map(episode => ({ path: episode.path, episode: episode.episode,
+      ending: { marker_status: episode.ending.marker_status, marker_count: episode.ending.marker_count,
+        last_scene: episode.ending.last_scene, last_material_locations: episode.ending.last_material_locations,
+        hook_marker_lines: episode.ending.hook_markers.findings.map(line => line.line),
+        suspense_assessment: episode.ending.suspense_assessment },
+      action_lines: episode.action_locations.findings.map(line => line.line),
+      action_lines_total: episode.action_locations.total })),
+    omitted_episodes: presentation.omitted_episodes }
+}
+
 function sceneSpeech(scene: ManuscriptScene) {
   return scene.text.split('\n').flatMap((quote, offset) => {
     if (/^\s*[▲△]/u.test(quote)) return []
@@ -408,37 +459,33 @@ function sourceEnding(timeline: VideoSourceTimeline, maximum: number) {
   const lastSpeech = allSpeech.reduce<typeof allSpeech[number] | undefined>((last, segment) =>
     last === undefined || segment.end_seconds > last.end_seconds ? segment : last, undefined)
   const segments = allSpeech.filter(segment => segment.end_seconds >= start && segment.start_seconds <= end)
-  const speechRef = ({ raw: _raw, ...segment }: typeof allSpeech[number]) => segment
   return { source_end_seconds: timeline.source.duration_seconds, scanned_until: timeline.source.scanned_until,
     scan_complete: timeline.source.scan_complete, window: {
       window_ids: windows.map(window => window.window_id), start_seconds: start, end_seconds: end,
       frame_refs: frames.slice(-maximum).map(frame => ({ frame_id: frame.frame_id, time: frame.time })),
       omitted_frames: Math.max(0, frames.length - maximum) },
-    original_asr: segments.slice(-maximum).map(speechRef), omitted_asr: Math.max(0, segments.length - maximum),
-    last_recorded_asr: lastSpeech === undefined ? null : speechRef(lastSpeech),
-    asr_payload: 'canonical_original_text_and_time_refs_raw_rows_in_source_packet',
+    tail_asr_segment_ids: segments.slice(-maximum).map(segment => segment.segment_id), omitted_asr: Math.max(0, segments.length - maximum),
+    last_recorded_asr: lastSpeech === undefined ? null : { segment_id: lastSpeech.segment_id, start_seconds: lastSpeech.start_seconds,
+      end_seconds: lastSpeech.end_seconds, text: lastSpeech.text },
     selection: 'rolling_source_tail_last_recorded_speech_separate_from_silent_tail',
     relationship: 'source_tail_not_aligned_to_draft_ending', suspense_assessment: 'not_performed' }
 }
 
 function observationLocations(location: ReturnType<typeof manuscriptSourceWindows>, maximum: number) {
-  const rows = location.visual_queries.flatMap(query => query.time_candidates.map((range) => {
-    const windows = location.windows.filter(window => window.start_seconds <= range.end_seconds
-      && window.end_seconds >= range.start_seconds)
-    const observations = windows.flatMap(window => window.frames.filter(frame => frame.observation !== undefined
-        && frame.time >= range.start_seconds && frame.time <= range.end_seconds)
-      .map(frame => ({ window_id: window.window_id, frame_id: frame.frame_id, time: frame.time })))
-    const events = windows.flatMap(window => window.event_notes.filter(event => event.start_seconds <= range.end_seconds
-      && event.end_seconds >= range.start_seconds).map(event => ({ window_id: window.window_id, event_id: event.event_id,
-      evidence_current: event.evidence_current, evidence_source: event.evidence_source })))
-    return { line: query.line, kind: query.kind, time_candidate: range,
-      observation_refs: observations.slice(0, maximum), omitted_observation_refs: Math.max(0, observations.length - maximum),
-      event_refs: events.slice(0, maximum), omitted_event_refs: Math.max(0, events.length - maximum) }
-  }))
-  return { candidates: rows.slice(0, maximum), total: rows.length, omitted: Math.max(0, rows.length - maximum),
-    note_text_location: 'refs_only_text_may_require_cached_frame_read',
-    relationship: 'time_overlap_candidates_not_event_equivalence', unmatched: 'unjudged_not_an_omission',
-    semantic_assessment: 'not_performed' }
+  const rows = location.visual_queries.flatMap((query) => {
+    if (!query.time_candidates.length) return []
+    const inside = (time: number) => query.time_candidates.some(range => time >= range.start_seconds && time <= range.end_seconds)
+    const overlaps = (event: { start_seconds: number; end_seconds: number }) => query.time_candidates.some(range =>
+      event.start_seconds <= range.end_seconds && event.end_seconds >= range.start_seconds)
+    const frames = new Set(location.windows.flatMap(window => window.frames
+      .filter(frame => frame.observation !== undefined && inside(frame.time)).map(frame => frame.frame_id)))
+    const events = new Set(location.windows.flatMap(window => window.event_notes.filter(overlaps).map(event => event.event_id)))
+    return [[query.line, Math.min(...query.time_candidates.map(range => range.start_seconds)),
+      Math.max(...query.time_candidates.map(range => range.end_seconds)), frames.size, events.size]]
+  })
+  return { columns: ['line', 'start_seconds', 'end_seconds', 'recorded_frames', 'event_refs'],
+    rows: rows.slice(0, maximum), total: rows.length, omitted: Math.max(0, rows.length - maximum),
+    relationship: 'time_overlap_candidates_not_event_equivalence', unmatched: 'unjudged_not_an_omission' }
 }
 
 /**
@@ -557,13 +604,15 @@ export class ManuscriptVideoEvidence {
     const registered = registeredPaths(taskStart < 0 ? messages : messages.slice(taskStart), cwd, cache)
     if (!automaticSources.length && !manuscriptTextReadSnapshots(ctx, agent.session)?.reads.length) return []
     const output: ContentBlock[] = [], declarations = new Map<string, { literal: string; basis: string; candidates: string[] }>()
+    // Frames already named by an offload diagnostic still in context are not listed again.
+    const reported = new Set(messages.flatMap(message => message.source.kind !== 'muse-manuscript' ? []
+      : message.content.flatMap(block => block.type === 'text' ? offloadDiagnosticFrames(block.text) : [])))
     const offloaded = [...new Set(receipts(messages, cache).flatMap(receipt => receipt.offloaded_frames ?? []))]
+      .filter(frame => !reported.has(frame))
     if (offloaded.length) {
-      const text = JSON.stringify({ manuscript_video_image_delivery: { offloaded_frames: offloaded,
+      output.push({ type: 'text', text: JSON.stringify({ manuscript_video_image_delivery: { offloaded_frames: offloaded,
         status: 'returned_blocks_offloaded_not_confirmed_admitted', automatic_retry: 'not_required',
-        notice: '这些重显原图已被上下文卸载，不计为本次实际看图；保留曾返回事实，不为重显自动加轮或反复重发。需要时可读取对应缓存。' } })
-      if (!messages.some(message => message.source.kind === 'muse-manuscript'
-        && message.content.some(block => block.type === 'text' && block.text === text))) output.push({ type: 'text', text })
+        notice: '这些重显原图已被上下文卸载，不计为本次实际看图；保留曾返回事实，不为重显自动加轮或反复重发。需要时可读取对应缓存。' } }) })
     }
     const ambiguities = new Set<string>()
     const outputMessage = messages[outputBoundary]
@@ -593,6 +642,9 @@ export class ManuscriptVideoEvidence {
       - (prior.findLast(entry => entry.path === b)?.returned_frames.length ?? 0))
     let remainingFrames = this.config.videoEvidenceMaxFrames, remainingBytes = this.config.videoEvidenceMaxBytes, returnedDocuments = 0
     let deferred = false
+    const referenceText = manuscriptFormatReferenceText()
+    let referenceSent = messages.some(message => message.source.kind === 'muse-manuscript'
+      && message.content.some(block => block.type === 'text' && block.text === referenceText))
     const returnedEvents = new Map<string, Set<string>>()
     for (const path of paths) {
       let document
@@ -618,7 +670,7 @@ export class ManuscriptVideoEvidence {
         : currentMutation?.lines
       const changedSelection = { basis: currentMutation?.basis === 'successful_native_mutation' ? currentMutation.basis
         : readChanges.length ? 'complete_read_source_difference' : currentMutation?.basis ?? 'unavailable',
-      current_file_sha256: document.sha256, after_changed_lines: changedLines === undefined ? [] : [...changedLines],
+      current_file_sha256: document.sha256, after_changed_line_ranges: lineRanges(changedLines ?? []),
       native_text_comparison: 'complete_lf_normalized_text_with_final_newline_preserved',
       native_mutation_status: mutation === undefined ? 'not_retained' : currentMutation === undefined ? 'after_hash_mismatch' : 'current',
       semantic_assessment: 'not_performed' }
@@ -718,7 +770,7 @@ export class ManuscriptVideoEvidence {
         const episode = episodeOf(entry)
         const readRevision = episode === undefined ? undefined : readRevisions.reports.find(report => report.episode === episode)
         const readMaterial = episode === undefined || returnedReadEpisodes.has(episode) ? { read_source_revision_ref: episode }
-          : { read_source_revision: readRevision }
+          : { read_source_revision: readRevision === undefined ? undefined : readRevisionRefs(readRevision) }
         if (episode !== undefined) returnedReadEpisodes.add(episode)
         const source = entry.sources.length === 1 ? entry.sources[0] : undefined
         const timeline = entry.timeline
@@ -731,7 +783,9 @@ export class ManuscriptVideoEvidence {
           continue
         }
         const index = scenes.indexOf(entry.scene)
-        const manuscript = { current: entry.scene, previous: scenes[index - 1] ?? null, next: scenes[index + 1] ?? null }
+        const sceneRef = (scene: ManuscriptScene | undefined) => scene === undefined ? null
+          : { id: scene.id, start_line: scene.startLine, end_line: scene.endLine }
+        const manuscript = { current: sceneRef(entry.scene), previous: sceneRef(scenes[index - 1]), next: sceneRef(scenes[index + 1]) }
         const location = entry.location ?? manuscriptSourceWindows(entry.scene, timeline)
         const priorityScenes = selected.slice(selectedIndex).filter(candidate => priority(candidate) > 0).length
         const allowance = imageCapable ? priority(entry) > 0
@@ -743,14 +797,13 @@ export class ManuscriptVideoEvidence {
         const tailIds = tail?.images.map(frame => frame.frame_id) ?? []
         const previousHunks = readRevision?.status === 'compared'
           ? readRevision.hunks.map(hunk => ({ basis: 'complete_read_source_difference' as const,
-            before: hunk.before.map(line => ({ line: line.number, quote: line.text })),
-            after_lines: hunk.after.map(line => line.number),
+            before_lines: hunk.before.map(line => line.number), after_lines: hunk.after.map(line => line.number),
             ...readRevision.comparison_source === undefined ? {} : { source_path: readRevision.comparison_source.path,
               ...readRevision.comparison_source.read_text_sha256 === undefined ? {} : {
                 source_text_sha256: readRevision.comparison_source.read_text_sha256 } } }))
           : nativeChanges?.map(hunk => ({ basis: 'successful_native_mutation' as const,
-            before: hunk.before.map(line => ({ line: line.number, quote: line.text })),
-            after_lines: hunk.after.map(line => line.number), source_path: document.path,
+            before_lines: hunk.before.map(line => line.number), after_lines: hunk.after.map(line => line.number),
+            source_path: document.path,
             ...nativeSourceTextHash === undefined ? {} : { source_text_sha256: nativeSourceTextHash } }))
         const packetContext: PacketContext = { document_sha256: document.sha256,
           previous_status: previousHunks === undefined ? 'unavailable' : 'available',
@@ -794,19 +847,17 @@ export class ManuscriptVideoEvidence {
         reports.push({ manuscript, ...readMaterial, source_alignment: location.basis,
           source_association: entry.singleCurrentCandidate ? 'single_current_task_video_candidate'
             : sourceScope.paths.has(source.path) ? 'logged_current_task_video_call' : 'episode_label_candidate',
-          source: timeline.source, source_material_sha256: timeline.material_sha256,
-          source_packet_review_id: source.review_id, automatic_images: sourceFirst ? 'bounded_source_timeline_samples' : location.automatic_images,
+          source: { review_id: source.review_id, episode: timeline.source.episode, follow_up: timeline.source.follow_up },
+          automatic_images: sourceFirst ? 'bounded_source_timeline_samples' : location.automatic_images,
           image_selection_scope: sourceFirst ? 'source_timeline_samples_not_draft_alignment' : location.image_selection_scope,
-          transcript_resolution: timeline.transcript_resolution,
-          speech_unavailable: timeline.speech_unavailable,
+          ...timeline.speech_unavailable === undefined ? {} : { speech_unavailable: timeline.speech_unavailable },
           ...ending,
           observation_locations: observationLocations(location, this.config.maxRepeatFindings),
           images: { returned_frame_ids: actualFrames, returned: actualFrames.length,
             requested_frame_ids: frameIds, unavailable_frame_ids: frameIds.filter(id => !packetSource.images.has(id)),
             available_in_selected_windows: availableFrames.length,
             not_returned_from_selected_windows: availableFrames
-              .filter(frame => !alreadyReturned.has(frame.frame_id) && !frameIds.includes(frame.frame_id)).length },
-          notice: location.notice })
+              .filter(frame => !alreadyReturned.has(frame.frame_id) && !frameIds.includes(frame.frame_id)).length } })
       }
       const receipt: Receipt = { path: document.path, sha256: document.sha256, evidence_key: evidenceKey,
         complete_lf_text_sha256: manuscriptTextHash(document.text.replaceAll('\r\n', '\n')),
@@ -829,8 +880,7 @@ export class ManuscriptVideoEvidence {
         frames: ending.window.frame_refs })),
       { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars })
       const text = JSON.stringify({ manuscript_video_evidence: { advisory: true, semantic_assessment: 'not_performed', receipt,
-        presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
-        ...presentation.episodes.length ? { presentation_evidence: presentation } : {},
+        ...presentation.episodes.length ? { presentation_evidence: presentationRefs(presentation) } : {},
         changed_line_selection: changedSelection,
         output_association: declarations.get(document.path) ?? { basis: 'successful_tool_path' },
         image_delivery: 'cached_blocks_returned_not_admission_or_understanding',
@@ -839,22 +889,22 @@ export class ManuscriptVideoEvidence {
         not_returned_scenes: pending.filter(entry => !returned.includes(entry)).length,
         remaining_image_scenes: remainingImages.length,
         scope: 'saved_draft_changed_scenes_with_source_candidates', scenes: reports,
-        notice: '当前稿、原句与缓存图仅供判断；引用和模型笔记不是独立事实。未返回范围未核对，不要求消成零或自动重跑；无审批、动作配额或交付限制。' } })
-      const sourceContent = (includeIndexes: boolean) => [...packetSources.values()].flatMap(packetSource =>
-        manuscriptVideoPacketContent({ ...packetSource, documentSha256: document.sha256,
-          indexRows: includeIndexes ? packetSource.timeline.windows.reduce((total, window) => total + window.frames.length, 0) : 0 }))
-      const lead: ContentBlock[] = [...cue ? [{ type: 'text' as const, text: cue }] : [], { type: 'text', text }]
-      let content: ContentBlock[] = [...lead, ...sourceContent(true)]
-      let size = Buffer.byteLength(JSON.stringify(content))
+        read: '这里只给行号、ASR段号和帧号；需要原文时用read读当前稿相应行，画面记录与ASR用video_inspect timeline按review_id和时间段读取，缓存原图用video_inspect revisit。',
+        notice: '引用和模型笔记不是独立事实。未返回范围未核对，不要求消成零或自动重跑；无审批、动作配额或交付限制。' } })
+      // The fixed notation reference follows the first ending cue still present in the model context.
+      const reference = cue && !referenceSent ? referenceText : undefined
+      const content: ContentBlock[] = [...cue ? [{ type: 'text' as const, text: cue }] : [],
+        ...reference === undefined ? [] : [{ type: 'text' as const, text: reference }], { type: 'text', text },
+        ...[...packetSources.values()].flatMap(packetSource => manuscriptVideoPacketContent({ ...packetSource,
+          documentSha256: document.sha256 }))]
+      const size = Buffer.byteLength(JSON.stringify(content))
       if (size > remainingBytes) {
         // A later draft that does not fit gets no receipt, so a later refresh can return it; the deferral is stated.
         if (returnedDocuments > 0) {
           deferred = true
           break
         }
-        content = [...lead, ...sourceContent(false)]
-        size = Buffer.byteLength(JSON.stringify(content))
-        if (size > remainingBytes) throw Error('MANUSCRIPT_VIDEO_RESULT_SIZE: 局部材料超出配置，未截断原句或声明核对完成。')
+        throw Error('MANUSCRIPT_VIDEO_RESULT_SIZE: 局部材料超出配置，未截断原句或声明核对完成。')
       }
       const current = await readManuscript(path, cwd, this.config, signal)
       if (current.sha256 !== document.sha256) throw Error('MANUSCRIPT_VIDEO_DRAFT_CHANGED: 文稿在局部证据读取期间变化，请以新版本为准。')
@@ -869,6 +919,7 @@ export class ManuscriptVideoEvidence {
       }
       remainingBytes -= size
       returnedDocuments += 1
+      referenceSent ||= reference !== undefined
       output.push(...content)
     }
     if (deferred) output.push({ type: 'text', text: '另有已保存稿件因本次材料字节上限未附参考材料，可在后续步骤附上；不用等待或确认，继续当前任务。' })

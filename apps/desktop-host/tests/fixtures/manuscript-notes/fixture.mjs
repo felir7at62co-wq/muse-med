@@ -85,8 +85,9 @@ export async function apply(ctx) {
         }
         state.results.push({ id: step.id, action: step.action })
       }
+      // The notes notice quotes the notes, or references them while the identical notes text is still in this request.
       if (options.messages.some(message => message.role === 'user' && message.source.kind === 'muse-manuscript'
-        && message.source.summary === '已保留的文稿批注与完整修改要求' && JSON.stringify(message.content).includes(comment))) state.restored = true
+        && message.source.summary === '已保留的文稿批注与完整修改要求') && JSON.stringify(options.messages).includes(comment)) state.restored = true
     } else {
       assert.deepEqual(options.tools.map(tool => tool.name), ['structured_output'])
       const input = options.messages.flatMap(message => message.role === 'user' ? message.content : [])

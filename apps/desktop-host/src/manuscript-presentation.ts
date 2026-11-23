@@ -145,16 +145,25 @@ export function manuscriptPresentationEvidence(scenes: readonly Scene[], limits:
 }
 
 /**
+ * Ending and action-line notation reference that accompanies an ending cue; callers send it once per model context.
+ * @returns The fixed reference lines, independent of any manuscript.
+ */
+export function manuscriptFormatReferenceText(): string {
+  const reference = manuscriptFormatReference()
+  return `标注参考：${reference.ending}${reference.source_scope}\n动作与括注参考：${reference.action_line}${reference.parenthetical}`
+}
+
+/**
  * Present the current episode ending before structured evidence, retaining complete literal quotes or explicit omissions.
  * @param presentation - Current-file ending evidence, including actual line locations and structural marker status.
  * @param sourceEndings - Exact episode source candidates; the last ASR and last cached frame need not coincide.
  * @param limits - Existing entry and total-text limits; a budget too small for a notice returns only an omission symbol.
- * @returns Bounded advisory text; it does not certify suspense, invent a hook, modify text or require another step.
+ * @returns Bounded advisory text without the notation reference of {@link manuscriptFormatReferenceText};
+ *   it does not certify suspense, invent a hook, modify text or require another step.
  */
 export function manuscriptEndingCue(presentation: ReturnType<typeof manuscriptPresentationEvidence>,
   sourceEndings: readonly SourceEnding[], limits: Limits): string {
   const entries: { text: string; fallback?: string }[] = [], episodes = presentation.episodes.slice(0, limits.maximumFindings)
-  const reference = manuscriptFormatReference()
   for (const episode of episodes) {
     const ending = episode.ending, current = ending.last_scene_lines.findings
     entries.push({ text: `第${episode.episode}集当前结尾：${ending.marker_status === 'not_found'
@@ -189,10 +198,6 @@ export function manuscriptEndingCue(presentation: ReturnType<typeof manuscriptPr
   }
   const omittedEpisodes = presentation.omitted_episodes + presentation.episodes.length - episodes.length
   if (omittedEpisodes > 0) entries.push({ text: `另有${omittedEpisodes}集因条目预算未列，未作结尾判断。` })
-  if (episodes.length) {
-    entries.push({ text: `标注参考：${reference.ending}${reference.source_scope}` })
-    entries.push({ text: `动作与括注参考：${reference.action_line}${reference.parenthetical}` })
-  }
   const full = entries.map(entry => entry.text).join('\n')
   if (full.length <= limits.maxTextCharacters) return full
   const omitted = '部分材料因预算省略，原句和位置见后续结构证据。'

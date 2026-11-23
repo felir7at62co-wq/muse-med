@@ -1,4 +1,5 @@
 /** Real returned files and tool dispatch protect user revisions across a resumed refinement. */
+import assert from 'node:assert/strict'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
@@ -152,7 +153,7 @@ it('reports a missing baseline without claiming an unchanged manuscript', async 
   await expect(f.revisions.request({ action: 'compare', revised_path: 'returned.md' }, f.agent, signal)).rejects.toThrow('MANUSCRIPT_BASELINE_REQUIRED')
 })
 
-it('restores actual external changes as logged context on an ordinary user message', async () => {
+it('restores actual external changes as logged context on an ordinary user message and references them while they stay in context', async () => {
   const f = await fixture()
   await f.ctx.plugin(RevisionPlugin, f.config)
   await f.revisions.delivered(f.root, f.agent.id, ['baseline.md'], signal)
@@ -168,7 +169,17 @@ it('restores actual external changes as logged context on an ordinary user messa
   expect(result.messages.at(-1)?.source.kind).toBe('muse-manuscript')
   expect(JSON.stringify(result.messages.at(-1))).toContain('甲：证据就在这里，别再骗我。')
   const resumed = new ManuscriptRevisions(f.config)
-  expect(await resumed.refresh(f.root, f.agent.id, signal)).toContain('修改者尚未确认')
+  expect((await resumed.refresh(f.root, f.agent.id, signal))?.text).toContain('修改者尚未确认')
+  const notice = result.messages.at(-1)
+  assert.ok(notice, 'The restored comparison must be a logged message')
+  f.agent.session.append('user/message', notice, { surfaceOp: 'append' })
+  const next = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '再看一下结尾。' }] })
+  const repeated = await agentEvents(f.ctx, f.agent).waterfall('agent/pre-step', {
+    messages: [next], turn: 2, step: 1, signal, modelSelection,
+  }, async () => ({ kind: 'enter' as const, messages: [next] }))
+  if (repeated.kind !== 'enter') throw Error('Expected admitted step')
+  expect(JSON.stringify(repeated.messages.at(-1))).toContain('上文已有这份返稿差异')
+  expect(JSON.stringify(repeated.messages.at(-1))).not.toContain('甲：证据就在这里，别再骗我。')
 })
 
 it('uses an explicitly supplied next baseline and refreshes changed returned bytes', async () => {

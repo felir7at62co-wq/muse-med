@@ -211,6 +211,19 @@ function protectedDiff(review: Review, config: Config): ManuscriptDiff {
   return { ...diff, changes: diff.changes.filter(change => !allowed.has(change.id)) }
 }
 
+/** Full returned-draft notice text and, for a review, a reference used while identical full text is still in context. */
+export interface ManuscriptRevisionNotice {
+  text: string
+  reference?: string
+}
+
+function reviewReference(review: Review, config: Config): string {
+  return '上文已有这份返稿差异，未重复正文；以返稿为准，不从旧稿恢复已删除内容。需要逐处原文时调用 manuscript_revision status。\n'
+    + JSON.stringify({ baseline_path: review.baseline.path, baseline_sha256: review.baseline.sha256,
+      revised_path: review.revised.path, revised_sha256: review.revised.sha256, origin: review.origin,
+      changes: comparison(review, config).changes.length, authorized_changes: review.allowed.length })
+}
+
 function renderReview(review: Review, config: Config): string {
   return (review.origin === 'external-change'
     ? '已交付文稿发生外部变化，修改者尚未确认，先按返稿保留；不得把磁盘变化断言为用户亲自编辑。'
@@ -282,9 +295,9 @@ export class ManuscriptRevisions {
    * @param cwd - Session workspace.
    * @param session - Owning session identity.
    * @param signal - Turn cancellation.
-   * @returns Logged-context text, absent when no user edits are known.
+   * @returns Logged-context text with its repeat reference, absent when no user edits are known.
    */
-  async refresh(cwd: string, session: string, signal: AbortSignal): Promise<string | undefined> {
+  async refresh(cwd: string, session: string, signal: AbortSignal): Promise<ManuscriptRevisionNotice | undefined> {
     return this.transact(cwd, signal, async (ledger) => {
       const active = ledger.reviews[session]
       if (active) {
@@ -307,7 +320,7 @@ export class ManuscriptRevisions {
         const previous = ledger.reviews[session]
         if (previous?.revised.sha256 === revised.sha256) continue
         if (previous && previous.revised.path !== revised.path) {
-          return 'MANUSCRIPT_MULTIPLE_RETURNS: 多份已交付文稿发生外部变化。先用 manuscript_revision.compare 明确本轮基线和返稿，禁止从旧稿覆盖。'
+          return { text: 'MANUSCRIPT_MULTIPLE_RETURNS: 多份已交付文稿发生外部变化。先用 manuscript_revision.compare 明确本轮基线和返稿，禁止从旧稿覆盖。' }
         }
         // Changed delivered files are conservatively treated as user edits; another process may have authored them.
         const review: Review = { baseline: previous?.baseline ?? baseline, revised, origin: 'external-change', allowed: [] }
@@ -315,7 +328,8 @@ export class ManuscriptRevisions {
         ledger.reviews[session] = review
       }
       const review = ledger.reviews[session]
-      return review === undefined ? undefined : renderReview(review, this.config)
+      return review === undefined ? undefined
+        : { text: renderReview(review, this.config), reference: reviewReference(review, this.config) }
     })
   }
 
@@ -578,7 +592,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         : await videoEvidence.refresh(videoSourceContext, agent, signal, decision.messages)
       videoReadFailures.delete(agent)
       if (materials.length) entered = { ...entered, messages: [...entered.messages, createUserMessage({
-        source: { kind: 'muse-manuscript', form: 'notice', summary: '已保存正文与局部视频来源材料' },
+        source: { kind: 'muse-manuscript', form: 'notice', summary: '已保存稿件变化行与来源对照引用' },
         content: [...materials, { type: 'text', text: '以上是保存文稿后自动附上的参考材料，不是用户的新要求；不用回复或确认，继续当前任务。' }],
       })] }
     } catch (error) {
@@ -589,21 +603,30 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       videoReadFailures.set(agent, failure)
     }
     if (!messages.some(message => message.source.kind === 'user')) return entered
+    // Full protection text is restored only when that exact text has left the model context.
+    const inContext = (text: string) => [...agent.session.deriveMessages(), ...entered.messages].some(message =>
+      message.content.some(block => block.type === 'text' && block.text === text))
     try {
       const saved = await notes.read(agent, undefined, signal)
-      if (saved !== undefined) entered = { ...entered, messages: [...entered.messages,
-        context(JSON.stringify(saved), '已保留的文稿批注与完整修改要求')] }
+      if (saved !== undefined) {
+        const full = JSON.stringify(saved)
+        entered = { ...entered, messages: [...entered.messages, context(inContext(full)
+          ? '上文已有这份批注与完整修改要求，未重复正文；仍按其执行。\n' + JSON.stringify({ notes_sha256: saved.notes_sha256,
+            documents: saved.documents.length })
+          : full, '已保留的文稿批注与完整修改要求')] }
+      }
     } catch (error) {
       signal.throwIfAborted()
       entered = { ...entered, messages: [...entered.messages, context(
         `保留批注未能完整读取：${error instanceof Error ? error.message : String(error)}。不能声称已核对批注；可用 notes 明确本轮原稿，或如实说明尚未核实。`, '文稿批注读取未完成')] }
     }
-    let text: string | undefined
-    try { text = await revisions.refresh(cwd, agent.id, signal) }
+    let refreshed: ManuscriptRevisionNotice | undefined
+    try { refreshed = await revisions.refresh(cwd, agent.id, signal) }
     catch (error) {
       signal.throwIfAborted()
-      text = `返稿差异未能读取：${error instanceof Error ? error.message : String(error)}。以用户最新稿为准；本提示不阻止继续处理。`
+      refreshed = { text: `返稿差异未能读取：${error instanceof Error ? error.message : String(error)}。以用户最新稿为准；本提示不阻止继续处理。` }
     }
+    const text = refreshed?.reference !== undefined && inContext(refreshed.text) ? refreshed.reference : refreshed?.text
     const refinement = messages.some(message => message.source.kind === 'user' && message.content.some(block => block.type === 'text'
       && /精修|润色|改稿|改过|用户修改|refin(?:e|ement)|polish/iu.test(block.text)))
     const notice = text ?? (refinement ? '本轮涉及文稿精修。若用户自行改过或重新上传文稿，先用 manuscript_revision.compare 关联实际上一稿与最新返稿，查看并保留用户增删改；不要从旧稿恢复。没有基线应说明无法逐处识别，向用户索取上一稿或以最新返稿为准，不声称已完成对比。' : undefined)
