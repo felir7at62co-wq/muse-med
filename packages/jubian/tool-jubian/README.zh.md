@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 模型目录支持 task_type 1（视频）、2（生图）、10（去字幕）和20（转高清）。单张及批量生图可用目录中的 `image_model_id`、`image_platform_id`、`image_resolution` 与可选的精确规格 `image_spec_id`，显式模型选择不继承其他模型的部署固定行。转高清接受 model_id、platform_id 与 resolution；省略模型时以 1080p 使用 MediaKit，SeedVR2 或其他实时模型须显式指定。新增去字幕模型接受实时 model_id 及显式 erase_mode（automatic 或 region）。这些选择保留预算、身份与幂等检查；目录可用及请求准备成功不代表实际付费生成成功。
 
-每次新转高清都读取 task_type 20 实时目录，请求与预算预留绑定同一模型、平台和计价行。单位为 `元/条` 的正数 `unitPrice` 生成向上取整到分的人民币预留。MediaKit 所列的 `元/分钟(1系数)` 以价格乘以所选规格的系数，再乘以源片开始计费的每一分钟。缺少价格、单位不受支持或系数无法读取时，仍须有既有的操作者批准估算。无效价格或无法读取目录时停止提交。已有记录的键不会重复读取目录或发送付费请求。
+每次新转高清都读取 task_type 20 实时目录，请求与预算预留绑定同一模型、平台和计价行。单位为 `元/条` 的正数 `unitPrice` 生成向上取整到分的人民币预留。MediaKit 所列的 `元/分钟(1系数)` 以价格乘以所选规格的系数，再乘以源片开始计费的每一分钟。`AI_MEDIA_KIT / enhance-video-generative` 的 720p 或 1080p 子规格可直接提供 30 fps 每分钟单价。Muse 根据实时基准价和[官方分辨率系数](https://docs.volcengine.com/docs/intelligent-processing/video-tool-billing?lang=zh)核对此价格。由于提交请求未指定输出帧率，预算按最高支持帧率档预留。缺少价格、单位不受支持或系数无法读取时，仍须有既有的操作者批准估算。无效价格或无法读取目录时停止提交。已有记录的键不会重复读取目录或发送付费请求。
 
 Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary`、`productionCard` 和 `publishProductionCard` 复用原生免费写入；模型入口由[镜头脚本工具](../../drama/tool-shot-script/README.zh.md#muse-batch-production)负责。可读的旧卡片可以缺少集号或排序元数据，版本摘要保留其未设置状态，不修改原卡。仅当提示词已无图片标记时，图片选择才可显式为空；这只清除卡片引用，保留音频，不删除父资产。
 
@@ -758,7 +758,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 - **生图回读超时是一个结论，不是一次失败** —— `image_generate` 报 `asset_status: timeout` 而不抛错，因为计费写已被受理、账本也已记账。只有受理响应给出明确身份的新建父资产才进入轮询；缺少身份，或现有父资产的旧图，仍是未验证。调用方仍需自己回读；到底是提供方慢还是生成失败，本包无法从截止时间上看出来。
 - **`upload_reference` 处理不合规图片时需要本地 `ffmpeg`** —— 提供方图片流水线要求两条边都是 16 的倍数，Node 没有内置图像编解码器，而本包不增加运行时依赖，所以已经合规的文件按原字节上传，其余文件交给外部 `ffmpeg` 重编码；该二进制按 `DSH_JUBIAN_FFMPEG`、`FFMPEG_PATH`、`MUSE_FFMPEG_EXECUTABLE`、`PATH` 的顺序解析。找不到 `ffmpeg` 时该调用返回 `alignment_required` 并给出应有的尺寸，一个字节都不会上传；它永远不会把不合规的文件送上去。
 - **prepared preview 绑定在本包的序列化器上** —— fingerprint 哈希的是本插件的规范化 JSON，因此流水线 Python 客户端写出的 preview 与这里写出的 preview 不能互换，任一方都会把另一方的产物判为过期而拒绝。
-- **MediaKit 系数读自未标注的目录字段** —— 实时目录以 `元/分钟(1系数)` 为 MediaKit 定价，没有给出系数字段。其规格中 1080p 的 `height` 为 4、720p 为 2，`width` 为 0，预留把该值当作系数。尚未拿已结算的 MediaKit 费用与之核对；规格的 `width` 不为 0 或缺少正整数 `height` 时，该次转高清没有报价。
+- **MediaKit 系数读自未标注的目录字段** —— 实时目录以 `元/分钟(1系数)` 为 MediaKit 定价，没有给出系数字段。其规格中 1080p 的 `height` 为 4、720p 为 2，`width` 为 0，预留把该值当作系数。尚未拿已结算的 MediaKit 费用与之核对；普通 MediaKit 规格的 `width` 不为 0 或缺少正整数 `height` 时，该次转高清没有报价。大模型版按目录预留预算，实际费用以提供方结算回执为准。
 - **`retry` 有前置门禁，但看不到尚未写回的费用** —— 它在发送任何请求前先读父任务与子结果，并在任务已有结果文件、有活动或成功的子结果、或已记录真实费用时拒绝。它看不到提供方还没写到任务上的扣费，所以刚失败后的重试仍然是调用方的判断。
 - **端点集合是从抓包转写的** —— 每个路径、查询参数与请求形状都以抓到的证据存在于 `dsh-jubian-api`，而不是已发布的契约。提供方一变，表现出来就是 `CONTRACT_CHANGED` 或某个字段读回 `null`；验证一条新路径需要重新抓包，所以这里没有哪个方法可以当作有 schema 版本。对象存储签名是唯一的例外：它照实时 bundle 里的 SDK 复刻，并对真实 bucket 做过验证。
 - **结果未知要靠账本而不是靠本包来判定** —— 超时后这一行记录 `outcome: unknown` 并抛错。只有调用方能决定要不要用同一个 key 回读，也没有任何东西会自动对账"只有 intent 没有 settle"的那条。`submit_video` 是最严格的一例：它记录这次不明确的 `PUT`、返回对账指引，并且在任何情况下都不会用同一个 key 发出第二次 `PUT`。

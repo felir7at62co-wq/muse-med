@@ -18,10 +18,15 @@ import { configurationFixture } from '../../../settings/settings/tests/configura
 import { seriesBudgetLimit } from '../src/budget-settings.ts'
 import * as Jubian from '../src/index.ts'
 
+const mediaKit = { modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', standardId: 27, videoStandardId: 165 }
+const generativeMediaKit = { ...mediaKit, modelId: 'enhance-video-generative', standardId: 105, videoStandardId: 514 }
+
 it.each([
-  { scenario: 'a live MediaKit per-minute price', priced: true },
-  { scenario: 'a missing live MediaKit price', priced: false },
-])('records default upscale results with $scenario under the default budget and no manual estimates', async ({ priced }) => {
+  { scenario: 'a live MediaKit per-minute price', model: mediaKit, quote: { amount: '1.50', cents: 150 } },
+  { scenario: 'a missing live MediaKit price', model: mediaKit, quote: null },
+  { scenario: 'a live generative MediaKit standard price', model: generativeMediaKit, quote: { amount: '20.00', cents: 2000 } },
+])('records upscale results with $scenario under the default budget and no manual estimates', async ({ model, quote }) => {
+  const priced = quote !== null
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
     { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },
@@ -53,15 +58,18 @@ it.each([
       { id: 27, modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', unit: '元/分钟(1系数)',
         ...(priced ? { unitPrice: 0.375 } : {}), genTypes: [], videoStandards: [
           { id: 165, modelId: 'AI MediaKit', resolution: '1080p', ratio: 'standard', height: 4, width: 0, frames: 31 },
-          { id: 166, modelId: 'AI MediaKit', resolution: '720p', ratio: 'standard', height: 2, width: 0, frames: 31 }] }]
+          { id: 166, modelId: 'AI MediaKit', resolution: '720p', ratio: 'standard', height: 2, width: 0, frames: 31 }] },
+      { id: 105, modelId: 'enhance-video-generative', platformId: 'AI_MEDIA_KIT', unit: '元/分钟(1系数)',
+        unitPrice: 2.5, genTypes: [], videoStandards: [
+          { id: 514, modelId: 'enhance-video-generative', resolution: '1080p', ratio: '', height: null, width: null, frames: 30, price: 5 },
+          { id: 515, modelId: 'enhance-video-generative', resolution: '720p', ratio: '', height: null, width: null, frames: 30, price: 2.5 }] }]
     } else if (method === 'POST' && path === '/aigc/storyboard/hdConversion') {
-      expect(priced, 'an unquoted operation cannot reach the paid endpoint').toBe(true)
+      if (!quote) throw new Error('An unquoted operation cannot reach the paid endpoint')
       expect(body).toMatchObject({ scriptId: 2708,
         episodeId: 46744, firstResultId: 1007193, parentResultId: 1007193, duration: 13.5,
-        videoUrl: 'https://media.example.test/source.mp4', taskType: 20, standardId: 27,
-        modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', videoStandardId: 165 })
+        videoUrl: 'https://media.example.test/source.mp4', taskType: 20, ...model })
       expect(await ledger.find('loader-upscale')).toMatchObject({ method: 'video_upscale',
-        script_id: 2708, quoted_amount: '1.50', quote_unit: 'CNY', quote_standard_id: 27, outcome: null })
+        script_id: 2708, quoted_amount: quote.amount, quote_unit: 'CNY', quote_standard_id: model.standardId, outcome: null })
       data = 429001
     } else throw new Error(`Unexpected offline provider request: ${method} ${path}`)
     return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
@@ -76,7 +84,8 @@ it.each([
     await expect(access(join(ledgerRoot, 'authorization.json'))).rejects.toMatchObject({ code: 'ENOENT' })
     await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
     await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
-    const args = { method: 'upscale', task_id: 42, idempotency_key: 'loader-upscale' }
+    const args = { method: 'upscale', task_id: 42, idempotency_key: 'loader-upscale',
+      ...(model === generativeMediaKit ? { model_id: model.modelId, platform_id: model.platformId, resolution: '1080p' } : {}) }
     const adapter = new MockAdapter([
       toolCallResponse('upscale-submit', 'jubian_video', args),
       ...(priced ? [toolCallResponse('upscale-replay', 'jubian_video', args)] : []),
@@ -106,7 +115,7 @@ it.each([
       const records = await ledger.records()
       expect(records).toHaveLength(1)
       expect(records[0]).toMatchObject({ idempotency_key: 'loader-upscale', method: 'video_upscale',
-        script_id: 2708, quoted_amount: '1.50', quote_unit: 'CNY', quote_standard_id: 27,
+        script_id: 2708, quoted_amount: quote.amount, quote_unit: 'CNY', quote_standard_id: model.standardId,
         outcome: 'accepted' })
       expect(Number.isFinite(Date.parse(records[0]?.quote_observed_at ?? ''))).toBe(true)
     } else {
@@ -116,7 +125,7 @@ it.each([
     const budget = results.at(-1)?.content[0]
     if (budget?.type !== 'text') throw new Error('Missing recorded project budget')
     expect(JSON.parse(budget.text)).toMatchObject({ script_id: 2708, source: 'default', limit_cents: 400_000,
-      settled_cents: priced ? 150 : 0, reserved_cents: 0, accounting_complete: true })
+      settled_cents: quote?.cents ?? 0, reserved_cents: 0, accounting_complete: true })
     expect(adapter.requests).toHaveLength(priced ? 4 : 3)
     expect(adapter.requests.at(-1)?.messages.filter(message => message.role === 'tool')
       .map(message => message.content)).toEqual(results.map(message => message.content))

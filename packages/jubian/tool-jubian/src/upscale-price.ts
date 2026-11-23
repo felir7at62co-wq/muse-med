@@ -23,15 +23,26 @@ function amountOf(price: number, quantity: bigint): string {
  *
  * The catalogue states no coefficient field. MediaKit's live standards carry a
  * small integer in `height` (4 for 1080p, 2 for 720p) with `width` 0, which this
- * reservation reads as the coefficient. A standard with any other `width`
- * describes pixel dimensions, so its `height` is not read as a coefficient.
+ * reservation reads as the coefficient. The generative MediaKit catalogue
+ * instead supplies the already-adjusted 30 fps per-minute price on the standard.
  */
-function coefficientOf(row: Record<string, unknown>, videoStandardId: number | null): number | undefined {
+function coefficientOf(row: Record<string, unknown>, videoStandardId: number | null, unitPrice: number): number | undefined {
   const standards: unknown[] = Array.isArray(row.videoStandards) ? row.videoStandards : []
-  const standard = standards.find((value): value is Record<string, unknown> =>
+  const matching = standards.filter((value): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && (value as Record<string, unknown>).id === videoStandardId)
-  const coefficient = standard?.width === 0 ? standard.height : undefined
-  return typeof coefficient === 'number' && Number.isSafeInteger(coefficient) && coefficient > 0 ? coefficient : undefined
+  const [standard] = matching
+  if (row.modelId !== 'enhance-video-generative' || row.platformId !== 'AI_MEDIA_KIT') {
+    const coefficient = standard?.width === 0 ? standard.height : undefined
+    return typeof coefficient === 'number' && Number.isSafeInteger(coefficient) && coefficient > 0 ? coefficient : undefined
+  }
+  if (standard?.modelId !== row.modelId || matching.length !== 1 || standard.frames !== 30
+    || standard.width != null || standard.height != null || typeof standard.resolution !== 'string') return undefined
+  const resolution = standard.resolution.toLowerCase()
+  const baseCoefficient = resolution === '1080p' ? 2 : resolution === '720p' ? 1 : undefined
+  if (baseCoefficient === undefined || standard.price !== unitPrice * baseCoefficient) return undefined
+  // The request selects a standard by ID without establishing output FPS.
+  // The published 60–120 fps band costs four times the 30 fps band.
+  return baseCoefficient * 4
 }
 
 /**
@@ -62,7 +73,7 @@ export function readUpscaleQuote(catalogue: unknown, selected: PostProcessModel,
   if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) invalid()
   if (row.unit === '元/条') return { amount: amountOf(price, 1n), unit: 'CNY' }
   if (row.unit !== '元/分钟(1系数)') return {}
-  const coefficient = coefficientOf(row, selected.videoStandardId)
+  const coefficient = coefficientOf(row, selected.videoStandardId, price)
   if (coefficient === undefined) return {}
   if (!Number.isFinite(duration) || duration <= 0) {
     throw new JubianError('CONTRACT_CHANGED', 'Invalid source duration for a per-minute upscale price')
