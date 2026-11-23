@@ -11,6 +11,7 @@ import { assertAsyncChildOutcome, assertAsyncChildPreset, assertAsyncChildQuesti
 import { assertAcpSubagentDiagnostics, assertProductSubagentDiagnostics } from './managed-subagent-assertions.ts'
 import { assertProductionDelivery, normalizeProductionDeliveryPaths, prepareProductionDeliveryExpectedWorkspace } from './muse-production-delivery/assertions.ts'
 import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
+import { prepareCharacterObservationWorkspace } from './muse-source-character-observation/assertions.ts'
 import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -1167,7 +1168,7 @@ function sessionReferenceSpillExpected(actual: readonly JsonObject[], expectedLo
   return expected
 }
 
-const videoObservationOwners = new Set(['muse-video-observation', 'muse-video-review-lifecycle'])
+const videoObservationOwners = new Set(['muse-video-observation', 'muse-video-review-lifecycle', 'muse-source-character-observation'])
 
 // These owners derive exact request and compaction-span prices from expected inputs at the replay cwd.
 const workspaceSensitiveBudgetScenarios = new Set([
@@ -3225,6 +3226,9 @@ describe('headless recorded-session snapshots', () => {
                 && event.data.follow_up !== undefined ? [event.data.follow_up.status] : [])
               expect(changes.filter((status, index) => status !== changes[index - 1])).toEqual(['closed', 'active'])
               expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
+            }
+            if (scenario.name === 'muse-source-character-observation') {
+              expectedWorkspaceRoot = await prepareCharacterObservationWorkspace(cwd, scenario.dir, actualLogs[0]!.content)
             }
             if (scenario.name === 'muse-video-observation') {
               const events = parseSessionLog(actualLogs[0]!.content)

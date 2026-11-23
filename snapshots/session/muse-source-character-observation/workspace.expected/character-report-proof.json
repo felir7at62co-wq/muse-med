@@ -1,0 +1,16 @@
+{
+  "source_sha256": "f54a27bb9fd0202a315ba03b6992fb12494eba49e687713d808f3280d5089bda",
+  "real_report_digest_verified": true,
+  "complete_observation": true,
+  "frame_count": 5,
+  "retained_character_checks": [
+    {
+      "character": "合成角色甲",
+      "reference_asset_id": "synthetic-actor-reference",
+      "status": "needs_review",
+      "reason": "合成背景没有可辨识的人脸，无法核对该角色的正式参考。"
+    }
+  ],
+  "ordinary_observation_count": 4,
+  "actual_observation_tool_results": 9
+}

@@ -91,7 +91,7 @@
 | `event:turn/end` | event | `0f8512903d94f57a4748fa1a2092e64342856796684e6b8343db685b192745ce` | [`{ type: "turn/end" }`](#persistence-type-sha256-0f8512903d94f57a4748fa1a2092e64342856796684e6b8343db685b192745ce) |
 | `event:turn/start` | event | `aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8` | [`{ type: "turn/start" }`](#persistence-type-sha256-aa0957eca50aeb28bcd2e6930b95809926edacb550c8c340ba526ba6b861b3d8) |
 | `event:user/message` | event | `27484ff65e01149b0baead1bb7f0e34ac41076d02d50454f77f394fced668e2b` | [`{ type: "user/message" }`](#persistence-type-sha256-27484ff65e01149b0baead1bb7f0e34ac41076d02d50454f77f394fced668e2b) |
-| `event:video/review` | event | `5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd` | [`{ type: "video/review" }`](#persistence-type-sha256-5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd) |
+| `event:video/review` | event | `1494cebd6a70f38c07d1b10fbfa12b2e6e373b564b44548772324383f887aacc` | [`{ type: "video/review" }`](#persistence-type-sha256-1494cebd6a70f38c07d1b10fbfa12b2e6e373b564b44548772324383f887aacc) |
 | `event:web/deepseek-search-llm-request` | event | `0c556c9b9f2a96238a6b9bbb99e748206cbff2ed6203041c9571f04ae5802f52` | [`{ type: "web/deepseek-search-llm-request" }`](#persistence-type-sha256-0c556c9b9f2a96238a6b9bbb99e748206cbff2ed6203041c9571f04ae5802f52) |
 | `event:working-directory/change` | event | `124aa62078ca3311353b39cc3bf6c75da281338be6bbf672f8b361d828cddca3` | [`{ type: "working-directory/change" }`](#persistence-type-sha256-124aa62078ca3311353b39cc3bf6c75da281338be6bbf672f8b361d828cddca3) |
 | `event:workspace/changes` | event | `e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72` | [`{ type: "workspace/changes" }`](#persistence-type-sha256-e308ccf867a5398e316e0af8cb6ce238a8d33a63b9b384c8250a686786285f72) |
@@ -1430,7 +1430,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/perception/tool-video-inspect/src/review-state.ts:46`](../packages/perception/tool-video-inspect/src/review-state.ts)
+来源：[`packages/perception/tool-video-inspect/src/review-state.ts:57`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 ### `web/*`
 
@@ -2392,6 +2392,14 @@ SHA-256: `4ae007ed190a72c92138b22d059b83208079c7551ca13fb59ae8cf5e23693964`
 
 `"llm/retry-started"`
 
+<a id="persistence-type-sha256-2f7fda34176613dca82b920e077a2478d6520d42f48c940454ad8b4f14509f11"></a>
+
+### `"match"`
+
+SHA-256: `2f7fda34176613dca82b920e077a2478d6520d42f48c940454ad8b4f14509f11`
+
+`"match"`
+
 <a id="persistence-type-sha256-68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe"></a>
 
 ### `"max-tokens"`
@@ -2399,6 +2407,14 @@ SHA-256: `4ae007ed190a72c92138b22d059b83208079c7551ca13fb59ae8cf5e23693964`
 SHA-256: `68141cbe3994a5ffcd064c07c75996538437fd9dbf77ce8a2927e89ec577fabe`
 
 `"max-tokens"`
+
+<a id="persistence-type-sha256-24c75bd1e0cf0c280b548997b0075bc238a992af00438022da4eaf6d6727010c"></a>
+
+### `"mismatch"`
+
+SHA-256: `24c75bd1e0cf0c280b548997b0075bc238a992af00438022da4eaf6d6727010c`
+
+`"mismatch"`
 
 <a id="persistence-type-sha256-332d88268bf3c81c943661f2c3c7c5a07f1d18a063a7176d56155dc5dfe6bf42"></a>
 
@@ -2447,6 +2463,14 @@ SHA-256: `a772c5495c37dd2496f7d6fbb3ff162c4765e0a991b59442409a2c7612b45141`
 SHA-256: `7d3c954053e22f9e3e6300799978f4a8ff0c6df6feb3f2c8f615eb73202179d6`
 
 `"muse-market/bound"`
+
+<a id="persistence-type-sha256-4bbc65df84c0a747f1fbdcfe9f0e0002081e49145c82d5d52eba05221035d0fc"></a>
+
+### `"needs_review"`
+
+SHA-256: `4bbc65df84c0a747f1fbdcfe9f0e0002081e49145c82d5d52eba05221035d0fc`
+
+`"needs_review"`
 
 <a id="persistence-type-sha256-b1f62380f6746fedd629e71065e3583cef83334875b499ac9665c2eb87acfbf5"></a>
 
@@ -5212,7 +5236,7 @@ SHA-256: `cf037f096a7bafb2d86f8805602fa462c99d4b22306e74e7d61042215093805c`
 
 [`ReviewEvent`](#persistence-type-sha256-76c16732f0fdf1feba15d52dce1e945286db5a553765a7688f914b2cba3fec9f) 的数组。
 
-<a id="persistence-type-sha256-20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6"></a>
+<a id="persistence-type-sha256-664ea8453928485ec8460670888dcd462cccafbebd8c09f3075121a02e3cea4b"></a>
 
 <a id="persistence-type-packagesperceptiontool-video-inspectsrcreview-statetsreviewframe"></a>
 
@@ -5220,9 +5244,9 @@ SHA-256: `cf037f096a7bafb2d86f8805602fa462c99d4b22306e74e7d61042215093805c`
 
 ### `ReviewFrame`
 
-SHA-256: `20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6`
+SHA-256: `664ea8453928485ec8460670888dcd462cccafbebd8c09f3075121a02e3cea4b`
 
-来源：[`packages/perception/tool-video-inspect/src/review-state.ts:34`](../packages/perception/tool-video-inspect/src/review-state.ts)
+来源：[`packages/perception/tool-video-inspect/src/review-state.ts:45`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -5231,17 +5255,17 @@ SHA-256: `20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6`
 | `exposed` | 必需 | `boolean` |
 | `id` | 必需 | `string` |
 | `image` | 可选 | [`{ attachmentId, bytes, height, mediaType, … }`](#persistence-type-sha256-b14ed9d0940f30765ddd59b7fd792c0c60ac0297d7c67318ad7bead8013e047c) |
-| `observation` | 可选 | [`{ change, uncertainty, visible }`](#persistence-type-sha256-9c3cb5bd20d6ce8079bd370a9eeaff43073979ab197afa324f77cec2b5fb65fa) |
+| `observation` | 可选 | [`{ change, character_checks?, uncertainty, visible }`](#persistence-type-sha256-440692058aa72fd4c1f602722c96d3965e33f45a0ef12a7d88521cefb79197e7) |
 | `reasons` | 必需 | [`string[]`](#persistence-type-sha256-93c33d9687613293f8c95d46c4d922fe9ceae83b84c384beff5c3315abe005f2) |
 | `time` | 必需 | `number` |
 
-<a id="persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e"></a>
+<a id="persistence-type-sha256-2448ec88a5534b084591088b52855884165e7b686145790981a1ab3ca74a0622"></a>
 
 ### `ReviewFrame[]`
 
-SHA-256: `d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e`
+SHA-256: `2448ec88a5534b084591088b52855884165e7b686145790981a1ab3ca74a0622`
 
-[`ReviewFrame`](#persistence-type-sha256-20d2148ad2eaead09f1d8fdecbcbe7cf086416e9393bccd7b0405a380f562ba6) 的数组。
+[`ReviewFrame`](#persistence-type-sha256-664ea8453928485ec8460670888dcd462cccafbebd8c09f3075121a02e3cea4b) 的数组。
 
 <a id="persistence-type-sha256-eac7cba484f1152ed8d32305e3a4cb080bfacca292dfdb5aaae125398d958642"></a>
 
@@ -6150,7 +6174,7 @@ SHA-256: `cde73a202de8f63d89ce64c6863669306d0ea0ec03f42e85191dcaca06da8828`
 
 [`UserMessage`](#persistence-type-sha256-43b02ad01f42ca47c484444207c7e43c8cebf3a3f2dc0ddf89465784f7d61ce2) 的数组。
 
-<a id="persistence-type-sha256-3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf"></a>
+<a id="persistence-type-sha256-afe7156c94000f331be6ea3ac16ac608b99ca33c6abb352a84a79441869ea42a"></a>
 
 <a id="persistence-type-packagesperceptiontool-video-inspectsrcreview-statetsvideoreview"></a>
 
@@ -6158,9 +6182,9 @@ SHA-256: `cde73a202de8f63d89ce64c6863669306d0ea0ec03f42e85191dcaca06da8828`
 
 ### `VideoReview`
 
-SHA-256: `3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf`
+SHA-256: `afe7156c94000f331be6ea3ac16ac608b99ca33c6abb352a84a79441869ea42a`
 
-来源：[`packages/perception/tool-video-inspect/src/review-state.ts:36`](../packages/perception/tool-video-inspect/src/review-state.ts)
+来源：[`packages/perception/tool-video-inspect/src/review-state.ts:47`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -6168,7 +6192,7 @@ SHA-256: `3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf`
 | `episode` | 必需 | `string` |
 | `event_groups` | 可选 | [`ReviewEvent[]`](#persistence-type-sha256-cf037f096a7bafb2d86f8805602fa462c99d4b22306e74e7d61042215093805c) |
 | `follow_up` | 可选 | [`{ reason?, status }`](#persistence-type-sha256-8a6f5e3a5b07811520774425ac2dbd89aaaa035f8c155686a9ca212fd5a03848) |
-| `frames` | 必需 | [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e) |
+| `frames` | 必需 | [`ReviewFrame[]`](#persistence-type-sha256-2448ec88a5534b084591088b52855884165e7b686145790981a1ab3ca74a0622) |
 | `id` | 必需 | `string` |
 | `path` | 必需 | `string` |
 | `scan_complete` | 必需 | `boolean` |
@@ -6483,6 +6507,17 @@ SHA-256: `50cf02d875f8a1f1411f4a6fbcffab9120ccef5f74a47331fbf29480e5f68f48`
 - `"fork"`
 - `"fresh"`
 
+<a id="persistence-type-sha256-5d39856585b9a9211145824c4cbec575ea9d9473a1534725b49f294e15f183ea"></a>
+
+### `union (2 variants)`
+
+SHA-256: `5d39856585b9a9211145824c4cbec575ea9d9473a1534725b49f294e15f183ea`
+
+| kind | form 属性 | 其他必需字段 | 完整定义 |
+|---|---|---|---|
+| `start` | 未声明 | `review`: [`VideoReview`](#persistence-type-sha256-afe7156c94000f331be6ea3ac16ac608b99ca33c6abb352a84a79441869ea42a) | [`{ kind: "start" }`](#persistence-type-sha256-d59137e063c0df708f986da987e6158383cb04cd5c179d90d92851f926d40abb) |
+| `update` | 未声明 | `frame_count`: `number`; `frames`: [`ReviewFrame[]`](#persistence-type-sha256-2448ec88a5534b084591088b52855884165e7b686145790981a1ab3ca74a0622); `id`: `string`; `path`: `string`; `scan_complete`: `boolean`; `scanned_until`: `number` | [`{ kind: "update" }`](#persistence-type-sha256-cd78721627d25b1f3c4f7143c811e4981265cc8a02a9628b24b133224313bdee) |
+
 <a id="persistence-type-sha256-6fdf65305cedfa59762ff497c9893db130beea522363c039f3a492e9df971e2a"></a>
 
 ### `union (2 variants)`
@@ -6504,17 +6539,6 @@ SHA-256: `824a4aad44a54e245c67196817d67946734a2dc0eee0b0b6834a5b2a6ef352ce`
 |---|---|---|---|
 | `owner` | 未声明 | 无 | [`{ kind: "owner" }`](#persistence-type-sha256-deebfc7c62177ea840f23c6362b8615bc78ffa93377dd5d243c04e541c413af5) |
 | `share-viewer` | 未声明 | `actor`: [`{ displayName?, providerId, subjectId, tenantId }`](#persistence-type-sha256-0a92c5bdfa06c2e2615b777728f3aa95f408d43b9012e7b754568311251db623); `shareId`: `string` | [`ShareViewerPrincipal`](#persistence-type-sha256-4d60dddaa65d3da8d4cd014d85ce3d2c2875664dd0433e331d8e9d395289686b) |
-
-<a id="persistence-type-sha256-c1e0e408150c8de47f4a9adc34b1f4d4f80f96d7347733d6bbaf9913343ec469"></a>
-
-### `union (2 variants)`
-
-SHA-256: `c1e0e408150c8de47f4a9adc34b1f4d4f80f96d7347733d6bbaf9913343ec469`
-
-| kind | form 属性 | 其他必需字段 | 完整定义 |
-|---|---|---|---|
-| `start` | 未声明 | `review`: [`VideoReview`](#persistence-type-sha256-3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf) | [`{ kind: "start" }`](#persistence-type-sha256-37cd3243dc00bd4d8a73afd6f9f3bb86015995637ce259c77362543a0c3be07f) |
-| `update` | 未声明 | `frame_count`: `number`; `frames`: [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e); `id`: `string`; `path`: `string`; `scan_complete`: `boolean`; `scanned_until`: `number` | [`{ kind: "update" }`](#persistence-type-sha256-f2a086b65d8b4c5e4f81491f07130ade51d583f83bb2c7d1d848846e229ec69d) |
 
 <a id="persistence-type-sha256-5776e5553ff2dfe3f5bc202dbb1e7c9f93e35a531aebb7764c23b2b6153b2ccc"></a>
 
@@ -6553,6 +6577,18 @@ SHA-256: `c2f49004d9ae38a964e80850c87bc6849d6a872091a1d43e99eedf00c641e2a3`
 - `"completed"`
 - `"failed"`
 - `"killed"`
+
+<a id="persistence-type-sha256-ed0128c201eab570b707d04e54866e9f9a7dc358eaaed34602cd8e7b9b6cfa8f"></a>
+
+### `union (3 variants)`
+
+SHA-256: `ed0128c201eab570b707d04e54866e9f9a7dc358eaaed34602cd8e7b9b6cfa8f`
+
+以下类型之一：
+
+- `"match"`
+- `"mismatch"`
+- `"needs_review"`
 
 <a id="persistence-type-sha256-fd0d91a1f9dd2efb8959bdf5e07f8f0a98b1cdfa38ce8d4732ebde0b44c3abd4"></a>
 
@@ -6796,17 +6832,39 @@ SHA-256: `df843efd87c78cf8de98f8e0d0216956cd568d0d0e56a22c853663e274aa1a18`
 
 [`{ capturedFormatVersion?, capturedThroughSeq, compacted, inputIndex, … }`](#persistence-type-sha256-4f91f187baeabef5c7950c4780d31bbe39f3345dff591a6cf26ac7e135ac1cf4) 的数组。
 
-<a id="persistence-type-sha256-9c3cb5bd20d6ce8079bd370a9eeaff43073979ab197afa324f77cec2b5fb65fa"></a>
+<a id="persistence-type-sha256-440692058aa72fd4c1f602722c96d3965e33f45a0ef12a7d88521cefb79197e7"></a>
 
-### `{ change, uncertainty, visible }`
+### `{ change, character_checks?, uncertainty, visible }`
 
-SHA-256: `9c3cb5bd20d6ce8079bd370a9eeaff43073979ab197afa324f77cec2b5fb65fa`
+SHA-256: `440692058aa72fd4c1f602722c96d3965e33f45a0ef12a7d88521cefb79197e7`
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
 | `change` | 必需 | `string` |
+| `character_checks` | 可选 | [`{ character, reason, reference_asset_id?, status }[]`](#persistence-type-sha256-0ae6dbefed834e4a31ac86b167f76285bb5a210ada01a929c031fb84c23a7404) |
 | `uncertainty` | 必需 | `string` |
 | `visible` | 必需 | `string` |
+
+<a id="persistence-type-sha256-22001041358e18aeb3115e614ef5ff15f766927a20b3b24840ffc7cd9c91bf80"></a>
+
+### `{ character, reason, reference_asset_id?, status }`
+
+SHA-256: `22001041358e18aeb3115e614ef5ff15f766927a20b3b24840ffc7cd9c91bf80`
+
+| 属性 | 存在性 | 类型 |
+|---|---|---|
+| `character` | 必需 | `string` |
+| `reason` | 必需 | `string` |
+| `reference_asset_id` | 可选 | `string` |
+| `status` | 必需 | [`union (3 variants)`](#persistence-type-sha256-ed0128c201eab570b707d04e54866e9f9a7dc358eaaed34602cd8e7b9b6cfa8f) |
+
+<a id="persistence-type-sha256-0ae6dbefed834e4a31ac86b167f76285bb5a210ada01a929c031fb84c23a7404"></a>
+
+### `{ character, reason, reference_asset_id?, status }[]`
+
+SHA-256: `0ae6dbefed834e4a31ac86b167f76285bb5a210ada01a929c031fb84c23a7404`
+
+[`{ character, reason, reference_asset_id?, status }`](#persistence-type-sha256-22001041358e18aeb3115e614ef5ff15f766927a20b3b24840ffc7cd9c91bf80) 的数组。
 
 <a id="persistence-type-sha256-0e10d7c096b47e61defe372a5fc8bd37d835199410eac44367f95c45082498bd"></a>
 
@@ -8806,18 +8864,18 @@ SHA-256: `9e8ee2aab8848eb1086bc95e19447e25c68bc04e28d46eb6ca553760874b9627`
 | `kind` | 必需 | `"session-activity"` |
 | `sections` | 必需 | [`ContextSnapshotSection[]`](#persistence-type-sha256-c748fb42c80a120038a8c587af80ec39924803c401364db11c8974d5bf6d0262) |
 
-<a id="persistence-type-sha256-37cd3243dc00bd4d8a73afd6f9f3bb86015995637ce259c77362543a0c3be07f"></a>
+<a id="persistence-type-sha256-d59137e063c0df708f986da987e6158383cb04cd5c179d90d92851f926d40abb"></a>
 
 ### `{ kind: "start" }`
 
-SHA-256: `37cd3243dc00bd4d8a73afd6f9f3bb86015995637ce259c77362543a0c3be07f`
+SHA-256: `d59137e063c0df708f986da987e6158383cb04cd5c179d90d92851f926d40abb`
 
-来源：[`packages/perception/tool-video-inspect/src/review-state.ts:46`](../packages/perception/tool-video-inspect/src/review-state.ts)
+来源：[`packages/perception/tool-video-inspect/src/review-state.ts:57`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
 | `kind` | 必需 | `"start"` |
-| `review` | 必需 | [`VideoReview`](#persistence-type-sha256-3811b777699ea5bcd32f037dc427b56a238d1112751440c4dfe7e8f4c63740cf) |
+| `review` | 必需 | [`VideoReview`](#persistence-type-sha256-afe7156c94000f331be6ea3ac16ac608b99ca33c6abb352a84a79441869ea42a) |
 
 <a id="persistence-type-sha256-1d76406cbb2ddadb0dbbb51e9d8bc6cf678fed455cf8eb512f36f7c86d37a62f"></a>
 
@@ -9167,20 +9225,20 @@ SHA-256: `8fcb0b44a575e998665c053643d1ab04c82f39253ebd190ac0c975b78e40b543`
 |---|---|---|
 | `kind` | 必需 | `"tool-registry"` |
 
-<a id="persistence-type-sha256-f2a086b65d8b4c5e4f81491f07130ade51d583f83bb2c7d1d848846e229ec69d"></a>
+<a id="persistence-type-sha256-cd78721627d25b1f3c4f7143c811e4981265cc8a02a9628b24b133224313bdee"></a>
 
 ### `{ kind: "update" }`
 
-SHA-256: `f2a086b65d8b4c5e4f81491f07130ade51d583f83bb2c7d1d848846e229ec69d`
+SHA-256: `cd78721627d25b1f3c4f7143c811e4981265cc8a02a9628b24b133224313bdee`
 
-来源：[`packages/perception/tool-video-inspect/src/review-state.ts:49`](../packages/perception/tool-video-inspect/src/review-state.ts)
+来源：[`packages/perception/tool-video-inspect/src/review-state.ts:60`](../packages/perception/tool-video-inspect/src/review-state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
 | `event_groups` | 可选 | [`ReviewEvent[]`](#persistence-type-sha256-cf037f096a7bafb2d86f8805602fa462c99d4b22306e74e7d61042215093805c) |
 | `follow_up` | 可选 | [`{ reason?, status }`](#persistence-type-sha256-8a6f5e3a5b07811520774425ac2dbd89aaaa035f8c155686a9ca212fd5a03848) |
 | `frame_count` | 必需 | `number` |
-| `frames` | 必需 | [`ReviewFrame[]`](#persistence-type-sha256-d1730a1835678f0ac6c80b257be192f17e52a9dfbf04be65bbc0ff48c973ce4e) |
+| `frames` | 必需 | [`ReviewFrame[]`](#persistence-type-sha256-2448ec88a5534b084591088b52855884165e7b686145790981a1ab3ca74a0622) |
 | `id` | 必需 | `string` |
 | `kind` | 必需 | `"update"` |
 | `path` | 必需 | `string` |
@@ -10920,17 +10978,17 @@ SHA-256: `27484ff65e01149b0baead1bb7f0e34ac41076d02d50454f77f394fced668e2b`
 | `time` | 必需 | `number` |
 | `type` | 必需 | `"user/message"` |
 
-<a id="persistence-type-sha256-5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd"></a>
+<a id="persistence-type-sha256-1494cebd6a70f38c07d1b10fbfa12b2e6e373b564b44548772324383f887aacc"></a>
 
 <a id="persistence-type-eventvideoreview"></a>
 
 ### `{ type: "video/review" }`
 
-SHA-256: `5781c389fbe44583fcaa6b8e6e8194163bc90a27b241f5cb0efc1c7af428bdbd`
+SHA-256: `1494cebd6a70f38c07d1b10fbfa12b2e6e373b564b44548772324383f887aacc`
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
-| `data` | 必需 | [`union (2 variants)`](#persistence-type-sha256-c1e0e408150c8de47f4a9adc34b1f4d4f80f96d7347733d6bbaf9913343ec469) |
+| `data` | 必需 | [`union (2 variants)`](#persistence-type-sha256-5d39856585b9a9211145824c4cbec575ea9d9473a1534725b49f294e15f183ea) |
 | `ignorable` | 可选 | `true` |
 | `seq` | 必需 | `number` |
 | `time` | 必需 | `number` |

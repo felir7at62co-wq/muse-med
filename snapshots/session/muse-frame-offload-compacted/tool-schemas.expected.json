@@ -662,6 +662,38 @@
                 "uncertainty": {
                   "type": "string",
                   "description": "需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。"
+                },
+                "character_checks": {
+                  "type": "array",
+                  "description": "短剧源片角色核对。实际并排看正式参考和本帧，记录角色、正式参考资产ID、结果和可见理由。证据不足填needs_review，缺参考时可省略其ID。同一帧角色用同一标识；复看后更新该角色，其余旧记录保留。mismatch与needs_review会停住该源片的正式选源。",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "character": {
+                        "type": "string"
+                      },
+                      "reference_asset_id": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "match",
+                          "mismatch",
+                          "needs_review"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "character",
+                      "status",
+                      "reason"
+                    ]
+                  }
                 }
               },
               "required": [

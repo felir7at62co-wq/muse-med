@@ -95,6 +95,8 @@ kind: "package-reference"
 
 `createVideoSourceQaVerifier(ctx)` 为严格来源采用流程准备只读 Host 核验函数，调用方先独立核对媒体 SHA-256 与 OCR 内容。它要求真实发起 Session、成功且绑定摘要的 OCR 结果，以及当前已完整扫描、实际看图、逐帧记录且无疑点的持久视频观察，准确报告字节与真实返回路径必须一致。每份证据最多读取 64 MiB，并核文件系统版本；不会启动 OCR、抽帧或付费任务。同一 Session 恢复后，在工具主体签发记录存在时可复用原持久证据；缺少该记录的旧结果须重新扫描和 OCR。另一 Session 需自行实际本地审看与 OCR。这不使用旧采样收据，不改变已归档交付收据，也不认证剧情质量。
 
+短剧源片审看可在每帧的 `observe.character_checks` 里记录角色核对。将一张清晰帧与项目正式参考并排看，记录角色、参考资产 ID、结果和可见理由。对照实际图片后填 `match` 或 `mismatch`。画面证据不够或缺正式参考时填 `needs_review`。复看同一帧只更新这次核对的角色，原有其他记录保留。严格来源核验会为现行 `mismatch` 或 `needs_review` 报出实际画面时间并暂停选用。条目保存的是模型看图结论。普通画面观察和不带角色核对的历史观察仍可读取。
+
 Host 消费方先在插件启动时等待 `createVideoReviewReader(ctx)`，并在自身生命周期内保留该领域读取函数。将它传给 `videoReviewSummaries(reader, session)`，以及 `readVideoSourceTimeline(ctx, session, id, options, signal, reader)` 的最后一个参数。读取函数保有私有投影句柄，其他注册卸载后仍有效。Host 消费方可用 `videoReviewSummaries` 读取当前已记录的视频身份与显式 ASR 引用，再以明确的来源区间和字节／图片预算调用 `readVideoSourceTimeline`。请求的已记录 `frameIds` 从附件缓存读取，以真实图片块与时间线一同返回；省略 ID 时仅返回文字。该读取校验视频版本与缓存图片，不可用的可选 ASR 返回诊断，不另选来源、不抽帧、不修改观察进度。缓存缺失、源版本变化、无效帧选择和完整结果超限仅使本次证据读取失败，不新增交付条件。消费方须将返回块接入普通有日志的上下文或工具结果路径。`buildVideoSourceTimeline` 对已读取材料提供同一纯归组逻辑。
 
 可选 `transcriptCandidates` 包含 Host 提供的当前任务起点与实际成功读取 JSON 的收据。review 没有显式 ASR 引用时，提供方规范化这些路径，排除旧任务与其他目录文件，在 `maxTranscriptBytes` 内完整读取结构化 ASR，并检查当前版本、SHA 和视频时间范围。只有一个不同的有效文件时标记为 `successful_read_candidate`；多个有效文件保持 `ambiguous`，不按读取顺序或修改时间选择。`transcript_resolution` 保留诊断与真实收据，材料摘要排除收据 ID 和诊断中的绝对路径。已有显式引用即使不可用也始终优先；候选解析不更新该引用，不搜索替代文件。同目录和时间相符不代表已验证视频与 ASR 同源。读取缓存图片后再次检查 ASR；变化后的语音材料被省略，不提交转写、不改变观察进度。
