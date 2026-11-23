@@ -9,7 +9,7 @@ English | [中文](CLI.zh.md)
 
 ## Install
 
-The `muse-hongguo-download/cli` export is a Cordis plugin, not a standalone executable. Install the ordinary plugin tarball into a new dedicated profile with `dsh plugin --profile hongguo add /absolute/path/muse-hongguo-download-0.2.1.tgz`. Apply the packaged `profiles/hongguo/cordis.patch.yml` as that profile's patch. The supplied profile manifest illustrates its base-plus-plugin bundle list; installation maintains the actual dependency entry. Keep an existing profile's configuration intact instead of replacing it with the example.
+The `muse-hongguo-download/cli` export is a Cordis plugin, not a standalone executable. Install the ordinary plugin tarball into a new dedicated profile with `dsh plugin --profile hongguo add /absolute/path/muse-hongguo-download-0.2.2.tgz`. Apply the packaged `profiles/hongguo/cordis.patch.yml` as that profile's patch. The supplied profile manifest illustrates its base-plus-plugin bundle list; installation maintains the actual dependency entry. Keep an existing profile's configuration intact instead of replacing it with the example.
 
 The profile boots no model runner, HTTP server, desktop account or browser. Configure absolute `ffmpegExecutable`, `ffprobeExecutable` and `bytevc2Executable` paths in the CLI row, or supply the environment variables shown in the example. Run from the intended workspace. Task records remain under that workspace's configured task directory; the dedicated profile stores only its stable local operator identity.
 

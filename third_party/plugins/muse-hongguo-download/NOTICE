@@ -1,5 +1,6 @@
 Muse Hongguo adapter: modified integration, 2026-11-17.
-Upstream: jackotom/hongguo-drama at 4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567.
+Upstream: jackotom/hongguo-drama at 8d14d07b3aaf99ecbe6b3ecb8ba2d0308261845d.
 The combined plugin is distributed under GPL-3.0. Original notices are retained in upstream/NOTICE.
 Local patch: validate the bvc2 sample entry against its bv2C configuration when rebuilding CENC MP4 metadata; reject unsupported CENC sample encryption layouts before decrypting. The original source archive remains unchanged.
-Playback update: the 7.5 source includes the GPL Android v5 JavaScript port credited to N3urda/hongguoTV and ermilylu. Original attribution and license materials remain in the corresponding source archive.
+Playback: the 8.0 source includes the GPL Android v5 JavaScript port credited to N3urda/hongguoTV and ermilylu and the full public web fallback. Original attribution and license materials remain in the corresponding source archive.
+Public fallback: omit guessed frame dimensions so the adapter validates the actual media with FFprobe.

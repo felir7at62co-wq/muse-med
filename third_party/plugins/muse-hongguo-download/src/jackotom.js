@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DownloadError } from './errors.js';
 const require = createRequire(import.meta.url);
-const revision = '4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567';
+const revision = '8d14d07b3aaf99ecbe6b3ecb8ba2d0308261845d';
 const sourceNames = { web: '网页', app: 'App', api: '旧接口' };
 
 /** Keep only enumerated upstream failure codes; upstream messages can carry request details. */

@@ -1,14 +1,14 @@
 {
   "hostVersion": "0.2.2-rc.2",
   "repository": "https://github.com/jackotom/hongguo-drama",
-  "revision": "4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567",
-  "version": "7.5.0",
+  "revision": "8d14d07b3aaf99ecbe6b3ecb8ba2d0308261845d",
+  "version": "8.0.0",
   "license": "GPL-3.0",
-  "engineSha256": "a78cf232d5613adf5551d9267488b51d4acb521a1abe6bfa8193518298c21b51",
+  "engineSha256": "0d5ca53dcf2f21b3ff83b6d7b0824161e63d1aaf39c5415703a29094e0df6286",
   "originalRuntimeIncluded": false,
   "credentialFilesIncluded": false,
   "sourceArchive": "upstream/source.tar.gz",
-  "sourceArchiveSha256": "3885f22785a48633ead99c2629b5cda5ae85702bf8847912a2183dcb8732d76f",
+  "sourceArchiveSha256": "c6826a10aa5b8f4f80777705b1739366a7bfb6fc253b10b131971059d6192a98",
   "localPatches": [
     {
       "file": "patches/0001-bytevc2-cenc.patch",
@@ -17,6 +17,10 @@
     {
       "file": "patches/0002-electron-main-only.patch",
       "sha256": "31a89a720e764403af7e19d2d5f5d0fbf9af4321dcdb0e05704b1ecac4553b26"
+    },
+    {
+      "file": "patches/0003-public-fallback-probe-dimensions.patch",
+      "sha256": "fe61c6947ae92ebc71b24dba7f273fea793e71eaa6793b72a71dfc3eb287f493"
     }
   ]
 }

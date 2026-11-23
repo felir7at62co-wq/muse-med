@@ -1,4 +1,4 @@
-/* GPL-3.0: https://github.com/jackotom/hongguo-drama 4ffff289d6dd289e589a0fd0e65aa7aa5c2a7567; corresponding source: source.tar.gz */
+/* GPL-3.0: https://github.com/jackotom/hongguo-drama 8d14d07b3aaf99ecbe6b3ecb8ba2d0308261845d; corresponding source: source.tar.gz */
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __commonJS = (cb, mod) => function __require() {
   try {
@@ -11640,8 +11640,14 @@ var require_follow_redirects = __commonJS({
     RedirectableRequest.prototype._sanitizeOptions = function(options) {
       if (!options.headers) {
         options.headers = {};
+      } else if (Array.isArray(options.headers)) {
+        var headerList = options.headers;
+        options.headers = {};
+        for (var i = 0; i < headerList.length; i += 2) {
+          options.headers[headerList[i]] = headerList[i + 1];
+        }
       }
-      if (!isArray(options.sensitiveHeaders)) {
+      if (!Array.isArray(options.sensitiveHeaders)) {
         options.sensitiveHeaders = [];
       }
       if (options.host) {
@@ -11898,9 +11904,6 @@ var require_follow_redirects = __commonJS({
       var dot = subdomain.length - domain.length - 1;
       return dot > 0 && subdomain[dot] === "." && subdomain.endsWith(domain);
     }
-    function isArray(value) {
-      return value instanceof Array;
-    }
     function isString(value) {
       return typeof value === "string" || value instanceof String;
     }
@@ -11914,7 +11917,7 @@ var require_follow_redirects = __commonJS({
       return URL3 && value instanceof URL3;
     }
     function escapeRegex(regex) {
-      return regex.replace(/[\]\\/()*+?.$]/g, "\\$&");
+      return regex.replace(/[\^$\\.*+?()[\]{}|]/g, "\\$&");
     }
     module2.exports = wrap({ http, https });
     module2.exports.wrap = wrap;
@@ -17171,10 +17174,12 @@ var require_web_media_guard = __commonJS({
     }
     var publicDnsCache = /* @__PURE__ */ new Map();
     var publicDnsPending = /* @__PURE__ */ new Map();
+    var PUBLIC_DNS_CACHE_LIMIT = 256;
     function resolvePublicAddresses(hostname) {
       const key = hostname.toLowerCase();
       const cached = publicDnsCache.get(key);
       if (cached?.expires > Date.now()) return Promise.resolve(cached.addresses);
+      if (cached) publicDnsCache.delete(key);
       if (publicDnsPending.has(key)) return publicDnsPending.get(key);
       const requests = [];
       const pending = Promise.any(["https://1.1.1.1/dns-query", "https://223.5.5.5/resolve"].map((endpoint) => new Promise((resolve, reject) => {
@@ -17207,7 +17212,9 @@ var require_web_media_guard = __commonJS({
         request.on("close", () => clearTimeout(timer));
         request.on("error", reject);
       }))).then((result) => {
+        publicDnsCache.delete(key);
         publicDnsCache.set(key, result);
+        while (publicDnsCache.size > PUBLIC_DNS_CACHE_LIMIT) publicDnsCache.delete(publicDnsCache.keys().next().value);
         return result.addresses;
       }).catch((error) => {
         throw error.errors?.find((item) => item.code === "ERR_WEB_MEDIA_ADDRESS") || error.errors?.[0] || error;
@@ -18002,27 +18009,109 @@ var require_dramabox = __commonJS({
   }
 });
 
+// src/native/atomic-json.js
+var require_atomic_json = __commonJS({
+  "src/native/atomic-json.js"(exports2, module2) {
+    var fs2 = require("node:fs");
+    var path2 = require("node:path");
+    function syncDirectory(directory) {
+      if (process.platform === "win32") return;
+      let fd;
+      try {
+        fd = fs2.openSync(directory, "r");
+        fs2.fsyncSync(fd);
+      } catch (error) {
+        if (!["EINVAL", "ENOTSUP", "EISDIR", "EPERM", "EBADF"].includes(error.code)) throw error;
+      } finally {
+        if (fd !== void 0) fs2.closeSync(fd);
+      }
+    }
+    function writeJsonAtomic(file, value, {
+      pretty = 2,
+      temporary = `${file}.tmp`,
+      mode = 384,
+      maxBytes = 0
+    } = {}) {
+      const directory = path2.dirname(file);
+      const serialized = JSON.stringify(value, null, pretty);
+      const bytes = Buffer.byteLength(serialized);
+      if (maxBytes > 0 && bytes > maxBytes) {
+        throw Object.assign(new Error(`\u672C\u5730\u8BB0\u5F55\u8D85\u8FC7 ${Math.round(maxBytes / 1024 / 1024)} MB \u4E0A\u9650\uFF0C\u8BF7\u6E05\u7406\u65E7\u4EFB\u52A1\u6216\u5267\u5E93\u540E\u91CD\u8BD5`), {
+          code: "STORE_TOO_LARGE",
+          bytes,
+          maxBytes
+        });
+      }
+      fs2.mkdirSync(directory, { recursive: true });
+      let fd;
+      try {
+        try {
+          fd = fs2.openSync(temporary, "wx", mode);
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+          const stat = fs2.lstatSync(temporary);
+          if (!stat.isFile() || stat.isSymbolicLink()) throw error;
+          fs2.unlinkSync(temporary);
+          fd = fs2.openSync(temporary, "wx", mode);
+        }
+        try {
+          fs2.writeFileSync(fd, serialized, "utf8");
+          fs2.fsyncSync(fd);
+        } finally {
+          fs2.closeSync(fd);
+          fd = void 0;
+        }
+        fs2.renameSync(temporary, file);
+        try {
+          syncDirectory(directory);
+        } catch {
+        }
+        return serialized;
+      } catch (error) {
+        if (fd !== void 0) try {
+          fs2.closeSync(fd);
+        } catch {
+        }
+        try {
+          fs2.unlinkSync(temporary);
+        } catch {
+        }
+        throw error;
+      }
+    }
+    module2.exports = { writeJsonAtomic, syncDirectory };
+  }
+});
+
 // src/store.js
 var require_store = __commonJS({
   "src/store.js"(exports2, module2) {
     var fs2 = require("fs");
     var path2 = require("path");
+    var { writeJsonAtomic } = require_atomic_json();
     var dataFile = null;
+    var playbackFile = null;
     var cache = null;
+    var playbackCache = null;
     var durable = "{}";
     var errorHandler = null;
     var readError = null;
+    var playbackReadError = null;
+    var playbackCleanupPending = false;
     var writeError = false;
     var safeStorage = null;
     var runtimeProxyPassword = "";
     var proxyPasswordWarning = "";
+    var maxBytes = 32 * 1024 * 1024;
+    var playbackMaxBytes = 16 * 1024 * 1024;
     var PROXY_PASSWORD_CIPHER = "proxy_password_ciphertext";
     var SECURE_STORAGE_UNAVAILABLE = "\u7CFB\u7EDF\u5B89\u5168\u5B58\u50A8\u4E0D\u53EF\u7528\uFF1B\u4EE3\u7406\u5BC6\u7801\u4EC5\u5728\u672C\u6B21\u8FD0\u884C\u671F\u95F4\u4FDD\u7559\uFF0C\u91CD\u542F\u540E\u9700\u8981\u91CD\u65B0\u8F93\u5165\u3002";
     var PROXY_PASSWORD_DECRYPT_FAILED = "\u5DF2\u4FDD\u5B58\u7684\u4EE3\u7406\u5BC6\u7801\u65E0\u6CD5\u89E3\u5BC6\uFF1B\u539F\u5BC6\u6587\u5DF2\u4FDD\u7559\uFF0C\u53EF\u91CD\u65B0\u8F93\u5165\u5BC6\u7801\u6216\u6E05\u9664\u3002";
     var READ_ERROR_MESSAGE = "\u8BFB\u53D6\u672C\u5730\u6570\u636E\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u6587\u4EF6\u5E76\u6682\u505C\u4FDD\u5B58\uFF1B\u8BF7\u68C0\u67E5\u6587\u4EF6\u6216\u76EE\u5F55\u6743\u9650\uFF0C\u6062\u590D\u6570\u636E\u540E\u91CD\u542F\u5E94\u7528\u3002";
-    function reportReadError() {
+    var PLAYBACK_READ_ERROR_MESSAGE = "\u8BFB\u53D6\u64AD\u653E\u8FDB\u5EA6\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u6587\u4EF6\u5E76\u6682\u505C\u8986\u76D6\uFF1B\u8BF7\u68C0\u67E5\u6587\u4EF6\u6216\u76EE\u5F55\u6743\u9650\uFF0C\u6062\u590D\u6570\u636E\u540E\u91CD\u542F\u5E94\u7528\u3002";
+    function reportReadError(message = READ_ERROR_MESSAGE) {
       try {
-        errorHandler?.({ error: READ_ERROR_MESSAGE });
+        errorHandler?.({ error: message });
       } catch {
       }
     }
@@ -18111,6 +18200,7 @@ var require_store = __commonJS({
     }
     function serializableCache() {
       const copy = structuredClone(cache || {});
+      if (playbackCache !== null) delete copy.playback;
       if (copy.settings) {
         stripPublicSecretFields(copy.settings);
         if (!copy.settings[PROXY_PASSWORD_CIPHER]) delete copy.settings[PROXY_PASSWORD_CIPHER];
@@ -18122,6 +18212,9 @@ var require_store = __commonJS({
       if (cache) return cache;
       let secretsChanged = false;
       try {
+        if (fs2.statSync(dataFile).size > maxBytes) {
+          throw Object.assign(new Error("STORE_TOO_LARGE"), { code: "STORE_TOO_LARGE" });
+        }
         cache = JSON.parse(fs2.readFileSync(dataFile, "utf8"));
         if (!cache || typeof cache !== "object" || Array.isArray(cache)) {
           throw new TypeError("Invalid store document");
@@ -18137,9 +18230,10 @@ var require_store = __commonJS({
       } catch (e) {
         cache = {};
         if (e.code !== "ENOENT") {
-          readError = new Error(READ_ERROR_MESSAGE, { cause: e });
+          const message = e.code === "STORE_TOO_LARGE" ? `\u672C\u5730\u8BB0\u5F55\u8D85\u8FC7 ${Math.round(maxBytes / 1024 / 1024)} MB \u4E0A\u9650\uFF1B\u5DF2\u4FDD\u7559\u539F\u6587\u4EF6\u5E76\u6682\u505C\u4FDD\u5B58\uFF0C\u8BF7\u5148\u5907\u4EFD\u5E76\u6E05\u7406\u65E7\u4EFB\u52A1\u6216\u5267\u5E93\u3002` : READ_ERROR_MESSAGE;
+          readError = new Error(message, { cause: e });
           readError.code = "STORE_READ_FAILED";
-          reportReadError();
+          reportReadError(message);
         }
       }
       if (!Array.isArray(cache.tasks)) cache.tasks = [];
@@ -18153,21 +18247,11 @@ var require_store = __commonJS({
       if (!dataFile) return;
       if (readError) {
         cache = JSON.parse(durable);
-        reportReadError();
+        reportReadError(readError.message);
         throw readError;
       }
-      const temporary = dataFile + ".tmp";
       try {
-        fs2.mkdirSync(path2.dirname(dataFile), { recursive: true });
-        const serialized = JSON.stringify(serializableCache(), null, 2);
-        const fd = fs2.openSync(temporary, "w", 384);
-        try {
-          fs2.writeFileSync(fd, serialized, "utf8");
-          fs2.fsyncSync(fd);
-        } finally {
-          fs2.closeSync(fd);
-        }
-        fs2.renameSync(temporary, dataFile);
+        const serialized = writeJsonAtomic(dataFile, serializableCache(), { maxBytes });
         durable = serialized;
         if (writeError) {
           writeError = false;
@@ -18176,29 +18260,101 @@ var require_store = __commonJS({
           } catch {
           }
         }
+        if (playbackCache !== null) playbackCleanupPending = false;
       } catch (e) {
-        try {
-          fs2.unlinkSync(temporary);
-        } catch {
-        }
         cache = JSON.parse(durable);
         writeError = true;
+        const message = e.code === "STORE_TOO_LARGE" ? e.message : "\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u78C1\u76D8\u7A7A\u95F4\u6216\u76EE\u5F55\u6743\u9650\uFF1B\u672C\u6B21\u53D8\u66F4\u672A\u80FD\u4FDD\u5B58\u3002";
         try {
-          errorHandler?.({ error: "\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u78C1\u76D8\u7A7A\u95F4\u6216\u76EE\u5F55\u6743\u9650\uFF1B\u672C\u6B21\u53D8\u66F4\u672A\u80FD\u4FDD\u5B58\u3002" });
+          errorHandler?.({ error: message });
         } catch {
         }
         throw e;
       }
     }
-    function init(filePath, { safeStorage: injectedSafeStorage } = {}) {
+    function playbackPathFor(filePath) {
+      const extension = path2.extname(filePath);
+      return path2.join(path2.dirname(filePath), `${path2.basename(filePath, extension)}.playback${extension || ".json"}`);
+    }
+    function playbackReadFailure(cause) {
+      const error = new Error(PLAYBACK_READ_ERROR_MESSAGE, { cause });
+      error.code = "PLAYBACK_READ_FAILED";
+      return error;
+    }
+    function loadPlaybackCache() {
+      if (playbackCache) return playbackCache;
+      if (playbackReadError) throw playbackReadError;
+      const legacy = cache?.playback && typeof cache.playback === "object" && !Array.isArray(cache.playback) ? cache.playback : null;
+      try {
+        if (fs2.existsSync(playbackFile)) {
+          if (fs2.statSync(playbackFile).size > playbackMaxBytes) {
+            throw Object.assign(new Error("PLAYBACK_TOO_LARGE"), { code: "STORE_TOO_LARGE" });
+          }
+          const parsed = JSON.parse(fs2.readFileSync(playbackFile, "utf8"));
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new TypeError("Invalid playback document");
+          playbackCache = { ...parsed };
+          if (legacy) {
+            let changed = false;
+            for (const [seriesId, record] of Object.entries(legacy)) {
+              const current = playbackCache[seriesId];
+              if (!current || Number(record?.updatedAt) > Number(current?.updatedAt)) {
+                playbackCache[seriesId] = record;
+                changed = true;
+              }
+            }
+            if (changed) writeJsonAtomic(playbackFile, playbackCache, { maxBytes: playbackMaxBytes });
+          }
+        } else {
+          playbackCache = legacy || {};
+          if (legacy && Object.keys(legacy).length) {
+            writeJsonAtomic(playbackFile, legacy, { maxBytes: playbackMaxBytes });
+          }
+        }
+        if (cache && Object.prototype.hasOwnProperty.call(cache, "playback")) {
+          delete cache.playback;
+          if (!readError) {
+            try {
+              flush();
+              playbackCleanupPending = false;
+            } catch {
+              playbackCleanupPending = true;
+            }
+          }
+        }
+        return playbackCache;
+      } catch (error) {
+        if (error.code === "ENOENT") {
+          playbackCache = legacy || {};
+          return playbackCache;
+        }
+        playbackReadError = playbackReadFailure(error);
+        reportReadError(PLAYBACK_READ_ERROR_MESSAGE);
+        throw playbackReadError;
+      }
+    }
+    function init(filePath, {
+      safeStorage: injectedSafeStorage,
+      maxBytes: injectedMaxBytes,
+      playbackMaxBytes: injectedPlaybackMaxBytes
+    } = {}) {
       dataFile = filePath;
+      playbackFile = playbackPathFor(filePath);
       safeStorage = injectedSafeStorage || null;
+      maxBytes = Number(injectedMaxBytes) > 0 ? Number(injectedMaxBytes) : 32 * 1024 * 1024;
+      playbackMaxBytes = Number(injectedPlaybackMaxBytes) > 0 ? Number(injectedPlaybackMaxBytes) : 16 * 1024 * 1024;
       cache = null;
+      playbackCache = null;
       readError = null;
+      playbackReadError = null;
+      playbackCleanupPending = false;
       writeError = false;
       runtimeProxyPassword = "";
       proxyPasswordWarning = "";
       loadCache();
+      try {
+        loadPlaybackCache();
+      } catch {
+      }
     }
     function getSettings() {
       const settings = { ...loadCache().settings };
@@ -18281,13 +18437,50 @@ var require_store = __commonJS({
       flush();
     }
     function getPlayback() {
-      const c = loadCache();
-      if (!c.playback || typeof c.playback !== "object") c.playback = {};
-      return c.playback;
+      loadCache();
+      return structuredClone(loadPlaybackCache());
     }
     function savePlayback(map) {
-      loadCache().playback = map || {};
-      flush();
+      loadCache();
+      if (readError) throw readError;
+      loadPlaybackCache();
+      if (playbackCleanupPending) {
+        delete cache.playback;
+        try {
+          flush();
+          playbackCleanupPending = false;
+        } catch {
+        }
+      }
+      const next = structuredClone(map || {});
+      try {
+        writeJsonAtomic(playbackFile, next, { maxBytes: playbackMaxBytes });
+        playbackCache = next;
+        if (writeError) {
+          writeError = false;
+          try {
+            errorHandler?.(null);
+          } catch {
+          }
+        }
+      } catch (error) {
+        writeError = true;
+        const message = error.code === "STORE_TOO_LARGE" ? error.message : "\u64AD\u653E\u8FDB\u5EA6\u4FDD\u5B58\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u4E0A\u6B21\u6210\u529F\u8BB0\u5F55\uFF1B\u8BF7\u68C0\u67E5\u78C1\u76D8\u7A7A\u95F4\u6216\u76EE\u5F55\u6743\u9650\u3002";
+        try {
+          errorHandler?.({ error: message });
+        } catch {
+        }
+        throw error;
+      }
+    }
+    function updatePlayback(updater) {
+      loadCache();
+      if (readError) throw readError;
+      loadPlaybackCache();
+      const next = structuredClone(playbackCache || {});
+      const result = updater(next);
+      savePlayback(next);
+      return result;
     }
     function getMergeTasks() {
       const c = loadCache();
@@ -18313,6 +18506,7 @@ var require_store = __commonJS({
       saveSeries,
       getPlayback,
       savePlayback,
+      updatePlayback,
       getMergeTasks,
       saveMergeTasks
     };
@@ -19149,19 +19343,26 @@ var require_playback_device = __commonJS({
         request.dispose();
       }
     }
-    function getPlaybackDevice(requestJson) {
+    function getPlaybackDevice(requestJson, { signal } = {}) {
       if (retryAfter && Date.now() >= retryAfter) {
         registration = void 0;
         retryAfter = 0;
       }
-      registration ||= Promise.resolve().then(() => registerPlaybackDevice(requestJson)).catch((error) => {
+      registration ||= Promise.resolve().then(() => registerPlaybackDevice(requestJson, { signal })).catch((error) => {
         if (error.code === "ERR_CANCELED") registration = void 0;
         else retryAfter = Date.now() + 1e4;
         throw error;
       });
       return registration;
     }
-    module2.exports = { getPlaybackDevice, registerPlaybackDevice };
+    function resetPlaybackDevice() {
+      registration = void 0;
+      retryAfter = 0;
+      registrationRetryAfter = 0;
+      lastRegistrationFailure = void 0;
+      lastNetworkFailure = void 0;
+    }
+    module2.exports = { getPlaybackDevice, registerPlaybackDevice, resetPlaybackDevice };
   }
 });
 
@@ -19712,16 +19913,17 @@ var require_playback_v5 = __commonJS({
       }
       if (!Number.isSafeInteger(now) || now < 0 || Math.floor(now / 1e3) > 2147483647) throw new RangeError("V5 now must be nonnegative integer milliseconds within signed timestamp range");
       const who = validatedValues(values);
-      if (!Buffer.isBuffer(body)) throw new TypeError("V5 body must be the original gzip Buffer");
-      if (body.length < 18 || body.length > 2 * 1024 * 1024 || body[0] !== 31 || body[1] !== 139 || body[2] !== 8) {
+      if (body !== null && !Buffer.isBuffer(body)) throw new TypeError("V5 body must be the original gzip Buffer");
+      const hasBody = body !== null;
+      if (hasBody && (body.length < 18 || body.length > 2 * 1024 * 1024 || body[0] !== 31 || body[1] !== 139 || body[2] !== 8)) {
         throw new TypeError("V5 body must be a bounded gzip Buffer");
       }
-      try {
+      if (hasBody) try {
         gunzipSync(body, { maxOutputLength: 2 * 1024 * 1024 });
       } catch {
         throw new TypeError("V5 body must contain valid bounded gzip data");
       }
-      const ts = Math.floor(now / 1e3), bodyHash = md5(body);
+      const ts = Math.floor(now / 1e3), bodyHash = hasBody ? md5(body) : md5(Buffer.alloc(0));
       if (Object.hasOwn(who, "ts")) who.ts = String(ts);
       for (let offset = 0; offset < 1024; offset++) {
         const ticket = String(now + offset);
@@ -19733,8 +19935,7 @@ var require_playback_v5 = __commonJS({
           "x-khronos": String(ts),
           "x-helios": helios(ts),
           "x-medusa": medusa(queryHash, f13, ts, who),
-          "x-ss-stub": bodyHash.toString("hex").toUpperCase(),
-          "x-ss-req-ticket": ticket
+          ...hasBody ? { "x-ss-stub": bodyHash.toString("hex").toUpperCase() } : {}
         } };
       }
       throw new Error("Unable to select V5 playback signature branch within 1024 tickets");
@@ -19749,7 +19950,7 @@ var require_app_source = __commonJS({
     var crypto2 = require("node:crypto");
     var { gzipSync } = require("node:zlib");
     var { setTimeout: delay } = require("node:timers/promises");
-    var { registerPlaybackDevice } = require_playback_device();
+    var playbackDevice = require_playback_device();
     var { signPlayer } = require_playback_signature();
     var { signPlaybackV5 } = require_playback_v5();
     var { abortError: abortError2, throwIfAborted: throwIfAborted2, boundedSignal, networkFailure } = require_request_signal();
@@ -19761,8 +19962,15 @@ var require_app_source = __commonJS({
     var playbackQueue = Promise.resolve();
     var playbackReadyAt = 0;
     var playbackRejection = null;
+    var playbackEmptyRounds = 0;
+    var playbackIdentityResetAt = 0;
     var VIDEO_API = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/";
+    var VIDEO_TAB_API = "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/";
     var PLAYER_API = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/player/v1";
+    var MODEL_APIS = [
+      "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/video_model/v1/",
+      "https://api5-normal-sinfonlinec.fqnovel.com/novel/player/video_model/v1/"
+    ];
     var SEARCH_API = "https://api5-normal-sinfonlinea.fqnovel.com/reading/bookapi/search/tab/v";
     var VIDEO_UA = "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)";
     var SEARCH_UA = "com.phoenix.read/72232 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
@@ -20352,6 +20560,87 @@ var require_app_source = __commonJS({
       });
       return { url, body, headers, method: "POST" };
     }
+    function playbackModelRequest(identity, videoId, base) {
+      const payload = JSON.stringify({
+        biz_param: {
+          detail_page_version: 0,
+          device_level: 3,
+          disable_digg_stat: false,
+          from_video_id: "",
+          need_all_video_definition: true,
+          need_mp4_align: false,
+          source: 9,
+          use_os_player: false,
+          use_server_dns: false,
+          video_platform: 3
+        },
+        content_type: 1004,
+        video_id: String(videoId)
+      });
+      const body = gzipSync(Buffer.from(payload));
+      const signed = signPlaybackV5({
+        base,
+        values: {
+          aid: "8662",
+          app_name: "novelread",
+          version_code: "74332",
+          version_name: "7.4.3.32",
+          channel: "vivo_8662_64",
+          device_platform: "android",
+          device_type: "PGT-AN10",
+          os_version: "12",
+          update_version_code: "74332",
+          iid: identity.iid,
+          cdid: identity.cdid,
+          device_id: identity.device_id
+        },
+        body,
+        now: Date.now()
+      });
+      return { ...signed, body, method: "POST", headers: {
+        ...signed.headers,
+        "User-Agent": "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)",
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Encoding": "gzip"
+      } };
+    }
+    function videoTabRequest(identity, videoId) {
+      const signed = signPlaybackV5({
+        base: VIDEO_TAB_API,
+        values: {
+          aid: "8662",
+          app_name: "novelread",
+          version_code: "74332",
+          version_name: "7.4.3.32",
+          channel: "vivo_8662_64",
+          device_platform: "android",
+          device_type: "PGT-AN10",
+          os_version: "12",
+          update_version_code: "74332",
+          iid: identity.iid,
+          cdid: identity.cdid,
+          device_id: identity.device_id,
+          video_id: String(videoId),
+          video_id_type: "0",
+          device_level: "1",
+          need_all_video_definition: "1",
+          need_mp4_align: "0",
+          use_os_player: "0",
+          video_platform: "1024",
+          source: "0",
+          from_video_id: ""
+        },
+        body: null,
+        now: Date.now()
+      });
+      return {
+        url: signed.url,
+        body: null,
+        method: "GET",
+        headers: { ...signed.headers, "User-Agent": VIDEO_UA.replace(DEVICE.version_code, "73932"), Accept: "application/json" }
+      };
+    }
     function parseSearchInteger(value) {
       if (typeof value !== "number" && (typeof value !== "string" || !/^\d+$/.test(value.trim()))) return null;
       const number = Number(value);
@@ -20646,9 +20935,31 @@ var require_app_source = __commonJS({
         }
         throwIfAborted2(options.signal);
         try {
-          return await fetchAppPlayUrlFresh(vid, options);
+          let identityRetried = false;
+          for (; ; ) {
+            try {
+              return await fetchAppPlayUrlFresh(vid, options);
+            } catch (error) {
+              throwIfAborted2(options.signal);
+              if (identityRetried || error.code !== "BUSINESS_REJECTED" || Number(error.businessCode) !== 110001) throw error;
+              playbackDevice.resetPlaybackDevice?.();
+              playbackIdentityResetAt = Date.now();
+              playbackEmptyRounds = 0;
+              identityRetried = true;
+            }
+          }
         } catch (error) {
-          if ([403, 429].includes(error.status) || error.code === "BUSINESS_REJECTED" || error.code === "DEVICE_REGISTRATION_FAILED" && ["BUSINESS_REJECTED", "HTTP_403", "HTTP_429"].includes(error.registrationFailure)) playbackRejection = error;
+          const retryIdentity = ["EMPTY_RESPONSE", "ETIMEDOUT", "ECONNABORTED"].includes(error.code) || error.code === "BUSINESS_REJECTED" && Number(error.businessCode) === 110001;
+          if (retryIdentity) {
+            playbackEmptyRounds++;
+            const now = Date.now();
+            if (error.code === "BUSINESS_REJECTED" && Number(error.businessCode) === 110001 || playbackEmptyRounds >= 2 && now - playbackIdentityResetAt >= 3e4) {
+              playbackDevice.resetPlaybackDevice?.();
+              playbackIdentityResetAt = now;
+              playbackEmptyRounds = 0;
+            }
+          }
+          if ([403, 429].includes(error.status) || error.code === "BUSINESS_REJECTED" && Number(error.businessCode) !== 110001 || error.code === "DEVICE_REGISTRATION_FAILED" && ["BUSINESS_REJECTED", "HTTP_403", "HTTP_429"].includes(error.registrationFailure)) playbackRejection = error;
           throw error;
         } finally {
           playbackReadyAt = Math.max(playbackReadyAt, Date.now() + 1e3);
@@ -20670,57 +20981,80 @@ var require_app_source = __commonJS({
     }
     async function fetchAppPlayUrlFresh(vid, options) {
       const payload = JSON.stringify({
-        biz_param: { detail_page_version: 0, device_level: 3, disable_digg_stat: false, disable_video_relate_book: false, need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024 },
+        biz_param: { detail_page_version: 0, device_level: 1, disable_digg_stat: false, disable_video_relate_book: false, need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024 },
         mixed_video_id_map: { "1004": [vid] },
         dr_scene: "player"
       });
-      let identity = await registerPlaybackDevice(requestJson, { signal: options.signal });
+      const getIdentity = playbackDevice.getPlaybackDevice || playbackDevice.registerPlaybackDevice;
+      const identity = await getIdentity(requestJson, { signal: options.signal });
       throwIfAborted2(options.signal);
       const deadline = Date.now() + 12e3;
       const request = boundedSignal(options.signal, 12e3);
       const { signal } = request;
       try {
-        let response;
-        for (let attempt = 0; attempt < 2; attempt++) {
+        const routes = [
+          () => playbackRequest(payload, identity, vid),
+          () => playbackRequest(payload, identity, vid, true),
+          ...MODEL_APIS.map((base) => () => playbackModelRequest(identity, vid, base)),
+          () => videoTabRequest(identity, vid),
+          () => {
+            const legacy = playbackRequest(payload, identity, "");
+            legacy.headers.Connection = "close";
+            return legacy;
+          }
+        ];
+        let response, lastError;
+        for (const createRoute of routes) {
           throwIfAborted2(signal);
-          const signed = playbackRequest(payload, identity, attempt ? "" : vid);
-          if (attempt) signed.headers.Connection = "close";
-          try {
+          const route = createRoute();
+          for (let attempt = 0; attempt < 2; attempt++) {
             try {
-              response = await requestJson(signed.url, { method: signed.method, headers: signed.headers, data: signed.body }, deadline, signal);
+              response = await requestJson(route.url, { method: route.method, headers: route.headers, data: route.body }, deadline, signal);
+              lastError = void 0;
+              break;
             } catch (error) {
               throwIfAborted2(signal);
-              if (attempt || error.code !== "EMPTY_RESPONSE" || deadline - Date.now() < 1e3) throw error;
-              const alternate = playbackRequest(payload, identity, vid, true);
-              response = await requestJson(alternate.url, { method: alternate.method, headers: alternate.headers, data: alternate.body }, deadline, signal);
-            }
-            throwIfAborted2(signal);
-            break;
-          } catch (error) {
-            throwIfAborted2(signal);
-            if (error.code === "ERR_CANCELED") throw error;
-            if (attempt || error.code !== "EMPTY_RESPONSE" || deadline - Date.now() < 1e3) throw error;
-            if (deadline - Date.now() >= 8e3) {
+              lastError = error;
+              if (error.code !== "EMPTY_RESPONSE") throw error;
+              if (attempt || deadline - Date.now() < 1e3) break;
               try {
-                identity = await registerPlaybackDevice(requestJson, { signal });
-              } catch (registrationError) {
+                await delay(250, void 0, { signal });
+              } catch (waitError) {
                 throwIfAborted2(signal);
-                if (registrationError.code === "ERR_CANCELED") throw registrationError;
-                if (registrationError.code === "DEVICE_REGISTRATION_FAILED" && ["BUSINESS_REJECTED", "HTTP_403", "HTTP_429"].includes(registrationError.registrationFailure)) throw registrationError;
+                throw waitError;
               }
             }
-            throwIfAborted2(signal);
-            if (deadline - Date.now() < 1500) throw error;
-            try {
-              await delay(1e3, void 0, { signal });
-            } catch (waitError) {
-              throwIfAborted2(signal);
-              throw waitError;
-            }
-            throwIfAborted2(signal);
           }
+          if (!response) continue;
+          const businessCode2 = Number(response.Code || response.code || 0);
+          if (businessCode2 !== 0) {
+            lastError = Object.assign(new Error("App \u63A5\u53E3\u6682\u672A\u63D0\u4F9B\u672C\u96C6\u64AD\u653E\u4FE1\u606F"), {
+              code: "BUSINESS_REJECTED",
+              businessCode: businessCode2
+            });
+            throw lastError;
+          }
+          const entries2 = response.data?.["1004"] ?? response.data?.video_model_data ?? response.data;
+          const entry2 = entries2?.[vid];
+          const candidate = typeof entry2?.video_model === "string" ? jsonBody(entry2.video_model) : entry2?.video_model;
+          if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+            throw Object.assign(new Error("App \u63A5\u53E3\u672A\u8FD4\u56DE\u6240\u9009\u5206\u96C6\uFF0C\u5DF2\u505C\u6B62\u53D6\u5740"), {
+              code: entry2?.video_model ? "INVALID_RESPONSE" : "MISSING_MODEL"
+            });
+          }
+          break;
         }
-        if (Number(response.Code || response.code || 0) !== 0) throw Object.assign(new Error("App \u63A5\u53E3\u6682\u672A\u63D0\u4F9B\u672C\u96C6\u64AD\u653E\u4FE1\u606F"), { code: "BUSINESS_REJECTED" });
+        if (!response) throw lastError || Object.assign(new Error("App \u63A5\u53E3\u8FD4\u56DE\u7A7A\u54CD\u5E94\uFF08HTTP 200\uFF09\uFF0C\u539F\u56E0\u5C1A\u672A\u786E\u8BA4"), {
+          code: "EMPTY_RESPONSE",
+          status: 200,
+          emptyResponse: true
+        });
+        playbackEmptyRounds = 0;
+        const businessCode = Number(response.Code || response.code || 0);
+        if (businessCode !== 0) throw Object.assign(new Error("App \u63A5\u53E3\u6682\u672A\u63D0\u4F9B\u672C\u96C6\u64AD\u653E\u4FE1\u606F"), {
+          code: "BUSINESS_REJECTED",
+          businessCode
+        });
         const entries = response.data?.["1004"] ?? response.data?.video_model_data ?? response.data;
         const entry = entries?.[vid];
         const model = typeof entry?.video_model === "string" ? jsonBody(entry.video_model) : entry?.video_model;
@@ -20861,6 +21195,7 @@ var VIDEO_REFERER = "https://novelquickapp.com/";
 var SITE_ORIGIN = "https://hongguoduanju.com";
 var WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 var WEB_REFERER = SITE_ORIGIN + "/";
+var PUBLIC_FALLBACK_PLAY_URL = SITE_ORIGIN + "/api/video/protected/fallback-play-info";
 var COMMON_QUERY = {
   ...Object.fromEntries([
     ["klink_egdi", process.env.HONGGUO_KLINK_EGDI],
@@ -21074,6 +21409,56 @@ async function fetchSiteHtml(url, timeout = 3e4, signal, { trustedOfficialDns = 
   throwIfAborted(signal);
   return typeof res.data === "string" ? res.data : JSON.stringify(res.data);
 }
+async function fetchPublicFallbackPlayUrl(vid, signal) {
+  throwIfAborted(signal);
+  if (!/^\d{1,30}$/.test(String(vid))) return null;
+  const guarded = webMediaRequestOptions(PUBLIC_FALLBACK_PLAY_URL, { trustedOfficialDns: true });
+  const response = await axios({
+    ...guarded,
+    url: PUBLIC_FALLBACK_PLAY_URL,
+    method: "POST",
+    headers: {
+      "User-Agent": WEB_UA,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Referer: WEB_REFERER
+    },
+    data: { item_id: String(vid) },
+    timeout: 6e3,
+    maxRedirects: 0,
+    responseType: "json",
+    maxContentLength: 64 * 1024,
+    validateStatus: () => true,
+    signal
+  });
+  throwIfAborted(signal);
+  const payload = response?.data;
+  if (response?.status !== 200 || !payload || typeof payload !== "object" || Number(payload.base_resp?.StatusCode ?? payload.code ?? 0) !== 0) {
+    const error = new Error("\u5B98\u7F51\u516C\u5F00\u515C\u5E95\u63A5\u53E3\u672A\u8FD4\u56DE\u6709\u6548\u7247\u6E90");
+    error.code = response?.status >= 400 ? `HTTP_${response.status}` : "NO_PLAYABLE_SOURCE";
+    throw error;
+  }
+  let media;
+  try {
+    media = new URL2(normalizeVideoUrl(payload.main_url));
+  } catch (_) {
+    return null;
+  }
+  if (media.protocol !== "https:" || media.username || media.password || !isPublicMediaUrl(media.href) || !/(^|\.)(?:qznovelvod|fqnovelvod|douyinvod)\.com$/i.test(media.hostname)) return null;
+  const expires = Number(payload.url_expire);
+  if (Number.isFinite(expires) && expires > 0 && expires * 1e3 <= Date.now() + 5e3) return null;
+  return {
+    url: media.href,
+    spadeA: null,
+    contentKey: null,
+    codec: "h264",
+    source: "web",
+    vid: String(vid),
+    quality: "360p",
+    userAgent: WEB_UA,
+    referer: WEB_REFERER
+  };
+}
 function parseEpisodeListHtml(html, seriesId) {
   const router = require_catalog().readRouterData(html);
   const data = router.loaderData?.["player_(series_id)/page"] ?? router.loaderData?.["player_(series_id)/(vid)/page"] ?? router.loaderData?.detail_page;
@@ -21116,6 +21501,13 @@ async function fetchPlayUrlFromWeb(vid, sid, onFailure, signal) {
   if (sid) candidates.push(`${SITE_ORIGIN}/player/${encodeURIComponent(sid)}/${encodeURIComponent(vid)}`);
   candidates.push(`${SITE_ORIGIN}/player/_/${encodeURIComponent(vid)}`);
   let lastErr = null;
+  try {
+    const publicFallback = await fetchPublicFallbackPlayUrl(vid, signal);
+    if (publicFallback) return publicFallback;
+  } catch (error) {
+    throwIfAborted(signal);
+    lastErr = error;
+  }
   for (const url of candidates) {
     throwIfAborted(signal);
     try {
@@ -21462,10 +21854,20 @@ async function fetchPlayUrlSingle(vid, sid, options = {}) {
     const skipWeb = (failedWebMedia.get(String(vid)) || 0) > Date.now();
     const allowLowerQuality = options.allowLowerQuality === true && quality !== "auto";
     const cacheKey = `play:${sid || ""}:${vid}${quality === "auto" ? "" : `:${quality}`}${skipWeb ? ":fallback" : ""}${allowLowerQuality ? ":lower-quality" : ""}`;
-    const result = await cachedRequest(cacheKey, 3e4, (signal) => quality === "auto" ? fetchPlayUrlFresh(vid, sid, skipWeb, signal) : require_app_source().fetchAppPlayUrl(String(vid), { quality, allowLowerQuality, signal }).catch((error) => {
+    const result = await cachedRequest(cacheKey, 3e4, (signal) => quality === "auto" ? fetchPlayUrlFresh(vid, sid, skipWeb, signal) : require_app_source().fetchAppPlayUrl(String(vid), { quality, allowLowerQuality, signal }).catch(async (error) => {
       throwIfAborted(signal);
       if (error.code === "ERR_CANCELED") throw error;
-      throw unavailableSources([sourceFailure("app", error)], allowLowerQuality ? "auto" : quality);
+      const sources = [sourceFailure("app", error)];
+      if (allowLowerQuality && !skipWeb) {
+        let webError;
+        const web = await fetchPlayUrlFromWeb(vid, sid, (failure) => {
+          webError = failure;
+        }, signal);
+        throwIfAborted(signal);
+        if (web?.url) return web;
+        if (webError) sources.push(sourceFailure("web", webError));
+      }
+      throw unavailableSources(sources, allowLowerQuality ? "auto" : quality);
     }), options);
     throwIfAborted(options.signal);
     if (skipWeb && result.source === "web" && responseCache.get(cacheKey)?.value === result) responseCache.delete(cacheKey);
@@ -21935,6 +22337,7 @@ module.exports = {
   resolveSeriesId,
   fetchEpisodeList,
   fetchEpisodeListFromWeb,
+  fetchPublicFallbackPlayUrl,
   fetchPlayUrlSingle,
   fetchPlayUrlFromWeb,
   deriveKey,
