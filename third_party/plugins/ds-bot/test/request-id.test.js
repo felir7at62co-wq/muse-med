@@ -166,6 +166,8 @@ test('Main Bot selects Flash for routine work and Pro for difficult work while p
   const cards = await tool('list_bot_model_cards', {}, 'a')
   assert.match(cards, /routine: test-flash\/deepseek-v4\.1-flash.*Advertised input: text.*Context: 64000 tokens/)
   assert.match(cards, /advanced: test-pro\/deepseek-v4-pro.*Context: 128000 tokens/)
+  assert.match(cards, /No benchmark data for this exact route/)
+  assert.doesNotMatch(cards, /Bailian|Listed CNY|First text p50/)
   assert.match(ctx.sections.get('bot-identity').text({ agent: { id: 'a' } }), /Before assigning a new independent task.*list_bot_model_cards/)
   assert.doesNotMatch(ctx.sections.get('bot-identity').text({ agent: { id: 'b' } }), /list_bot_model_cards/)
 
@@ -197,6 +199,34 @@ test('Main Bot selects Flash for routine work and Pro for difficult work while p
   await tool('message_bot', { to: 'Writer', message: 'A separate message' }, 'a')
   assert.equal(worker.calls.length, 1)
   assert.equal(agentOf('s2').calls.length, 1)
+})
+
+test('Main Bot sees dated route-specific prices, latency, success counts and advertised thinking before dispatch', async (t) => {
+  const home = tempHome()
+  const { tool, stop } = await boot(home, team(), {
+    taskRouting: { enabled: true },
+    modelCatalog: {
+      'muse-cloud-deepseek-flash-auto': [{
+        id: 'deepseek-v4.1-flash', inputModalities: ['text'], context: { contextWindow: 128000 }, defaultMaxTokens: 8192,
+        reasoning: { efforts: [{ id: 'off' }, { id: 'high' }], defaultEffort: 'high' },
+      }],
+      'muse-cloud-jubian-pro': [{ id: 'deepseek-v4-pro', inputModalities: ['text'] }],
+    },
+  })
+  t.after(async () => { await stop(); cleanup(home) })
+  const cards = await tool('list_bot_model_cards', {}, 'a')
+  assert.match(cards, /routine: muse-cloud-deepseek-flash-auto\/deepseek-v4\.1-flash.*Context: 128000 tokens\. Default output budget: 8192 tokens\. Advertised thinking: off, high \(default high\)/)
+  assert.match(cards, /Jubian \(deepseek-v4\.1-flash\).*peak 1\.2\/0\.024\/4\.8.*Peak rate matched 16 account debits/)
+  assert.match(cards, /Streaming 16\/16 successful\. First text p50\/p95 533\/1354 ms, completion 581\/1440 ms\. Response reported deepseek-v4\.1-flash-1017 in 16\/16 requests/)
+  assert.match(cards, /Bailian Beijing \(deepseek-v4\.1-flash-1017\).*peak 2\/0\.04\/8/)
+  assert.match(cards, /Jubian \(deepseek-v4-pro\).*peak 9\/0\.3\/27/)
+  assert.match(cards, /Rates checked 2026-11-22 PT/)
+  assert.match(cards, /short text, thinking off, 64 output tokens maximum and no retries/)
+  assert.match(cards, /The gateway selects Flash suppliers/)
+  assert.equal([...cards.matchAll(/Screenplay quality \d+\/100 across 5\/5 scored tasks/g)].length, 3)
+  assert.match(cards, /Screenplay quality 78\/100.*continuation between locked episodes 95/)
+  assert.match(cards, /five paired synthetic Chinese Muse tasks with thinking off/)
+  assert.match(cards, /0\/3 produced an answer at 1536 output tokens/)
 })
 
 test('a requested exact model takes priority and unavailable routes have explicit outcomes', async (t) => {

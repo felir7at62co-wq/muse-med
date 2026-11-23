@@ -271,7 +271,7 @@ export function install(rt) {
         description: `Your own name for this request, up to ${NAME_MAX} characters, so that a repeat of it is not sent twice. Send the same request_id with the same message when you repeat a call: the receipt of the first call comes back and nothing is sent again. A request_id names one request: with other content it is refused.`,
       },
       ...(rt.taskRouting === undefined ? {} : {
-        task_difficulty: { type: 'string', enum: ['routine', 'advanced'], description: 'Main Bot only. Use list_bot_model_cards to classify a new independent task. Requires when "queue", request_id and routing_reason. Leave out for ongoing work and group messages.' },
+        task_difficulty: { type: 'string', enum: ['routine', 'advanced'], description: 'Main Bot only. Tier of the card that best fits the new task, chosen using list_bot_model_cards. Requires when "queue", request_id and routing_reason. Leave out for ongoing work and group messages.' },
         task_model: { type: 'string', description: 'Main Bot only. Exact provider/model ref the user requests for this task. Overrides task_difficulty. Requires when "queue", request_id and routing_reason.' },
         routing_reason: { type: 'string', description: 'One short sentence about why this task needs its assigned model, at most 180 characters. Do not copy task content or private data.' },
       }),
@@ -436,15 +436,14 @@ export function install(rt) {
 
   if (rt.taskRouting !== undefined) rt.teamTools.push(defineTool({
     name: 'list_bot_model_cards',
-    description: 'Main Bot only. Compare currently available models before assigning a new independent task with message_bot. Shows when to use each model and the limits of the comparison.',
+    description: 'Main Bot only. Compare currently available models before assigning a new independent task with message_bot. Shows task fit, catalog capabilities, listed prices and dated test results where available.',
     parameters: {},
     output,
     async execute(_args, exec) {
       await rt.load()
       if (!rt.isMain(rt.selfOf(exec.agent?.id)) || rt.groupOwners.has(exec.agent?.id)) return 'Only Main Bots can look up task routing model cards from their own chats.'
-      const cards = await rt.taskRouting.modelCards()
-      if (cards.length === 0) return 'No task routing model cards are available. Use the Worker’s existing model, or check the exact model the user requested with list_bot_models.'
-      return [...cards.map(card => `- ${card.difficulty}: ${card.ref}. ${card.guidance} Advertised input: ${card.input?.join(', ') || 'unspecified'}. Context: ${card.context === undefined ? 'unspecified' : `${card.context} tokens`}.`), 'Use these text-task guidelines and relative cost tiers to estimate suitability. Actual performance, availability and account charges may vary. Check the task’s input requirements and honor a model the user requested.'].join('\n')
+      return await rt.taskRouting.modelCards()
+        ?? 'No task routing model cards are available. Use the Worker’s existing model, or check the exact model the user requested with list_bot_models.'
     },
   }))
 
