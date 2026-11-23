@@ -1,6 +1,6 @@
 /** Existing Muse transcript receipts follow the exact reviewed video and interval. */
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir, mkdtemp, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rename, rm, rmdir, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -39,9 +39,10 @@ async function fixture(fileName = 'episode.mp4', stem = 'episode') {
     maxReadBytes?: number
     signal?: AbortSignal
     workspace?: boolean
+    workspaceRoot?: string
   }) => reviewDialogue(
     ctx, target,
-    initial.version, 1000, options?.byteLimit ?? 10000, options?.workspace === false ? undefined : root,
+    initial.version, 1000, options?.byteLimit ?? 10000, options?.workspace === false ? undefined : options?.workspaceRoot ?? root,
     4, 8, options?.signal ?? new AbortController().signal,
     receipt, options?.maxReadBytes)
   return { root, ctx, file, media, jobs, raw, seal, read }
@@ -72,15 +73,47 @@ it('uses the newest matching saved receipt and includes only speech wholly insid
     segments: [{ text: 'Older transcript.' }] })
 })
 
-it('refuses a receipt outside the project, stale source digests, and media changed after review began', async () => {
+it('reads dialogue when the receipt uses the workspace directory alias', async () => {
+  const f = await fixture()
+  const aliasRoot = await mkdtemp(join(tmpdir(), 'muse-dialogue-alias-'))
+  onTestFinished(() => rmdir(aliasRoot))
+  const alias = join(aliasRoot, 'workspace')
+  await symlink(f.root, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    await f.seal(1, undefined, { source: join(alias, 'episode.mp4') })
+    const options = { workspaceRoot: alias }
+    const explicit = join(alias, 'transcript', 'jobs', 'episode-v1.json')
+    for (const receipt of [undefined, explicit, 'transcript/jobs/episode-v1.json']) {
+      expect(await f.read(receipt, options)).toMatchObject({ status: 'available', segments: [{ text: '你好。' }] })
+    }
+  } finally { await unlink(alias) }
+})
+
+it('reads workspace evidence for a selected video stored outside the workspace', async () => {
+  const f = await fixture()
+  await f.seal(1)
+  const workspace = join(f.root, 'workspace')
+  await mkdir(workspace)
+  await rename(join(f.root, 'transcript'), join(workspace, 'transcript'))
+  expect(await f.read(undefined, { workspaceRoot: workspace })).toMatchObject({
+    status: 'available',
+    segments: [{ text: '你好。' }],
+  })
+})
+
+it('refuses a receipt outside the project, another source with the same bytes, and changed evidence', async () => {
   const f = await fixture()
   const { receiptPath } = await f.seal(1)
   const unscoped = join(f.root, 'episode-v1.json')
   await writeFile(unscoped, await readFile(receiptPath))
   expect(await f.read(unscoped)).toEqual({ status: 'unavailable', reason: 'receipt_invalid' })
-  await f.seal(2, undefined, { source: join(f.root, 'other.mp4') })
+  const unrelated = join(f.root, 'other.mp4')
+  await writeFile(unrelated, f.media)
+  await f.seal(2, undefined, { source: unrelated })
   expect(await f.read()).toEqual({ status: 'unavailable', reason: 'source_mismatch' })
   await f.seal(3, undefined, { sourceSha256: '0'.repeat(64) })
+  expect(await f.read()).toEqual({ status: 'unavailable', reason: 'source_mismatch' })
+  await f.seal(4, undefined, { source: 'episode.mp4' })
   expect(await f.read()).toEqual({ status: 'unavailable', reason: 'source_mismatch' })
   await writeFile(f.file, 'changed video')
   expect(await f.read(receiptPath)).toEqual({ status: 'unavailable', reason: 'evidence_changed' })
@@ -189,10 +222,11 @@ it.each([
   const f = await fixture()
   const { receiptPath, transcriptPath } = await f.seal(1)
   const paths = { video: f.file, receipt: receiptPath, transcript: transcriptPath }
+  const observedTarget = await f.ctx.fs.resolve(paths[observed])
   const read = f.ctx.fs.readBytes.bind(f.ctx.fs)
   const spy = vi.spyOn(f.ctx.fs, 'readBytes').mockImplementation(async (...args) => {
     const bytes = await read(...args)
-    if (args[0].displayPath === paths[observed]) await appendFile(paths[changed], ' ')
+    if (args[0].targetKey === observedTarget.targetKey) await appendFile(paths[changed], ' ')
     return bytes
   })
   try { expect(await f.read(receiptPath)).toEqual({ status: 'unavailable', reason: 'evidence_changed' }) }

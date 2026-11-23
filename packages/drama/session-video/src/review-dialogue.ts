@@ -1,6 +1,6 @@
 /** Source- and interval-checked dialogue from completed local Muse transcription receipts. */
 import { createHash } from 'node:crypto'
-import { basename, relative, resolve } from 'node:path'
+import { basename, dirname, relative, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { FsError, type FileSystem, type FsTarget, type FsVersion } from '@deepseek-ai/dsh-fs'
 import { z } from 'zod'
@@ -85,7 +85,8 @@ async function readJson(fs: FileSystem, target: FsTarget, limit: number, signal:
  * @param startSeconds - Inclusive source interval start.
  * @param endSeconds - Exclusive source interval end.
  * @param signal - Review cancellation and Host lifetime.
- * @param receiptPath - Explicit project receipt path; omitted selects the newest receipt matching the source's standard filename stem.
+ * @param receiptPath - Explicit receipt in the workspace's jobs directory, which may use the workspace's original path spelling.
+ * Omission selects the newest receipt with the selected source's standard filename stem.
  * @param maxReadBytes - Inclusive cap for each complete evidence file; defaults to the result cap.
  * @returns Complete segments within the interval, an omitted crossing-segment count, and anonymous speaker groups.
  */
@@ -107,18 +108,26 @@ export async function reviewDialogue(ctx: Context, target: FsTarget, fileVersion
     const name = receiptPath === undefined ? await latestReceiptName(fs, jobs.target, target, signal) : basename(receiptPath)
     if (name === undefined) return unavailable('receipt_unavailable')
     if (!receiptName.test(name)) return unavailable('receipt_invalid')
-    if (receiptPath !== undefined
-      && relative(fs.processPath(jobs.target), resolve(fs.processPath(workspace), receiptPath)) !== name) {
-      return unavailable('receipt_invalid')
+    const workspacePath = fs.processPath(workspace)
+    if (receiptPath !== undefined) {
+      const requestedParent = resolve(workspacePath, dirname(receiptPath))
+      const receiptDirectories = [fs.processPath(jobs.target), resolve(workspace.displayPath, 'transcript', 'jobs')]
+      if (receiptDirectories.every(path => relative(path, requestedParent) !== '')
+        || (await fs.resolve(requestedParent, { signal })).targetKey !== jobs.target.targetKey) return unavailable('receipt_invalid')
     }
     const receiptFile = await scopedEntry(fs, jobs.target, name, 'file', signal)
     if (receiptFile === undefined) return unavailable('receipt_unavailable')
     const receipt = receiptSchema.safeParse(await readJson(fs, receiptFile.target, maxReadBytes, signal))
     if (!receipt.success || `${receipt.data.stem}-v${receipt.data.version}.json` !== name) return unavailable('receipt_invalid')
-    const recordedPath = fs.processPathFromHostPath(receipt.data.source)
-    if (recordedPath === undefined || relative(fs.processPath(target), recordedPath) !== '') return unavailable('source_mismatch')
-    if (receipt.data.sourceSha256 === undefined) return unavailable('source_hash_unavailable')
     phase = 'source_mismatch'
+    const recordedPath = fs.processPathFromHostPath(receipt.data.source)
+    if (recordedPath === undefined) return unavailable('source_mismatch')
+    const targetPath = fs.processPath(target)
+    const sourcePaths = [target.displayPath, targetPath]
+    if (fs.contains(workspace, target)) sourcePaths.push(resolve(workspace.displayPath, relative(workspacePath, targetPath)))
+    if (sourcePaths.every(path => relative(path, recordedPath) !== '')
+      || (await fs.resolve(recordedPath, { signal })).targetKey !== target.targetKey) return unavailable('source_mismatch')
+    if (receipt.data.sourceSha256 === undefined) return unavailable('source_hash_unavailable')
     if ((await fs.stat(target, signal))?.version !== fileVersion) return unavailable('evidence_changed')
     const digest = createHash('sha256').update(await fs.readBytes(target, signal, sourceBytesLimit)).digest('hex')
     if (digest !== receipt.data.sourceSha256.toLowerCase()) return unavailable('source_mismatch')
