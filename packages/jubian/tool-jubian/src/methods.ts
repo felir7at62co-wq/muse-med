@@ -30,7 +30,7 @@ import { AUTOMATIC_ERASE_MODEL, MEDIAKIT_UPSCALE_MODEL, resolvePostProcessModel,
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
-import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
+import type { SelectedVideoOption, VideoBatchItem, VideoBatchOptions } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
 import { ASSET_CATEGORY_TYPES } from './naming.ts'
@@ -312,6 +312,8 @@ export interface MethodDeps {
   promptRiskReview?: PromptRiskReviewOptions
   /** Check the current conversation choice immediately before reserving new video charges. */
   assertVideoModel?: (model: Record<string, unknown>) => void
+  /** Model chosen by the calling Session for selection readback. */
+  selectionVideoModel?: SelectedVideoOption | undefined
   /** Host watch fence before a native paid video PUT. */
   beforeVideoSend?: (key: string) => Promise<void>
   /** Current Muse account's exclusive shared voice-registration provider. */
@@ -1585,7 +1587,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     case 'select_assets': {
       requireKey(args.idempotency_key)
       return await selectAssetsMethod(client, ledger, { storyboard_id: args.storyboard_id,
-        selections: args.selections, idempotency_key: args.idempotency_key })
+        selections: args.selections, idempotency_key: args.idempotency_key }, deps.selectionVideoModel)
     }
     case 'prepare_video':
       // Free and read-only on the provider: the only write is the local preview.
