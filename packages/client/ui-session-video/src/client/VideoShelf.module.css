@@ -23,12 +23,21 @@
 .studioControls > span:last-child { display: flex; flex: none; }
 .studioControls svg { width: 17px; height: 17px; }
 .clock { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-secondary); }
-.scrubber { flex: 1; min-width: 0; height: 30px; margin: 0; cursor: ew-resize; appearance: none; background: transparent; }
+.scrubber {
+  --video-progress-fill: color-mix(in srgb, var(--dsw-alias-market-accent-fill) 65%, var(--dsw-alias-video-shelf-label));
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  margin: 0;
+  cursor: ew-resize;
+  appearance: none;
+  background: transparent;
+}
 .scrubber::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 999px;
   corner-shape: round;
-  background: linear-gradient(to right, var(--dsw-static-violet-400) var(--video-playback-progress),
+  background: linear-gradient(to right, var(--video-progress-fill) var(--video-playback-progress),
     var(--dsw-alias-video-shelf-stroke) var(--video-playback-progress));
 }
 .scrubber::-webkit-slider-thumb {
@@ -46,7 +55,7 @@
   corner-shape: round;
   background: var(--dsw-alias-video-shelf-stroke);
 }
-.scrubber::-moz-range-progress { height: 4px; background: var(--dsw-static-violet-400); }
+.scrubber::-moz-range-progress { height: 4px; background: var(--video-progress-fill); }
 .scrubber::-moz-range-thumb {
   width: 12px;
   height: 12px;
@@ -56,7 +65,7 @@
   background: var(--dsw-alias-label-primary);
 }
 .scrubber:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-static-violet-400);
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 0;
 }
 .detailedTimeline { font-size: 11px; color: var(--dsw-alias-label-secondary); }
