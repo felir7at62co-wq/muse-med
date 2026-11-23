@@ -13,7 +13,8 @@ from threading import Event
 import traceback
 from uuid import uuid4
 
-from common import WorkError, canonical_json, command, digest, freeze, read, save, series_id, sync_directory, under
+from common import (WorkError, attempts_left, canonical_json, command, digest, freeze, grant_attempts, read, save, series_id,
+                    sync_directory, under)
 from native import accepted, acquire_media, child_action, episode_workspace, sdk, scope_patch, title_key
 from station import ACTIVE, TERMINAL, Lease, Station, StationError, station_url
 from verification import DeliveryRejected
@@ -80,8 +81,17 @@ def emit(message):
     print(json.dumps(message, ensure_ascii=False), flush=True)
 
 
+def resumable(directory):
+    """A series this worker retired as failed or 待处理 keeps its evidence when the station queues it again."""
+    try:
+        outcome = read(directory / "station-outcome.json")
+    except (WorkError, OSError, ValueError):
+        return False
+    return isinstance(outcome, dict) and outcome.get("state") in ("needs-attention", "failed")
+
+
 def choose_candidate(snapshot, root, cfg):
-    """Choose the first queue entry with an unambiguous local owner."""
+    """Choose the first queue entry with an unambiguous local owner: none yet, or this worker's own retired series."""
     skipped = exclusions(cfg)
     allowed = {series_id(key) for key in cfg.get("onlySeries", [])}
     for job in snapshot["queued"]:
@@ -91,7 +101,8 @@ def choose_candidate(snapshot, root, cfg):
         if not isinstance(work_id, str) or not work_id.startswith("hongguo:"):
             continue
         key = series_id(work_id.removeprefix("hongguo:"))
-        if key not in skipped and (not allowed or key in allowed) and not (root / key).exists():
+        directory = root / key
+        if key not in skipped and (not allowed or key in allowed) and (not directory.exists() or resumable(directory)):
             return key
     return None
 
@@ -233,14 +244,15 @@ class Worker:
             if accepted(directory, row):
                 continue
             lease.update(state="transcribing", episode=n - 1, totalEpisodes=source["episodes"], message=f"正在转写第 {n} 集")
+            record = directory / "records" / f"{n:04d}.json"
+            grant_attempts(record, self.cfg["episodeAttempts"])
             for _ in range(self.cfg["episodeAttempts"]):
                 try:
                     self.start_child(directory, n, self.cfg["episodeTimeoutSeconds"], lease)
                 except WorkError as error:
-                    record = directory / "records" / f"{n:04d}.json"
-                    if (error.code in ("LEASE_UNCONFIRMED", "DISK_RESERVE", "SESSION_UNCONFIRMED",
-                                       "BINDING_CHANGED", "SOURCE_CHANGED") or not record.is_file() or
-                            read(record)["attempt"] >= self.cfg["episodeAttempts"]):
+                    if (error.code in ("LEASE_UNCONFIRMED", "DISK_RESERVE", "SESSION_UNCONFIRMED", "BINDING_CHANGED",
+                                       "SOURCE_CHANGED", "QUOTA_EXHAUSTED", "QUOTA_UNAVAILABLE") or not record.is_file() or
+                            attempts_left(read(record), self.cfg["episodeAttempts"]) == 0):
                         raise
                 else:
                     if accepted(directory, row):

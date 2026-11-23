@@ -1,6 +1,6 @@
 """Use the data station's existing claim, heartbeat and delivery API."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 from ipaddress import ip_address
 import json
@@ -17,6 +17,10 @@ from common import WorkError, digest, series_id
 
 ACTIVE = ("downloading", "transcribing", "checking")
 TERMINAL = ("published", "failed", "rejected", "needs-attention")
+# A station restart or a slow query must not end a series: unanswered heartbeats are retried while the lease still holds.
+RETRY_SECONDS = 15
+FIRST_CONFIRM_SECONDS = 300
+EXPIRY_MARGIN_SECONDS = 60
 
 
 class StationError(WorkError):
@@ -158,7 +162,7 @@ class Lease:
         with self.lock:
             if self.fault:
                 self.check()
-            row = self.station.progress(self.key, self.value, **values)
+            row = self.send(values)
             try:
                 expires = datetime.fromisoformat(row["leaseExpiresAt"])
                 valid = (row["workId"] == "hongguo:" + self.key and row["workerId"] == self.worker_id and
@@ -170,6 +174,20 @@ class Lease:
                 self.check()
             self.expires = expires
             return row
+
+    def send(self, values):
+        """Send one heartbeat, retrying unanswered requests and server errors until the lease is nearly over."""
+        now = datetime.now(timezone.utc)
+        deadline = (self.expires - timedelta(seconds=EXPIRY_MARGIN_SECONDS) if self.expires
+                    else now + timedelta(seconds=FIRST_CONFIRM_SECONDS))
+        while True:
+            try:
+                return self.station.progress(self.key, self.value, **values)
+            except StationError as error:
+                transient = error.status is None or error.status >= 500
+                retry_at = datetime.now(timezone.utc) + timedelta(seconds=RETRY_SECONDS)
+                if not transient or retry_at >= deadline or self.stop.wait(RETRY_SECONDS):
+                    raise
 
     def maintain(self):
         while True:

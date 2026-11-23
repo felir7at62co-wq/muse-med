@@ -65,6 +65,24 @@ def save(path, value):
     write(path, canonical_json(value))
 
 
+def attempts_left(record, per_round):
+    """Attempts the episode record may still use; a record without `attemptLimit` is in its first round."""
+    return max(0, record.get("attemptLimit", per_round) - record["attempt"])
+
+
+def grant_attempts(path, per_round):
+    """Start another round of episode attempts when a requeued series reaches an exhausted episode.
+
+    The station hands a needs-attention series back only after a member requeues it, so reaching an exhausted
+    `needs-inspection` record here means a person asked for another try.
+    """
+    if not path.is_file():
+        return
+    record = read(path)
+    if record["status"] == "needs-inspection" and attempts_left(record, per_round) == 0:
+        save(path, {**record, "attemptLimit": record["attempt"] + per_round})
+
+
 def freeze(path, text):
     """Keep the original contents when a worker revisits a stage."""
     if path.exists() and (path.resolve() != path or path.read_text(encoding="utf-8") != text):

@@ -112,6 +112,8 @@ def verify_delivery(workspace: Path, episode: int, expected_run: dict, run: dict
             for item in result["files"]:
                 path = PurePosixPath(item["path"])
                 if path.parent == remote / "final" and path.suffix == ".docx":
+                    # Re-registration moves a Word to the end, so the last entry is the latest delivery.
+                    deliveries.pop(path.relative_to(remote), None)
                     deliveries[path.relative_to(remote)] = item
     if comparison is None or comparison["draft"]["file_sha256"] != draft_sha:
         raise DeliveryRejected("the latest dialogue comparison does not match the current Markdown")
@@ -134,8 +136,13 @@ def verify_delivery(workspace: Path, episode: int, expected_run: dict, run: dict
         complete = (len(rows) == 1 and rows[0].get("episode") == episode
                     and rows[0].get("frames") == "complete" and rows[0].get("frame_count", 0) > 0
                     and rows[0].get("recorded") == rows[0]["frame_count"])
-        if not complete or check.get("format_error_count") != 0 or rows[0].get("format_errors") != 0:
-            rejected.append({"path": str(path), "reason": "native frame or format check did not pass"})
+        if not complete:
+            row = rows[0] if len(rows) == 1 else {}
+            rejected.append({"path": str(path), "reason": f"frame review {row.get('frames', 'missing')} "
+                             f"({row.get('recorded', 0)}/{row.get('frame_count', 0)} recorded)"})
+            continue
+        if check.get("format_error_count") != 0 or rows[0].get("format_errors") != 0:
+            rejected.append({"path": str(path), "reason": "format errors in the native check"})
             continue
         try:
             paragraphs = _paragraphs(word)
@@ -146,10 +153,16 @@ def verify_delivery(workspace: Path, episode: int, expected_run: dict, run: dict
             continue
         current.append({"path": str(path), "sha256": word_sha, "paragraphs": len(paragraphs),
                         "recordedFrames": rows[0]["recorded"], "warnings": check.get("warnings", [])})
-    if len(current) != 1:
-        raise DeliveryRejected(f"expected one current Word meeting all checks; found {len(current)}")
+    if not current:
+        reasons = "; ".join(dict.fromkeys(item["reason"] for item in rejected))
+        raise DeliveryRejected("expected one current Word meeting all checks; found 0"
+                               + (f": {reasons}" if reasons else ""))
+    # Every Word left in `current` passed the frame and format checks and has the current Markdown body, so a
+    # resumed Session that saved another copy delivers its latest registration instead of failing.
+    superseded = [{"path": item["path"], "reason": "superseded by a later delivery of the same body"}
+                  for item in current[:-1]]
     return {"episode": episode, "sessionId": run["sessionId"], "markdownSHA256": draft_sha,
-            "word": current[0], "rejected": rejected, "asrSHA256": asr["sha256"],
+            "word": current[-1], "rejected": rejected + superseded, "asrSHA256": asr["sha256"],
             "stage": "candidate-ready", "semanticAccepted": False, "published": False}
 
 
@@ -214,6 +227,21 @@ def recognition_covers_source(job, duration):
     return abs(end - duration) <= 0.1
 
 
+def ocr_coverage(ranges):
+    """Chain OCR intervals from zero; return their end and the time they cover, or None for a gap.
+
+    Each range is ``(start, stop, next_sample)``, where ``next_sample`` is the first planned sample after the
+    interval. No source frame lies between ``stop`` and ``next_sample``, so coverage reaches the later of the two.
+    """
+    end = reach = 0
+    for start, stop, next_sample in sorted(ranges):
+        if not 0 <= start <= end + 0.001 or stop <= start:
+            return None
+        end = max(end, stop)
+        reach = max(reach, stop, next_sample)
+    return end, reach
+
+
 def validate_sources(workspace, video, row, native, verification):
     """Bind complete speech, image and subtitle evidence to the current video and draft."""
     starts, results = native
@@ -245,13 +273,15 @@ def validate_sources(workspace, video, row, native, verification):
         if digest(path) != result['raw_json_sha256']:
             raise check('native OCR evidence bytes changed')
         ocr_paths[str(path.relative_to(workspace))] = result['raw_json_sha256']
-        ranges.append((result['interval']['start_seconds'], result['interval']['end_seconds']))
-    end = 0
-    for start, stop in sorted(ranges):
-        if not 0 <= start <= end + 0.001 or stop <= start:
-            raise check('the source has a gap in native OCR')
-        end = max(end, stop)
-    if end < row['durationSeconds'] - 0.051:
+        start, stop = result['interval']['start_seconds'], result['interval']['end_seconds']
+        step = coverage.get('frame_interval_seconds')
+        sampled = type(step) in (int, float) and math.isfinite(step) and step > 0
+        ranges.append((start, stop, start + coverage['planned_frame_count'] * step if sampled else stop))
+    covered = ocr_coverage(ranges)
+    if covered is None:
+        raise check('the source has a gap in native OCR')
+    end, reach = covered
+    if reach < row['durationSeconds'] - 0.051:
         raise check('native OCR does not reach the original ending')
     marker = workspace / '.recognition-admitted.json'
     jobs = list((workspace / 'transcript/jobs').glob('*.json'))

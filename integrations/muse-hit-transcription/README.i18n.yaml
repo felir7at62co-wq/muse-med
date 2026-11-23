@@ -12,8 +12,14 @@
   en: 8c6361dd4d4c1266
   zh: 2e7dac82d77e3906
 /cloud-hit-transcription/recovery:
-  en: 70ee78f74abd0dad
-  zh: c702ca843ef28568
+  en: 55e869368a49c435
+  zh: 87530515e27a35e3
+/cloud-hit-transcription/agent-production:
+  en: 80ebcde286866e50
+  zh: 5b2c3a0a908bf284
+/cloud-hit-transcription/transcription-desk-for-bots:
+  en: b5801a8bc1d57c34
+  zh: 2446b8a25ee7df18
 /cloud-hit-transcription/local-verification:
   en: 40952c6c3927a296
   zh: a01d9dd325d42ed0

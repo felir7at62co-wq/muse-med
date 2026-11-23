@@ -9,13 +9,76 @@ from time import monotonic, sleep, time
 import unicodedata
 from uuid import uuid4
 
-from common import WorkError, canonical_json, command, digest, freeze, read, save, under
+from common import WorkError, attempts_left, canonical_json, command, digest, freeze, read, save, under
 from verification import checked_file, native_manuscript_results, native_source_results, validate_sources, verify_delivery
 
 CODE = Path(__file__).resolve().parent
 SCOPE = CODE / "episode-scope.mjs"
 PROMPT = CODE / "episode-prompt.txt"
 RECOVERY = """继续原会话完成本集校验。沿用原片与已完成的语音；语音未完成用 inspect 查原收据，状态不明则保留并报告。查看原 review_id 的当前 pending，用 next 和 observe 核完全部补帧，再核对正文。仍有看帧不能解决的疑点留 QA。基于当前稿重新做对白核对和交付登记；正文有改动则先另存 Word 新版。沿用首条任务的来源和交付约束。"""
+# What to repair for each delivery check, so a resumed Session fixes the failed step instead of repeating its work.
+REPAIRS = (
+    ("does not reach the original ending", "字幕识别没有覆盖到片尾：用 video_inspect metadata 的精确时长作为最后一段 video_ocr 的终点，补跑到片尾。"),
+    ("gap in native OCR", "字幕识别分段之间有空档：补跑缺失的时间段，相邻分段首尾相接。"),
+    ("OCR evidence is incomplete", "有字幕识别分段未扫完或有失败帧：重跑这些分段直到 scan_status 为 complete。"),
+    ("latest dialogue comparison does not match", "对白核对用的不是当前正文：对最新 scripts 正文重新跑 manuscript_revision transcript_coverage；此后改了正文就再跑一次，最后另存 Word 并重新登记交付。"),
+    ("comparison has no workspace audio evidence", "对白核对没有带本集语音识别结果：transcript_coverage 传入本集实际 ASR JSON 重新核对。"),
+    ("did not use this episode recognition result", "对白核对没有使用本集语音识别结果：传入本集实际 ASR JSON 重新核对。"),
+    ("disagree on completed frames", "看帧记录与 Word 不一致：用 next 和 observe 核完全部 pending 帧，再导出新版 Word 并登记交付。"),
+    ("no native video review", "本集还没有看帧记录：用 video_inspect scan 和 observe/next 完成看帧。"),
+    ("no successful native Word export", "本集没有成功导出 Word：用 screenplay_export_docx 导出后登记交付。"),
+    ("frame review", "看帧没有做完，程序只收 frames=complete 的稿件；帧数再多也要全部记录，不能跳过、close 或以草稿交付。"
+                "reopen 原 review_id，反复 next 和 observe，直到 pending=0、next=complete；做完之前不要导出、登记或 present。"
+                "然后按画面补正正文，对最新正文重跑对白核对，另存 Word 新版，只登记这一份，确认 video_check 为 frames=complete。"),
+    ("Word body differs", "Word 与当前正文不一致：正文定稿后不要再改，另存 Word 新版并只登记这一份。"),
+    ("format errors", "格式检查有错误：按 delivery 返回的 format_errors 修正正文，再另存 Word 并登记。"),
+    ("expected one current Word", "交付登记里没有通过检查的 Word：对当前正文另存 Word 新版并登记交付。"),
+    ("did not complete", "上一轮没有正常结束：从中断处继续，完成剩余步骤。"),
+    ("额度已用完", "上一轮因镜流积分用完停在中途，现已划拨：沿用已完成的结果，从中断处继续完成本集。"),
+    ("镜流积分暂时查不到", "上一轮因额度服务暂时不可用停在中途：沿用已完成的结果，从中断处继续完成本集。"),
+    ("episode record qa/", "本集 QA 记录缺失或格式不对：把来源、秒位和待核点存成 JSON 对象 qa/<四位集号>.json，再登记交付。"),
+    ("episode record characters.json", '本集人物表缺失或格式不对：存成 characters.json，内容为 {"characters": [{"name": ...}]} 或这些条目的数组；'
+                                       "transcript_coverage 的 characters_path 指向它重跑，再登记交付。"),
+)
+
+
+QUOTA_FAILURES = {"exhausted": ("QUOTA_EXHAUSTED", "额度已用完，请找组长划拨后再继续"),
+                  "unavailable": ("QUOTA_UNAVAILABLE", "镜流积分暂时查不到，稍后再续跑")}
+#: How often and how far apart a round retries when the gateway could not read Jingliu's balance (it asks for 30 s).
+QUOTA_RETRIES, QUOTA_RETRY_SECONDS = 10, 30
+QUOTA_RESUME = "上一步的模型调用被额度服务暂时拒绝，现在重试。沿用已完成的结果，从中断处继续完成本集。"
+
+
+def quota_refusal(payloads):
+    """`exhausted` or `unavailable` when the Muse account gateway refused a call over Jingliu credits, else None.
+
+    The gateway marks its own refusals with the codes `quota_exhausted` / `quota_unavailable` in the response body,
+    which the SDK keeps in the error that ends the turn (model calls) or in a failed tool result (speech jobs). A
+    provider's own 402 (`insufficient_quota`) is neither. Only a turn that ended on `quota_unavailable` counts as
+    unavailable: a failed speech submission the agent retried successfully does not.
+    """
+    exhausted = unavailable = False
+    for payload in payloads:
+        event = payload.get("event") if isinstance(payload, dict) else None
+        if not isinstance(event, dict):
+            continue
+        data = event.get("data") or {}
+        if event.get("type") == "turn/end" and (data.get("reason") or {}).get("kind") == "error":
+            text = str(((data["reason"].get("error") or {}).get("message")) or "")
+            exhausted = exhausted or "quota_exhausted" in text
+            unavailable = unavailable or "quota_unavailable" in text
+        elif event.get("type") == "tool/result" and isinstance(data.get("message"), dict) and data["message"].get("isError"):
+            texts = [str(c.get("text", "")) for c in data["message"].get("content") or [] if isinstance(c, dict)]
+            exhausted = exhausted or any("quota_exhausted" in text for text in texts)
+    return "exhausted" if exhausted else "unavailable" if unavailable else None
+
+
+def recovery_prompt(failure):
+    """The resume instruction, naming the program check the previous attempt failed and how to repair it."""
+    if not failure:
+        return RECOVERY
+    repair = next((text for key, text in REPAIRS if key in failure), "按原任务要求逐项补齐后重新核对和登记交付。")
+    return f"{RECOVERY}\n\n上一次程序检查未通过：{failure}。{repair}"
 
 
 def title_key(value):
@@ -309,7 +372,7 @@ def transcribe_episode(config, directory, row, title, episode_count, previous, p
         state = read(stamp)
         session_id = state["binding"]["sessionId"]
         if (state["binding"] != {**binding, "sessionId": session_id} or state["videoSHA256"] != row["sha256"] or
-                state["attempt"] >= config["episodeAttempts"] or not list(event_dir.glob("*.jsonl"))):
+                attempts_left(state, config["episodeAttempts"]) == 0 or not list(event_dir.glob("*.jsonl"))):
             raise WorkError("SESSION_UNCONFIRMED", f"第 {number} 集原会话需检查后续跑")
         state.update(status="running", attempt=state["attempt"] + 1)
     else:
@@ -319,15 +382,32 @@ def transcribe_episode(config, directory, row, title, episode_count, previous, p
         state = {"status": "running", "attempt": 1, "videoSHA256": row["sha256"],
                  "binding": {**binding, "sessionId": session_id}}
     save(stamp, state)
+    refusal = None
     try:
         with sdk(config, workspace, guard_path) as harness:
             session = harness.resume_session(session_id) if resuming else harness.start_session(session_id)
             if resuming and Path(session.get_working_directory()).resolve() != workspace:
                 raise WorkError("BINDING_CHANGED", "原会话的当前工作区已变更")
             with (event_dir / f'{state["attempt"]:03d}.jsonl').open("x", encoding="utf-8", buffering=1) as journal:
+                current = []
+
                 def notify(item):
                     journal.write(json.dumps({"method": item.method, "payload": item.payload}, ensure_ascii=False) + "\n")
-                outcome = session.run(RECOVERY if resuming else prompt, on_notification=notify)
+                    current.append(item.payload)
+                outcome = session.run(recovery_prompt(state.get("lastFailure")) if resuming else prompt,
+                                      on_notification=notify)
+                refusal = quota_refusal(current)
+                for _ in range(QUOTA_RETRIES):
+                    if refusal != "unavailable":
+                        break
+                    sleep(QUOTA_RETRY_SECONDS)
+                    current.clear()
+                    outcome = session.run(QUOTA_RESUME, on_notification=notify)
+                    refusal = quota_refusal(current)
+        if refusal:
+            # A credits refusal stops the series until a top-up; the round it cut short is not one of the attempts.
+            state["attemptLimit"] = state.get("attemptLimit", config["episodeAttempts"]) + 1
+            raise WorkError(*QUOTA_FAILURES[refusal])
         journals = sorted(event_dir.glob("*.jsonl"))
         results, starts, media = [], [], []
         for journal in journals:
@@ -339,12 +419,9 @@ def transcribe_episode(config, directory, row, title, episode_count, previous, p
         run = {**state["binding"], "finishReason": outcome.finish_reason}
         delivery = verify_delivery(workspace, number, state["binding"], run, results)
         media = validate_sources(workspace, video, row, (starts, media), delivery)
-        qa = checked_file(workspace / "qa" / f"{label}.json", workspace)
-        people = checked_file(workspace / "characters.json", workspace)
-        if not isinstance(read(qa), dict) or not isinstance(read(people), dict):
-            raise WorkError("EPISODE_QA", "缺少本集人物与待核对项")
-    except Exception:
-        state["status"] = "needs-inspection"
+        qa, people = episode_records(workspace, label)
+    except Exception as error:
+        state.update(status="needs-inspection", lastFailure=str(error)[:300])
         save(stamp, state)
         raise
     state.update(status="candidate-ready", delivery={**delivery, **media, "qaSHA256": digest(qa),
@@ -352,10 +429,35 @@ def transcribe_episode(config, directory, row, title, episode_count, previous, p
     save(stamp, state)
 
 
+def episode_record(workspace, name, accepts, expected):
+    """Return an episode record the program check can read, or raise naming the file and what is wrong with it."""
+    path = workspace / name
+    try:
+        value = json.loads(checked_file(path, workspace).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise WorkError("EPISODE_QA", f"episode record {name} is missing or not JSON") from None
+    if not accepts(value):
+        raise WorkError("EPISODE_QA", f"episode record {name} is not {expected}")
+    return path
+
+
+def episode_records(workspace, label):
+    """The QA object and the roster in either form transcript_coverage reads: entries, or an object holding them."""
+    qa = episode_record(workspace, f"qa/{label}.json", lambda value: isinstance(value, dict), "a JSON object")
+    people = episode_record(
+        workspace, "characters.json",
+        lambda value: isinstance(value, dict) or (isinstance(value, list) and all(isinstance(item, dict) for item in value)),
+        'a character table ([{"name": ...}] or {"characters": [...]})')
+    return qa, people
+
+
 def child_action(config, directory, action):
     """Entrypoint for subprocess work under the parent's lease."""
     data = read(directory / "series.json")
     if action == "review":
         save(directory / "review-result.json", review_candidate(config, directory, data["work"], data["review"]))
+    elif action == "download":
+        # The agent runner holds the lease in its own process; this child only fetches and freezes the media.
+        acquire_media(config, directory, data["seriesId"], data["work"], lambda: None)
     else:
         run_episode(config, directory, read(directory / "source.json"), int(action))

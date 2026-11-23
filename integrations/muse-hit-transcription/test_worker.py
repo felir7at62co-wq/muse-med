@@ -9,10 +9,11 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from common import WorkError, digest, read, save
-from native import acquire_media, verified_media
-from station import Station, StationError
-from verification import recognition_covers_source
+from common import WorkError, attempts_left, digest, grant_attempts, read, save
+from native import RECOVERY, acquire_media, episode_records, quota_refusal, recovery_prompt, verified_media
+import station
+from station import Lease, Station, StationError
+from verification import ocr_coverage, recognition_covers_source
 from worker import Interrupted, Worker
 
 FIRST, SECOND = "7701676176305032217", "7705664276085623832"
@@ -191,6 +192,47 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(self.episodes, [1, 2])
         self.assertEqual(self.fixture.jobs[FIRST]["attempts"], 1)
 
+    def test_a_requeued_series_this_worker_retired_resumes_with_its_evidence(self):
+        self.cfg["onlySeries"] = [FIRST]
+
+        def fail_second(directory, number, timeout, lease):
+            if number == 2:
+                raise WorkError("EPISODE_QA", "第 2 集未通过校验")
+            self.fake_episode(directory, number, timeout, lease)
+
+        with patch("worker.acquire_media", self.fake_media):
+            with patch.object(self.worker, "start_child", fail_second):
+                self.assertTrue(self.worker.once())
+            self.assertEqual(self.fixture.jobs[FIRST]["state"], "needs-attention")
+            self.assertFalse(self.worker.once())
+            self.fixture.jobs[FIRST].update(state="queued", attempts=0)
+            with patch.object(self.worker, "start_child", self.fake_episode):
+                self.assertTrue(self.worker.once())
+        self.assertEqual(self.episodes, [1, 2])
+        self.assertEqual(self.fixture.jobs[FIRST]["failure"]["stage"], "DRAFT_READY")
+        (self.root / SECOND).mkdir()
+        save(self.root / SECOND / "station-outcome.json", {"workId": SECOND, "state": "published"})
+        self.cfg["onlySeries"] = [SECOND]
+        self.assertFalse(self.worker.once())
+        self.assertEqual(self.fixture.jobs[SECOND]["state"], "queued")
+
+    def test_a_credits_refusal_stops_the_series_after_one_round(self):
+        calls = []
+
+        def refused_second(directory, number, timeout, lease):
+            if number != 2:
+                return self.fake_episode(directory, number, timeout, lease)
+            calls.append(number)
+            save(directory / "records" / "0002.json", {"status": "needs-inspection", "attempt": 1, "attemptLimit": 3})
+            raise WorkError("QUOTA_EXHAUSTED", "额度已用完，请找组长划拨后再继续")
+
+        self.cfg["onlySeries"] = [FIRST]
+        with patch("worker.acquire_media", self.fake_media), patch.object(self.worker, "start_child", refused_second):
+            self.assertTrue(self.worker.once())
+        self.assertEqual(calls, [2])
+        self.assertEqual(self.fixture.jobs[FIRST]["state"], "needs-attention")
+        self.assertEqual(self.fixture.jobs[FIRST]["failure"]["stage"], "QUOTA_EXHAUSTED")
+
     def test_published_receipt_is_reconciled_without_uploading_again(self):
         self.cfg["publishChecked"] = True
         self.fixture.drop_publish = True
@@ -222,7 +264,129 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(read(self.worker.active)["workId"], FIRST)
 
 
+class FlakyStation:
+    """Answers heartbeats after the given failures, the way a restarting or busy station does."""
+
+    def __init__(self, failures):
+        self.failures, self.calls = list(failures), 0
+
+    def progress(self, key, lease, **changes):
+        self.calls += 1
+        if self.failures:
+            raise StationError(self.failures.pop(0))
+        expires = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+        return {"workId": "hongguo:" + key, "workerId": "w", "state": "transcribing", "leaseExpiresAt": expires}
+
+
+class LeaseTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch.object(station, "RETRY_SECONDS", 0.01)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_heartbeats_survive_a_station_restart(self):
+        fake = FlakyStation([None, None, 502])
+        lease = Lease(fake, FIRST, LEASE, "w", 45)
+        lease.update(episode=7)
+        self.assertEqual(fake.calls, 4)
+        lease.check()
+
+    def test_a_refused_heartbeat_ends_the_lease_at_once(self):
+        fake = FlakyStation([409])
+        with self.assertRaises(StationError):
+            Lease(fake, FIRST, LEASE, "w", 45).update()
+        self.assertEqual(fake.calls, 1)
+
+    def test_retries_stop_before_the_lease_runs_out(self):
+        fake = FlakyStation([None] * 1000)
+        lease = Lease(fake, FIRST, LEASE, "w", 45)
+        lease.expires = datetime.now(timezone.utc) + timedelta(seconds=station.EXPIRY_MARGIN_SECONDS + 0.05)
+        with self.assertRaises(StationError):
+            lease.update()
+        self.assertLess(fake.calls, 1000)
+
+
 class MediaTests(unittest.TestCase):
+    def test_recovery_names_the_failed_check_and_its_repair(self):
+        self.assertEqual(recovery_prompt(None), RECOVERY)
+        prompt = recovery_prompt("native OCR does not reach the original ending")
+        self.assertTrue(prompt.startswith(RECOVERY))
+        self.assertIn("native OCR does not reach the original ending", prompt)
+        self.assertIn("补跑到片尾", prompt)
+        self.assertIn("重新跑 manuscript_revision transcript_coverage", recovery_prompt("the latest dialogue comparison does not match the current Markdown"))
+        self.assertIn("逐项补齐", recovery_prompt("something new"))
+        frames = recovery_prompt("expected one current Word meeting all checks; found 0: frame review incomplete (296/729 recorded)")
+        self.assertIn("pending=0", frames)
+        self.assertNotIn("交付登记里的 Word 不唯一", frames)
+
+    def test_only_the_gateways_credit_codes_count_as_a_quota_refusal(self):
+        def ended(message, status=402):
+            return {"event": {"type": "turn/end", "data": {"reason": {"kind": "error", "error": {
+                "message": message, "code": "QUOTA", "status": status}}}}}
+
+        def tool(text, error=True):
+            return {"event": {"type": "tool/result", "data": {"message": {"content": [{"type": "text", "text": text}], "isError": error}}}}
+
+        gateway = '402: {"error":{"message":"额度已用完","code":"quota_exhausted","type":"quota_exhausted","reason":"insufficient"}}'
+        self.assertEqual(quota_refusal([ended(gateway)]), "exhausted")
+        self.assertEqual(quota_refusal([tool('{"error":"额度已用完","error_code":"quota_exhausted","reason":"insufficient"}')]), "exhausted")
+        self.assertEqual(quota_refusal([ended('503: {"error":{"code":"quota_unavailable"}}', 503)]), "unavailable")
+        # A provider's own 402, a recovered speech submission and an agent's text never count.
+        self.assertIsNone(quota_refusal([ended('402: {"code":"insufficient_quota","message":"Upstream insufficient_quota."}')]))
+        self.assertIsNone(quota_refusal([tool('{"error_code":"quota_unavailable"}')]))
+        self.assertIsNone(quota_refusal([tool("quota_exhausted", error=False),
+                                         {"event": {"type": "assistant/message", "data": {"text": "quota_exhausted"}}}]))
+        self.assertIn("现已划拨", recovery_prompt("额度已用完，请找组长划拨后再继续"))
+
+    def test_episode_records_accept_either_roster_form_and_name_the_file_at_fault(self):
+        with TemporaryDirectory() as folder:
+            workspace = Path(folder).resolve()
+            (workspace / "qa").mkdir()
+            qa, people = workspace / "qa" / "0001.json", workspace / "characters.json"
+            qa.write_text('{"pending": []}', encoding="utf-8")
+            for roster in ('[{"name": "周晟安"}]', '{"characters": [{"name": "周晟安"}]}', "{}"):
+                people.write_text(roster, encoding="utf-8")
+                self.assertEqual(episode_records(workspace, "0001"), (qa, people))
+            for roster, problem in (('["周晟安"]', "is not a character table"), ("{", "is missing or not JSON")):
+                people.write_text(roster, encoding="utf-8")
+                with self.assertRaisesRegex(WorkError, f"characters.json {problem}") as failure:
+                    episode_records(workspace, "0001")
+                self.assertIn("characters_path", recovery_prompt(str(failure.exception)))
+            people.write_text("[]", encoding="utf-8")
+            qa.write_text("[]", encoding="utf-8")
+            with self.assertRaisesRegex(WorkError, "qa/0001.json is not a JSON object") as failure:
+                episode_records(workspace, "0001")
+            self.assertIn("JSON 对象 qa/", recovery_prompt(str(failure.exception)))
+            qa.unlink()
+            with self.assertRaisesRegex(WorkError, "qa/0001.json is missing or not JSON"):
+                episode_records(workspace, "0001")
+
+    def test_a_requeued_exhausted_episode_gets_another_round(self):
+        with TemporaryDirectory() as folder:
+            record = Path(folder) / "0014.json"
+            grant_attempts(record, 3)
+            self.assertFalse(record.exists())
+            save(record, {"status": "running", "attempt": 3})
+            grant_attempts(record, 3)
+            self.assertEqual(attempts_left(read(record), 3), 0)
+            save(record, {"status": "needs-inspection", "attempt": 2})
+            grant_attempts(record, 3)
+            self.assertEqual(attempts_left(read(record), 3), 1)
+            save(record, {"status": "needs-inspection", "attempt": 3})
+            grant_attempts(record, 3)
+            self.assertEqual(read(record)["attemptLimit"], 6)
+            grant_attempts(record, 3)
+            self.assertEqual(attempts_left(read(record), 3), 3)
+
+    def test_ocr_coverage_counts_the_unsampled_tail_up_to_the_next_frame(self):
+        segments = [(0, 55, 55), (55, 110, 110)]
+        # 89 frames every 0.5 s from 110 s: the next planned frame (154.5 s) is past a 154.411 s video.
+        self.assertEqual(ocr_coverage(segments + [(110, 154.3, 154.5)]), (154.3, 154.5))
+        # Stopping at 153.95 s skips the frame at 154.0 s, which the video still contains.
+        self.assertLess(ocr_coverage(segments + [(110, 153.95, 154.0)])[1], 154.411 - 0.051)
+        self.assertIsNone(ocr_coverage([(0, 55, 55), (56, 110, 110)]))
+        self.assertIsNone(ocr_coverage([(1, 55, 55)]))
+
     def test_multipart_recognition_must_cover_original_source_time(self):
         shared = {"purpose": "screenplay", "service_version": "standard-v2"}
         parts = [{**shared, "id": "a", "offset": 0, "duration": 600},
