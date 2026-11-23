@@ -15,13 +15,15 @@ function sourceFailures(info) {
 
 /**
  * Apply the upstream client's rule: timeouts, network failures and 5xx are transient; an App or device refusal is final.
- * Empty play-info bodies are also transient: the same episode alternates between empty and playable across runs.
+ * Empty play-info responses can recover even when the webpage has a preview.
  */
 function transientFailure(info, failures) {
   if (info?.locked) return false;
   if (failures.some(item => item.source === 'app' && /^(?:DEVICE_REGISTRATION_FAILED|HTTP_(?:403|429)|BUSINESS_REJECTED|SECURITY_BLOCKED)$/.test(item.code))) return false;
   const emptyOrMissing = item => item.code === 'EMPTY_RESPONSE' || item.source === 'web' && /^HTTP_(?:404|410)$/.test(item.code);
-  return info?.code === 'ETIMEDOUT' || failures.length > 0 && failures.every(emptyOrMissing)
+  const onlyEmptyOrPreview = failures.some(emptyOrMissing)
+    && failures.every(item => emptyOrMissing(item) || item.source === 'web' && item.code === 'PREVIEW_ONLY');
+  return info?.code === 'ETIMEDOUT' || onlyEmptyOrPreview
     || failures.some(item => emptyOrMissing(item) && item.source === 'web' || /^(?:TIMEOUT|NETWORK_ERROR|HTTP_(?:408|5\d\d))$/.test(item.code));
 }
 

@@ -13,6 +13,8 @@ const box = (type, payload = Buffer.alloc(0)) => {
 };
 const mp4 = Buffer.concat([box('ftyp', Buffer.from('isom\0\0\0\0isom')), box('moov', box('trak', box('mdia'))), box('mdat', Buffer.from('deferral fixture'))]);
 const empty = { url: null, code: 'SOURCE_UNAVAILABLE', sources: [{ source: 'web', code: 'HTTP_404' }, { source: 'app', code: 'EMPTY_RESPONSE' }, { source: 'api', code: 'EMPTY_RESPONSE' }] };
+const preview = { source: 'web', code: 'PREVIEW_ONLY' };
+const emptyWithPreview = { ...empty, sources: [preview, ...empty.sources.slice(1)] };
 
 async function fixture(t, playable) {
   const root = await mkdtemp(join(tmpdir(), 'muse-hongguo-deferral-'));
@@ -45,15 +47,34 @@ test('an episode whose sources are temporarily empty is retried after the rest o
   assert.deepEqual(f.lookups, ['91', '92', '92', '92', '93', '94', '92']);
 });
 
-test('an episode that stays empty leaves the other episodes downloaded and a retryable error', async t => {
-  const f = await fixture(t, vid => vid !== '92' || empty);
+test('empty full-video sources with a web preview leave other episodes downloaded after bounded retries', async t => {
+  const f = await fixture(t, vid => vid !== '92' || emptyWithPreview);
   const result = await f.client.download({ seriesIds: ['9'] });
   assert.equal(result.ok, false);
   assert.equal(result.code, 'source_unavailable');
   assert.equal(result.retryable, true);
   assert.equal(result.retainedEpisodeCount, 3);
   assert.match(result.message, /第 2 集延后重试仍未取到片源/);
-  assert.deepEqual(result.sourceFailures, empty.sources);
+  assert.deepEqual(result.sourceFailures, emptyWithPreview.sources);
+  assert.deepEqual(f.lookups, ['91', '92', '92', '92', '93', '94', '92', '92', '92']);
+});
+
+test('full-video sources can recover on retry when the webpage offers a preview', async t => {
+  const f = await fixture(t, (vid, count) => vid !== '92' || count > 1 || emptyWithPreview);
+  const result = await f.client.download({ seriesIds: ['9'] });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.complete, true);
+  assert.deepEqual(f.lookups, ['91', '92', '92', '93', '94']);
+});
+
+test('a lone preview and a locked episode both stop without a retry', async t => {
+  for (const failure of [{ ...empty, sources: [preview] }, { ...emptyWithPreview, locked: true }]) {
+    const f = await fixture(t, vid => vid !== '92' || failure);
+    const result = await f.client.download({ seriesIds: ['9'] });
+    assert.equal(result.code, 'source_unavailable');
+    assert.equal(result.retryable, false);
+    assert.deepEqual(f.lookups, ['91', '92']);
+  }
 });
 
 test('an explicit App refusal still stops the series without deferral', async t => {
