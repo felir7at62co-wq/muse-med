@@ -114,8 +114,9 @@ describe('image request pricing', () => {
     await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
       '2708': { limit: '200', unit: 'CNY' },
     } }))
-    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, imageDeps()))
-      .rejects.toMatchObject({ code: 'BUDGET_EXCEEDED', message: expect.stringContaining('按张人民币价格') })
+    const request = videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, imageDeps())
+    await expect(request).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+    await expect(request).rejects.toThrow('按张人民币价格')
     expect(calls.map(call => call.method)).toEqual(['GET'])
     expect(await ledger.records()).toEqual([])
   })
