@@ -398,8 +398,8 @@ it('reads existing sources and the original ledger key when a model fills the en
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
       .map(event => event.data.message)
     expect(results.map(result => result.isError)).toEqual([false, false, false])
-    const [sources, tasks, unresolved] = results.map(result =>
-      JSON.parse(result.content.filter(block => block.type === 'text').map(block => block.text).join('')) as unknown)
+    const [sources, tasks, unresolved] = results.map((result): unknown =>
+      JSON.parse(result.content.filter(block => block.type === 'text').map(block => block.text).join('')))
     expect(sources).toMatchObject({ sources: { script_id: 301, storyboard_id: 201, status: 'available', complete: true,
       sources: [{ task_id: 77, subtask_id: 88, video_url: 'https://media.example/original.mp4' }] } })
     expect(tasks).toMatchObject({ tasks: { scope: { script_id: 301, task_type: 1 },
