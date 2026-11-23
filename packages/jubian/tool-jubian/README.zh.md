@@ -255,7 +255,7 @@ inherited process environment (read-only, highest)
 
 旧提示词格式或素材顺序命中时，返回一个已知 `original_idempotency_key` 供只读对账。`outcome` 属于旧 key；本次精确格式请求未发送，结果不代表该请求已生成视频。原预览或远端任务缺失不允许再次收费；存在多个旧版本记录时，也不表示已经唯一认领任务。
 
-- `jubian_catalog` 读取某一任务类型的账户模型目录（`task_type` 1 视频、2 图片、10 去字幕）、用 `standard_id` 读取单个计价标准、用 `script_id` 读取剧本身份，以及它的分集分页。
+- `jubian_catalog` 读取某一任务类型的账户模型目录（`task_type` 1 视频、2 图片、10 去字幕）、用 `standard_id` 读取单个计价标准、用 `script_id` 读取剧本身份，以及它的分集分页。 分集页在提供方报告的总数范围内却为空时，报错会注明页码、页大小和总数。
 - `jubian_character_reference_authorize` 仅在普通 Muse 会话中显示。它核对当前项目、角色与待审核图，再直接请已登录用户声明本人委托生成并上传、拥有本项目一次衍生生图权利；不会批准公共库使用或发出付费请求。
 - `jubian_find` 在调用方的画布项目（`mine`，`GET /aigc/script/list`）或可认领池（`pool`，`GET /script/center/pool/list`）中定位剧本。工具统一空白和大小写，再用 `name` 子串匹配剧本名与原稿名，不支持拼音、别名或模糊匹配。省略 `name` 时只列请求的起始页。按名称查询从 `page_num` 连续读取，直到覆盖 `total`、遇到空页或达到 `scan_page_limit`；`page_size` 限制每次请求。`complete: false` 表示扫描未覆盖总数；`truncated: true` 独立表示匹配结果被输出条数上限截断。`scanned_pages` 和 `returned` 分别记录请求页数与返回匹配数。`status` 是仅供 `pool` 使用的提供方状态字符串；`production_type` 与 `share_target_type` 是仅供 `mine` 使用的提供方整数编码，原样转发为 `productionType` 与 `shareTargetType`，无默认值。两者分别为 `0` 和 `1` 时查询漫剧项目。过滤项用于错误的 scope 会被拒绝。查询免费，不改远端状态、不需要幂等键、不写账本、不检查预算、不重试。无法识别的响应抛出 `CONTRACT_CHANGED`，不会当作空结果。
 - `jubian_asset` 读取单个资产、项目资产分页、已确认的主体设定材质，或某个资产的生成图 URL。`confirm_casting` 接受的是生成材质 ID——不是父资产，也不是任务 ID——并让该材质被本次制作采用。`remove` 发出 `DELETE /aigc/asset/removeAsset/{assetId}?scriptId=<id>&isParent=1`：父资产与其媒体版本被移除，引用它的镜头匹配不会因此重建，已生成的视频也不会重新生成。取消一次选用决定是另一个动作；`remove` 不是它。`upload_reference` 接受本地 `image_path`，检查两条边是否都是 16 的倍数（提供方图片流水线要求的那条规则），上传到实时前端 bundle 配置的目的地，并返回资产请求或 `image_generate` 的 `references` 所需的 `materialUrl`/`materialType`/`sortOrder` 条目。它不收费、不创建任务，但确实会向提供方对象存储写入一个对象。三个资产库写方法见下文「组织资产库」。

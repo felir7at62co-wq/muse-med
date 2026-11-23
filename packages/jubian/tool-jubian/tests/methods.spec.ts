@@ -470,6 +470,36 @@ describe('jubian_catalog reads', () => {
     await expect(catalogMethod(client, { method: 'get' })).rejects.toThrow()
     expect(calls).toHaveLength(1)
   })
+  it.each([
+    { args: {}, page: 1, size: 20 },
+    { args: { page_num: 2, page_size: 10 }, page: 2, size: 10 },
+  ])('reports an empty episode page $page within the provider total', async ({ args, page, size }) => {
+    const { client, calls } = stubClient(() => ({ total: 13, rows: [] }))
+    await expect(catalogMethod(client, { method: 'episodes', script_id: 2708, ...args })).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED',
+      message: expect.stringContaining(`第 ${page} 页为空（page_size=${size}，total=13）`),
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({ method: 'GET',
+      path: expect.stringContaining(`/aigc/episode/list?scriptId=2708&pageNum=${page}&pageSize=${size}`) })
+  })
+
+  it.each([
+    { page: 1, total: 0 },
+    { page: 3, total: 10 },
+    { page: 4, total: 13 },
+  ])('keeps a valid empty episode page $page out of $total records', async ({ page, total }) => {
+    const { client } = stubClient(() => ({ total, rows: [] }))
+    await expect(catalogMethod(client, { method: 'episodes', script_id: 2708, page_num: page, page_size: 5 }))
+      .resolves.toEqual({ episodes: { total, rows: [] } })
+  })
+
+  it('keeps episode IDs from a nonempty partial page', async () => {
+    const { client } = stubClient(() => ({ total: 13, rows: [{ id: 215, episodeCount: 11, episodeName: '第11集' }] }))
+    await expect(catalogMethod(client, { method: 'episodes', script_id: 2708, page_num: 2, page_size: 10 }))
+      .resolves.toEqual({ episodes: { total: 13, rows: [{ episode_id: 215, episode_count: 11, name: '第11集' }] } })
+  })
+
   it('addresses each catalogue endpoint exactly once', async () => {
     const cases: [MethodArgs, string, string, unknown][] = [
       [{ method: 'models', task_type: 2 }, 'GET', '/model/charge/getSelectList?taskType=2', []],
