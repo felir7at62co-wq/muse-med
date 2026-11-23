@@ -90,7 +90,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     const platform = {
       react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id',
         createElement: element,
-        useState: initial => [initial, () => {}], useEffect: () => {}, useRef: current => ({ current }),
+        useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}], useEffect: () => {}, useRef: current => ({ current }),
         useLayoutEffect: () => {}, useMemo: make => make(), useCallback: fn => fn,
         useSyncExternalStore: (subscribe, get) => { subscribe(() => {})(); return get() }, Fragment: 'fragment',
       },
@@ -603,4 +603,81 @@ test('a group’s avatar uses its own and current member conversations only', as
   assert.deepEqual(controls.map(entry => entry.props['aria-label']), ['Stop Chief: pnpm build'])
   await controls[0].props.onClick()
   assert.deepEqual(kills, [['g-a', 'j1']])
+})
+
+test('a completed thought bubble fades in its own slot and cannot reopen the task', async t => {
+  const { outputFiles } = await build({
+    entryPoints: [fileURLToPath(new URL('../src/client/background-thought-bubbles.js', import.meta.url))],
+    bundle: true, format: 'cjs', platform: 'node', write: false, external: ['react'],
+  })
+  const dom = new JSDOM('<!doctype html><body><main></main></body>')
+  const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true }
+  const descriptors = Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
+  for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, value })
+  t.after(() => {
+    dom.window.close()
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else delete globalThis[key]
+    }
+  })
+
+  const requireWeb = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..', 'deepseek-harness'), 'apps/web/package.json'))
+  const { act, createElement } = requireWeb('react')
+  const { createRoot } = requireWeb('react-dom/client')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const module = { exports: {} }
+  runInNewContext(outputFiles[0].text, { ...globals, module, exports: module.exports, require: requireWeb, setTimeout, clearTimeout })
+  const { BackgroundThoughtBubbles } = module.exports
+  const container = globals.document.querySelector('main')
+  const root = createRoot(container)
+  const paint = (rows, key = 'owner-a') => act(() => root.render(createElement(BackgroundThoughtBubbles, {
+    key, rows, avatar: 'Muse', renderPanel: () => 'Task details',
+  })))
+  const chips = () => Array.from(container.querySelectorAll('.bt-thoughts-chip'))
+  const first = { key: 'job:first', label: 'First task', state: 'running' }
+  const second = { key: 'job:second', label: 'Second task', state: 'running' }
+  try {
+    paint([])
+    assert.equal(chips().length, 0)
+    paint([first, second])
+    const [left, right] = chips()
+    assert.deepEqual([left.dataset.side, right.dataset.side], ['left', 'right'])
+    act(() => left.click())
+    assert.ok(container.querySelector('.bt-thoughts-panel'))
+
+    paint([second])
+    const leaving = chips().find(chip => chip.hasAttribute('data-leaving'))
+    assert.equal(leaving?.textContent, 'First task')
+    assert.equal(leaving.dataset.side, 'left')
+    assert.equal(leaving.disabled, true)
+    assert.equal(leaving.getAttribute('aria-hidden'), 'true')
+    assert.equal(leaving.hasAttribute('aria-controls'), false)
+    assert.equal(container.querySelector('.bt-thoughts-panel'), null)
+    assert.deepEqual(chips().filter(chip => !chip.hasAttribute('data-leaving')), [right])
+    assert.equal(right.dataset.side, 'right')
+
+    act(() => t.mock.timers.tick(450))
+    assert.equal(chips().length, 2)
+    paint([first, second])
+    act(() => t.mock.timers.tick(900))
+    assert.deepEqual(chips().map(chip => chip.textContent), ['First task', 'Second task'])
+    assert.ok(chips().every(chip => !chip.disabled && !chip.hasAttribute('data-leaving')))
+
+    paint([second])
+    act(() => t.mock.timers.tick(899))
+    assert.equal(chips().length, 2)
+    act(() => t.mock.timers.tick(1))
+    assert.deepEqual(chips(), [right])
+    assert.equal(right.dataset.side, 'right')
+
+    paint([])
+    assert.equal(chips().length, 1)
+    paint([], 'owner-b')
+    assert.equal(chips().length, 0)
+    act(() => t.mock.timers.tick(900))
+    assert.equal(chips().length, 0)
+  } finally {
+    act(() => root.unmount())
+  }
 })
