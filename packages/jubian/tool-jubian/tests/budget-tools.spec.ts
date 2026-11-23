@@ -39,7 +39,7 @@ it('applies the live drama budget before a paid image request without an authori
     await ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: 0 })
     const result = await executeModelToolFixture(ctx, { callId: ToolCallId('budget-zero'), name: 'jubian_video',
       arguments: { method: 'image_generate', script_id: 2708, asset_name: 'x', asset_type: 1,
-        prompt: 'p', idempotency_key: 'new-paid-image' }, signal: new AbortController().signal })
+        prompt: 'p', image_style: 'live_action', idempotency_key: 'new-paid-image' }, signal: new AbortController().signal })
     expect(result.isError).toBe(true)
     if (result.isError) expect(result.error.message).toContain('授权上限 0.00 CNY')
     expect(fetch).toHaveBeenCalledTimes(1)

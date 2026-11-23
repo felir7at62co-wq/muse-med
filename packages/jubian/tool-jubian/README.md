@@ -542,7 +542,9 @@ After an authorized submission, do other work and read `subtasks` later; use the
 
 For a newly created asset, `image_generate` waits inside the call for its generated image, bounded by `imageActiveTimeoutMs`, and reports a timeout as `asset_status: timeout` instead of throwing. Replacement of an existing asset does not treat its old Active image as this result; it stays unverified until the exact new task and material are read back.
 
-For `image_generate`, set `image_style: "anime"` for 2D/3D animation or `"live_action"` for live action; batch `items` carry this choice individually and a top-level batch `image_style` is rejected. The tool resolves leading positive medium declarations for older calls, including the exact `项目风格:` or `项目风格：` prefix, and keeps live action for unmarked legacy prompts. Contradictory explicit choices fail before billing. The receipt echoes the resolved `image_style`, not a visual acceptance verdict. Keep 3D substyle in the full prompt, inspect the resulting image and reconcile any uncertain submission with its original key.
+`image_generate` accepts `image_style: "live_action"` for live action, `"anime"` for 2D/3D animation, and `"realistic_3d"` for 3D realism. In `image_generate_batch`, set the field on each `items` entry that needs an explicit choice. A top-level batch value is rejected. An explicit choice must agree with a recognized leading style declaration. When omitted, the tool uses the leading declaration, then the saved Jubian project style. A project with no saved style retains the live-action default. An unsupported saved style requires a supported explicit choice or leading declaration before a billable submission.
+
+The receipt echoes the resolved request style. Inspect the resulting image to verify its appearance, and keep the full style and material details in the prompt. Reconcile an uncertain submission with the original `idempotency_key`. A request with a changed body cannot rewrite the original record.
 
 -----
 

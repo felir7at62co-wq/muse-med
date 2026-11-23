@@ -73,10 +73,19 @@ it('rejects an absent material inventory instead of inferring an empty page', as
     .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
 })
 
-/** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
-function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string | null)[] = ['Active']) {
-  let reads = 0
+/** Use a legacy project setting when a fixture exercises image generation without testing inheritance. */
+function stubImageClient(handler: Parameters<typeof stubClient>[0], readProject = (id: number): unknown => ({ id })) {
   return stubClient((request) => {
+    const projectId = /\/aigc\/script\/([0-9]+)$/u.exec(request.path)?.[1]
+    return request.method === 'GET' && projectId !== undefined ? readProject(Number(projectId)) : handler(request)
+  })
+}
+
+/** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
+function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string | null)[] = ['Active'],
+  project?: unknown) {
+  let reads = 0
+  return stubImageClient((request) => {
     if (request.path.includes('getSelectList')) return catalogue
     if (request.path.includes('/aigc/asset/list?')) return { total: 2, rows: [77, 83749].map(id =>
       ({ id, scriptId: 2708, assetName: '陆沉舟', assetType: 1, delFlag: '0' })) }
@@ -88,7 +97,7 @@ function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string |
       return { id: 83749, name: '陆沉舟', assetType: 1, hsLocal: 0, hsAssetStatus: status }
     }
     return 83749
-  })
+  }, project === undefined ? undefined : () => project)
 }
 
 /** Readback seams that advance instantly, so a poll loop costs no wall clock. */
@@ -894,7 +903,7 @@ describe('jubian_video', () => {
   })
 
   it('returns the original unsettled reservation when image-batch submission and settlement both lose their connection', async () => {
-    const { client, calls } = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
+    const { client, calls } = stubImageClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
       : new Response(JSON.stringify({ code: 400, msg: 'provider refused' }), { status: 400 }))
     const settle = vi.spyOn(ledger, 'settle').mockRejectedValue(new Error('settlement storage unavailable'))
     onTestFinished(() => { settle.mockRestore() })
@@ -906,7 +915,7 @@ describe('jubian_video', () => {
   })
 
   it('reports an accepted batch item with no asset ID without attempting an invented asset read', async () => {
-    const { client, calls } = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE : null)
+    const { client, calls } = stubImageClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE : null)
     const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [{ idempotency_key: 'no-asset-id', asset_name: 'lead', asset_type: 1, prompt: 'ready' }] }, imageDeps())
     expect(result.results).toMatchObject([{ status: 'returned', outcome: 'accepted', parent_asset_id: null, asset_status: 'unverified' }])
@@ -915,10 +924,10 @@ describe('jubian_video', () => {
       .toContain('不能按 asset_name 将同名历史资产当作本次结果')
     expect((result.results as Array<{ readback_error: string; next: string }>)[0]?.next)
       .toContain('同名历史资产不是本次结果')
-    expect(calls.map(call => call.method)).toEqual(['GET', 'POST'])
+    expect(calls.map(call => call.method)).toEqual(['GET', 'GET', 'POST'])
   })
   it('keeps a no-ID PUT tied to its requested parent without claiming an old active image', async () => {
-    const { client, calls } = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
+    const { client, calls } = stubImageClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
       : request.method === 'PUT' ? null
         : request.path.includes('getGeneratedImageByAssetId')
           ? [{ assetId: 156575, id: 160260, resultStatus: 'succeeded', assetUrl: 'https://old.example/image.png' }]
@@ -930,7 +939,7 @@ describe('jubian_video', () => {
       requested_parent_asset_id: 156575, asset_status: 'unverified', material_id: null, image_url: null })
     expect(result.next).toContain('现有资产 156575')
     expect(result.next).toContain('旧的 Active 材质不证明')
-    expect(calls.map(call => call.method)).toEqual(['GET', 'PUT'])
+    expect(calls.map(call => call.method)).toEqual(['GET', 'GET', 'PUT'])
     const replay = await videoMethod(client, ledger, args, imageDeps())
     expect(replay).toMatchObject({ replayed: true, requested_parent_asset_id: 156575, asset_status: 'replayed' })
     expect(replay.next).toContain('现有资产 156575')
@@ -941,7 +950,7 @@ describe('jubian_video', () => {
     onTestFinished(() => { vi.useRealTimers() })
     const entered = Promise.withResolvers<undefined>()
     let reads = 0
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.path.includes('getGeneratedImageByAssetId')) return GENERATED_IMAGE
       if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
@@ -964,7 +973,7 @@ describe('jubian_video', () => {
   it.each(['最多输入5张图', '图片编辑请求失败', 'Your request was rejected by the safety system.']
     .flatMap(message => [true, false].map(withTaskId => ({ message, withTaskId }))))
   ('reports an accepted image task failure %j without polling until timeout', async ({ message, withTaskId }) => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.method === 'POST') return 83749
       if (request.path.includes('getGeneratedImageByAssetId')) return [{ assetId: 83749, id: null, assetUrl: null,
@@ -984,7 +993,7 @@ describe('jubian_video', () => {
 
   it.each(['Active', null])('does not accept an unconfirmed image task with a URL when parent status is %s', async (parentStatus) => {
     for (const resultStatus of ['pending', 'future-state', 'failed']) {
-      const { client, calls } = stubClient((request) => {
+      const { client, calls } = stubImageClient((request) => {
         if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
         if (request.method === 'POST') return 83749
         if (request.path.includes('getGeneratedImageByAssetId')) return [{ assetId: 83749, id: 900,
@@ -1004,7 +1013,7 @@ describe('jubian_video', () => {
   })
 
   it.each(['Active', null])('accepts an explicitly successful image task with parent status %s', async (parentStatus) => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.method === 'POST') return 83749
       if (request.path.includes('getGeneratedImageByAssetId')) return [{ assetId: 83749, id: 900,
@@ -1021,7 +1030,7 @@ describe('jubian_video', () => {
 
   it('polls the original image task until its explicit status succeeds', async () => {
     let reads = 0
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.method === 'POST') return 83749
       if (request.path.includes('getGeneratedImageByAssetId')) return [{ assetId: 83749, id: 900,
@@ -1040,7 +1049,7 @@ describe('jubian_video', () => {
   })
 
   it('refuses oversized KU_AI references for the entire image batch before any paid write', async () => {
-    const { client, calls } = stubClient(() => MULTI_IMAGE_CATALOGUE)
+    const { client, calls } = stubImageClient(() => MULTI_IMAGE_CATALOGUE)
     await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
       items: [batchItem('valid-staging', 'valid'), { ...batchItem('oversized-staging', 'oversized'),
         references: Array.from({ length: 6 }, (_, i) => `https://media.example/${i}.png`) }] },
@@ -1050,7 +1059,7 @@ describe('jubian_video', () => {
   })
 
   it.each(['missing-material-id', 'rate-limited'])('preserves an accepted image write after %s readback', async (mode) => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.method === 'POST') return 83749
       if (request.path.includes('getGeneratedImageByAssetId')) {
@@ -1070,7 +1079,7 @@ describe('jubian_video', () => {
 
   it.each(['Failed', 'not-ready', 'disconnected', 'no-status'])
   ('reports an accepted asset whose generated-image readback is %s', async (state) => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.path.includes('getGeneratedImageByAssetId')) {
         if (state === 'disconnected') throw new Error('image read disconnected')
@@ -1093,7 +1102,7 @@ describe('jubian_video', () => {
 
   it.each(['wrong-parent', 'multiple-materials'])
   ('keeps an accepted image unverified when Active readback has %s', async (kind) => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.path.includes('getGeneratedImageByAssetId')) return kind === 'wrong-parent'
         ? [{ ...GENERATED_IMAGE[0], assetId: 83750 }]
@@ -1135,7 +1144,7 @@ describe('jubian_video', () => {
   })
 
   it.each([null, 'not-an-id', 'unknown-envelope'])('preserves uncertainty when the accepted image response is %s', async (state) => {
-    const { client, calls } = stubClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
+    const { client, calls } = stubImageClient(request => request.path.includes('getSelectList') ? IMAGE_CATALOGUE
       : state === 'unknown-envelope' ? new Response(JSON.stringify([83749])) : state)
     const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
       asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'uncertain-response' }, imageDeps())
@@ -1308,7 +1317,7 @@ describe('jubian_video', () => {
     let accepted = 0
     let release!: () => void
     const firstWave = new Promise<void>((resolve) => { release = resolve })
-    const { client, calls } = stubClient(async (request) => {
+    const { client, calls } = stubImageClient(async (request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.method === 'POST' && request.path.endsWith('/aigc/asset')) {
         inFlight += 1
@@ -1365,7 +1374,7 @@ describe('jubian_video', () => {
 
   it('submits every accepted item before long image readbacks occupy the concurrency slots', async () => {
     let posted = 0
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.method === 'POST' && request.path.endsWith('/aigc/asset')) return 83749 + posted++
       if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
@@ -1391,7 +1400,7 @@ describe('jubian_video', () => {
   })
 
   it('records an ambiguous item and never resends it when the batch is replayed', async () => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.method === 'POST' && request.body?.assetName === 'EP01｜角色｜甲') {
         throw new Error('connection ended after submit')
@@ -1420,7 +1429,7 @@ describe('jubian_video', () => {
   })
 
   it('keeps the accepted asset ID when readback fails after a paid request', async () => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.method === 'POST' && request.path.endsWith('/aigc/asset')) return 83749
       if (request.method === 'GET' && request.path.includes('/aigc/asset/')) {
@@ -1485,7 +1494,7 @@ describe('jubian_video', () => {
 
   it('reports a failed active candidate alongside an older selected image', async () => {
     const candidate = { ...GENERATED_IMAGE[0]!, resultStatus: 'Failed', resultMsg: 'insufficient credits' }
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.path.includes('getGeneratedImageByAssetId')) return [
         { ...GENERATED_IMAGE[0]!, id: 899, isUsed: 1 }, candidate,
@@ -1498,7 +1507,7 @@ describe('jubian_video', () => {
     imageDeps({ timeoutMs: 100, pollMs: 100 }))
     expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
       asset_status: 'failed', generation_status: 'failed', material_id: null, image_url: null })
-    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'GET', 'GET'])
+    expect(calls.map(call => call.method)).toEqual(['GET', 'GET', 'POST', 'GET', 'GET'])
   })
 
   it.each(['wrong-parent', 'inactive', 'ambiguous'])
@@ -1506,7 +1515,7 @@ describe('jubian_video', () => {
     const candidate = { ...GENERATED_IMAGE[0]!,
       assetId: state === 'wrong-parent' ? 83750 : 83749,
       hsAssetStatus: state === 'inactive' ? 'Submitted' : 'Active' }
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.path.includes('getGeneratedImageByAssetId')) return state === 'ambiguous'
         ? [candidate, { ...candidate, id: 901 }] : [candidate]
@@ -1536,11 +1545,11 @@ describe('jubian_video', () => {
     const { client, calls } = imageProvider()
     const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-1',
       script_id: 2708, asset_name: '陆沉舟', asset_type: 1, prompt: '一位中年男性' }, imageDeps())
-    // Catalogue, the one paid write, the asset status read, then the generated image.
-    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'GET', 'GET'])
-    expect(calls[1]!.path.endsWith('/aigc/asset')).toBe(true)
-    expect(JSON.parse(calls[1]!.body!.modelConfig as string)).toMatchObject({ ratio: '16:9', videoStandardId: 91 })
-    expect(calls[3]!.path).toContain('getGeneratedImageByAssetId?assetId=83749')
+    // Project, catalogue, the one paid write, the asset status read, then the generated image.
+    expect(calls.map(call => call.method)).toEqual(['GET', 'GET', 'POST', 'GET', 'GET'])
+    expect(calls[2]!.path.endsWith('/aigc/asset')).toBe(true)
+    expect(JSON.parse(calls[2]!.body!.modelConfig as string)).toMatchObject({ ratio: '16:9', videoStandardId: 91, style: 0 })
+    expect(calls[4]!.path).toContain('getGeneratedImageByAssetId?assetId=83749')
     expect(result.outcome).toBe('accepted')
     expect(result.parent_asset_id).toBe(83749)
     expect(result.asset_status).toBe('active')
@@ -1613,7 +1622,7 @@ describe('jubian_video', () => {
 
   it.each(['pending', 'other-asset', 'ambiguous', 'missing-url', 'http-url'])
   ('does not accept a %s material under a parent with no status', async (kind) => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.path.includes('getGeneratedImageByAssetId')) {
         const row = { ...GENERATED_IMAGE[0], ...(kind === 'pending' ? { hsAssetStatus: 'Pending' } : {}),
@@ -1632,7 +1641,7 @@ describe('jubian_video', () => {
   })
 
   it('reads a single generated material object under a new parent with no status', async () => {
-    const { client, calls } = stubClient((request) => {
+    const { client, calls } = stubImageClient((request) => {
       if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
       if (request.path.includes('getGeneratedImageByAssetId')) return GENERATED_IMAGE[0]
       return request.method === 'GET' ? { id: 83749 } : 83749
@@ -1705,7 +1714,8 @@ describe('jubian_video', () => {
     const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-pin',
       script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' },
     imageDeps({ selection: { platformId: 'KU_AI' } }))
-    const config = JSON.parse(calls[1]!.body!.modelConfig as string) as Record<string, unknown>
+    const write = calls.find(call => call.method === 'POST')
+    const config = JSON.parse(String(write?.body?.modelConfig)) as Record<string, unknown>
     expect(config).toMatchObject({ standardId: 66, platformId: 'KU_AI', videoStandardId: 91 })
     expect(result.model_selection).toEqual({ standard_id: 66, platform_id: 'KU_AI' })
     // 0.12 is the pinned platform's price; 1.05 belongs to the other row.
@@ -1717,7 +1727,8 @@ describe('jubian_video', () => {
     const result = await videoMethod(client, ledger, { method: 'image_generate', idempotency_key: 'k-backup',
       script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p', image_platform_id: 'DUO_YUAN_TAN_SUO' },
     imageDeps({ selection: { platformId: 'KU_AI' } }))
-    const config = JSON.parse(calls[1]!.body!.modelConfig as string) as Record<string, unknown>
+    const write = calls.find(call => call.method === 'POST')
+    const config = JSON.parse(String(write?.body?.modelConfig)) as Record<string, unknown>
     expect(config).toMatchObject({ standardId: 76, platformId: 'DUO_YUAN_TAN_SUO', videoStandardId: 92 })
     expect(result.model_selection).toEqual({ standard_id: 76, platform_id: 'DUO_YUAN_TAN_SUO' })
     expect((await ledger.find('k-backup'))?.quoted_amount).toBe('1.05')
@@ -1728,10 +1739,10 @@ describe('jubian_video', () => {
     const initial = await videoMethod(first.client, ledger, { method: 'image_generate', idempotency_key: 'k-2',
       script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps())
     expect(initial.replayed).toBe(false)
-    const second = stubClient(() => IMAGE_CATALOGUE)
+    const second = stubImageClient(() => IMAGE_CATALOGUE)
     const replayed = await videoMethod(second.client, ledger, { method: 'image_generate', idempotency_key: 'k-2',
       script_id: 2708, asset_name: 'x', asset_type: 1, prompt: 'p' }, imageDeps())
-    expect(second.calls.map(call => call.method)).toEqual(['GET'])
+    expect(second.calls.map(call => call.method)).toEqual(['GET', 'GET'])
     expect(replayed.replayed).toBe(true)
     expect(replayed.asset_status).toBe('replayed')
     expect(replayed).toMatchObject({ generation_status: 'reconciliation_required', idempotency_key: 'k-2' })
@@ -1754,7 +1765,7 @@ describe('jubian_video', () => {
     const { client, calls } = imageProvider()
     await expect(videoMethod(client, ledger, args, imageDeps()))
       .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', detail: 'Idempotency key belongs to a different image request' })
-    expect(calls.map(call => call.method)).toEqual(['GET'])
+    expect(calls.map(call => call.method)).toEqual(['GET', 'GET'])
     expect(await ledger.records()).toEqual(recorded)
   })
 
@@ -2190,15 +2201,120 @@ it('rejects the free-erasure flag on a different storyboard operation before rea
 
 
 describe('image style at the billed request', () => {
-  it.each(['风格化动画', 'stylized animation', 'stylizedanimation', '3danime'])
+  it.each([
+    { prompt: '人物设定图。', image_style: 'realistic_3d' as const },
+    { prompt: '项目风格：3d 写实，人物设定图。' },
+  ])('uses the declared realistic 3D style without reading the project ($prompt)', async (item) => {
+    const { client, calls } = imageProvider(undefined, undefined, { id: 2708, scriptStyle: 0 })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      idempotency_key: 'declared-3d', asset_name: 'lead', asset_type: 1, ...item }, imageDeps())
+
+    expect(result.image_style).toBe('realistic_3d')
+    expect(calls.filter(call => call.path.endsWith('/aigc/script/2708'))).toEqual([])
+    const writes = calls.filter(call => call.method === 'POST' && call.path.endsWith('/aigc/asset'))
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]?.body?.modelConfig))).toMatchObject({ style: 3, prompt: item.prompt })
+  })
+
+  it('inherits a saved realistic 3D project style for an unmarked image prompt', async () => {
+    const { client, calls } = imageProvider(undefined, undefined, { id: 2708, scriptStyle: 3 })
+    const prompt = '人物设定图。'
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      idempotency_key: 'inherited-3d', asset_name: 'lead', asset_type: 1, prompt }, imageDeps())
+
+    expect(result.image_style).toBe('realistic_3d')
+    expect(calls.filter(call => call.path.endsWith('/aigc/script/2708')).map(call => call.method)).toEqual(['GET'])
+    const writes = calls.filter(call => call.method === 'POST' && call.path.endsWith('/aigc/asset'))
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]?.body?.modelConfig))).toMatchObject({ style: 3, prompt })
+  })
+
+  it('shares one project read across a batch with inherited and explicit styles', async () => {
+    const { client, calls } = imageProvider(undefined, undefined, { id: 2708, scriptStyle: 3 })
+    const items = [
+      { idempotency_key: 'inherited-create', asset_name: 'lead', asset_type: 1, prompt: '人物设定图。' },
+      { idempotency_key: 'inherited-update', asset_name: 'scene', asset_type: 2, prompt: '场景设定图。', parent_asset_id: 77 },
+      { idempotency_key: 'explicit', asset_name: 'prop', asset_type: 3, prompt: '道具设定图。', image_style: 'anime' as const },
+    ]
+    const batch = await videoMethod(client, ledger, {
+      method: 'image_generate_batch', script_id: 2708, items,
+    }, { ...imageDeps(), signal: new AbortController().signal })
+
+    expect(batch.errors).toBe(0)
+    expect(batch.results).toMatchObject([
+      { image_style: 'realistic_3d' }, { image_style: 'realistic_3d' }, { image_style: 'anime' },
+    ])
+    expect(calls.filter(call => call.path.endsWith('/aigc/script/2708')).map(call => call.method)).toEqual(['GET'])
+    const writes = calls.filter(call => call.method !== 'GET' && call.path.endsWith('/aigc/asset'))
+    expect(writes).toHaveLength(3)
+    expect(Object.fromEntries(writes.map(call => [
+      String(call.body?.assetName),
+      { method: call.method, config: JSON.parse(String(call.body?.modelConfig)) as unknown },
+    ]))).toMatchObject({
+      lead: { method: 'POST', config: { style: 3, prompt: '人物设定图。' } },
+      scene: { method: 'PUT', config: { style: 3, prompt: '场景设定图。' } },
+      prop: { method: 'POST', config: { style: 1, prompt: '道具设定图。' } },
+    })
+  })
+
+  it('does not request project details for an invalid project ID', async () => {
+    const { client, calls } = imageProvider()
+    await expect(videoMethod(client, ledger, {
+      method: 'image_generate', script_id: 0, asset_name: 'lead', asset_type: 1, prompt: '人物设定图。',
+      idempotency_key: 'invalid-project',
+    }, imageDeps())).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([
+    { label: 'the wrong project ID', project: () => ({ id: 2709, scriptStyle: 3 }) },
+    { label: 'an unsupported saved style', project: () => ({ id: 2708, scriptStyle: 99 }) },
+    { label: 'a failed project read', project: () => new Response(null, { status: 503 }) },
+  ])('refuses a single image and an entire batch with $label before writing', async ({ project }) => {
+    const { client, calls } = imageProvider(undefined, undefined, project())
+    const inherited = { idempotency_key: 'unverified-project', asset_name: 'lead', asset_type: 1, prompt: '人物设定图。' }
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      ...inherited }, imageDeps())).rejects.toBeInstanceOf(JubianError)
+
+    const other = imageProvider(undefined, undefined, project())
+    await expect(videoMethod(other.client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [{ idempotency_key: 'known-style', asset_name: 'prop', asset_type: 3, prompt: '道具设定图。',
+        image_style: 'anime' }, inherited] }, imageDeps())).rejects.toBeInstanceOf(JubianError)
+    for (const requests of [calls, other.calls]) {
+      expect(requests.some(call => call.method === 'GET' && call.path.endsWith('/aigc/script/2708'))).toBe(true)
+      expect(requests.filter(call => call.method === 'POST' || call.method === 'PUT')).toEqual([])
+    }
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['accepted', 'unknown'] as const)('leaves a legacy style-zero %s image key unchanged', async (outcome) => {
+    const args = { method: 'image_generate', script_id: 2708, idempotency_key: 'legacy-unmarked',
+      asset_name: 'lead', asset_type: 1, prompt: '人物设定图。' } as const
+    const body = buildImageRequest({ scriptId: args.script_id, assetName: args.asset_name,
+      assetType: args.asset_type, prompt: args.prompt, imageStyle: 'live_action', references: [] }, IMAGE_CATALOGUE)
+    await ledger.begin({ idempotencyKey: args.idempotency_key, method: 'image_generate',
+      scriptId: args.script_id, requestSha256: bodyHash(body) })
+    await ledger.settle(args.idempotency_key, { httpStatus: outcome === 'accepted' ? 200 : null,
+      applicationCode: outcome === 'accepted' ? 200 : null, responseSha256: null, outcome })
+    const records = await ledger.records()
+    const { client, calls } = imageProvider(undefined, undefined, { id: 2708, scriptStyle: 3 })
+
+    await expect(videoMethod(client, ledger, args, imageDeps())).rejects
+      .toMatchObject({ code: 'CONTRACT_CHANGED', detail: 'Idempotency key belongs to a different image request' })
+    expect(calls.filter(call => call.method === 'POST' || call.method === 'PUT')).toEqual([])
+    expect(await ledger.records()).toEqual(records)
+  })
+
+  it.each(['风格化动画', 'stylized animation', 'stylizedanimation', '3danime', '3D 写实'])
   ('rejects a later contradictory %s batch item before catalogue reads or billing', async (medium) => {
     const { client, calls } = imageProvider()
     await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708, items: [
       { idempotency_key: 'valid-anime', asset_name: 'valid', asset_type: 1,
         prompt: '项目风格：3D动漫，PBR材质。', image_style: 'anime' },
-      { idempotency_key: 'contradictory-anime', asset_name: 'invalid', asset_type: 2,
+      { idempotency_key: 'contradictory-style', asset_name: 'invalid', asset_type: 2,
         prompt: `项目风格：${medium}，PBR材质。`, image_style: 'live_action' },
-    ] }, imageDeps())).rejects.toThrow('invalid image request')
+    ] }, imageDeps())).rejects.toThrow('image_style conflicts with the leading prompt medium')
     expect(calls).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
@@ -2287,7 +2403,7 @@ describe('image style at the billed request', () => {
     await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708, items: [
       { idempotency_key: 'batch-valid', asset_name: 'valid', asset_type: 1, prompt: '3D动漫，角色。', image_style: 'anime' },
       { idempotency_key: 'batch-invalid', asset_name: 'invalid', asset_type: 2, prompt: '项目风格: 【真人写实】场景。', image_style: 'anime' },
-    ] }, imageDeps())).rejects.toThrow('invalid image request')
+    ] }, imageDeps())).rejects.toThrow('image_style conflicts with the leading prompt medium')
     expect(calls).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
@@ -2450,7 +2566,7 @@ it.each([null, 'not-a-page', 7, true])('refuses a primitive material inventory: 
 })
 
 it('reports the failed unselected image among older selected rows when the parent has no status', async () => {
-  const { client, calls } = stubClient((request) => {
+  const { client, calls } = stubImageClient((request) => {
     if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
     if (request.method === 'POST') return 83749
     if (request.path.includes('getGeneratedImageByAssetId')) return [
