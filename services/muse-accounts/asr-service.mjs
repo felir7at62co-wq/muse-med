@@ -233,7 +233,8 @@ export function createAsrService(options){
    job.status=job.status==='queued'?'failed':'uncertain';recordProviderFailure(job,error);await save(job.account,job.id,job);
   }
  }
- async function rateProvider(resource,operation){
+ // Measure the provider cadence after the durable receipt is ready.
+ async function rateProvider(resource,operation,prepare){
   const group=groups.get(resource.quotaGroup),key=group.id+'\0'+operation,prior=rateTails.get(key)??Promise.resolve();
   const pending=(async()=>{
    await prior;
@@ -244,6 +245,7 @@ export function createAsrService(options){
     await delay(wait,undefined,{signal:shutdown.signal});
    }
    if(closing)return false;
+   if(prepare)await prepare();
    nextRequestAt.set(key,performance.now()+1000/group[operation==='submit'?'submitQps':'queryQps']);
    return true;
   })();
@@ -259,8 +261,10 @@ export function createAsrService(options){
     await stat(file);await storage.assertPrivateBeforeUpload();step='upload';
     const object=storage.key(job.taskId,job.audioFormat);await storage.upload(file,object);step='storage-verification';
     const url=await storage.signedReadUrl(object);await storage.assertPrivateAndReadable(object,url);
-    await rateProvider(resource,'submit');if(closing)return;
-    job.status='submitting';job.submittedAtMs=now();await save(job.account,job.id,job);
+    const ready=await rateProvider(resource,'submit',async()=>{
+     job.status='submitting';job.submittedAtMs=now();await save(job.account,job.id,job);
+    });
+    if(!ready)return;
     try{await resource.provider.submit({id:job.taskId,url,language:job.language,format:job.audioFormat,purpose:job.purpose,durationSeconds:job.duration});job.status='processing';}
     catch(error){job.status='uncertain';recordProviderFailure(job,error);}
     await save(job.account,job.id,job);await rm(file,{force:true});

@@ -156,7 +156,7 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 | `resources`、`quotaGroups`、`defaultPoolId` | 资源声明 `poolId`、`appId`、私密 `accessToken`、`quotaGroup`、`maxConcurrentJobs` 及对应 `serviceVersion`／`resourceId`。组声明 `id`、共享 `maxConcurrentJobs` 及可选日额度；默认资源处理未提供用途的请求并保留旧归属。 |
 | `routes` | 用途映射：`{ "subtitles": "flash", "screenplay": "standard-v2" }`；兼容时显式选择 `standard-v1`。混合池须使用这些服务类型并提供对应资源。 |
 | `speakerDiarization`, `speakerDiarizationVersion`, `speakerLongAudioSeconds` | 剧本标准转写默认启用说话人分离，使用版本 `200`，以 180 秒区分短、长音频模式。可显式关闭或选择 `300`，后者不发送仅适用于 `200` 的模式。保留 `speaker_id`、`additions.speaker_id` 和实际 AUC `additions.speaker` 字段，别名冲突会使结果失败；编号区分同一任务内的声音，不能直接确定角色姓名。 |
-| 组 `submitQps`、`queryQps` | 标准版提交与查询的独立频率，各默认 10；合计不超过 20 QPS，不表示在途任务数。 |
+| 组 `submitQps`、`queryQps` | 标准版提交与查询的独立频率，各默认 10；合计不超过 20 QPS。提交间隔从写入持久回执后开始计算。这两个值不表示在途任务数。 |
 | 组 `rollingAudioWindowSeconds`、`maxRollingAudioSeconds` | 可选且成对配置的组时长上限，覆盖所有账号与版本。标准版部署使用 1,800 秒／1,800,000 音频秒，对应官方半小时提交 500 小时限制。 |
 | `legacyAppId` | 用于迁移无资源字段收据的原应用 ID，默认取保留的顶层 `appId`。显式资源池存在旧收据时必须提供此归属，并与默认应用一致。 |
 | `maxConcurrentJobs`、`maxQueuedJobs` | 全局工作线程上限与真实等待容量（默认 20）。旧线程默认 5 且不能超过 5；资源池按组与应用／服务组合计算容量，显式全局上限不得更大。标准版名额保留到完成，包括未知结果；连续确认终止失败时释放名额，不重提原任务。提供方排队超时 `55001011` 属于终止失败。等待队列满时返回 429。 |
