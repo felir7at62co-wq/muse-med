@@ -92,6 +92,28 @@ export function positiveInteger(value: unknown): number {
   return candidate
 }
 
+/** The axes that identify the video option chosen in the Session. */
+export type SelectedVideoOption = Pick<VideoModelOption, 'modelId' | 'platformId' | 'standardId' | 'resolution'>
+
+function selectedModelReadback(storyboard: Record<string, unknown>, selection: SelectedVideoOption | undefined) {
+  if (selection === undefined) return undefined
+  const modelConfig = object(typeof storyboard.modelConfig === 'string'
+    ? JSON.parse(storyboard.modelConfig) : storyboard.modelConfig)
+  const expected = { modelId: selection.modelId, platformId: selection.platformId,
+    standardId: String(selection.standardId), resolution: selection.resolution }
+  const actual = {
+    modelId: wireText(modelConfig.modelId),
+    platformId: wireText(modelConfig.platformId),
+    standardId: wireText(modelConfig.standardId),
+    resolution: wireText(modelConfig.resolution),
+    videoStandardId: wireText(modelConfig.videoStandardId) || wireText(modelConfig.modelVideoStandardId),
+  }
+  const fields = ['modelId', 'platformId', 'standardId', 'resolution'] as const
+  const differingFields = fields.filter(field => expected[field] !== actual[field])
+  return { status: differingFields.length === 0 ? 'matches_session' : 'differs_from_session',
+    expected, actual, differing_fields: differingFields }
+}
+
 /**
  * Route the compatibility generate entry without creating another paid operation.
  * @param ledger - Durable operations whose original methods take precedence over new arguments.
@@ -821,28 +843,6 @@ signal?: AbortSignal): Promise<Record<string, unknown>> {
       + '不沿用此前制作授权进入付费提交，也不因缺素材额外生图。'
       + '仅当本次请求包含已授权生成时，按系统提示词中的固定自检清单核对后调用 submit_video 或 submit_video_batch，'
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。预算和预览指纹不代表提交授权。` }
-}
-
-/** The axes that identify the video option chosen in the Session. */
-export type SelectedVideoOption = Pick<VideoModelOption, 'modelId' | 'platformId' | 'standardId' | 'resolution'>
-
-function selectedModelReadback(storyboard: Record<string, unknown>, selection: SelectedVideoOption | undefined) {
-  if (selection === undefined) return undefined
-  const modelConfig = object(typeof storyboard.modelConfig === 'string'
-    ? JSON.parse(storyboard.modelConfig) : storyboard.modelConfig)
-  const expected = { modelId: selection.modelId, platformId: selection.platformId,
-    standardId: String(selection.standardId), resolution: selection.resolution }
-  const actual = {
-    modelId: wireText(modelConfig.modelId),
-    platformId: wireText(modelConfig.platformId),
-    standardId: wireText(modelConfig.standardId),
-    resolution: wireText(modelConfig.resolution),
-    videoStandardId: wireText(modelConfig.videoStandardId) || wireText(modelConfig.modelVideoStandardId),
-  }
-  const fields = ['modelId', 'platformId', 'standardId', 'resolution'] as const
-  const differingFields = fields.filter(field => expected[field] !== actual[field])
-  return { status: differingFields.length === 0 ? 'matches_session' : 'differs_from_session',
-    expected, actual, differing_fields: differingFields }
 }
 
 /**
