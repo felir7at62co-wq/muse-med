@@ -20,7 +20,7 @@ import { ComputerView } from './computer.js'
 import { t } from './i18n.js'
 import { DRAWER_TAB_LABELS, drawerTabOf, drawerTabs, drawerTools, listTabOf, platformOfTab, projectOfTab, scriptOfTab, terminalOfTab } from './side-model.js'
 import { TerminalCards } from './terminal-cards.js'
-import { BackgroundPanel, botBackgroundSources, groupBackgroundSources } from './background-panel.js'
+import { BackgroundAvatar, botBackgroundSources, groupBackgroundSources } from './background-panel.js'
 import { FilesTree } from './files-tree.js'
 
 // Muse: a row of tabs sits under the Bot's name and each tab's content shows under it: the
@@ -207,7 +207,6 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
       h('div', { className: 'bt-members', role: 'list' }, members.map(member => h(MemberRow, {
         key: member.id, member, entry: entries.find(item => item.id === member.id), room, roster, actions,
       })))),
-    h(BackgroundPanel, { key: 'background', sources: groupBackgroundSources(room, roster.byId), room, bots: roster.byId, readOnly: roster.readOnly, actions }),
     h('div', { key: 'tasks' }, h(TaskBoard, { room, roster, actions })),
     h('div', { key: 'goal' }, h('div', { className: 'bt-section-title' }, t('Goal')),
       h('div', { className: 'bt-kv' },
@@ -381,12 +380,10 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   const pick = key => (elsewhere[key]
     ? () => { void Promise.resolve(elsewhere[key]()).catch(failure => setError(failure?.message ?? String(failure))) }
     : () => setTab(key))
-  return [h(Fragment, { key: 'top' }, top),
-    // Muse: an open project, script or platform tab takes the whole height; the Bot's name stays in the strip above.
-    h('div', { key: 'id', className: 'bt-drawer-id', 'data-move': side, hidden: onDetails ? undefined : true },
-      bot ? h(DetailsAvatar, { bot, main: isMainBot, running, activity: doing,
-        awaitingInput: awaitingInput || roster.questions?.[part] !== undefined, completedAt })
-        : h(MemberPile, { room, roster }),
+  const avatar = bot ? h(DetailsAvatar, { bot, main: isMainBot, running, activity: doing,
+    awaitingInput: awaitingInput || roster.questions?.[part] !== undefined, completedAt })
+    : h(MemberPile, { room, roster })
+  const identity = h(Fragment, null,
       editing
         ? h('input', {
             className: 'bt-drawer-name-input', autoFocus: true, value: draftName, 'aria-label': bot ? t('Bot name') : t('Group name'),
@@ -399,7 +396,17 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
         ? (roster.readOnly
             ? (bot.role ? h('span', { className: 'bt-drawer-role' }, bot.role) : null)
             : h(BotLabel, { key: `role:${bot.id}`, bot, actions, run }))
-        : subtitle ? h('span', { className: 'bt-drawer-role' }, subtitle) : null),
+        : subtitle ? h('span', { className: 'bt-drawer-role' }, subtitle) : null)
+  return [h(Fragment, { key: 'top' }, top),
+    // An open project, script or platform tab takes the whole height.
+    h('div', { key: 'id', className: 'bt-drawer-id', 'data-move': side, hidden: onDetails ? undefined : true },
+      tab === 'details'
+        ? h(BackgroundAvatar, {
+            key: `background:${bot?.id ?? room.id}`,
+            avatar, sources: bot ? botBackgroundSources(bot, part) : groupBackgroundSources(room, roster.byId),
+            botId: bot?.id, room, bots: roster.byId, tabs: terminals, turns, useSessions, readOnly: roster.readOnly, actions,
+          }, identity)
+        : h(Fragment, null, avatar, identity)),
     tabs.length > 1 ? h('div', { key: 'tabs', ref: glide.box, className: 'bt-tabs bt-tabs-many', role: 'tablist', 'data-move': side },
       h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
       // Muse: the row spans the drawer in equal tabs.
@@ -435,8 +442,6 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
           openCurrent: () => { close(); actions.openSession(part ?? sessionId) },
         }),
         h(RunStats, { key: 'stats', bot, part, running, actions }),
-        // Muse: what runs in the background comes first; the settings follow.
-        h(BackgroundPanel, { key: 'background', sources: botBackgroundSources(bot, part), botId: bot.id, tabs: terminals, turns, useSessions, readOnly: roster.readOnly, actions }),
         h('div', { key: 'model', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Model')),
           h(ModelMenu, { bot, roster, actions, run, wide: true, inline: true }),

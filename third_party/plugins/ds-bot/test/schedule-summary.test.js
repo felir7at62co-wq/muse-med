@@ -9,7 +9,7 @@ const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const { outputFiles } = await build({
   stdin: {
     contents: `
-      export { BackgroundPanel, backgroundView, botBackgroundSources, groupBackgroundSources } from './src/client/background-panel.js'
+      export { BackgroundAvatar, backgroundView, botBackgroundSources, groupBackgroundSources } from './src/client/background-panel.js'
       export { publishSchedules } from './src/client/schedules.js'
     `,
     resolveDir: PLUGIN,
@@ -17,10 +17,12 @@ const { outputFiles } = await build({
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
+let effects
 const react = {
   createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
   Fragment: Symbol('Fragment'),
-  useEffect() {}, useLayoutEffect() {}, useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
+  useEffect: effect => { effects?.push(effect) },
+  useLayoutEffect() {}, useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
   useMemo: run => run(), useRef: current => ({ current }), useId: () => 'id',
   createContext: value => ({ Provider: 'Provider', value }), useContext: context => context.value,
   useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
@@ -28,11 +30,13 @@ const react = {
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports, require: name => (name === 'react' ? react : {}),
+  setInterval, clearInterval, setTimeout, clearTimeout,
 })
-const { BackgroundPanel, backgroundView, botBackgroundSources, groupBackgroundSources, publishSchedules } = module.exports
+const { BackgroundAvatar, backgroundView, botBackgroundSources, groupBackgroundSources, publishSchedules } = module.exports
 const plain = value => JSON.parse(JSON.stringify(value))
 
 function buttons(node) {
+  if (Array.isArray(node)) return Array.from(node).flatMap(buttons)
   if (node === null || typeof node !== 'object') return []
   if (typeof node.type === 'function') {
     return ['BackgroundSchedules', 'BackgroundRow', 'BackgroundTurnRow'].includes(node.type.name) ? buttons(node.type(node.props)) : []
@@ -82,7 +86,32 @@ test('the group watches only its own chat and its active members’ sessions in 
   assert.equal(view.groups[1].items[0].sessionId, 'hub')
 })
 
-test('the details panel controls an exact job, an open conversation and scheduled delivery separately', async () => {
+test('background subscriptions watch each owned conversation once and stop with the avatar', () => {
+  const events = []
+  const watch = kind => sessionId => {
+    events.push(['watch', kind, sessionId])
+    return () => events.push(['stop', kind, sessionId])
+  }
+  const actions = {
+    backgroundJobs: () => ({ state: { getSnapshot: () => ({ rows: jobs }) }, watchRows: watch('jobs') }),
+    watchTerminals: watch('terminals'),
+  }
+  const sources = botBackgroundSources(bot, 'current')
+  effects = []
+  BackgroundAvatar({ sources: [...sources, sources[0]], botId: bot.id, actions })
+  const collected = effects
+  effects = undefined
+  const cleaners = collected.map(effect => effect())
+  for (const clean of cleaners) clean?.()
+  assert.deepEqual(events, [
+    ['watch', 'jobs', 'current'], ['watch', 'jobs', 'branch'],
+    ['watch', 'terminals', 'current'], ['watch', 'terminals', 'branch'],
+    ['stop', 'jobs', 'current'], ['stop', 'jobs', 'branch'],
+    ['stop', 'terminals', 'current'], ['stop', 'terminals', 'branch'],
+  ])
+})
+
+test('expanded bubbles control the exact job, open conversation and scheduled delivery separately', async () => {
   publishSchedules(scheduleView)
   const calls = []
   const actions = {
@@ -91,34 +120,39 @@ test('the details panel controls an exact job, an open conversation and schedule
       kill: (session, id) => calls.push(['stop', session, id]),
     }),
     stopOpenPart: (id, session) => calls.push(['stop-turn', id, session]),
-    openSettings: (...args) => calls.push(args),
     scheduleSetActive: async (task, active) => {
       calls.push(['schedule', task.id, task.sessionId, task.updatedAt ?? null, active])
       return scheduleView
     },
   }
-  const controls = buttons(BackgroundPanel({
+  const { props: botBubbles } = BackgroundAvatar({
     sources: botBackgroundSources(bot, 'current'), botId: bot.id, turns: { branch: Date.now() }, actions,
     useSessions: select => select({ byId: { branch: { displayTitle: 'Revising episode two' } } }),
-  }))
+  })
+  const controls = buttons(botBubbles.renderPanel(null))
+  const delivery = botBubbles.rows.find(row => row.label === 'Report progress')
+  assert.ok(delivery)
+  const deliveryControls = buttons(botBubbles.renderPanel(delivery.key))
+  assert.deepEqual(plain(deliveryControls.map(button => button.props['aria-label'])), ['Pause Report progress'])
   const byName = label => controls.find(button => button.props['aria-label'] === label)
   assert.equal(byName('Resume Standup'), undefined)
   assert.equal(byName('Stop Export'), undefined)
   assert.equal(byName('Stop Shared'), undefined)
   await byName('Stop Make a backup').props.onClick()
   await byName('Stop Revising episode two').props.onClick()
-  await byName('Pause Report progress').props.onClick()
-  byName('New task').props.onClick()
+  await deliveryControls[0].props.onClick()
 
-  const groupControls = buttons(BackgroundPanel({ sources: groupBackgroundSources(room, { writer: bot }), room, bots: { writer: bot }, actions }))
+  const groupProps = { sources: groupBackgroundSources(room, { writer: bot }), room, bots: { writer: bot }, actions }
+  const { props: groupBubbles } = BackgroundAvatar(groupProps)
+  const groupControls = buttons(groupBubbles.renderPanel(null))
   assert.equal(groupControls.some(button => button.props['aria-label'] === 'Resume Former standup'), false)
   assert.equal(groupControls.some(button => button.props['aria-label'] === 'Pause Report progress'), false)
   await groupControls.find(button => button.props['aria-label'] === 'Resume Standup').props.onClick()
+  assert.deepEqual(buttons(BackgroundAvatar({ ...groupProps, readOnly: true }).props.renderPanel(null)), [])
   assert.deepEqual(calls, [
     ['stop', 'current', 'real-job'],
     ['stop-turn', 'writer', 'branch'],
     ['schedule', 'routine', 'current', scheduleView.tasks[0].updatedAt, false],
-    ['schedules', 'writer'],
     ['schedule', 'team-routine', 'hub', null, true],
   ])
 })

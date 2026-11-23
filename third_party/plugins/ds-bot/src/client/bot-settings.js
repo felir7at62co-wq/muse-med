@@ -199,9 +199,7 @@ function MemoryCard({ bot, actions }) {
 // A Bot's settings as grouped cards: who it is (avatar, name, label), what it runs on
 // (model), what it does (instructions), its memory and tasks, its Main Bot role, its
 // sidebar place, and copies.
-// Muse: `lean` is the form behind the gear of the details panel. The details page beside it
-// already edits the name, label, model, working folder, instructions, memory and scheduled
-// tasks, so the lean form keeps only what that page lacks.
+// The details page edits the name, label, model, folder, instructions and memory.
 export function BotSettingsForm({ bot, roster, actions, run, lean = false }) {
   const [editing, setEditing] = useState(false)
   const [editorShown, editorLeaving] = useLinger(editing, 120)
@@ -260,7 +258,7 @@ export function BotSettingsForm({ bot, roster, actions, run, lean = false }) {
     h(BotCapabilitiesCard, { bot, roster, actions, run, Card, SwitchRow }),
     h(BotComputerCard, { bot, roster, actions, run, Card, Row }),
     lean || roster.memory === false ? null : h(MemoryCard, { bot, actions }),
-    lean ? null : h(BotSchedules, { bot, roster, actions }),
+    h(BotSchedules, { bot, roster, actions }),
     h(Card, { title: t('Main Bot') },
       onlyMain
         ? h('div', { className: 'bt-set-row bt-bs-row' },
