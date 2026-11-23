@@ -363,7 +363,7 @@ class MediaTests(unittest.TestCase):
 
     def test_a_requeued_exhausted_episode_gets_another_round(self):
         with TemporaryDirectory() as folder:
-            record = Path(folder) / "0014.json"
+            record = Path(folder).resolve() / "0014.json"
             grant_attempts(record, 3)
             self.assertFalse(record.exists())
             save(record, {"status": "running", "attempt": 3})

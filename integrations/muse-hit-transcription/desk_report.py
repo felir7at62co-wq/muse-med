@@ -95,7 +95,13 @@ def report(desk, prices, first=None, last=None):
     def median(key):
         values = [row[key] for row in rows if isinstance(row.get(key), (int, float))]
         return round(statistics.median(values), 3) if values else None
+    # Sub-agents finish several episodes between two desk passes, so per-episode minutes and spend are averaged over
+    # the range: from the first episode's pass to the last one's, and every priced step in between.
+    times = [datetime.strptime(row["doneAt"], "%Y-%m-%d %H:%M:%S") for row in rows]
+    priced = [row["yuan"] for row in rows if isinstance(row.get("yuan"), (int, float))]
     summary = {"title": desk.get("title"), "bot": desk.get("bot"), "episodes": len(rows),
+               "minutesPerEpisode": round((max(times) - min(times)).total_seconds() / 60 / (len(rows) - 1), 1) if len(rows) > 1 else None,
+               "yuanPerEpisode": round(sum(priced) / len(priced), 3) if priced else None,
                "medianMinutes": median("minutes"), "medianYuan": median("yuan"), "medianCoverage": median("coverage"),
                "qaShare": round(sum(1 for row in rows if row.get("qa")) / len(rows), 2) if rows else None,
                "unknownSpeakers": sum(len((row.get("characters") or {}).get("unknown") or []) for row in rows),

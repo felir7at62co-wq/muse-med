@@ -59,7 +59,7 @@ class DeskCase(unittest.TestCase):
     def setUp(self):
         temp = TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         for key, count in ((KEY, 3), (SECOND, 2)):
             cache = self.root / "cache" / key
             cache.mkdir(parents=True)
@@ -253,7 +253,7 @@ class MeasureTest(DeskCase):
 class ToolsTest(unittest.TestCase):
     def test_the_bot_tools_reach_the_desk_through_its_socket(self):
         with TemporaryDirectory(dir="/tmp") as folder:
-            path = str(Path(folder) / "d.sock")
+            path = str(Path(folder).resolve() / "d.sock")
 
             class Fake:
                 def execute(self, request):

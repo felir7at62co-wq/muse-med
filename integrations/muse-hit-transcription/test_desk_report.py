@@ -22,6 +22,7 @@ class ReportTest(unittest.TestCase):
         self.assertEqual([(r["episode"], r["minutes"], r["yuan"]) for r in result["episodes"]],
                          [(31, None, None), (32, 6.0, 0.48), (33, 10.0, 1.44)])
         self.assertEqual(result["summary"]["medianMinutes"], 8.0)
+        self.assertEqual((result["summary"]["minutesPerEpisode"], result["summary"]["yuanPerEpisode"]), (8.0, 0.96))
         self.assertEqual(result["summary"]["medianCoverage"], 0.8)
         only = report(desk, {"m/flash": {"output": 4.8}}, 32, 33)
         self.assertEqual([r["episode"] for r in only["episodes"]], [32, 33])
@@ -29,7 +30,7 @@ class ReportTest(unittest.TestCase):
 
     def test_speakers_are_checked_against_the_character_table(self):
         with TemporaryDirectory() as folder:
-            workspace = Path(folder)
+            workspace = Path(folder).resolve()
             (workspace / "outline").mkdir()
             (workspace / "episodes").mkdir()
             (workspace / "outline" / "人物表.json").write_text(json.dumps({"characters": [

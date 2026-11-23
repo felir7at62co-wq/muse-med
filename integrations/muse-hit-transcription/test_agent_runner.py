@@ -45,7 +45,7 @@ def write_episode(workspace, number, *, frames=(3, 3), word=True, qa=True, asr=T
 class CheckTest(unittest.TestCase):
     def test_a_finished_episode_passes_and_each_missing_part_is_named(self):
         with TemporaryDirectory() as folder:
-            workspace = Path(folder)
+            workspace = Path(folder).resolve()
             write_episode(workspace, 1)
             required, advised, measures = check_episode(workspace, 1, 0.6)
             self.assertEqual((required, advised), ([], []))
@@ -61,7 +61,7 @@ class CheckTest(unittest.TestCase):
 
     def test_low_speech_coverage_is_advice_not_a_block(self):
         with TemporaryDirectory() as folder:
-            workspace = Path(folder)
+            workspace = Path(folder).resolve()
             write_episode(workspace, 1)
             save(workspace / "transcript" / "raw" / "0001-v2.json", [{"text": "完全不同的一大段台词内容" * 5}])
             required, advised, _ = check_episode(workspace, 1, 0.6)
@@ -108,7 +108,7 @@ class ToolResultTest(unittest.TestCase):
 class ControlTest(unittest.TestCase):
     def test_the_control_file_is_read_and_an_unreadable_one_keeps_the_last_request(self):
         with TemporaryDirectory() as folder:
-            path = Path(folder) / "control.json"
+            path = Path(folder).resolve() / "control.json"
             control = Control(path, 3)
             self.assertEqual(control.read(), {"paused": False, "dramasAtOnce": 1, "onlySeries": [], "skipSeries": []})
             path.write_text(json.dumps({"paused": True, "dramasAtOnce": 5, "skipSeries": ["hongguo:" + KEY]}), encoding="utf-8")
@@ -198,7 +198,7 @@ class ProductionTest(unittest.TestCase):
     def setUp(self):
         self.temp = TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        root = Path(self.temp.name)
+        root = Path(self.temp.name).resolve()
         cache = root / "cache" / KEY
         cache.mkdir(parents=True)
         media = []
@@ -446,7 +446,7 @@ class ManyStation(FakeStation):
 class SlotsTest(unittest.TestCase):
     def test_two_dramas_are_worked_on_at_once_by_two_workers(self):
         with TemporaryDirectory() as folder:
-            root = Path(folder)
+            root = Path(folder).resolve()
             for key in (KEY, SECOND):
                 cache = root / "cache" / key
                 cache.mkdir(parents=True)
