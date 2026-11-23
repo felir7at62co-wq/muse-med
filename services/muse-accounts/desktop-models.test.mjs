@@ -11,6 +11,7 @@ import {openStore} from './store.mjs';
 import {createAccountServer} from './gateway.mjs';
 import {openSessionStore} from './session-store.mjs';
 import {openGlobalModels} from './global-models.mjs';
+import {addJubianTestedModels,JUBIAN_TESTED_PROVIDER} from './jubian-tested-models.mjs';
 
 test('Muse login exposes website models, streams through account auth and revokes on logout',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'muse-desktop-models-'));let server;
@@ -122,6 +123,41 @@ async function capacityFixture(t,options={}){
  const generate=(cookie,options={})=>call('/api/desktop-models/studio/chat/completions',{method:'POST',headers:{cookie,origin,'content-type':'application/json'},body:JSON.stringify({model:'writer',messages:[],stream:true}),...options});
  return {call,login,generate};
 }
+
+test('verified Jubian catalog exposes only admitted models and forwards their exact model to the bound supplier',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'muse-jubian-catalog-'));
+ t.after(()=>rm(dir,{recursive:true,force:true}));
+ const secret='pilot-test-key';
+ const source={version:2,revision:0,metadataRevision:0,credentials:{TEST:secret},providers:{
+  original:{api:'openai-completions',baseURL:'https://gw.jubianai.net/v1',apiKeyEnv:'TEST',models:[]},
+ }};
+ const path=join(dir,'models.native');
+ await writeFile(path,JSON.stringify(addJubianTestedModels(source,{credentialRef:'TEST'})),{mode:0o600});
+ const globalModels=await openGlobalModels(path);
+ const requested=[];
+ const fixture=await capacityFixture(t,{globalModels,modelForward:async({config,body,res})=>{
+  requested.push(body.model);
+  assert.equal(config.apiKey,secret);
+  assert.equal(config.baseURL,'https://gw.jubianai.net/v1');
+  assert.equal(body.max_tokens,32000);
+  res.end('data: [DONE]\n\n');
+ }});
+ const cookie=await fixture.login('editor-one');
+ const catalog=await (await fixture.call('/api/desktop-models/providers',{headers:{cookie}})).text();
+ assert.doesNotMatch(catalog,/pilot-test-key|gw\.jubianai/);
+ const pilot=JSON.parse(catalog).providers.find(provider=>provider.id===JUBIAN_TESTED_PROVIDER);
+ const ids=['claude-haiku-5-5','claude-sonnet-5-5','claude-opus-5-5','claude-fable-5-2'];
+ assert.deepEqual(pilot.models.map(model=>model.id),ids);
+ for(const model of pilot.models)assert.deepEqual(model.input,['text']);
+ const call=(model,extra={})=>fixture.call(`/api/desktop-models/${JUBIAN_TESTED_PROVIDER}/chat/completions`,{
+  method:'POST',headers:{cookie,origin:'https://muse.test','content-type':'application/json'},
+  body:JSON.stringify({model,messages:[],stream:true,max_tokens:99999,...extra}),
+ });
+ for(const id of ids)assert.match(await (await call(id)).text(),/DONE/);
+ for(const excluded of ['gpt-6.1-sol','gemini-3.1-pro-preview'])assert.equal((await call(excluded)).status,400);
+ assert.equal((await call(ids[0],{reasoning_effort:'high'})).status,400);
+ assert.deepEqual(requested,ids);
+});
 
 test('Desktop model requests exceed the old account and shared caps without local 429 responses',{timeout:30000},async t=>{
  let release,entered;const held=new Promise(r=>{release=r;}),allStarted=new Promise(r=>{entered=r;});let calls=0;

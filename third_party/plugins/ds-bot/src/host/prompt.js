@@ -40,6 +40,8 @@ const MAIN_RULES = [
 
 const TASK_ROUTING = 'Before assigning a new independent task from your own chat, call list_bot_model_cards. Choose a card by matching the task to its evidence, budget and urgency. Pass that card’s tier as task_difficulty to message_bot with when "queue", a unique request_id and one short routing_reason. If the user asks for a specific model for the task, use that exact task_model instead. Use ordinary message_bot when no card fits or for corrections, follow-ups, user-facing replies and group work.'
 
+const AUTO_TASK_ROUTING = 'Before assigning a new independent task from your own chat, call list_bot_model_cards. Match the tested model and its advertised thinking levels to the work, budget and urgency. For routine work, prefer off or a light level when offered. Use message_bot with when "queue", a unique request_id, that exact task_card, optional task_effort and a short routing_reason. If the user names a model for this task, use task_model with their choice. Keep existing conversations for follow-ups, corrections, user-facing replies and group work.'
+
 export function install(rt) {
   const { ctx } = rt
 
@@ -54,7 +56,7 @@ export function install(rt) {
         bot.instructions ? `\n${bot.instructions}` : '',
         '',
         rt.isMain(self) ? `${MAIN_RULES}\n\n${TEAM_RULES}` : TEAM_RULES,
-        ...(rt.taskRouting !== undefined && rt.isMain(self) && !rt.groupOwners.has(id) ? [`\n- ${TASK_ROUTING}`] : []),
+        ...(rt.taskRouting !== undefined && rt.isMain(self) && !rt.groupOwners.has(id) ? [`\n- ${rt.taskRouting.autoEnabled ? AUTO_TASK_ROUTING : TASK_ROUTING}`] : []),
       ].join('\n')
     }
     const room = rt.roomOf(id)

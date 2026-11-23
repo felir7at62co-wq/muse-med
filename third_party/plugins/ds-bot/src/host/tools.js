@@ -264,7 +264,9 @@ export function install(rt) {
       when: {
         type: 'string',
         enum: ['now', 'queue'],
-        description: '"now" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.' + (rt.taskRouting === undefined ? '' : ' A task with its own model starts in a separate Worker chat.'),
+        description: rt.taskRouting?.autoEnabled
+          ? '"now" (default) can steer ongoing work. Use "queue" for a new independent task. Auto applies to Main Bot assignments to API Workers from its own chat, with the reply returning to the Main Bot. An assignment with its own model opens a separate Worker chat.'
+          : '"now" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.' + (rt.taskRouting === undefined ? '' : ' A task with its own model starts in a separate Worker chat.'),
       },
       request_id: {
         type: 'string',
@@ -272,7 +274,16 @@ export function install(rt) {
       },
       ...(rt.taskRouting === undefined ? {} : {
         task_difficulty: { type: 'string', enum: ['routine', 'advanced'], description: 'Main Bot only. Tier of the card that best fits the new task, chosen using list_bot_model_cards. Requires when "queue", request_id and routing_reason. Leave out for ongoing work and group messages.' },
-        task_model: { type: 'string', description: 'Main Bot only. Exact provider/model ref the user requests for this task. Overrides task_difficulty. Requires when "queue", request_id and routing_reason.' },
+        task_model: {
+          type: 'string',
+          description: 'Main Bot only. Exact provider/model ref the user requests for this task. Overrides '
+            + (rt.taskRouting.autoEnabled ? 'the automatic card, the Worker’s manual choice and task_difficulty.' : 'task_difficulty.')
+            + ' Requires when "queue", request_id and routing_reason.',
+        },
+        ...(rt.taskRouting.autoEnabled ? {
+          task_card: { type: 'string', description: 'Main Bot only. Exact ref of the tested card you choose from list_bot_model_cards. Requires when "queue", request_id and routing_reason. Omit to use the routine card for an unspecified assignment.' },
+          task_effort: { type: 'string', description: 'Main Bot only. Exact advertised thinking level for the selected model. Omit for the provider default. The Worker’s manual level applies unless the user requests a specific task_model.' },
+        } : {}),
         routing_reason: { type: 'string', description: 'One short sentence about why this task needs its assigned model, at most 180 characters. Do not copy task content or private data.' },
       }),
     },
@@ -289,13 +300,23 @@ export function install(rt) {
       if (name.length > NAME_MAX) return `The request_id is ${name.length} characters long; a request name is at most ${NAME_MAX}.`
       const text = absoluteLinks(String(args.message), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
       const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
-      const askedForRoute = args.task_model !== undefined || args.task_difficulty !== undefined || args.routing_reason !== undefined
+      const routing = rt.taskRouting
+      const autoEnabled = routing?.autoEnabled === true
+      const autoFields = args.task_card !== undefined || args.task_effort !== undefined
+      const askedForRoute = autoFields || args.task_model !== undefined || args.task_difficulty !== undefined || args.routing_reason !== undefined
+      const main = rt.isMain(sender.id)
+      const ownQueuedTask = !rt.groupOwners.has(exec.agent?.id) && args.when === 'queue' && args.reply_to !== 'user'
+      const defaultRoute = autoEnabled && main && ownQueuedTask && rt.localAgentOf(target) === undefined
       const routingReason = args.routing_reason?.trim() ?? ''
       if (askedForRoute) {
-        if (rt.taskRouting === undefined || !rt.isMain(sender.id)) refuse('Only a Main Bot can route a task when task routing is enabled.')
-        if (rt.groupOwners.has(exec.agent?.id) || args.when !== 'queue' || args.reply_to === 'user') refuse('Route a new independent task with when "queue" from the Main Bot’s own chat, with its reply coming back to the Main Bot.')
-        if (name === '' || routingReason === '' || routingReason.length > 180 || (args.task_model === undefined && args.task_difficulty === undefined)) refuse('Provide request_id, a task_difficulty or task_model, and a routing_reason of 1–180 characters.')
+        if (routing === undefined || !main) refuse('Only a Main Bot can route a task when task routing is enabled.')
+        if (!ownQueuedTask) refuse('Route a new independent task with when "queue" from the Main Bot’s own chat, with its reply coming back to the Main Bot.')
+        if (autoFields && !autoEnabled) refuse('Auto mode is required for task_card and task_effort.')
+        if (!autoEnabled && args.task_model === undefined && args.task_difficulty === undefined) refuse('Provide a task_difficulty or task_model.')
+        if (routingReason === '' || routingReason.length > 180) refuse('Provide a routing_reason of 1–180 characters.')
       }
+      if ((askedForRoute || defaultRoute) && name === '') refuse('Provide a request_id for this routed assignment.')
+
       // The request the caller named: it is admitted once, and a repeat of it is not sent again.
       const request = name === '' ? undefined : rt.requestIdentity({
         caller: sender.id,
@@ -307,6 +328,7 @@ export function install(rt) {
           reply_to: args.reply_to === 'user' ? 'user' : 'me',
           when: args.when === 'queue' ? 'queue' : 'now',
           ...(askedForRoute ? { task_difficulty: args.task_difficulty, task_model: args.task_model?.trim(), routing_reason: routingReason } : {}),
+          ...(autoFields ? { task_card: args.task_card?.trim(), task_effort: args.task_effort?.trim() } : {}),
         },
       })
       // What the caller gets for a request that was admitted before.
@@ -343,11 +365,12 @@ export function install(rt) {
         // The part of the sender's own chat this request comes from: its answer goes back
         // to that part's thread.
         const fromPart = callerPart(exec).fromPart
-        if (askedForRoute && rt.localAgentOf(target) !== undefined && args.task_model !== undefined) {
+        const local = rt.localAgentOf(target) !== undefined
+        if (local && askedForRoute && (args.task_model !== undefined || autoEnabled)) {
           request.unsent = true
-          return 'This Worker runs on a local agent. Ask a Worker with an API model to take this task with your requested model.'
+          return 'This Worker runs on a local agent. Use its existing model or choose a Worker with an API model for this assignment.'
         }
-        const route = !askedForRoute || rt.localAgentOf(target) !== undefined ? {} : await rt.taskRouting.resolve(args)
+        const route = local || (!askedForRoute && !defaultRoute) ? {} : await routing.resolve(args, target)
         if (route.error !== undefined) {
           request.unsent = true
           return route.error
@@ -357,7 +380,7 @@ export function install(rt) {
           if (long === undefined) { request.unsent = true; return tooLong(text) }
           let sessionId
           try {
-            sessionId = await rt.taskRouting.createThread(target, route.ref)
+            sessionId = await routing.createThread(target, route)
           } catch (error) {
             rt.warn('ds-bot: task model %s for %s could not be set: %s', route.ref, target.name, error)
             request.unsent = true
@@ -371,7 +394,8 @@ export function install(rt) {
             if (rt.botOf(target.id) === undefined) rt.dropWork(exchangeId)
             throw error
           }
-          return `Delivered to ${target.name} in task session ${sessionId}. Selected model: ${route.ref}. Reason: ${routingReason}\nIts reply will arrive later as a new message; do not wait for it.`
+          const thinking = autoEnabled ? ` Thinking: ${route.effort ?? 'provider default'}.` : ''
+          return `Delivered to ${target.name} in task session ${sessionId}. Selected model: ${route.ref}.${thinking} Reason: ${route.reason ?? routingReason}\nIts reply will arrive later as a new message; do not wait for it.`
         }
         const foreground = rt.chatOf(target.id)
         const chat = taskModelOf(target, foreground) === undefined ? foreground : target.openParts?.findLast(part => taskModelOf(target, part.sessionId) === undefined)?.sessionId
@@ -443,7 +467,9 @@ export function install(rt) {
       await rt.load()
       if (!rt.isMain(rt.selfOf(exec.agent?.id)) || rt.groupOwners.has(exec.agent?.id)) return 'Only Main Bots can look up task routing model cards from their own chats.'
       return await rt.taskRouting.modelCards()
-        ?? 'No task routing model cards are available. Use the Worker’s existing model, or check the exact model the user requested with list_bot_models.'
+        ?? (rt.taskRouting.autoEnabled
+          ? 'No tested models are available for automatic dispatch. Check list_bot_models for an exact model the user requested, or wait for a tested route.'
+          : 'No task routing model cards are available. Use the Worker’s existing model, or check the exact model the user requested with list_bot_models.')
     },
   }))
 
@@ -528,7 +554,11 @@ export function install(rt) {
         const served = new Set((await rt.catalog()).filter(entry => entry.needsKey !== true && rt.isLocalAgentRef?.(entry.ref) !== true).map(entry => entry.ref))
         const fallback = [state.prefs.defaultBotModel, creator?.model].find(ref => ref && served.has(ref))
         const model = args.model || fallback
-        const bot = await rt.createBot({ ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, workDir, effort: args.effort, section: args.section, createdBy: creator?.id })
+        const modelMode = rt.taskRouting?.autoEnabled && !args.model ? args.effort ? 'manual' : 'auto' : undefined
+        const bot = await rt.createBot({
+          ...args, avatar: avatar === undefined ? undefined : { image: avatar }, model, modelMode, workDir,
+          effort: args.effort, section: args.section, createdBy: creator?.id,
+        })
         return `Created ${bot.name}${workDir ? `, working in ${workDir}` : ''}. It is greeting the user now.`
       } catch (error) {
         return `Could not create the Bot: ${error.message}`

@@ -66,10 +66,13 @@ export function install(rt) {
     // `mainBotId` is the first Main Bot and the default landing target.
     mainBotId: state.mainBotIds[0] ?? null,
     mainBotIds: state.mainBotIds,
+    ...(rt.taskRouting?.autoEnabled === true ? { autoModels: true } : {}),
     // `sessionId` is the Bot's current own-chat part; `parts` its earlier ones.
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
-    bots: Object.values(state.bots).map(({ segments, kickoff, openParts, ...bot }) => {
+    bots: Object.values(state.bots).map(built => {
+      const { segments, kickoff, openParts, modelMode: _storedMode, ...bot } = built
+      const modelMode = rt.modelModeOf?.(built)
       const tail = rt.chatTail(rt.chatOf(bot.id))
       // `openParts` are the parts opened while the Bot was busy: live, with their own
       // earlier parts, and each one's run state read from the live turns.
@@ -77,9 +80,11 @@ export function install(rt) {
         sessionId: part.sessionId,
         startedAt: part.startedAt ?? 0,
         parts: (part.segments ?? []).map(segment => segment.sessionId),
+        ...(rt.taskRouting?.autoEnabled === true && part.taskModel ? { taskModel: part.taskModel, taskEffort: part.taskEffort } : {}),
       }))
       return {
         ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId),
+        ...(modelMode === undefined ? {} : { modelMode }),
         ...(open.length > 0 ? { openParts: open } : {}), ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
         ...(rt.localAgentBadge?.(bot.model ?? bot.appliedModel) !== undefined ? { engine: rt.localAgentBadge(bot.model ?? bot.appliedModel) } : {}),
@@ -408,7 +413,7 @@ export function install(rt) {
         }
         case 'create-bot': {
           await rt.bootstrap()
-          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir, section: body.section, sectionId: body.sectionId })
+          const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, modelMode: body.modelMode, effort: body.effort, workDir: body.workDir, section: body.section, sectionId: body.sectionId })
           return ok(bot)
         }
         case 'update-bot':

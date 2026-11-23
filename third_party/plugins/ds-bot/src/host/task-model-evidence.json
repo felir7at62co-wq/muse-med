@@ -3,7 +3,8 @@
     "Rates checked 2026-11-22 PT. Jubian peak charges matched test-account debits. Bailian prices are published rates.",
     "Streaming measured 2026-11-22 PT from an isolated test host directly to suppliers with short text, thinking off, 64 output tokens maximum and no retries. P95 is the observed maximum. Use these timings for the sampled short requests.",
     "Quality uses five paired synthetic Chinese Muse tasks with thinking off and up to 1024 output tokens. Predeclared checks contribute 80 points and one blinded editorial review contributes 20. Use the case scores as pilot evidence.",
-    "In a separate thinking-on continuity audit, 0/3 produced an answer at 1536 output tokens. At 4096, 0/2 produced an answer (one exhausted the cap and one timed out)."
+    "In a separate thinking-on continuity audit, 0/3 produced an answer at 1536 output tokens. At 4096, 0/2 produced an answer (one exhausted the cap and one timed out).",
+    "The added Jubian candidates use historical tool or stream receipts and account-sample rates. The short-request latency and screenplay pilot above apply to the DeepSeek routes."
   ],
   "models": {
     "muse-cloud-deepseek-flash-auto/deepseek-v4.1-flash": {
@@ -176,6 +177,142 @@
         }
       ],
       "finding": "In this pilot Pro was strongest for continuation between locked episodes (95 vs Flash 75/70). Prefer it when a draft must reconcile multiple fixed episodes and pass a precise state forward."
+    },
+    "muse-cloud-jubian-tested/claude-haiku-5-5": {
+      "guidance": "Best suited to bounded text classification, structured extraction and short summaries.",
+      "verification": "Jubian text tool call and subsequent answer passed on November 20; November 22 account sample recorded successful streams with this request model. The tool probe did not record the returned model identifier. This route uses supplier-default thinking. Comparative screenplay scores are pending.",
+      "channels": [
+        {
+          "name": "Jubian",
+          "wireModel": "claude-haiku-5-5",
+          "price": {
+            "basis": "account-sample",
+            "sources": [
+              "https://gw.jubianai.net/api/log/token",
+              "https://platform.claude.com/docs/en/models/haiku-5-5/overview"
+            ],
+            "schedule": "Derived from November 22 Jubian test-account debits. Use these rates as an account sample.",
+            "windows": [
+              {
+                "period": "observed",
+                "input": 0.17,
+                "cachedInput": 0.017,
+                "output": 0.85
+              }
+            ]
+          },
+          "historicalSample": {
+            "successfulRows": 2,
+            "firstResponseMs": [
+              2974,
+              3128
+            ],
+            "observedOn": "2026-11-22 PT"
+          }
+        }
+      ]
+    },
+    "muse-cloud-jubian-tested/claude-sonnet-5-5": {
+      "guidance": "Consider for writing, analysis and routine coding when this model’s style or tool behavior fits the brief.",
+      "verification": "Jubian text tool call and subsequent answer passed on November 20; November 22 account sample recorded successful streams with this request model. The tool probe did not record the returned model identifier. This route uses supplier-default thinking. Comparative screenplay scores are pending.",
+      "channels": [
+        {
+          "name": "Jubian",
+          "wireModel": "claude-sonnet-5-5",
+          "price": {
+            "basis": "account-sample",
+            "sources": [
+              "https://gw.jubianai.net/api/log/token",
+              "https://platform.claude.com/docs/en/models/sonnet-5-5/overview"
+            ],
+            "schedule": "Derived from November 22 Jubian test-account debits. Use these rates as an account sample.",
+            "windows": [
+              {
+                "period": "observed",
+                "input": 3.4,
+                "cachedInput": 0.17,
+                "output": 17
+              }
+            ]
+          },
+          "historicalSample": {
+            "successfulRows": 2,
+            "firstResponseMs": [
+              3656,
+              4441
+            ],
+            "observedOn": "2026-11-22 PT"
+          }
+        }
+      ]
+    },
+    "muse-cloud-jubian-tested/claude-opus-5-5": {
+      "guidance": "Consider for evidence synthesis, extended editing and complex text or code tasks.",
+      "verification": "Jubian text tool call and subsequent answer passed on November 20; November 22 account sample recorded successful streams with this request model. The tool probe did not record the returned model identifier. This route uses supplier-default thinking. Comparative screenplay scores are pending.",
+      "channels": [
+        {
+          "name": "Jubian",
+          "wireModel": "claude-opus-5-5",
+          "price": {
+            "basis": "account-sample",
+            "sources": [
+              "https://gw.jubianai.net/api/log/token",
+              "https://platform.claude.com/docs/en/models/opus-5-5/overview"
+            ],
+            "schedule": "Derived from November 22 Jubian test-account debits. Use these rates as an account sample.",
+            "windows": [
+              {
+                "period": "observed",
+                "input": 6.8,
+                "cachedInput": 0.34,
+                "output": 34
+              }
+            ]
+          },
+          "historicalSample": {
+            "successfulRows": 2,
+            "firstResponseMs": [
+              3812,
+              4730
+            ],
+            "observedOn": "2026-11-22 PT"
+          }
+        }
+      ]
+    },
+    "muse-cloud-jubian-tested/claude-fable-5-2": {
+      "guidance": "Consider for unusually difficult multistep text reasoning when the added cost fits the task.",
+      "verification": "Jubian text tool call and subsequent answer passed on November 20; November 22 account sample recorded successful streams with this request model. The tool probe did not record the returned model identifier. This route uses supplier-default thinking. Comparative screenplay scores are pending.",
+      "channels": [
+        {
+          "name": "Jubian",
+          "wireModel": "claude-fable-5-2",
+          "price": {
+            "basis": "account-sample",
+            "sources": [
+              "https://gw.jubianai.net/api/log/token",
+              "https://platform.claude.com/docs/en/models/fable-5-2/overview"
+            ],
+            "schedule": "Derived from November 22 Jubian test-account debits. Use these rates as an account sample.",
+            "windows": [
+              {
+                "period": "observed",
+                "input": 13.6,
+                "cachedInput": null,
+                "output": 68
+              }
+            ]
+          },
+          "historicalSample": {
+            "successfulRows": 2,
+            "firstResponseMs": [
+              1449,
+              2121
+            ],
+            "observedOn": "2026-11-22 PT"
+          }
+        }
+      ]
     }
   },
   "pricingCheckedOn": "2026-11-22 PT",

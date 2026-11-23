@@ -213,10 +213,26 @@ export function install(rt) {
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
-  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false, section, sectionId, greet = true }) {
+  const autoModelsEnabled = () => rt.taskRouting?.autoEnabled === true
+  const autoModelEligible = ref => autoModelsEnabled() && rt.isLocalAgentRef?.(ref) !== true
+  const modelModeOf = bot => bot !== undefined && autoModelEligible(bot.model ?? bot.appliedModel)
+    ? bot.modelMode === 'manual' ? 'manual' : 'auto'
+    : undefined
+
+  function requestedModelMode(value, ref) {
+    if (value === undefined) return undefined
+    if (value !== 'auto' && value !== 'manual') throw new Error('Choose automatic or manual model selection')
+    if (!autoModelEligible(ref)) throw new Error('Automatic model selection is unavailable for this Bot')
+    if (value === 'manual' && ref === undefined) throw new Error('Pick a model before switching to manual')
+    return value
+  }
+
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, modelMode, effort, workDir, copyOf, pickModel = false, section, sectionId, greet = true }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultBotModel()
+    const selectedMode = requestedModelMode(modelMode, modelRef)
+    const pinned = selectedMode === 'manual' || (selectedMode === undefined && !!model && autoModelEligible(modelRef))
     // A thinking level needs a model to resolve against; with none it would be dropped
     // silently, so the create fails before a Session is made.
     if (effort && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
@@ -240,6 +256,7 @@ export function install(rt) {
         ...(isColor(currentColor(color)) ? { color: currentColor(color) } : {}),
         ...(cleanAvatarValue ? { avatar: cleanAvatarValue } : {}),
         ...(modelRef ? { model: modelRef } : {}),
+        ...(pinned ? { modelMode: 'manual' } : {}),
         ...(effortId ? { effort: effortId } : {}),
         ...(dir ? { workDir: dir } : {}),
         ...(resolvedSecId ? { sectionId: resolvedSecId } : {}),
@@ -379,6 +396,7 @@ export function install(rt) {
       color: bot.color,
       avatar: bot.avatar,
       model: served ? bot.model : undefined,
+      modelMode: served ? modelModeOf(bot) : undefined,
       // A copy of a Bot on the model's own default stays on it (null marks the
       // explicit Default pick); else the create would inherit the profile level.
       effort: served ? (bot.effort ?? null) : undefined,
@@ -424,6 +442,10 @@ export function install(rt) {
     // A new level resolves against the model the Bot will run on: the new one, the
     // model it keeps, or — the model cleared — the one it last ran on.
     const effortRef = modelRef === undefined ? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
+    if (patch.modelMode !== undefined && actorId !== undefined) throw new Error('Only the user can set a Bot’s model selection mode')
+    const selectedMode = requestedModelMode(patch.modelMode, effortRef)
+    const pinned = selectedMode === 'manual' || (selectedMode === undefined && autoModelEligible(effortRef)
+      && (typeof modelRef === 'string' || patch.effort !== undefined))
     let effortId
     if (patch.effort !== undefined) {
       if (patch.effort === null || patch.effort === '') effortId = null
@@ -472,6 +494,8 @@ export function install(rt) {
       else bot.effort = effortId
       modelChanged = true
     }
+    if (selectedMode === 'auto') delete bot.modelMode
+    else if (pinned) bot.modelMode = 'manual'
     if (patch.permission !== undefined) await rt.setPermission(bot, patch.permission)
     if (browserGrants !== undefined) {
       if (browserGrants === null) delete bot.browserGrants
@@ -1040,13 +1064,13 @@ export function install(rt) {
     if (state.mainBotIds.some(id => rt.botOf(id))) return
     // Only the team's first Main Bot is stored as the Muse spider; other Bots get a
     // look from their id, and a Bot made Main Bot later keeps its own.
-    bootstrapping ??= createBot({ name: defaults.mainName, role: defaults.mainRole, main: true, color: 'violet', avatar: { shape: 'muse-spider' }, pickModel: true })
+    bootstrapping ??= createBot({ name: defaults.mainName, role: defaults.mainRole, main: true, color: 'violet', avatar: { shape: 'muse-spider' }, pickModel: !autoModelsEnabled() })
       .finally(() => { bootstrapping = null })
     await bootstrapping
   }
 
   Object.assign(rt, {
-    ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags, freshBotName: freshName,
+    ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, modelModeOf, setFlags, freshBotName: freshName,
     saveSection, reorderSections, deleteSection,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     addRoomTodo, setRoomTodoDone, removeRoomTodo, clearDoneRoomTodos,

@@ -110,6 +110,7 @@ it('uses a different account supplier after a transient failure without duplicat
 
 it.each([
   ['deepseek-flash-auto', 'deepseek-v4.1-flash'], ['jubian-pro', 'deepseek-v4-pro'],
+  ['jubian-tested', 'claude-sonnet-5-5'],
 ])('keeps a task on %s when its gateway reports a supplier failure', async (id, model) => {
   const routed = provider(id)
   routed.models[0] = { ...routed.models[0]!, id: model }

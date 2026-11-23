@@ -46,6 +46,8 @@ const modelName = (id: string): string => id.slice(id.lastIndexOf('/') + 1)
 type AccountModel = z.infer<typeof metadata>['providers'][number]['models'][number]
 type FailoverRoute = { readonly provider: string; readonly model: AccountModel }
 
+const jubianTestedRelay = 'jubian-tested'
+
 /** Only known supplier failures are safe to repeat on another account route. */
 const failoverCodes = new Set(['QUOTA', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED', 'EMPTY_RESPONSE'])
 
@@ -191,7 +193,7 @@ export class MuseModels {
     const recovery = await next()
     if (recovery !== undefined) return recovery
     if (!provider.startsWith('muse-cloud-') || !failoverCodes.has(failure.code) || this.isStopped() || signal.aborted) return
-    if (provider === `muse-cloud-${deepSeekFlashRelay}` || provider === 'muse-cloud-jubian-pro') return
+    if ([deepSeekFlashRelay, 'jubian-pro', jubianTestedRelay].some(route => provider === `muse-cloud-${route}`)) return
     const owner = scopeOf(this.ctx)
     if (owner !== undefined && !scopeChainOf(agent).includes(owner)) return
     const header = agent.session.requestHeader()

@@ -114,7 +114,7 @@ async function boot(home, seed, { taskRouting, modelCatalog = {}, unavailable = 
       selectModel: async (request) => {
         if (rejectSelection?.(request)) throw new Error('Model selection refused')
         selections.push(request)
-        const selected = { provider: request.provider, model: request.model }
+        const selected = { provider: request.provider, model: request.model, ...(request.reasoningEffort === undefined ? {} : { reasoningEffort: request.reasoningEffort }) }
         agentOf(request.sessionId).model.select(selected)
         return { selected }
       },
@@ -263,6 +263,136 @@ test('a task model selection failure delivers nothing and leaves its request fre
   fail = false
   assert.match(await tool('message_bot', args, 'a'), /task session s2.*Selected model/)
   assert.equal(agentOf('s2').calls.length, 1)
+})
+
+const autoTaskRouting = { enabled: true, mode: 'auto' }
+const pilotFlash = 'muse-cloud-deepseek-flash-auto/deepseek-v4.1-flash'
+const pilotPro = 'muse-cloud-jubian-pro/deepseek-v4-pro'
+const pilotCatalog = {
+  'muse-cloud-deepseek-flash-auto': [{ id: 'deepseek-v4.1-flash', reasoning: { efforts: [{ id: 'off' }, { id: 'low' }] } }],
+  'muse-cloud-jubian-pro': [{ id: 'deepseek-v4-pro', reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } }],
+  'muse-cloud-pilot-unverified': [{ id: 'unknown', reasoning: { efforts: [{ id: 'high' }] } }],
+}
+const pilotAssignment = {
+  to: 'Writer', message: 'Reconcile the continuity of the final episodes.', when: 'queue',
+  request_id: 'pilot-reconcile', task_card: pilotPro, task_effort: 'high', routing_reason: 'Compare several conflicting drafts.',
+}
+
+test('a Worker created by the Main Bot defaults to Auto even with a configured chat model', async (t) => {
+  const home = tempHome()
+  const seed = team()
+  seed.prefs.defaultBotModel = pilotFlash
+  const { rt, stop, tool } = await boot(home, seed, { taskRouting: autoTaskRouting, modelCatalog: pilotCatalog })
+  t.after(async () => { await stop(); cleanup(home) })
+  assert.match(await tool('create_bot', { name: 'Pilot Worker', role: 'Edit', instructions: 'Review scripts.' }, 'a'), /^Created Pilot Worker/)
+  const created = rt.findBot('Pilot Worker')
+  assert.equal(created.model, pilotFlash)
+  assert.equal(rt.modelModeOf(created), 'auto')
+  assert.match(await tool('create_bot', { name: 'Manual Worker', role: 'Edit', instructions: 'Review scripts.', effort: 'off' }, 'a'), /^Created Manual Worker/)
+  assert.equal(rt.modelModeOf(rt.findBot('Manual Worker')), 'manual')
+})
+
+test('the automatic mode uses a tested live card and thinking level and records one durable assignment', async (t) => {
+  const home = tempHome()
+  const { ctx, rt, agentOf, tool, stop, selections } = await boot(home, team(), { taskRouting: autoTaskRouting, modelCatalog: pilotCatalog })
+  t.after(async () => { await stop(); cleanup(home) })
+  const cards = await tool('list_bot_model_cards', {}, 'a')
+  assert.match(cards, /deepseek-v4-pro.*Advertised thinking: low, high/)
+  assert.doesNotMatch(cards, /pilot-unverified/)
+  assert.match(ctx.sections.get('bot-identity').text({ agent: { id: 'a' } }), /that exact task_card, optional task_effort/)
+  const receipt = await tool('message_bot', pilotAssignment, 'a')
+  assert.match(receipt, /task session s1.*Selected model: muse-cloud-jubian-pro\/deepseek-v4-pro.*Thinking: high/)
+  assert.deepEqual(selections, [
+    { sessionId: 's1', provider: 'muse-cloud-jubian-pro', model: 'deepseek-v4-pro', reasoningEffort: 'high', saveDefault: false },
+  ])
+  assert.equal(rt.botOf('b').openParts[0].taskModel, pilotPro)
+  assert.equal(rt.botOf('b').openParts[0].taskEffort, 'high')
+  assert.equal(agentOf('s1').calls[0][2].reasoningEffort, 'high')
+  assert.equal(agentOf('b').calls.length, 0)
+  assert.equal(await tool('message_bot', pilotAssignment, 'a'), receipt)
+  await assert.rejects(tool('message_bot', { ...pilotAssignment, task_effort: 'low' }, 'a'), /already used for a different request/)
+  assert.equal(selections.length, 1)
+  const light = { ...pilotAssignment, request_id: 'pilot-format', task_card: pilotFlash, task_effort: 'low', routing_reason: 'Light formatting.' }
+  assert.match(await tool('message_bot', light, 'a'), /deepseek-v4\.1-flash.*Thinking: low/)
+  assert.equal(agentOf('s2').calls[0][2].reasoningEffort, 'low')
+})
+
+test('Auto defaults an unspecified queue to the routine card, and rejects unverified or unsupported choices before delivery', async (t) => {
+  const home = tempHome()
+  const { agentOf, tool, stop, selections } = await boot(home, team(), { taskRouting: autoTaskRouting, modelCatalog: pilotCatalog })
+  t.after(async () => { await stop(); cleanup(home) })
+  assert.match(await tool('message_bot', { ...pilotAssignment, task_card: 'muse-cloud-pilot-unverified/unknown' }, 'a'), /Choose an available tested route/)
+  assert.match(await tool('message_bot', { ...pilotAssignment, task_effort: 'max' }, 'a'), /Available: low, high/)
+  assert.equal(selections.length, 0)
+  assert.equal(agentOf('b').calls.length, 0)
+  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'Check the formatting.', when: 'queue' }, 'a'), /Provide a request_id/)
+  const receipt = await tool('message_bot', { to: 'Writer', message: 'Check the formatting.', when: 'queue', request_id: 'pilot-reconcile' }, 'a')
+  assert.match(receipt, /deepseek-v4\.1-flash.*Thinking: provider default.*routine model card/)
+  assert.equal(agentOf('s1').calls.length, 1)
+  assert.equal(selections.length, 1)
+  await tool('message_bot', { to: 'Writer', message: 'Add the missing note.' }, 'a')
+  assert.equal(agentOf('b').calls.length, 1)
+  assert.equal(selections.length, 1)
+})
+
+test('Auto selects a verified third card and leaves non-configurable thinking on the provider default', async (t) => {
+  const home = tempHome()
+  const sonnet = 'muse-cloud-jubian-tested/claude-sonnet-5-5'
+  const { agentOf, tool, stop, selections } = await boot(home, team(), {
+    taskRouting: autoTaskRouting,
+    modelCatalog: { ...pilotCatalog, 'muse-cloud-jubian-tested': [{ id: 'claude-sonnet-5-5' }] },
+  })
+  t.after(async () => { await stop(); cleanup(home) })
+  const cards = await tool('list_bot_model_cards', {}, 'a')
+  assert.match(cards, /muse-cloud-jubian-tested\/claude-sonnet-5-5/)
+  assert.match(cards, /Account-sample CNY per 1M tokens/)
+  const sonnetArgs = { ...pilotAssignment, task_card: sonnet }
+  assert.match(await tool('message_bot', sonnetArgs, 'a'), /does not advertise thinking levels/)
+  const { task_effort: _effort, ...defaults } = sonnetArgs
+  assert.match(await tool('message_bot', defaults, 'a'), /claude-sonnet-5-5.*Thinking: provider default/)
+  assert.deepEqual(selections.map(selection => [selection.model, selection.reasoningEffort]), [['claude-sonnet-5-5', undefined]])
+  assert.equal(agentOf('b').calls.length, 0)
+})
+
+test('an unavailable automatic card does not deliver to the Worker’s normal chat', async (t) => {
+  const home = tempHome()
+  const { agentOf, tool, stop, selections } = await boot(home, team(), {
+    taskRouting: autoTaskRouting, modelCatalog: pilotCatalog, unavailable: ['muse-cloud-jubian-pro'],
+  })
+  t.after(async () => { await stop(); cleanup(home) })
+  assert.match(await tool('message_bot', pilotAssignment, 'a'), /is unavailable/)
+  assert.equal(agentOf('b').calls.length, 0)
+  assert.equal(selections.length, 0)
+})
+
+test('the Worker’s manual model and thinking take precedence except for an explicit task override', async (t) => {
+  const home = tempHome()
+  const seed = team()
+  Object.assign(seed.bots.b, { modelMode: 'manual', model: pilotFlash, effort: 'off' })
+  const { agentOf, tool, stop, selections } = await boot(home, seed, { taskRouting: autoTaskRouting, modelCatalog: pilotCatalog })
+  t.after(async () => { await stop(); cleanup(home) })
+  assert.match(await tool('message_bot', pilotAssignment, 'a'), /deepseek-v4\.1-flash.*Thinking: off.*manual model setting/)
+  assert.match(await tool('message_bot', { ...pilotAssignment, request_id: 'user-picked-pro', task_model: pilotPro }, 'a'), /deepseek-v4-pro.*Thinking: high/)
+  assert.deepEqual(selections.map(selection => [selection.model, selection.reasoningEffort]), [
+    ['deepseek-v4.1-flash', 'off'], ['deepseek-v4-pro', 'high'],
+  ])
+  assert.equal(agentOf('b').calls.length, 0)
+})
+
+test('an automatic task resumes after restart on the same Session, model and thinking level', async (t) => {
+  const home = tempHome()
+  const first = await boot(home, team(), { taskRouting: autoTaskRouting, modelCatalog: pilotCatalog })
+  const receipt = await first.tool('message_bot', pilotAssignment, 'a')
+  await first.stop()
+  const second = await boot(home, undefined, { taskRouting: autoTaskRouting, modelCatalog: pilotCatalog, recordedEvents: { s1: first.agentOf('s1').events } })
+  t.after(async () => { await second.stop(); cleanup(home) })
+  assert.equal(second.rt.botOf('b').openParts[0].taskEffort, 'high')
+  assert.equal(await second.tool('message_bot', pilotAssignment, 'a'), receipt)
+  for (let retry = 0; retry < 100 && second.agentOf('s1').calls.length === 0; retry += 1) await delay(50)
+  assert.deepEqual(second.agentOf('s1').calls[0][2], { provider: 'muse-cloud-jubian-pro', model: 'deepseek-v4-pro', reasoningEffort: 'high' })
+  assert.equal(freshSends(second.agentOf('s1')).length, 0)
+  assert.equal(second.agentOf('b').calls.length, 0)
+  assert.equal(second.selections.length, 0)
 })
 
 test('a missed task delivery remains pinned to its Worker thread and a retry gets the original receipt', async (t) => {

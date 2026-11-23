@@ -92,6 +92,15 @@ test('the form opens on Muse models and can create at once', () => {
   assert.equal(button('Create').props.disabled, false)
 })
 
+test('the pilot starts a new Muse Bot in Auto with a concrete chat model', () => {
+  render({ models: MODELS, autoModels: true })
+  assert.equal(collect(n => n.props?.['aria-label'] === 'Model: Auto').length, 1)
+  assert.match(flatten(concrete).join(' '), /Chat model: Flash/)
+  assert.match(flatten(concrete).join(' '), /The Main Bot chooses a model and thinking level for each assignment/)
+  button('Local agent').props.onClick()
+  assert.equal(collect(n => n.props?.['aria-label'] === 'Model: Auto').length, 0)
+})
+
 test('a name another Bot has blocks Create on both sides', () => {
   render({ models: MODELS, bots: [{ id: 'a', name: 'Ada' }] })
   collect(n => n.type === 'input' && n.props['aria-label'] === 'Name')[0].props.onChange({ target: { value: 'Ada' } })

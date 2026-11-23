@@ -195,7 +195,7 @@ test('rapid effort picks collapse onto the latest level and save in order', asyn
 })
 
 // The details panel's form: refs get stand-ins, since no DOM backs them.
-function inline({ model = 'official/flash', effort, actions = {}, withEfforts } = {}) {
+function inline({ model = 'official/flash', modelMode, effort, actions = {}, withEfforts } = {}) {
   listeners.length = 0
   const calls = { updates: [], refreshed: 0, focused: 0 }
   const roster = {
@@ -207,7 +207,7 @@ function inline({ model = 'official/flash', effort, actions = {}, withEfforts } 
       { ref: 'plain/chat', provider: 'plain', providerName: 'Plain', name: 'Chat', reasoning: { efforts: [] } },
     ],
   }
-  const bot = { id: 'writer', name: 'Writer', model, effort }
+  const bot = { id: 'writer', name: 'Writer', model, modelMode, effort }
   const element = ModelMenu({
     bot, roster, wide: true, inline: true, withEfforts,
     run: promise => Promise.resolve(promise).then(() => true),
@@ -289,6 +289,33 @@ test('picking a model closes the list, saves it, and returns focus to the trigge
   assert.equal(JSON.stringify(calls.updates), JSON.stringify([['writer', { model: 'official/pro' }]]))
   // The slider stays where it was.
   assert.equal(view().slider.props.open, true)
+})
+
+test('Auto shows the chat model and lets the user pin that same model for assignments', () => {
+  const { view, calls } = inline({ modelMode: 'auto' })
+  assert.equal(view().trigger.props['aria-label'], 'Model: Auto')
+  assert.equal(nodes(view().trigger, entry => entry.props.className === 'bt-model-provider')[0].children[0], 'Chat model: DeepSeek Flash')
+  assert.equal(view().slider.props.open, false)
+  view().trigger.props.onClick()
+  const auto = nodes(view().list, entry => entry.props.role === 'menuitemradio')[0]
+  assert.equal(auto.props['aria-checked'], true)
+  const rows = nodes(view().list, entry => entry.props.onPick)[0]
+  assert.equal(rows.props.current, undefined)
+  rows.props.onPick('official/flash')
+  assert.equal(JSON.stringify(calls.updates), JSON.stringify([['writer', { model: 'official/flash' }]]))
+})
+
+test('a manual pick can return to Auto without submitting a different chat model', () => {
+  const { view, calls } = inline({ modelMode: 'manual' })
+  assert.equal(view().trigger.props['aria-label'], 'Model: DeepSeek Flash')
+  assert.equal(view().slider.props.open, true)
+  view().trigger.props.onClick()
+  const auto = nodes(view().list, entry => entry.props.role === 'menuitemradio')[0]
+  assert.equal(auto.props['aria-checked'], false)
+  auto.props.onClick()
+  assert.equal(view().list.props.open, false)
+  assert.equal(calls.focused, 1)
+  assert.equal(JSON.stringify(calls.updates), JSON.stringify([['writer', { modelMode: 'auto' }]]))
 })
 
 test('Escape and a click outside close the list; a click inside leaves it open', () => {

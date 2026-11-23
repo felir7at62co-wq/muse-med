@@ -28,6 +28,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [name, setName] = useState(start?.name ?? '')
   const [mode, setMode] = useState('model')
   const [model, setModel] = useState(() => startModel(roster))
+  const [pickedMode, setPickedMode] = useState(undefined)
   const [agentModel, setAgentModel] = useState('')
   const [ownLook, setOwnLook] = useState(false)
   const [effort, setEffort] = useState(undefined)
@@ -39,6 +40,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
   const [reading, readModels] = useAgentModels(actions)
   const local = mode === 'local'
   const chosen = local ? agentModel : model
+  const modelMode = !local && roster.autoModels === true ? pickedMode ?? 'auto' : undefined
   useEscape(onBack)
   // Inside Settings the form opens below other sections, so it scrolls itself into view.
   useEffect(() => { if (inline) frame.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, [])
@@ -52,7 +54,7 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
     setError('')
     setBusy(true)
     try {
-      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, effort: local ? undefined : effort, brief, ownLook, sectionId: start?.sectionId }))
+      const bot = await actions.createBot(createPayload({ name: finalName, look, image, model: chosen, modelMode, effort: local ? undefined : effort, brief, ownLook, sectionId: start?.sectionId }))
       onCreated(bot)
     } catch (failure) {
       setError(failure?.message ?? String(failure))
@@ -106,8 +108,15 @@ export function CreateBot({ roster, actions, start, brief = '', onBack, canGoBac
       h(CliList, { ...localAgents, selected: routeOf(chosen), onPick: pickAgent, actions })) : null,
     !local || chosen !== '' ? h('div', { className: 'bt-field' },
       h('span', { className: 'bt-field-label' }, t('Model'), local && reading ? h(ReadingModels) : null),
-      h(ModelMenu, { bot: { id: 'new-bot', name: finalName, model: chosen || undefined, effort: local ? undefined : effort }, roster, actions, wide: true, onPick: (ref) => { if (local) { setAgentModel(ref); return } setModel(ref); setEffort(undefined) }, onPickEffort: picked => setEffort(picked ?? null) }),
-      h('span', { className: 'bt-note' }, chosen
+      h(ModelMenu, {
+        bot: { id: 'new-bot', name: finalName, model: chosen || undefined, modelMode, effort: local ? undefined : effort }, roster, actions, wide: true,
+        onPick: (ref) => { if (local) { setAgentModel(ref); return } setModel(ref); setPickedMode('manual'); setEffort(undefined) },
+        onPickAuto: () => { setModel(startModel(roster)); setPickedMode('auto'); setEffort(undefined) },
+        onPickEffort: picked => setEffort(picked ?? null),
+      }),
+      h('span', { className: 'bt-note' }, modelMode === 'auto'
+        ? t('The Main Bot chooses a model and thinking level for each assignment.')
+        : chosen
         ? t('The Bot runs on this model. You can change it later in its details.')
         : modelsFor(roster.models).length > 0
           ? t('Pick a model here, or the Bot asks for one in its chat.')
