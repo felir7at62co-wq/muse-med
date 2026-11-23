@@ -1,0 +1,13 @@
+version: 1
+scenario: drama-repeated-clip-warning
+profile: headless
+composition: drama-repeated-clip-warning
+recording: authored
+header:
+  class: drama-repeated-clip-warning
+  pin: true
+  systemPromptSource: drama-subtitle-timing
+  toolSchemasSource: drama-subtitle-timing
+writerOutput: true
+workspace:
+  final: true
