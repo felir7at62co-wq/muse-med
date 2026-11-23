@@ -75,9 +75,11 @@ export async function scanReviewFrames(ctx: Context, source: string, duration: n
       exposed: false, ...entry.decode === undefined ? {} : { decode: entry.decode } }))
   add(0, 'opening')
   let closing = 0
-  for (let start = 0; start < duration; start += config.reviewChunkSeconds) {
+  for (let start = 0, end = 0; start < duration; start = end) {
     signal.throwIfAborted()
-    const end = Math.min(duration, start + config.reviewChunkSeconds)
+    // A remainder shorter than one analysis sample can hold no thumbnail, so it joins this interval.
+    end = Math.min(duration, start + config.reviewChunkSeconds)
+    if (duration - end < 1 / config.reviewAnalysisFps) end = duration
     const maxLocalTime = end - start + 0.001
     const common = [ffmpeg, '-nostdin', '-hide_banner', '-v', 'error', '-protocol_whitelist', 'file,pipe',
       '-ss', String(start), '-i', source, '-t', String(end - start), '-map', '0:v:0', '-an', '-sn', '-dn']
@@ -102,7 +104,7 @@ export async function scanReviewFrames(ctx: Context, source: string, duration: n
     if (!seen) throw Error('VIDEO_SCAN_INCOMPLETE: no decoded frame metadata for scan interval')
     const thumbnails = await runMedia(ctx, [...common, '-vf',
       `fps=${config.reviewAnalysisFps},select='lt(t,${maxLocalTime})',scale=48:32,format=rgb24`, '-fps_mode', 'passthrough', '-f', 'rawvideo', 'pipe:1'], policy, signal,
-    { ...limits, maxBytes: Math.ceil(config.reviewChunkSeconds * config.reviewAnalysisFps + 2) * 48 * 32 * 3 })
+    { ...limits, maxBytes: Math.ceil((end - start) * config.reviewAnalysisFps + 2) * 48 * 32 * 3 })
     for (const time of appearanceCandidates(thumbnails.bytes, config, start, end)) add(time, 'appearance_or_continuity')
     progress(end, frames())
   }
