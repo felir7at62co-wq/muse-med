@@ -616,6 +616,10 @@ export function install(rt) {
     .filter(([, entry]) => entry.turn !== undefined && entry.since !== undefined)
     .map(([id, entry]) => [id, entry.since]))
 
+  const completionsView = () => Object.fromEntries([...live]
+    .filter(([id, entry]) => entry.completedAt !== undefined && rt.chatOwners.has(id))
+    .map(([id, entry]) => [id, entry.completedAt]))
+
   // Per Session, when the user last steered its running turn: the input the
   // activity row's phrase and clock restart from.
   const steeredView = () => Object.fromEntries([...live]
@@ -869,6 +873,7 @@ export function install(rt) {
       case 'turn/start':
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
+        entry.completedAt = undefined
         entry.since = event.time ?? Date.now()
         entry.texts = []
         entry.shown = 0
@@ -1235,6 +1240,9 @@ export function install(rt) {
             void retryWrittenCall(id, info).catch(error => rt.warn('ds-bot: asking %s to run its written tool call failed: %s', id, error))
           }
         }
+        if (watched && owner !== undefined && reason?.kind === 'completed' && !wroteCall && !retry) {
+          entry.completedAt = event.time ?? Date.now()
+        }
         const replyText = () => {
           const reply = (wroteCall ? texts.map(stripWrittenCalls) : texts).join('\n\n').trim()
           if (wroteCall && reply === '') return 'Tried to run a tool but wrote the call as text, so it did not run.'
@@ -1396,5 +1404,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, completionsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
 }

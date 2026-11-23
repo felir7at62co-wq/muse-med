@@ -2,7 +2,8 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { isMainOf } from './sources.js'
 import { currentPart, runStatsOf, usageOf } from './text.js'
 import { PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon, SideIcon, TerminalIcon, FolderIcon, MonitorIcon } from './icons.js'
-import { botState, BotMark, BotAvatar } from './mark.js'
+import { BotMark } from './mark.js'
+import { DetailsAvatar } from './details-avatar.js'
 import { GlobeIcon, Favicon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
@@ -266,6 +267,8 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   useEscape(close)
   const bot = owner
   const running = useSessionStatus(map => map.get(part)?.running === true)
+  const awaitingInput = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
+  const completedAt = useWork(work => work.completed?.[part])
   const doing = useActivity(map => map[bot?.id ?? sessionId])
   const usage = useSessions(list => usageOf(list, [part, ...(bot?.parts ?? room?.parts ?? [])]))
   const run = promise => Promise.resolve(promise)
@@ -338,7 +341,8 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   return [h(Fragment, { key: 'top' }, top),
     // Muse: an open project, script or platform tab takes the whole height; the Bot's name stays in the strip above.
     h('div', { key: 'id', className: 'bt-drawer-id', 'data-move': side, hidden: onDetails ? undefined : true },
-      bot ? h(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== undefined), main: isMainBot, badge: false, gaze: true, pokeable: true })
+      bot ? h(DetailsAvatar, { bot, main: isMainBot, running, activity: doing,
+        awaitingInput: awaitingInput || roster.questions?.[part] !== undefined, completedAt })
         : h(MemberPile, { room, roster }),
       editing
         ? h('input', {

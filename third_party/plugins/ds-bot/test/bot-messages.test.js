@@ -122,6 +122,23 @@ async function start(seed) {
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
 
+test('Bot details receives successful completion for its own conversation only', async (t) => {
+  const { emit, call, stop } = await start(team({ group: true }))
+  t.after(stop)
+  const completions = async () => (await call('state')).value.work.completed
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } }, { time: 10 })
+  assert.deepEqual(await completions(), {})
+  emit('gb', 'turn/start', { turn: 1 })
+  emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } }, { time: 20 })
+  assert.deepEqual(await completions(), {})
+  emit('b', 'turn/start', { turn: 2 })
+  emit('b', 'turn/end', { turn: 2, reason: { kind: 'completed' } }, { time: 30 })
+  assert.deepEqual(await completions(), { b: 30 })
+  emit('b', 'turn/start', { turn: 3 })
+  assert.deepEqual(await completions(), {})
+})
+
 test('message_bot steers by default; on an idle Bot it opens the next turn', async (t) => {
   const { agents, emit, tool, stop } = await start(team())
   t.after(stop)
