@@ -24,6 +24,15 @@ const SELECTED = { modelId: SEED_ROW.modelId, platformId: SEED_ROW.platformId,
 const MEDIAKIT_1080P = { modelId: MEDIAKIT_ROW.modelId, platformId: MEDIAKIT_ROW.platformId,
   standardId: MEDIAKIT_ROW.id, videoStandardId: 165 }
 
+const GENERATIVE_MODEL_ID = 'enhance-video-generative'
+const GENERATIVE_720P = { id: 515, modelId: GENERATIVE_MODEL_ID, resolution: '720p', frames: 30, price: 2.5,
+  width: null, height: null }
+const GENERATIVE_1080P = { id: 514, modelId: GENERATIVE_MODEL_ID, resolution: '1080p', frames: 30, price: 5,
+  width: null, height: null }
+const GENERATIVE_ROW = { id: 201, modelId: GENERATIVE_MODEL_ID, platformId: MEDIAKIT_ROW.platformId,
+  unitPrice: 2.5, unit: MEDIAKIT_ROW.unit, videoStandards: [GENERATIVE_720P, GENERATIVE_1080P] }
+const GENERATIVE_ARGS = { ...ARGS, model_id: GENERATIVE_MODEL_ID, platform_id: GENERATIVE_ROW.platformId }
+
 interface ProviderCall {
   method: string
   path: string
@@ -323,6 +332,96 @@ describe('live upscale pricing without operator estimates', () => {
       .toMatchObject({ replayed: true, outcome: 'unknown', accepted_task_id: null })
     expect(calls).toHaveLength(count)
     expect(paidCalls()).toHaveLength(1)
+  })
+})
+
+describe('MediaKit generative upscale pricing', () => {
+  it.each([
+    { standard: GENERATIVE_720P, duration: 13.5, amount: '10.00' },
+    { standard: GENERATIVE_1080P, duration: 13.5, amount: '20.00' },
+    { standard: GENERATIVE_1080P, duration: 60.5, amount: '40.00' },
+  ])('reserves the maximum FPS band for $standard.resolution over $duration seconds', async ({ standard, duration, amount }) => {
+    const { client, ledger, paidCalls } = await fixture({ catalogue: [MEDIAKIT_ROW, GENERATIVE_ROW], duration })
+    const args = { ...GENERATIVE_ARGS, resolution: standard.resolution }
+    expect(await videoMethod(client, ledger, args)).toMatchObject({ outcome: 'accepted', accepted_task_id: '429001' })
+    expect(paidCalls()).toMatchObject([{ body: { taskType: 20, modelId: GENERATIVE_MODEL_ID,
+      platformId: GENERATIVE_ROW.platformId, standardId: GENERATIVE_ROW.id,
+      videoStandardId: standard.id, duration } }])
+    expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({
+      outcome: 'accepted', quoted_amount: amount, quote_standard_id: GENERATIVE_ROW.id, quote_unit: 'CNY',
+    })
+  })
+
+  it('uses a different live base price with a matching 1080p child price', async () => {
+    const child = { ...GENERATIVE_1080P, id: 912, price: 6.5, width: undefined, height: undefined }
+    const row = { ...GENERATIVE_ROW, id: 722, unitPrice: 3.25, videoStandards: [child] }
+    const { client, ledger, paidCalls } = await fixture({ catalogue: [row] })
+    await videoMethod(client, ledger, GENERATIVE_ARGS)
+    expect(paidCalls()).toMatchObject([{ body: { standardId: 722, videoStandardId: 912 } }])
+    expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({ quoted_amount: '26.00', quote_standard_id: 722 })
+  })
+
+  it('refuses a reservation that fits only the stated 30 FPS price', async () => {
+    const { client, ledger, paidCalls } = await fixture({ catalogue: [GENERATIVE_ROW], limitCents: 1999 })
+    await expect(videoMethod(client, ledger, GENERATIVE_ARGS)).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('replays the original reservation without another catalogue read or conversion', async () => {
+    const { client, ledger, root, calls, paidCalls } = await fixture({ catalogue: [GENERATIVE_ROW] })
+    await videoMethod(client, ledger, GENERATIVE_ARGS)
+    const initialCalls = calls.length
+    expect(await videoMethod(client, new JubianLedger({ root }), GENERATIVE_ARGS))
+      .toMatchObject({ replayed: true, outcome: 'accepted' })
+    expect(calls).toHaveLength(initialCalls)
+    expect(paidCalls()).toHaveLength(1)
+    expect(await ledger.records()).toMatchObject([{ quoted_amount: '20.00', quote_standard_id: GENERATIVE_ROW.id }])
+  })
+
+  it.each([
+    { label: 'a missing child price', child: { ...GENERATIVE_1080P, price: undefined } },
+    { label: 'a conflicting child price', child: { ...GENERATIVE_1080P, price: 5.01 } },
+    { label: 'a non-positive child price', child: { ...GENERATIVE_1080P, price: 0 } },
+    { label: 'a text child price', child: { ...GENERATIVE_1080P, price: '5' } },
+    { label: 'an unsupported FPS band', child: { ...GENERATIVE_1080P, frames: 60 } },
+    { label: 'a missing FPS band', child: { ...GENERATIVE_1080P, frames: undefined } },
+    { label: 'an unsupported resolution', child: { ...GENERATIVE_1080P, resolution: '4K' } },
+    { label: 'pixel dimensions instead of the known shape', child: { ...GENERATIVE_1080P, width: 1920, height: 1080 } },
+    { label: 'a height without a width', child: { ...GENERATIVE_1080P, height: 1080 } },
+    { label: 'an unsupported platform', child: GENERATIVE_1080P, platformId: 'OTHER_PLATFORM' },
+  ])('does not reserve or submit for $label without a verified quote', async ({ child, platformId }) => {
+    const row = { ...GENERATIVE_ROW, platformId: platformId ?? GENERATIVE_ROW.platformId, videoStandards: [child] }
+    const { client, ledger, paidCalls } = await fixture({ catalogue: [row] })
+    const args = { ...GENERATIVE_ARGS, platform_id: row.platformId, resolution: child.resolution }
+    await expect(videoMethod(client, ledger, args)).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses to choose between duplicate 1080p children', async () => {
+    const row = { ...GENERATIVE_ROW, videoStandards: [GENERATIVE_1080P, { ...GENERATIVE_1080P, id: 999 }] }
+    const { client, ledger, paidCalls } = await fixture({ catalogue: [row] })
+    await expect(videoMethod(client, ledger, GENERATIVE_ARGS)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('does not quote an ID shared by two specs or by a spec for another model', () => {
+    const selected = { modelId: GENERATIVE_MODEL_ID, platformId: GENERATIVE_ROW.platformId,
+      standardId: GENERATIVE_ROW.id, videoStandardId: GENERATIVE_1080P.id }
+    const shared = [{ ...GENERATIVE_720P, id: GENERATIVE_1080P.id }, GENERATIVE_1080P]
+    expect(readUpscaleQuote([{ ...GENERATIVE_ROW, videoStandards: shared }], selected, 13.5)).toEqual({})
+    const mismatched = [{ ...GENERATIVE_1080P, modelId: 'other-model' }]
+    expect(readUpscaleQuote([{ ...GENERATIVE_ROW, videoStandards: mismatched }], selected, 13.5)).toEqual({})
+  })
+
+  it('refuses a legacy zero-width coefficient on the generative pricing route', async () => {
+    const child = { ...GENERATIVE_1080P, width: 0, height: 2 }
+    const { client, ledger, paidCalls } = await fixture({ catalogue: [{ ...GENERATIVE_ROW, videoStandards: [child] }] })
+    await expect(videoMethod(client, ledger, GENERATIVE_ARGS)).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toEqual([])
   })
 })
 
