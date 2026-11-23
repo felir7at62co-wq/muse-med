@@ -49,6 +49,9 @@ class FakeBots:
     def last_turn(self, session):
         return self.turns.get(session, ("completed", None))
 
+    def started_at(self):
+        return getattr(self, "started", 0.0)
+
     def log_lines(self, session):
         return self.logs.get(session, [])
 
@@ -207,6 +210,22 @@ class WatchTest(DeskCase):
         row = self.desk.status({"work_id": KEY})
         self.assertEqual((row["done"], row["nudges"]), (1, 1))
         self.assertIsNotNone(row["firstDone"])
+
+
+class RestartTest(DeskCase):
+    def test_a_bot_idle_since_before_a_cloud_restart_is_nudged_once(self):
+        self.cfg["watchSeconds"] = 0
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        self.ready(KEY)
+        self.bots.logs["chat-1"] = [json.dumps({"type": "turn/end", "time": 1_000_000, "data": {"reason": {"kind": "completed"}}})]
+        self.desk.watch_once()
+        self.assertEqual(self.bots.sent, [], "a completed turn with no restart is left alone")
+        self.bots.started = 2_000.0
+        self.desk.watch_once()
+        self.assertEqual(len(self.bots.sent), 1)
+        self.desk.watch_once()
+        self.desk.watch_once()
+        self.assertEqual(len(self.bots.sent), 1, "one nudge per restart")
 
 
 class FreshPartTest(DeskCase):

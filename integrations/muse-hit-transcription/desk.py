@@ -59,6 +59,18 @@ def context_tokens(lines):
     return 0
 
 
+def last_event_ms(lines):
+    """Time (epoch ms) of the newest event in a session log, or 0."""
+    for line in reversed(lines):
+        try:
+            value = json.loads(line).get("time")
+        except ValueError:
+            continue
+        if isinstance(value, (int, float)):
+            return value
+    return 0
+
+
 def compactions(lines):
     """Times (epoch ms) of the finished context compactions in a session log."""
     found = []
@@ -386,6 +398,7 @@ class Desk:
         try:
             bots = {bot["id"]: bot for bot in self.muse.bot("state", {}).get("bots", [])}
             running = {item.get("sessionId") for item in self.muse.sessions() if item.get("running")}
+            started = self.muse.started_at()
         except WorkError as error:
             self.log(event="watch-skipped", code=error.code)
             return
@@ -423,6 +436,12 @@ class Desk:
             else:
                 lines = self.muse.log_lines(session)
                 kind, detail = self.muse.last_turn(session)
+                if started and last_event_ms(lines) < started * 1000 and watch.get("restartSeen") != started:
+                    # Cloud Muse restarted after the Bot last did anything: its sub-agents are gone and will not
+                    # report, so even a Bot whose own turn completed is waiting for nothing.
+                    watch["restartSeen"] = started
+                    kind, detail = "aborted", "cloud Muse restarted"
+                    watch["idle"] = 1
                 watch["idle"] = watch["idle"] + 1 if kind in INTERRUPTED else 0
                 wait = min(self.cfg.get("watchSeconds", 300) * 2 ** watch["nudges"], self.cfg.get("resumeBackoffMaxSeconds", 1800))
                 if watch["idle"] >= 2 and now - watch["lastNudge"] >= wait:
