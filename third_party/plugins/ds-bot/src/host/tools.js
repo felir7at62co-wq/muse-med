@@ -502,7 +502,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'im_send',
-    description: 'Send a message to one of your chat app chats (Feishu, WeChat, …) without waiting for someone there to write first: a finished result, a scheduled report, or something a person must decide. Only chats whose messages come to you can be reached. With a single such chat, leave chat out. Replies in that chat come back to you as usual.',
+    description: 'Send a message to one of your chat app chats (Feishu, WeChat, …) without waiting for someone there to write first: a finished result, a scheduled report, or something a person must decide. You can reach the chats whose messages come to you and, when a chat app connection is yours, its owner\'s private chat. With a single such chat, leave chat out. Replies come back to the Bot that answers that chat.',
     parameters: {
       text: { type: 'string', required: true, description: `The message, plain text or Markdown, at most ${IM_SEND_MAX} characters` },
       chat: { type: 'string', description: 'Chat name, needed only when you have several; a refusal lists them' },

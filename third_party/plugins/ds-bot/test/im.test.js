@@ -158,7 +158,7 @@ test('typing carries the chat key, not the chat record', async (t) => {
   one.paired.push({ id: 'u1', name: 'U1', at: 1 })
   await s.rt.save()
   await dm(s, 'u1', 'hi')
-  s.imTurn('a')
+  s.imTurn(s.prompts.at(-1).sessionId)
   t.mock.timers.tick(4000)
   await s.flush()
   assert.ok(s.fake.typed.length > 0, 'typing is sent while the turn runs')
@@ -195,10 +195,13 @@ test('unpaired DM asks once, allow pairs it, next message prompts the Bot', asyn
   assert.equal(s.fake.sent.length, 1)
   await s.rt.imEndpoint('im-pair', { id: one.id, senderId: 'u1', allow: true })
   assert.equal(one.paired.length, 1)
-  assert.match(s.fake.sent.at(-1).text, /talk to Chief/)
+  // The first person approved owns the connection; their private chat still gets a Bot of its own.
+  const chatBot = one.chats['dm-u1'].target.botId
+  assert.equal(s.rt.botOf(chatBot).name, 'User u1')
+  assert.match(s.fake.sent.at(-1).text, /talk to User u1/)
   await dm(s, 'u1', 'do a thing')
   assert.equal(s.prompts.length, 1)
-  assert.equal(s.prompts[0].sessionId, 'a')
+  assert.equal(s.prompts[0].sessionId, chatBot)
   assert.equal(s.prompts[0].mode, 'queue')
   assert.match(s.prompts[0].requestId, /^im:telegram:/)
   assert.deepEqual(s.prompts[0].content, [{ type: 'text', text: 'do a thing' }])
@@ -592,6 +595,8 @@ test('a deleted Bot target gets the unbound reply', async (t) => {
   const one = s.rt.state.im.connections[conn.id]
   one.paired.push({ id: 'u1', name: 'U1', at: 1 })
   one.botId = 'gone'
+  // Without chat Bots the private chat answers to the connection's Bot, which is gone.
+  one.chatBots = false
   await s.rt.save()
   s.fake.sent.length = 0
   await dm(s, 'u1', 'hi')
@@ -852,13 +857,19 @@ test('dsh-im Feishu keeps an existing Bot, deduplicates delivery, and replies on
   const direct = { ...event('om_direct', undefined), mentions: [], mentionedAccount: false,
     conversation: { id: 'oc_private', kind: 'dm' }, reply: { messageId: 'om_direct', conversationId: 'oc_private', actorId: 'ou_actor' } }
   await onEvent(direct, inbound)
-  assert.equal(s.prompts.at(-1).sessionId, 'a')
-  assert.equal(s.rt.state.im.connections[connId].chats.oc_private.title, 'Mei')
-  s.imTurn('a')
-  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Private answer' }] } })
+  // The owner's private chat gets a Bot of its own, named after the owner.
+  const ownChat = s.rt.state.im.connections[connId].chats.oc_private
+  assert.equal(ownChat.title, 'Mei')
+  assert.equal(ownChat.auto, true)
+  const mine = ownChat.target.botId
+  assert.equal(s.rt.botOf(mine).name, 'Mei')
+  assert.equal(s.prompts.at(-1).sessionId, mine)
+  s.imTurn(mine)
+  s.emitEvent(mine, 'assistant/message', { message: { content: [{ type: 'text', text: 'Private answer' }] } })
   await s.flush()
   assert.deepEqual(replies.at(-1), { route: direct.reply, text: 'Private answer' })
   assert.deepEqual(await s.rt.imSend('b', 'Studio group', 'Unsolicited text'), { error: 'reply-only', chats: ['Studio group'] })
+  assert.deepEqual(await s.rt.imSend('a', undefined, 'Report'), { error: 'reply-only', chats: ['Mei'] }, 'the connection Bot still finds the owner\'s private chat')
   await s.rt.imEndpoint('im-update', { id: connId, enabled: false })
   assert.equal(subscriptionSignal.aborted, true)
   assert.equal(disposals, 1)
@@ -1552,6 +1563,8 @@ async function startSwitchHarness(t, { tokens = new Map([['a', 1_000]]), cwd = (
 
   const conn = await rt.imEndpoint('im-add', { platform: 'telegram', botId: 'a', fields: { token: 'tok-1234' } })
   rt.state.im.connections[conn.id].paired.push({ id: 'u1', name: 'U1', at: 1 })
+  // The private chat stays with the connection's Bot 'a', whose parts these tests switch.
+  rt.state.im.connections[conn.id].chatBots = false
   await rt.save()
 
   const waitHandoff = async (sessionIdOf) => {
@@ -2222,14 +2235,21 @@ test('a group mention gives the group a Bot of its own in the platform section, 
   assert.equal(s.prompts.at(-1).sessionId, bot.id)
 })
 
-test('the owner keeps the connection Bot in a private chat; anyone else gets a Bot of their own', async (t) => {
+test('the owner\'s private chat gets a Bot of its own on its first message, like anyone else\'s', async (t) => {
   const s = await start()
   t.after(s.stop)
   const conn = await add(s)
   await dm(s, 'u1', 'hello')
   await s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'u1', allow: true })
+  const owners = botNamed(s, 'User u1')
+  assert.ok(owners, 'the owner got a Bot named after them when approved')
+  assert.equal(s.rt.state.sections.find(sec => sec.id === owners.sectionId)?.name, 'Telegram')
+  assert.match(s.fake.sent.at(-1).text, /talk to User u1/)
+  const chat = s.rt.state.im.connections[conn.id].chats['dm-u1']
+  assert.deepEqual(chat.target, { botId: owners.id })
+  assert.equal(chat.auto, true)
   await dm(s, 'u1', 'for the boss')
-  assert.equal(s.prompts.at(-1).sessionId, 'a')
+  assert.equal(s.prompts.at(-1).sessionId, owners.id)
   await dm(s, 'u2', 'hi')
   await s.rt.imEndpoint('im-pair', { id: conn.id, senderId: 'u2', allow: true })
   const mine = botNamed(s, 'User u2')
@@ -2238,6 +2258,91 @@ test('the owner keeps the connection Bot in a private chat; anyone else gets a B
   await dm(s, 'u2', 'my own work')
   assert.equal(s.prompts.at(-1).sessionId, mine.id)
   assert.equal(mine.role, 'Telegram chat')
+})
+
+test('a paired owner\'s first private message makes the chat Bot before the message goes in', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  await dm(s, 'u1', 'first')
+  const owners = botNamed(s, 'u1')
+  assert.ok(owners, 'the private chat Bot is named after the person in it')
+  assert.equal(owners.role, 'Telegram chat')
+  assert.deepEqual(s.prompts.map(prompt => prompt.sessionId), [owners.id])
+  assert.equal(s.rt.state.im.connections[conn.id].chats['dm-u1'].personId, 'u1')
+})
+
+test('an owner\'s private chat that used the connection Bot without a binding gets its own Bot on its next message', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  // Recorded before chat Bots covered the owner: no target, no person.
+  s.rt.state.im.connections[conn.id].chats = { 'dm-u1': { kind: 'direct', title: 'u1', at: 1 } }
+  await s.rt.save()
+  await dm(s, 'u1', 'next')
+  const chat = s.rt.state.im.connections[conn.id].chats['dm-u1']
+  const owners = botNamed(s, 'u1')
+  assert.ok(owners)
+  assert.deepEqual(chat.target, { botId: owners.id })
+  assert.equal(chat.auto, true)
+  assert.equal(s.prompts.at(-1).sessionId, owners.id)
+})
+
+test('an owner\'s private chat bound by hand keeps its binding', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1', 'u2')
+  s.rt.state.im.connections[conn.id].chats = {
+    'dm-u1': { kind: 'direct', title: 'u1', target: { botId: 'a' }, at: 1 },
+    'dm-u2': { kind: 'direct', title: 'u2', target: { botId: 'b' }, at: 1 },
+  }
+  await s.rt.save()
+  const before = Object.keys(s.rt.state.bots).length
+  await dm(s, 'u1', 'to the chief')
+  assert.equal(s.prompts.at(-1).sessionId, 'a')
+  await dm(s, 'u2', 'to the writer')
+  assert.equal(s.prompts.at(-1).sessionId, 'b')
+  assert.equal(Object.keys(s.rt.state.bots).length, before, 'no Bot was made')
+  assert.deepEqual(s.rt.state.im.connections[conn.id].chats['dm-u1'].target, { botId: 'a' })
+  assert.equal(s.rt.state.im.connections[conn.id].chats['dm-u1'].auto, undefined)
+})
+
+test('with chat Bots off, private chats stay with the connection Bot', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1', 'u2')
+  await s.rt.imEndpoint('im-update', { id: conn.id, chatBots: false })
+  const before = Object.keys(s.rt.state.bots).length
+  await dm(s, 'u1', 'owner')
+  await dm(s, 'u2', 'someone else')
+  assert.deepEqual(s.prompts.map(prompt => prompt.sessionId), ['a', 'a'])
+  assert.equal(Object.keys(s.rt.state.bots).length, before)
+  assert.equal(s.rt.state.im.connections[conn.id].chats['dm-u1'].target, undefined)
+})
+
+test('the connection Bot can still im_send to the owner\'s private chat once it has a Bot of its own', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1', 'u2')
+  const send = (args, sessionId) => s.rt.teamTools.find(def => def.name === 'im_send').execute(args, { agent: { id: sessionId } })
+  await dm(s, 'u1', 'hello')
+  await dm(s, 'u2', 'hello too')
+  const owners = botNamed(s, 'u1')
+  assert.ok(owners)
+  s.fake.sent.length = 0
+  assert.equal(await send({ text: 'daily report' }, 'a'), 'Sent to u1.', 'only the owner\'s private chat, not u2\'s')
+  await s.flush()
+  assert.equal(s.fake.sent.at(-1).text, 'daily report')
+  assert.equal(s.fake.sent.at(-1).chat.key, 'dm-u1')
+  assert.equal(await send({ text: 'from the chat Bot' }, owners.id), 'Sent to u1.')
+  // An owner's chat recorded before chat Bots covered it is reachable before its next message too.
+  s.rt.state.im.connections[conn.id].chats['dm-u1'] = { kind: 'direct', title: 'u1', at: 1 }
+  assert.equal(await send({ text: 'still there' }, 'a'), 'Sent to u1.')
 })
 
 test('a chat Bot deleted later is made again; a renamed group keeps its new title', async (t) => {
@@ -2277,7 +2382,7 @@ test('/new starts a fresh part of the chat\'s Bot; a busy Bot or a group binding
   const parts = []
   s.rt.newPart = async (sessionId) => { parts.push(sessionId); if (parts.length > 1) throw new Error('busy'); return true }
   await dm(s, 'u1', '/new')
-  assert.deepEqual(parts, ['a'])
+  assert.deepEqual(parts, [botNamed(s, 'u1').id])
   assert.match(s.fake.sent.at(-1).text, /new conversation/)
   await dm(s, 'u1', '/new')
   assert.match(s.fake.sent.at(-1).text, /Still working/)

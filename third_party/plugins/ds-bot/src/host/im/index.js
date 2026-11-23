@@ -785,15 +785,13 @@ export function install(rt) {
 
   // ------------------------------------------------------------- chat Bots
   // A chat with no binding of its own gets a Bot of its own the first time it writes,
-  // filed under the platform's sidebar section, so every group and every other person's
-  // private chat keeps its own context and memory. The connection owner, the first
-  // person paired, keeps the connection's Bot in a private chat. A chat whose own Bot
-  // was deleted gets a new one; `chatBots: false` leaves chats to bindings made by hand.
-  const ownerOf = conn => conn.paired?.[0]?.id
-  const wantsOwnBot = (conn, chat, senderId) => conn.chatBots !== false
-    && (chat.target === undefined
-      ? !(chat.kind === 'direct' && senderId === ownerOf(conn))
-      : chat.auto === true && resolveTarget(conn, chat) === undefined)
+  // filed under the platform's sidebar section, so every group and every private chat,
+  // the connection owner's included, keeps its own context and memory. A private chat
+  // without a binding (the owner's, before chat Bots covered it) gets one on its next
+  // message. A chat whose own Bot was deleted gets a new one; `chatBots: false` leaves
+  // chats to bindings made by hand, and private chats to the connection's Bot.
+  const wantsOwnBot = (conn, chat) => conn.chatBots !== false
+    && (chat.target === undefined || (chat.auto === true && resolveTarget(conn, chat) === undefined))
   const LOCAL_PLATFORM_NAMES = {
     zh: { feishu: '飞书', weixin: '微信', dingtalk: '钉钉', wecom: '企业微信' },
     'zh-TW': { feishu: '飛書', weixin: '微信', dingtalk: '釘釘', wecom: '企業微信' },
@@ -851,8 +849,8 @@ export function install(rt) {
     makingBots.set(key, work)
     return work
   }
-  const ensureChatBot = async (conn, chatKey, chat, senderId, senderName) => {
-    if (!wantsOwnBot(conn, chat, senderId)) return
+  const ensureChatBot = async (conn, chatKey, chat, senderName) => {
+    if (!wantsOwnBot(conn, chat)) return
     try {
       await makeChatBot(conn, chatKey, chat, senderName)
     } catch (error) {
@@ -954,6 +952,11 @@ export function install(rt) {
     }
     let body = String(msg.text ?? '').trim()
     const chat = conn.chats[msg.chat.key]
+    // The person in a private chat, so the connection's Bot can still find the owner's.
+    if (msg.chat.kind === 'direct' && chat.kind === 'direct' && msg.sender.id !== undefined && chat.personId !== msg.sender.id) {
+      chat.personId = msg.sender.id
+      await rt.save()
+    }
     // A lookup that returns an ID must preserve the display name already on record.
     const hasDisplayName = msg.chat.title && msg.chat.title !== msg.chat.key && !ID_NAME.test(msg.chat.title)
     if (hasDisplayName && chat.title !== msg.chat.title) {
@@ -961,7 +964,7 @@ export function install(rt) {
       await followChatName(conn, msg.chat.key, chat)
       await rt.save()
     }
-    await ensureChatBot(conn, msg.chat.key, chat, msg.sender.id, msg.sender.name)
+    await ensureChatBot(conn, msg.chat.key, chat, msg.sender.name)
     const binding = bindingOf(conn, msg.chat.key)
     msg.signal?.throwIfAborted()
     const target = resolveTarget(conn, chat)
@@ -1601,10 +1604,10 @@ export function install(rt) {
       if (body.allow === true) {
         conn.paired = [...(conn.paired ?? []), { id: request.id, name: request.name, at: Date.now() }]
         conn.chats ??= {}
-        conn.chats[request.chatKey] ??= { kind: request.chatKind, title: request.chatKind === 'group' ? (request.chatTitle ?? request.name) : request.name, at: Date.now() }
+        conn.chats[request.chatKey] ??= { kind: request.chatKind, title: request.chatKind === 'group' ? (request.chatTitle ?? request.name) : request.name, ...(request.chatKind === 'direct' ? { personId: request.id } : {}), at: Date.now() }
         await rt.save()
         const chat = conn.chats[request.chatKey]
-        await ensureChatBot(conn, request.chatKey, chat, request.id, request.name)
+        await ensureChatBot(conn, request.chatKey, chat, request.name)
         const target = resolveTarget(conn, chat)
         const name = target === undefined ? undefined : targetName(conn, target)
         await sendTo(conn, request.chatKey, { key: request.chatKey, kind: request.chatKind, title: chat.title },
@@ -1712,7 +1715,7 @@ export function install(rt) {
         enabled: true,
         paired: login.owner === undefined ? [] : [{ id: login.owner.id, name: login.owner.name, at: Date.now() }],
         requests: [],
-        chats: login.owner === undefined ? {} : { [login.owner.id]: { kind: 'direct', title: login.owner.name, at: Date.now() } },
+        chats: login.owner === undefined ? {} : { [login.owner.id]: { kind: 'direct', title: login.owner.name, personId: login.owner.id, at: Date.now() } },
         createdAt: Date.now(),
       }
       for (const [key, value] of Object.entries(login.connection.secrets ?? {})) {
@@ -1903,13 +1906,17 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  // The chats whose messages a Bot answers: chats bound to it, and the owner's private
-  // chat that falls back to the connection's Bot. Only connected ones can be written to.
+  // The chats a Bot may write to: chats whose messages it answers (bound to it, or a
+  // private chat that falls back to the connection's Bot) and, for the connection's Bot,
+  // the owner's private chat even when that chat has a Bot of its own, so the main Bot
+  // can still report to the owner. Only connected ones can be written to.
+  const ownsChat = (conn, chat, botId) => resolveTarget(conn, chat)?.botId === botId
+    || (botId === conn.botId && chat.kind === 'direct' && chat.personId !== undefined && chat.personId === conn.paired?.[0]?.id)
   const chatsOfBot = (botId) => {
     const out = []
     for (const conn of Object.values(connections())) {
       for (const [chatKey, chat] of Object.entries(conn.chats ?? {})) {
-        if (resolveTarget(conn, chat)?.botId === botId) out.push({ conn, chatKey, chat, name: chat.title || chatKey })
+        if (ownsChat(conn, chat, botId)) out.push({ conn, chatKey, chat, name: chat.title || chatKey })
       }
     }
     return out
