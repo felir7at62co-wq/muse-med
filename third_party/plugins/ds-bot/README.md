@@ -103,6 +103,12 @@ Cards include current catalog capabilities and dated pricing, connectivity tests
 
 The receipt identifies the independent Worker Session, model, thinking level, and reason. Its selection remains attached to the task after a restart or handoff. A repeated request ID and identical arguments return the same receipt. Direct chats, follow-ups, and group work use their existing Sessions. In profiles that enable task routing without Auto mode, Main Bots may still select `task_difficulty` (`routine` or `advanced`) or `task_model`. Set `taskRouting.enabled: false` and restart the profile to disable new routed assignments.
 
+### Muse Central
+
+Set `MUSE_CENTRAL_MEMBERS=1` and set `MUSE_CENTRAL_ORIGIN` to the exact administrator Web origin in the cloud profile. The Bot sidebar shows the accounts visible to the signed-in Muse administrator under Company members. Open Data, Scripts, and Jingliu from the right sidebar. Member actions use the account gateway and do not create local Bot Sessions. An account pause requires confirmation and revokes its active Muse logins. The current desktop connection status is pending until a desktop profile implements Central registration.
+
+For a local SSH forward, set `MUSE_CENTRAL_LOOPBACK_ORIGIN` to the exact `http://127.0.0.1` origin and forwarding port. This entry still requires the administrator Web session.
+
 ### Use dsh-im for an existing Feishu connection
 
 Install `@xmanrui/dsh-im` in the same Host. Set `deliveryHttp: false` on the dsh-im entry if the Host is reachable from other machines. Turn off the built-in Feishu connection before connecting the same Feishu app in dsh-im. In the DS Bot plugin configuration, set `feishuDshIm` to a map from each existing `im_…` connection ID to its dsh-im Bot ID. Both records must point to the same Feishu or Lark app and bot identity. Enable the mapped connection in DS Bot to take over the incoming text stream. The mapped connection reports an error if dsh-im is missing or the identity changed.

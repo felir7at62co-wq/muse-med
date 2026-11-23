@@ -19,6 +19,7 @@ import { quietly } from './diagnostics.js'
 import { frameLayout, dragColumn, RAIL_WIDTH, FALLBACK_SIDEBAR_WIDTH, userSidebarToggle } from './frame-layout.js'
 import { chatRoom, dshCollapsed } from './frame-watch.js'
 import { QuotaButton } from './quota.js'
+import { CentralMembers } from './central-members.js'
 
 // -------------------------------------------------------------------------
 // Sidebar
@@ -885,7 +886,8 @@ export function TeamSidebar(props) {
         onDragStart,
         onDragOverSec,
         onDropSec,
-      }))),
+      })),
+      wideContent && roster.centralMembers ? h(CentralMembers) : null),
     foot)
   return h(Fragment, null,
     h(TitleToggle, { hidden: mode === 'hidden', onToggle }),
@@ -1337,6 +1339,25 @@ export function AssetsButton({ actions, useUi }) {
 // FooterAccount only shows when the seat went to no one. The shell's footer classes
 // are CSS-module names, so they match on their stems.
 export const SIDEBAR_CSS = `
+.bt-central { display:flex; flex-direction:column; gap:4px; padding:8px 0; }
+.bt-central-plain { font:inherit; font-size:12px; color:var(--bt-ink-2); background:transparent; border:0; cursor:pointer; border-radius:6px; padding:6px; }
+.bt-central-plain:hover { background:var(--bt-hover); color:var(--bt-ink); }
+.bt-central-plain:disabled { opacity:.5; cursor:default; }
+.bt-central-expand { display:flex; align-items:center; justify-content:space-between; text-align:left; }
+.bt-central-search { margin:4px 6px 2px; }
+.bt-central-search, .bt-central-dialog input { border:1px solid var(--bt-line); border-radius:6px; padding:6px; font:inherit; color:inherit; background:transparent; min-width:0; }
+.bt-central-row { position:relative; display:flex; align-items:center; }
+.bt-central-row .bt-row { flex:1; min-width:0; }
+.bt-central-row > .bt-round { flex:none; }
+.bt-central-dialog { color:var(--bt-ink); background:var(--bt-panel-bg, Canvas); border:1px solid var(--bt-line); border-radius:16px; width:min(420px, calc(100vw - 32px)); max-height:80vh; padding:18px; font:inherit; }
+.bt-central-dialog::backdrop { background:rgba(0,0,0,.35); }
+.bt-central-dialog h2 { margin:0 0 12px; font-size:16px; font-weight:500; overflow-wrap:anywhere; }
+.bt-central-dialog p { color:var(--bt-ink-2); font-size:13px; margin:6px 0; }
+.bt-central-group, .bt-central-buttons { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:4px 0; }
+.bt-central-group input { flex:1; width:7em; }
+.bt-central-buttons { justify-content:flex-end; margin-top:8px; }
+.bt-central-dialog .bt-central-save { background:var(--bt-accent); color:var(--bt-accent-ink); }
+
 .bt-confirm{width:260px;max-width:72vw;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
 .bt-confirm-text{margin:0;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
 .bt-confirm-error{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere}

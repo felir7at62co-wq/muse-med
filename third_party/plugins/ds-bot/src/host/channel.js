@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { install as installBtw } from './btw.js'
+import { installCentralMembers } from './central-members.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
 import { threadCurrentOfPart } from './threads.js'
@@ -44,6 +45,7 @@ export function install(rt) {
   installBtw(rt)
   installSide(rt)
   const { ctx, state } = rt
+  const centralMembers = installCentralMembers(rt)
 
   // The DSH interface language of the last browser that asked for the team.
   let uiLocale
@@ -116,6 +118,7 @@ export function install(rt) {
     agents: Object.values(state.agents),
     // Sidebar sections that group Bots, group chats and the DSH Agent by workflow.
     sections: state.sections ?? [],
+    ...(centralMembers ? { centralMembers } : {}),
     // Key names and who may use them; values never leave the host.
     secrets: rt.secretsView(),
     // How the secrets file is stored and whether this process can read it now.
