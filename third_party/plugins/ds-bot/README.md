@@ -93,6 +93,8 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
       pro: muse-cloud-jubian-pro/deepseek-v4-pro
 ```
 
+The chooser groups Muse account models by their maker. Personal model configurations keep their provider names in the chooser.
+
 **Task models**: When `taskRouting.enabled` is true, Main Bots can consult `list_bot_model_cards` before they delegate independent tasks from their own chats. The cards show catalog models the team can select, with available input and context metadata. `message_bot` accepts the selected card tier in `task_difficulty` (`routine` or `advanced`) or the exact `task_model` explicitly requested by the user, together with `when: queue`, `request_id`, and a short `routing_reason`. An unavailable difficulty card uses the Worker's normal dispatch and says so in the receipt. If the requested exact model is unavailable, the task is held for a different choice.
 
 For the two default routes, cards include dated supplier prices, first visible text and total stream latency, success sample counts, and Chinese screenplay task scores. Prices distinguish cached input and time of day. The live model catalog supplies the default output budget and supported thinking levels. Exact route matching keeps results from being attributed to replacement routes. The evidence is bundled with DS Bot and stays fixed between builds. Production availability and charges use the live gateway and account.

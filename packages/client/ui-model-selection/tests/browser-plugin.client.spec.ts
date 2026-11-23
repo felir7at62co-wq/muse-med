@@ -252,7 +252,7 @@ describe('ui-model-selection dual entry', () => {
       : { placeholder: 'Search models…', empty: 'No models available.', noResults: 'No matching models.' })
   })
 
-  it('uses the filtered Host catalog for /model without hiding official GLM', async () => {
+  it('groups account models by maker in /model while selecting the exact saved route', async () => {
     const b = await bench()
     try {
       const model = GROUPS[0]!.models[0]!
@@ -266,22 +266,33 @@ describe('ui-model-selection dual entry', () => {
       }, {
         id: 'muse-cloud-zhipu-official', name: 'Muse · 智谱官方',
         models: [{ ...model, id: 'glm-5.3-flash', name: 'GLM-5.3-Flash' }],
+      }, {
+        id: 'muse-cloud-deepseek-flash-auto', name: 'Flash relay',
+        models: [{ ...model, id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' }],
+      }, {
+        id: 'muse-cloud-jubian-pro', name: 'Jubian',
+        models: [{ ...model, id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }],
       }])
       b.remote.emit('llm/adapters-updated', [])
       b.mint('s1')
       b.setProjected(sid('s1'), { lastUsed: null,
         next: { provider: 'muse-cloud-yunying', model: 'gpt-6-astra' } })
       const options = await b.popup().options(projection('s1'), new AbortController().signal)
-      expect(options.map(option => [option.group?.name, option.label])).toEqual([
-        ['muse-cloud-yunying', 'gpt-6-sol'],
-        ['muse-cloud-yunying', 'claude-sonnet-5-5'],
-        ['muse-cloud-yunying', 'gemini-3.1-pro'],
-        ['muse-cloud-zhipu-official', 'GLM-5.3-Flash'],
+      expect(options.map(option => [option.group?.label, option.label])).toEqual([
+        ['OpenAI', 'gpt-6-sol'],
+        ['Anthropic', 'claude-sonnet-5-5'],
+        ['Google', 'gemini-3.1-pro'],
+        ['Zhipu', 'GLM-5.3-Flash'],
+        ['DeepSeek', 'DeepSeek V4.1 Flash'],
+        ['DeepSeek', 'DeepSeek V4 Pro'],
       ])
+      expect(options.at(-2)?.group?.name).toBe(options.at(-1)?.group?.name)
       expect(b.ctx.modelDirectories.directoryFor(sid('s1')).store.getSnapshot()).toMatchObject({
         current: { provider: 'muse-cloud-yunying', model: 'gpt-6-astra' }, routable: false,
       })
       expect(b.calls.select).toBe(0)
+      await b.popup().onSelect(options.at(-1)!, projection('s1'))
+      expect(b.hostCurrent()).toMatchObject({ provider: 'muse-cloud-jubian-pro', model: 'deepseek-v4-pro' })
     } finally {
       await b.ctx.fiber.dispose()
     }

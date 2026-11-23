@@ -11,37 +11,58 @@ import { isLocalRoute, modelsFor, routeOf } from './agent-routes.js'
 const MENU_EXIT_MS = 120
 
 // -------------------------------------------------------------------------
-// A Bot's model: the picker in its details panel and settings, and the message its
-// chat opens on while it has none. Models come from DeepSeek Harness, grouped by provider.
+// Muse assigns hosted models to a maker group independently of their API route.
+const MODEL_MAKERS = [
+  [/^deepseek(?=$|[-_.\d])/, 'DeepSeek'],
+  [/^claude(?=$|[-_.\d])/, 'Anthropic'],
+  [/^(?:gpt|chatgpt)(?=$|[-_.\d])|^o[1-9](?=$|[-_.])/, 'OpenAI'],
+  [/^(?:gemini|gemma)(?=$|[-_.\d])/, 'Google'],
+  [/^(?:qwen|qwq)(?=$|[-_.\d])/, 'Alibaba'],
+  [/^(?:glm|chatglm)(?=$|[-_.\d])/, 'Zhipu'],
+  [/^(?:kimi|moonshot)(?=$|[-_.\d])/, 'Moonshot AI'],
+  [/^(?:doubao|seed|seedance)(?=$|[-_.\d])/, 'ByteDance'],
+  [/^(?:minimax|abab)(?=$|[-_.\d])/, 'MiniMax'],
+  [/^grok(?=$|[-_.\d])/, 'xAI'],
+  [/^(?:mistral|mixtral|codestral)(?=$|[-_.\d])/, 'Mistral'],
+]
+
+const providerOf = model => model.provider ?? model.ref.split('/')[0]
+const isManagedModel = model => providerOf(model).startsWith('muse-cloud-')
+const modelIdOf = model => (model.id ?? model.ref).split('/').at(-1)
+const nameOf = model => (model.id === 'default' && isLocalRoute(model.ref) ? t('CLI default') : model.name)
+const titleOf = model => isManagedModel(model) ? modelIdOf(model) : model.ref
+
+function displayGroupOf(model) {
+  if (isManagedModel(model)) {
+    const id = modelIdOf(model).toLowerCase()
+    const maker = MODEL_MAKERS.find(([pattern]) => pattern.test(id))?.[1]
+    return { id: `muse-maker/${maker ?? 'other'}`, name: maker ?? t('Other models'), managed: true }
+  }
+  const provider = providerOf(model)
+  return { id: provider, name: model.providerName ?? provider, managed: false }
+}
 
 export function groupModels(models) {
   const groups = new Map()
   for (const model of models ?? []) {
-    const provider = model.provider ?? model.providerName ?? model.ref.split('/')[0]
-    if (!groups.has(provider)) groups.set(provider, [])
-    groups.get(provider).push(model)
+    const group = displayGroupOf(model)
+    if (!groups.has(group.id)) groups.set(group.id, { ...group, list: [] })
+    groups.get(group.id).list.push(model)
   }
   const names = new Map()
-  for (const [provider, list] of groups) {
-    const name = list[0].providerName ?? provider
-    names.set(name, (names.get(name) ?? 0) + 1)
-  }
-  return [...groups].map(([provider, list]) => {
-    const name = list[0].providerName ?? provider
-    return [names.get(name) > 1 ? `${name} (${provider})` : name, list]
-  })
+  for (const { name } of groups.values()) names.set(name, (names.get(name) ?? 0) + 1)
+  return [...groups.values()].map(({ id, name, managed, list }) => [!managed && names.get(name) > 1 ? `${name} (${id})` : name, list])
 }
 
 const servedOf = (roster, ref) => (roster.models ?? []).find(model => model.ref === ref)
-const nameOf = model => (model.id === 'default' && isLocalRoute(model.ref) ? t('CLI default') : model.name)
 
 // What a Bot runs on, for display: the chosen model, else the one it last ran on.
 export function modelOf(bot, roster) {
   const ref = bot.model ?? bot.appliedModel
   if (!ref) return undefined
   const served = servedOf(roster, ref)
-  const [provider, ...rest] = ref.split('/')
-  return { ref, name: served === undefined ? rest.join('/') : nameOf(served), provider: served?.providerName ?? provider, served: served !== undefined }
+  const name = served === undefined ? ref.split('/').slice(1).join('/') : nameOf(served)
+  return { ref, name, groupName: displayGroupOf(served ?? { ref }).name, served: served !== undefined }
 }
 
 // The thinking levels of one model, `{efforts, defaultEffort?}` or undefined when it
@@ -254,9 +275,8 @@ export function EffortBar({ reasoning, current, onPick }) {
     h('span', { className: 'bt-effort-knob', 'aria-hidden': true })))
 }
 
-// The stable id of a provider group: the models' provider, never the display name,
-// which repeats when two providers carry the same name.
-const groupIdOf = list => list[0]?.provider ?? (typeof list[0]?.ref === 'string' ? list[0].ref.split('/')[0] : '')
+// Group keys survive duplicate labels and changes in which of a maker's routes are listed.
+const groupIdOf = list => displayGroupOf(list[0]).id
 
 // The group that holds the Bot's model, by that id; undefined when the model is no
 // longer served, or the Bot has none.
@@ -267,7 +287,7 @@ function currentGroupId(groups, current) {
 }
 
 // A group is open when the user opened or closed it during this opening of the menu.
-// Otherwise the current model's provider is open, or the first provider when the model
+// Otherwise the current model's group is open, or the first group when the model
 // is not in the catalog. A search opens every group it matched, so a result is never
 // hidden behind a heading, and the manual state applies again once the search clears.
 export function groupOpen({ id, index, currentId, filtering, manual }) {
@@ -280,24 +300,24 @@ export function groupOpen({ id, index, currentId, filtering, manual }) {
 // The manual state after a heading is clicked, `open` being what the heading showed.
 export const toggledGroup = (manual, id, open) => ({ ...manual, [id]: !open })
 
-// The provider headings and the models under the open ones. A search shows the plain
+// The group headings and the models under the open ones. A search shows the plain
 // headings of every matched group, with nothing to collapse: every result is visible.
 // Kept apart from the state so a test can open and close a group the way its heading does.
 export function ModelGroupList({ groups, current, currentId, defaultModel, onPick, manual, onToggle, filtering = false }) {
-  return groups.map(([provider, list], index) => {
+  return groups.map(([name, list], index) => {
     const id = groupIdOf(list)
     const open = groupOpen({ id, index, currentId, filtering, manual })
-    return h(Fragment, { key: `group:${id || provider}` },
+    return h(Fragment, { key: `group:${id}` },
       filtering
-        ? h('div', { className: 'bt-model-group', role: 'presentation' }, provider)
+        ? h('div', { className: 'bt-model-group', role: 'presentation' }, name)
         : h('button', {
             type: 'button', role: 'menuitem', className: 'bt-model-group bt-model-group-toggle',
             'aria-expanded': open, 'data-open': open ? '' : undefined,
             onClick: () => onToggle(id, open),
           },
-          h(Caret), h('span', { className: 'bt-menu-label' }, provider)),
+          h(Caret), h('span', { className: 'bt-menu-label' }, name)),
       open ? list.map(model => h('button', {
-        key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: model.ref,
+        key: model.ref, type: 'button', role: 'menuitemradio', 'aria-checked': model.ref === current, title: titleOf(model),
         onClick: () => onPick(model.ref),
       },
       h('span', { className: 'bt-menu-label' }, nameOf(model)),
@@ -463,7 +483,7 @@ function useModelPicker({ bot, roster, actions, run, onPick, onPickEffort, withE
   }
 }
 
-// The trigger shows the model name over its provider.
+// The trigger shows the model name with its group and thinking level.
 const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
   const { shown, models, withEfforts, effortLabel } = picker
   return h('button', {
@@ -474,8 +494,8 @@ const modelTrigger = (picker, { wide, button, isOpen, onClick }) => {
   h('span', { className: 'bt-model-copy' },
     h('span', { className: 'bt-model-name' }, shown?.name ?? t('Choose a model')),
     shown ? h('span', { className: 'bt-model-provider' }, shown.served || models.length === 0
-      ? (!withEfforts || effortLabel === undefined ? shown.provider : `${shown.provider} · ${effortLabel}`)
-      : t('{provider} · not available', { provider: shown.provider })) : null),
+      ? (!withEfforts || effortLabel === undefined ? shown.groupName : `${shown.groupName} · ${effortLabel}`)
+      : t('{provider} · not available', { provider: shown.groupName })) : null),
   h(Caret))
 }
 
@@ -586,12 +606,12 @@ export function ModelChoiceDock({ sessionId, useRoster, actions }) {
   const choices = usable.length === 0
     ? setupChoices(actions).map(([label, run]) => h('button', { key: label, type: 'button', className: 'bt-model-chip', onClick: run }, label))
     : [
-        ...groupModels(usable).map(([provider, list]) => h('div', { key: list[0].provider ?? provider, className: 'bt-model-choice-group', role: 'group', 'aria-label': provider },
-          h('div', { className: 'bt-model-choice-provider', 'aria-hidden': true }, provider),
+        ...groupModels(usable).map(([name, list]) => h('div', { key: groupIdOf(list), className: 'bt-model-choice-group', role: 'group', 'aria-label': name },
+          h('div', { className: 'bt-model-choice-provider', 'aria-hidden': true }, name),
           h('div', { className: 'bt-model-choice-chips' }, list.map(model => h('button', {
             key: model.ref, type: 'button', className: 'bt-model-chip', disabled: busy !== '', 'aria-busy': busy === model.ref || undefined,
-            'aria-label': `${model.name} · ${provider}`,
-            title: model.ref === roster.defaultModel ? `${model.ref} · ${t('Harness default')}` : model.ref,
+            'aria-label': `${model.name} · ${name}`,
+            title: model.ref === roster.defaultModel ? `${titleOf(model)} · ${t('Harness default')}` : titleOf(model),
             onClick: () => pick(model.ref),
           }, model.name, busy === model.ref ? h('span', { className: 'bt-model-spin', 'aria-label': t('Saving…') }) : null))))),
         manage ? h('button', { key: 'manage', type: 'button', className: 'bt-model-chip bt-model-chip-quiet', onClick: manage }, h(SlidersIcon), t('Manage models')) : null,

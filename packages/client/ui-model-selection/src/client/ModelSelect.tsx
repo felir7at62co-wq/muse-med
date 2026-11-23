@@ -42,7 +42,7 @@ import {
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelLabelOwner, ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
-import { orderModelProviders } from './provider-order.ts'
+import { groupModelChoices } from './model-picker-groups.ts'
 
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
 type Pane = 'root' | 'model' | 'effort'
@@ -93,38 +93,23 @@ export function ModelSelect(
   }
 
   const accountProviderName = t('provider.account')
-  const groups = useMemo(() => orderModelProviders(state.groups).map(group => ({
-    ...group,
-    provider: {
-      id: group.id,
-      name: group.id === 'deepseek-account' ? accountProviderName : group.name,
-    },
-  })), [state.groups, accountProviderName])
-  const choices = useMemo(() => groups.flatMap(group =>
-    group.models.map(model => ({
-      group,
-      model,
-      selection: {
-        provider: group.id,
-        model: model.id,
-        ...model.reasoning?.defaultEffort === undefined
-          ? {}
-          : { reasoningEffort: model.reasoning.defaultEffort },
-      } satisfies ModelSelection,
-    }))), [groups])
+  const otherModelsName = t('provider.otherModels')
+  const groups = useMemo(() => groupModelChoices(state.groups, accountProviderName, otherModelsName),
+    [state.groups, accountProviderName, otherModelsName])
+  const choices = useMemo(() => groups.flatMap(group => group.models), [groups])
   const showSearch = choices.length > 4
   const filteredGroups = useMemo(() => groups.map(group => ({
     ...group, models: rankByName(group.models, showSearch ? query.trim() : ''),
   })).filter(group => group.models.length > 0), [groups, query, showSearch])
-  const visibleModels = useMemo(() => filteredGroups.flatMap(group => group.models.map(model => ({
-    provider: group.id, model: model.id,
+  const visibleModels = useMemo(() => filteredGroups.flatMap(group => group.models.map(({ provider, model }) => ({
+    provider: provider.id, model: model.id,
   }))), [filteredGroups])
   const currentVisibleIndex = visibleModels.findIndex(model =>
     model.provider === state.current?.provider && model.model === state.current.model)
   const activeModelIndex = Math.min(highlightedIndex ?? Math.max(0, currentVisibleIndex), visibleModels.length - 1)
   const selectedIndex = state.current === null
     ? -1
-    : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
+    : choices.findIndex(choice => choice.provider.id === state.current?.provider && choice.model.id === state.current.model)
   const currentChoice = choices[selectedIndex]
   const reasoning = currentChoice?.model.reasoning
   const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
@@ -465,7 +450,7 @@ export function ModelSelect(
       >
         <IconDataOutlineRegular className={css.triggerIcon} size={16} />
         <span className={css.triggerLabel}>
-          {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'trigger', true)}
+          {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.provider, currentChoice.model, 'trigger', true)}
         </span>
         {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
         {busy
@@ -495,7 +480,7 @@ export function ModelSelect(
               <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('model') }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
                 <span className={css.cellValue}>
-                  {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.group.provider, currentChoice.model, 'menu', true)}
+                  {currentChoice === undefined ? modelLabel : renderModelLabel(currentChoice.provider, currentChoice.model, 'menu', true)}
                 </span>
                 <IconChevronRightOutlineRegular className={css.cellChevron} />
               </button>
@@ -559,7 +544,9 @@ export function ModelSelect(
               )}
               {state.failures.map(failure => (
                 <div className={css.warning} key={failure.id}>
-                  <span>{t('warning.groupLoad', { name: failure.id === 'deepseek-account' ? t('provider.account') : failure.name, message: failure.message })}</span>
+                  <span>{failure.id.startsWith('muse-cloud-')
+                    ? t('option.loadError', { message: failure.message })
+                    : t('warning.groupLoad', { name: failure.id === 'deepseek-account' ? accountProviderName : failure.name, message: failure.message })}</span>
                   <button type="button" className={css.retry} onClick={reload}>{t('retry')}</button>
                 </div>
               ))}
@@ -573,10 +560,10 @@ export function ModelSelect(
               >
                 {filteredGroups.map((group) => {
                   return (
-                    <MenuGroup key={group.id} label={group.provider.name}>
-                      {group.models.map((model) => {
+                    <MenuGroup key={group.id} label={group.label}>
+                      {group.models.map(({ provider, model }) => {
                         const index = modelIndex++
-                        const selected = state.current?.provider === group.id && state.current.model === model.id
+                        const selected = state.current?.provider === provider.id && state.current.model === model.id
                         return (
                           <button
                             ref={itemRef()}
@@ -594,16 +581,16 @@ export function ModelSelect(
                               if (showSearch) setHighlightedIndex(index)
                               else itemRefs.current[index]?.focus()
                             }}
-                            key={model.id}
+                            key={`${provider.id}/${model.id}`}
                             title={model.name}
                             disabled={busy}
-                            onClick={() => { choose({ provider: group.id, model: model.id }) }}
+                            onClick={() => { choose({ provider: provider.id, model: model.id }) }}
                           >
                             <span className={css.optionCopy}>
-                              <span className={css.modelName}>{renderModelLabel(group.provider, model, 'option', selected)}</span>
+                              <span className={css.modelName}>{renderModelLabel(provider, model, 'option', selected)}</span>
                             </span>
                             <span className={css.check}>
-                              {pending?.provider === group.id && pending.model === model.id
+                              {pending?.provider === provider.id && pending.model === model.id
                                 ? <StateDot state="ongoing" />
                                 : selected ? <IconCheckOutlineRegular /> : null}
                             </span>

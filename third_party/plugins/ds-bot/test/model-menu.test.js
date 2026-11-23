@@ -32,7 +32,7 @@ const sandbox = {
   },
 }
 runInNewContext(bundle.outputFiles[0].text, sandbox)
-const { groupModels, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
+const { groupModels, modelOf, ModelChoiceDock, ModelKeyCard, effortRows, effortStops, EffortBar, stepMenuFocus, ModelRows, ModelGroupList, groupOpen, toggledGroup, manualFor } = module.exports
 
 function nodes(tree, match) {
   if (!tree || typeof tree !== 'object') return []
@@ -86,6 +86,34 @@ test('providers with the same display name stay distinct, and unnamed providers 
     ['Cloud (local)', ['local/flash']],
     ['custom', ['custom/flash']],
   ])
+})
+
+test('Muse models use maker headings and retain each exact route in the picker', () => {
+  const flash = { ref: 'muse-cloud-deepseek-flash-auto/deepseek-v4.1-flash', provider: 'muse-cloud-deepseek-flash-auto', providerName: 'Bailian', id: 'deepseek-v4.1-flash', name: 'DeepSeek Flash' }
+  const pro = { ref: 'muse-cloud-jubian-pro/deepseek-v4-pro', providerName: 'Jubian', name: 'DeepSeek Pro' }
+  const google = { ref: 'muse-cloud-jubian-pro/vendor/gemini-3.1-pro', provider: 'muse-cloud-jubian-pro', providerName: 'Jubian', id: 'vendor/gemini-3.1-pro', name: 'Gemini Pro' }
+  const unknown = { ref: 'muse-cloud-jubian-pro/new-model', providerName: 'Jubian', name: 'New model' }
+  const entries = [flash, google, pro, unknown, models[1]]
+  const groups = groupModels(entries)
+  assert.deepEqual(Array.from(groups, ([name, list]) => [name, Array.from(list, model => model.ref)]), [
+    ['DeepSeek', [flash.ref, pro.ref]], ['Google', [google.ref]], ['Other models', [unknown.ref]], ['Ollama', [models[1].ref]],
+  ])
+  const picked = []
+  const list = ModelRows({ roster: { models: entries }, current: pro.ref, onPick: ref => picked.push(ref) })
+  assert.deepEqual(modelNames(list), ['DeepSeek Flash', 'DeepSeek Pro'])
+  const rows = modelRows(list)
+  assert.equal(rows[1].props['aria-checked'], true)
+  assert.equal(rows[0].props.title, 'deepseek-v4.1-flash')
+  rows[0].props.onClick()
+  assert.deepEqual(picked, [flash.ref])
+  assert.equal(modelOf({ model: pro.ref }, { models: entries }).groupName, 'DeepSeek')
+  assert.equal(modelOf({ model: pro.ref }, { models: [] }).groupName, 'DeepSeek')
+  const chosen = dock(entries)
+  const chips = nodes(chosen.tree, node => node.type === 'button' && node.children.includes('DeepSeek Pro'))
+  assert.equal(chips[0].props.title, 'deepseek-v4-pro')
+  assert.equal(chips[0].props['aria-label'], 'DeepSeek Pro · DeepSeek')
+  chips[0].props.onClick()
+  assert.deepEqual(chosen.picked, [['chief', pro.ref]])
 })
 
 test('an unavailable model offers the same provider groups', () => {
