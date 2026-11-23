@@ -5,6 +5,7 @@ import http from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
+import {setTimeout as delay} from 'node:timers/promises';
 import {WebSocket,WebSocketServer} from 'ws';
 import {createCentralServer} from './central-web.mjs';
 import {createAccountServer} from './gateway.mjs';
@@ -26,7 +27,7 @@ async function listen(t,server){
  return `http://127.0.0.1:${server.address().port}`;
 }
 
-async function fixture(t,{allowEditor=false}={}){
+async function fixture(t,{allowEditor=false,backendResponseTimeoutMs,serveNative}={}){
  const dir=await mkdtemp(join(tmpdir(),'muse-central-web-'));
  t.after(()=>rm(dir,{recursive:true,force:true}));
  const store=await openStore(join(dir,'accounts.json'));
@@ -49,6 +50,7 @@ async function fixture(t,{allowEditor=false}={}){
  const backend=http.createServer((req,res)=>{
   requests.push(record(req));
   if(req.headers.cookie!==nativeCookie){res.writeHead(401);res.end();return;}
+  if(serveNative?.(req,res))return;
   if(req.url==='/'){
    res.writeHead(200,{'content-type':'text/html'});
    res.end('<html><head><base href="./"><script src="./bundle.js"></script></head><body>private central host</body></html>');
@@ -71,6 +73,7 @@ async function fixture(t,{allowEditor=false}={}){
  const backendOrigin=await listen(t,backend);
  let cookieReads=0;
  const central=createCentralServer({publicOrigin,accountsOrigin,backendOrigin,ownerAccountId:ownerAccount.id,authorizationIntervalMs:100,
+  backendResponseTimeoutMs,
   ...(allowEditor?{allowedAccountIds:[ownerAccount.id,editorAccount.id,otherAdminAccount.id]}:{}),
   getBackendCookie:async()=>{cookieReads++;return nativeCookie;},
  });
@@ -85,6 +88,51 @@ async function fixture(t,{allowEditor=false}={}){
  };
  return {store,ownerAccount,editorAccount,owner,editor,otherAdmin,unlistedAdmin,requests,upgrades,backend,backendOrigin,accountsOrigin,origin,request,openSocket,cookieReads:()=>cookieReads};
 }
+
+test('the gateway returns 504 if the central Host stalls before sending headers',async t=>{
+ const f=await fixture(t,{backendResponseTimeoutMs:100,serveNative:req=>req.url==='/stalled'});
+ const response=await f.request('/central/stalled',f.owner,{signal:AbortSignal.timeout(3000)});
+ assert.equal(response.status,504);
+ assert.match(await response.text(),/响应超时，请稍后重试/u);
+ assert.equal((await f.request('/central/',f.owner)).status,200);
+});
+
+test('the gateway preserves a slow upload and an idle response stream',async t=>{
+ const backendResponseTimeoutMs=100;
+ const uploadObserved=Promise.withResolvers();
+ const finishStream=Promise.withResolvers();
+ const f=await fixture(t,{backendResponseTimeoutMs,serveNative(req,res){
+  if(req.url==='/upload'){
+   let body='';
+   req.setEncoding('utf8');
+   req.on('data',chunk=>{body+=chunk;uploadObserved.resolve();});
+   req.once('end',()=>res.end(body));
+   return true;
+  }
+  if(req.url==='/stream'){
+   res.write('first ');
+   void finishStream.promise.then(()=>res.end('last'));
+   return true;
+  }
+  return false;
+ }});
+ const upload=await f.request('/central/upload',f.owner,{
+  method:'POST',headers:{origin:publicOrigin},duplex:'half',signal:AbortSignal.timeout(3000),
+  body:(async function*(){
+   yield 'first ';
+   await uploadObserved.promise;
+   await delay(backendResponseTimeoutMs*3);
+   yield 'last';
+  })(),
+ });
+ assert.equal(upload.status,200);
+ assert.equal(await upload.text(),'first last');
+ const stream=await f.request('/central/stream',f.owner,{signal:AbortSignal.timeout(3000)});
+ assert.equal(stream.status,200);
+ await delay(backendResponseTimeoutMs*3);
+ finishStream.resolve();
+ assert.equal(await stream.text(),'first last');
+});
 
 test('explicitly granted accounts can enter and lose access when disabled',async t=>{
  const f=await fixture(t,{allowEditor:true});

@@ -100,6 +100,28 @@ function keepAuthorized(authorize, interval, shutdown) {
   }
 }
 
+function boundBackendResponse(proxy, timeoutMs, onTimeout) {
+  const connecting = setTimeout(onTimeout, timeoutMs).unref()
+  let responding
+  proxy.once('socket', socket => {
+    if (socket.connecting) socket.once('connect', () => clearTimeout(connecting))
+    else clearTimeout(connecting)
+  })
+  const sent = () => {
+    clearTimeout(connecting)
+    responding = setTimeout(onTimeout, timeoutMs).unref()
+  }
+  const stop = () => {
+    clearTimeout(connecting)
+    clearTimeout(responding)
+    proxy.removeListener('finish', sent)
+  }
+  proxy.once('finish', sent)
+  proxy.once('response', stop)
+  proxy.once('close', stop)
+  proxy.once('error', stop)
+}
+
 /**
  * Serve Central Muse under /central/ using the current Muse account session and a private Host cookie.
  * @param {object} config Trusted deployment settings and native authentication reader.
@@ -107,6 +129,7 @@ function keepAuthorized(authorize, interval, shutdown) {
  */
 export function createCentralServer({
   publicOrigin, accountsOrigin, backendOrigin, ownerAccountId, allowedAccountIds, getBackendCookie, authorizationIntervalMs = 5000,
+  backendResponseTimeoutMs = 15_000,
 }) {
   const account = privateOrigin(accountsOrigin, true)
   const backend = privateOrigin(backendOrigin)
@@ -116,7 +139,8 @@ export function createCentralServer({
       (allowedAccountIds !== undefined && (!Array.isArray(allowedAccountIds) || allowedAccountIds.length === 0 ||
         allowedAccountIds.some(id => typeof id !== 'string' || !/^[a-f0-9]{16}$/.test(id)) ||
         !allowedAccountIds.includes(ownerAccountId))) ||
-      !Number.isSafeInteger(authorizationIntervalMs) || authorizationIntervalMs <= 0) {
+      !Number.isSafeInteger(authorizationIntervalMs) || authorizationIntervalMs <= 0 ||
+      !Number.isSafeInteger(backendResponseTimeoutMs) || backendResponseTimeoutMs <= 0 || backendResponseTimeoutMs > 2_147_483_647) {
     throw new Error('Invalid Central Web configuration')
   }
 
@@ -199,12 +223,17 @@ export function createCentralServer({
         res.writeHead(reply.statusCode, responseHeaders(reply.headers, backend, path))
         reply.pipe(res)
       })
+      boundBackendResponse(proxy, backendResponseTimeoutMs, () => {
+        respond(res, 504, '中央 Muse 响应超时，请稍后重试。')
+        proxy.destroy()
+      })
       const stop = keepAuthorized(authorizeRequest, authorizationIntervalMs, () => {
         proxy.destroy()
         res.destroy()
       })
       res.once('close', () => { stop(); proxy.destroy() })
       proxy.on('error', () => {
+        if (res.writableEnded) return
         if (res.headersSent) res.destroy()
         else respond(res, 503, '中央 Muse 暂时不可用。')
       })

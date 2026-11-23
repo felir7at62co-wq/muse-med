@@ -33,6 +33,8 @@ Verify local access through the gateway before adding the Nginx include. The nat
 
 When `allowedAccountIds` is present, it must include `ownerAccountId` and every ID permitted to enter Central Muse. Each request still requires a valid, enabled production account session. If the list is omitted, the owner must also retain the administrator role.
 
+The optional `backendResponseTimeoutMs` defaults to 15000 milliseconds. The gateway bounds the time to connect and, after it forwards the entire request, the time to receive the response headers. It returns HTTP 504 when either wait expires. Uploads after connection and streams after the headers arrive use their existing behavior.
+
 ## Enable HTTPS access
 
 Copy `nginx.central-web.conf` into `/etc/nginx` and add it as an include inside the existing HTTPS server block for the production account domain. Keep the existing account gateway and workbench route definitions. If the loopback port in the config changes, update the include to match it. Run `nginx -t` before reloading Nginx.
