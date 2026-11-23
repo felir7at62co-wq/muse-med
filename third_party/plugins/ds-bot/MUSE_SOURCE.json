@@ -135,6 +135,7 @@
     "test/looks.test.js",
     "test/member-status.test.js",
     "test/memory.test.js",
+    "test/mobile-chat.test.js",
     "test/mobile.test.js",
     "test/model-menu.test.js",
     "test/notify.test.js",

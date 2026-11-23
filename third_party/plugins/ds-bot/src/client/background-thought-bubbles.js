@@ -154,7 +154,7 @@ export const BACKGROUND_THOUGHT_CSS = `
 }
 .bt-thoughts-surface{
   display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 0fr;align-self:start;
-  min-width:0;box-sizing:border-box;border:1px solid var(--bt-thought-edge);border-radius:15px;
+  min-width:0;box-sizing:border-box;border:1px solid var(--bt-thought-edge);border-radius:16px;
   background:var(--bt-thought-fill);color:var(--bt-ink-2);
   transition:${spring(SPRING_SHAPE, 'grid-template-rows', 'border-radius')},background-color .14s ease,border-color .14s ease,color .14s ease
 }
@@ -164,7 +164,7 @@ export const BACKGROUND_THOUGHT_CSS = `
 .bt-thoughts-slot[data-overlay]{z-index:1}
 .bt-thoughts-slot[data-open]{z-index:2;min-width:var(--bt-thought-max)}
 .bt-thoughts-slot[data-overlay]>.bt-thoughts-surface{background:color-mix(in srgb,var(--bt-accent) 12%,var(--bt-card));border-color:var(--bt-line-2);color:var(--bt-ink);box-shadow:var(--bt-card-shadow)}
-.bt-thoughts-slot[data-open]>.bt-thoughts-surface{grid-template-rows:auto 1fr;border-radius:14px}
+.bt-thoughts-slot[data-open]>.bt-thoughts-surface{grid-template-rows:auto 1fr;border-radius:12px}
 .bt-thoughts-slot[data-overlay]:not([data-open])>.bt-thoughts-surface{pointer-events:none}
 .bt-thoughts-slot[data-overlay]:not([data-open],[data-leaving]) .bt-thoughts-chip{pointer-events:auto}
 .bt-thoughts-slot[data-leaving]{pointer-events:none;animation:bt-thought-fade ${EXIT_MS}ms ease-in-out both}

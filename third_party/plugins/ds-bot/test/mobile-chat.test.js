@@ -4,8 +4,10 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 
-// styles.js reaches React through motion.js; the CSS itself needs none of it, so the
-// bundle is loaded with an empty React and only the CSS strings are read back.
+// styles.js reaches React through motion.js, and through details-avatar.js and mark.js to
+// connector-marks.js, which builds its SVG elements at module load. The CSS itself needs none
+// of it, so the bundle is loaded with a React whose createElement returns null and only the
+// CSS strings are read back.
 const plugin = dirname(dirname(fileURLToPath(import.meta.url)))
 const { outputFiles } = await build({
   stdin: {
@@ -16,7 +18,7 @@ const { outputFiles } = await build({
   external: ['react'],
 })
 const loaded = { exports: {} }
-new Function('module', 'exports', 'require', outputFiles[0].text)(loaded, loaded.exports, () => ({}))
+new Function('module', 'exports', 'require', outputFiles[0].text)(loaded, loaded.exports, () => ({ createElement: () => null }))
 const { CONVERSATION_CSS, SHELL_CSS } = loaded.exports
 
 // The phone rules live in one width breakpoint, so both a Bot chat and a group's

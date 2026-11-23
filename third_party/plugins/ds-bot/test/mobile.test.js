@@ -344,13 +344,20 @@ test('a member\'s approval in a group is a notice that names the group', async (
 })
 
 test('stop-chat ends a Bot own-chat turn, and answers false when nothing runs', async () => {
-  const { call, emit, stop } = start()
+  const { call, ctx, emit, stop } = start()
   const { chief } = await team(call)
   assert.equal((await call('stop-chat', { botId: chief })).value, false)
   const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const cancelled = []
+  const resolveAgent = ctx.sessionController.resolveAgent
+  ctx.sessionController.resolveAgent = async (id) => {
+    const resolved = await resolveAgent(id)
+    return { ...resolved, agent: { ...resolved.agent, cancel: reason => cancelled.push([id, reason]) } }
+  }
   await emit(sessionId, { type: 'turn/start', data: { turn: 1 } })
   await emit(sessionId, user(1, 'go'))
   assert.equal((await call('stop-chat', { botId: chief })).value, true)
+  assert.deepEqual(cancelled, [[sessionId, { kind: 'user' }]])
   await stop()
 })
 
