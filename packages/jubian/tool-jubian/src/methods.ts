@@ -777,9 +777,15 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs,
     }
     case 'episodes': {
       const scriptId = need(args.script_id)
+      const { num, size } = pageSelection(args)
       const result = await client.request({
-        method: 'GET', path: `/aigc/episode/list?scriptId=${scriptId}&${page(args)}` })
-      return { episodes: readEpisodes(result.data) }
+        method: 'GET', path: `/aigc/episode/list?scriptId=${scriptId}&pageNum=${num}&pageSize=${size}` })
+      const episodes = readEpisodes(result.data)
+      if (episodes.rows.length === 0 && (num - 1) * size < episodes.total) {
+        throw new JubianError('CONTRACT_CHANGED',
+          `剧变分集列表第 ${num} 页为空（page_size=${size}，total=${episodes.total}），该页仍在总数范围内。请重读或核对该项目的分集列表。`)
+      }
+      return { episodes }
     }
     default:
       throw new JubianError('CONTRACT_CHANGED')

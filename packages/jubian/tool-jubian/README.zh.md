@@ -517,6 +517,8 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 
 失败使用稳定码，且永不携带提供方的响应文本或 token。
 
+`jubian_catalog episodes` 的分集页在总数范围内却为空时返回 `CONTRACT_CHANGED`，并注明页码、页大小和总数。
+
 | 码 | 触发 |
 |---|---|
 | `AUTHENTICATION_REQUIRED` | 无 token、token 含内部空白、HTTP 401 或 403，或信封 `code` 401 或 403 |

@@ -515,6 +515,8 @@ For free-only work, set `only_if_verified_free: true` and omit both estimate fie
 
 Failures use stable codes and never carry the provider's response text or a token.
 
+`jubian_catalog episodes` reports `CONTRACT_CHANGED` when an empty episode page falls within the reported total. The error includes the page number, page size, and total.
+
 | Code | Trigger |
 |---|---|
 | `AUTHENTICATION_REQUIRED` | No token, interior whitespace in the token, HTTP 401 or 403, or envelope `code` 401 or 403 |
