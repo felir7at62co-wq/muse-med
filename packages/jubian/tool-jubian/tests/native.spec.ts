@@ -2503,14 +2503,15 @@ describe('select_assets', () => {
   const selections = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
   const emptyStoryboard = { ...STORYBOARD, storyboardMaterialList: [] }
 
-  it('reports the saved model when a free selection differs from the session choice', async () => {
+  it.each(['object', 'JSON string'])('reports a %s saved model when a free selection differs from the session choice', async (encoding) => {
     const expected = { modelId: 'doubao-seedance-2.5-flash', platformId: 'YU_DIAN', standardId: 101, resolution: '720p' }
     const legacyConfig = { ...MODEL_CONFIG, modelId: 'doubao-seedance-2.5', standardId: 93 }
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
       storyboard: { ...emptyStoryboard, modelConfig: JSON.stringify({ ...legacyConfig, ...expected }) },
       onPut: (payload) => {
         const config = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
-        provider.storyboard.modelConfig = { ...config, modelId: legacyConfig.modelId, standardId: '93' }
+        const saved = { ...config, modelId: legacyConfig.modelId, standardId: '93' }
+        provider.storyboard.modelConfig = encoding === 'JSON string' ? JSON.stringify(saved) : saved
       } }
     const args = { storyboard_id: 916953, selections, idempotency_key: 'select-model-readback' }
     const client = clientFor(provider)
