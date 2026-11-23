@@ -789,9 +789,11 @@ export function install(rt) {
   // the connection owner's included, keeps its own context and memory. A private chat
   // without a binding (the owner's, before chat Bots covered it) gets one on its next
   // message. A chat whose own Bot was deleted gets a new one; `chatBots: false` leaves
-  // chats to bindings made by hand, and private chats to the connection's Bot.
+  // chats to bindings made by hand, and private chats to the connection's Bot. A chat
+  // set to no target in Settings → IM (`manual`) keeps that choice: a private chat stays
+  // with the connection's Bot and a group stays unbound until someone binds it.
   const wantsOwnBot = (conn, chat) => conn.chatBots !== false
-    && (chat.target === undefined || (chat.auto === true && resolveTarget(conn, chat) === undefined))
+    && (chat.target === undefined ? chat.manual !== true : chat.auto === true && resolveTarget(conn, chat) === undefined)
   const LOCAL_PLATFORM_NAMES = {
     zh: { feishu: '飞书', weixin: '微信', dingtalk: '钉钉', wecom: '企业微信' },
     'zh-TW': { feishu: '飛書', weixin: '微信', dingtalk: '釘釘', wecom: '企業微信' },
@@ -1644,12 +1646,17 @@ export function install(rt) {
       if (body.remove === true) {
         delete conn.chats[String(body.chatKey ?? '')]
       } else if (body.target === null) {
+        // No target, chosen by hand: chat Bots leave the chat alone (see `wantsOwnBot`), and
+        // `botName` belongs to an automatic Bot the chat no longer has.
         delete chat.target
+        delete chat.botName
+        chat.manual = true
       } else if (body.target !== undefined) {
         const target = body.target
         if (target.botId !== undefined && rt.botOf(target.botId) === undefined) throw new Error('Choose a Bot or a group')
         if (target.roomId !== undefined && rt.roomOf(target.roomId) === undefined) throw new Error('Choose a Bot or a group')
         chat.target = target.botId !== undefined ? { botId: String(target.botId) } : { roomId: String(target.roomId) }
+        delete chat.manual
       }
       await rt.save()
       return true
