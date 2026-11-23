@@ -167,6 +167,7 @@ export const FR = {
   "Only me": "Moi seulement",
   "A Bot for each chat": "Un Bot par chat",
   "Not bound": "Non lié",
+  "Follows “Talks to”": "Suit « Discute avec »",
   "Direct": "Direct",
   "Chats": "Discussions",
   "Deny": "Refuser",

@@ -291,6 +291,7 @@ var JA = {
   "Only me": "自分だけ",
   "A Bot for each chat": "チャットごとに Bot",
   "Not bound": "未バインド",
+  "Follows “Talks to”": "会話先に従う",
   "Direct": "ダイレクト",
   "Chats": "チャット",
   "Deny": "拒否",
@@ -2832,6 +2833,7 @@ var KO = {
   "Only me": "나만",
   "A Bot for each chat": "채팅마다 Bot",
   "Not bound": "연결 안 됨",
+  "Follows “Talks to”": "대화 상대를 따름",
   Direct: "개인 메시지",
   Chats: "대화",
   Deny: "거부",
@@ -5416,6 +5418,7 @@ var ES = {
   "Only me": "Solo yo",
   "A Bot for each chat": "Un Bot por chat",
   "Not bound": "Sin vincular",
+  "Follows “Talks to”": "Según «Habla con»",
   Direct: "Directo",
   Chats: "Chats",
   Deny: "Denegar",
@@ -7998,6 +8001,7 @@ var FR = {
   "Only me": "Moi seulement",
   "A Bot for each chat": "Un Bot par chat",
   "Not bound": "Non lié",
+  "Follows “Talks to”": "Suit « Discute avec »",
   "Direct": "Direct",
   "Chats": "Discussions",
   "Deny": "Refuser",
@@ -10539,6 +10543,7 @@ var DE = {
   "Only me": "Nur ich",
   "A Bot for each chat": "Ein Bot pro Chat",
   "Not bound": "Nicht gebunden",
+  "Follows “Talks to”": "Folgt „Spricht mit“",
   Direct: "Direkt",
   Chats: "Chats",
   Deny: "Ablehnen",
@@ -13121,6 +13126,7 @@ var ZH = {
   "Only me": "只有我",
   "A Bot for each chat": "每个聊天一个 Bot",
   "Not bound": "未绑定",
+  "Follows “Talks to”": "跟随对话对象",
   Direct: "私聊",
   Chats: "聊天",
   Deny: "拒绝",
@@ -39970,15 +39976,19 @@ function stateText2(conn, status) {
 }
 var Dot = ({ state }) => (0, import_react58.createElement)("span", { className: "bt-im-dot", "data-state": state, "aria-hidden": true });
 var Tick2 = ({ on }) => (0, import_react58.createElement)("span", { className: "bt-model-tick", "aria-hidden": true }, on ? (0, import_react58.createElement)(CheckIcon) : null);
-function TargetMenu({ value, roster, rooms = false, label, onPick, disabled = false }) {
+function TargetMenu({ value, roster, rooms = false, fallback, label, onPick, disabled = false }) {
   const { isOpen, shownPlace, leaving, button, menu, open, close } = useAnchoredMenu();
   const bot = value?.botId !== void 0 ? roster.bots.find((entry) => entry.id === value.botId) : void 0;
   const room2 = value?.roomId !== void 0 ? roster.rooms.find((entry) => entry.id === value.roomId) : void 0;
+  const follows = fallback !== void 0 && value === null;
+  const empty = fallback !== void 0 ? follows : !bot && !room2;
   const pick2 = (next) => {
     close();
     onPick(next);
   };
-  const shown = bot ? (0, import_react58.createElement)(BotAvatar, { bot, size: 20, badge: false, live: false }) : room2 ? (0, import_react58.createElement)("span", { className: "bt-im-room" }, (0, import_react58.createElement)(ChatsIcon)) : null;
+  const named = bot ?? (follows ? fallback : void 0);
+  const shown = named ? (0, import_react58.createElement)(BotAvatar, { bot: named, size: 20, badge: false, live: false }) : room2 ? (0, import_react58.createElement)("span", { className: "bt-im-room" }, (0, import_react58.createElement)(ChatsIcon)) : null;
+  const followMark = (0, import_react58.createElement)("span", { className: "bt-model-provider" }, t("Follows “Talks to”"));
   return (0, import_react58.createElement)(
     import_react58.Fragment,
     null,
@@ -39986,13 +39996,21 @@ function TargetMenu({ value, roster, rooms = false, label, onPick, disabled = fa
       "button",
       { ref: button, type: "button", className: "bt-model-trigger bt-im-target", "aria-haspopup": "menu", "aria-expanded": isOpen, "aria-label": label, disabled, onClick: () => isOpen ? close() : open() },
       shown,
-      (0, import_react58.createElement)("span", { className: "bt-model-name" }, bot?.name ?? room2?.name ?? t("Not bound")),
+      (0, import_react58.createElement)("span", { className: "bt-model-name" }, named?.name ?? room2?.name ?? t("Not bound")),
+      follows ? followMark : null,
       (0, import_react58.createElement)(Caret)
     ),
     shownPlace ? (0, import_react_dom10.createPortal)((0, import_react58.createElement)(
       "div",
       { ref: menu, className: `bt-menu bt-model-menu bt-im-menu${shownPlace.bottom !== void 0 ? " bt-menu-up" : ""}`, role: "menu", "aria-label": label, style: shownPlace, "data-leaving": leaving || void 0 },
-      rooms ? (0, import_react58.createElement)("button", { type: "button", role: "menuitemradio", "aria-checked": !bot && !room2, onClick: () => pick2(null) }, (0, import_react58.createElement)("span", { className: "bt-menu-label" }, t("Not bound")), (0, import_react58.createElement)(Tick2, { on: !bot && !room2 })) : null,
+      rooms || fallback !== void 0 ? (0, import_react58.createElement)(
+        "button",
+        { type: "button", role: "menuitemradio", "aria-checked": empty, onClick: () => pick2(null) },
+        fallback !== void 0 ? (0, import_react58.createElement)(BotAvatar, { bot: fallback, size: 20, badge: false, live: false }) : null,
+        (0, import_react58.createElement)("span", { className: "bt-menu-label" }, fallback?.name ?? t("Not bound")),
+        fallback !== void 0 ? followMark : null,
+        (0, import_react58.createElement)(Tick2, { on: empty })
+      ) : null,
       rooms ? (0, import_react58.createElement)("div", { className: "bt-model-group", role: "presentation" }, t("Bots")) : null,
       roster.bots.map((entry) => (0, import_react58.createElement)(
         "button",
@@ -40361,7 +40379,16 @@ function DetailView({ conn, status, roster, actions, onBack, renderFeishuSetting
           (0, import_react58.createElement)(
             "span",
             { className: "bt-set-control" },
-            chat.kind === "group" ? (0, import_react58.createElement)(TargetMenu, { value: chat.target ?? null, roster, rooms: true, label: t("Bound to"), disabled: busy, onPick: (target) => run2(actions.imChat(conn.id, { chatKey: key, target })) }) : null,
+            (0, import_react58.createElement)(TargetMenu, {
+              value: chat.target ?? null,
+              roster,
+              rooms: true,
+              label: t("Bound to"),
+              disabled: busy,
+              // A private chat without a target of its own answers through the IM bot's Bot.
+              fallback: chat.kind === "direct" ? roster.bots.find((bot) => bot.id === conn.botId) : void 0,
+              onPick: (target) => run2(actions.imChat(conn.id, { chatKey: key, target }))
+            }),
             (0, import_react58.createElement)("button", { type: "button", className: "bt-mini bt-im-danger", "data-confirm": confirm === `c:${key}` || void 0, disabled: busy, onClick: () => ask(`c:${key}`, () => actions.imChat(conn.id, { chatKey: key, remove: true })) }, confirm === `c:${key}` ? t("Remove?") : t("Remove"))
           )
         ))

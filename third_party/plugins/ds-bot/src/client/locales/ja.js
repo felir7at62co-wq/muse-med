@@ -167,6 +167,7 @@ export const JA = {
   "Only me": "自分だけ",
   "A Bot for each chat": "チャットごとに Bot",
   "Not bound": "未バインド",
+  "Follows “Talks to”": "会話先に従う",
   "Direct": "ダイレクト",
   "Chats": "チャット",
   "Deny": "拒否",

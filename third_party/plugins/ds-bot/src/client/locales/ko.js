@@ -170,6 +170,7 @@ export const KO = {
   'Only me': '나만',
   'A Bot for each chat': '채팅마다 Bot',
   'Not bound': '연결 안 됨',
+  'Follows “Talks to”': '대화 상대를 따름',
   Direct: '개인 메시지',
   Chats: '대화',
   Deny: '거부',

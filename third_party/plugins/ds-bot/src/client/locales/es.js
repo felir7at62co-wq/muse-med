@@ -170,6 +170,7 @@ export const ES = {
   'Only me': 'Solo yo',
   'A Bot for each chat': 'Un Bot por chat',
   'Not bound': 'Sin vincular',
+  'Follows “Talks to”': 'Según «Habla con»',
   Direct: 'Directo',
   Chats: 'Chats',
   Deny: 'Denegar',
