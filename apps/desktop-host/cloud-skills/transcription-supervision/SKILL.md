@@ -1,13 +1,13 @@
 ---
 name: transcription-supervision
-description: 监管云端的视频转剧本生产。收到「【储备变化】数据站自动通知」时使用；用户问转写进度，要暂停、恢复、跳过或优先某部剧，或要抽查某部剧的剧本时也用。
+description: 管理和分配云端的视频转剧本生产。收到「【储备变化】数据站自动通知」时使用；用户问转写进度，要暂停、恢复、跳过或优先某部剧，调整同时做几部，或要抽查某部剧的剧本时也用。
 ---
 
-# 监管视频转剧本生产
+# 管理视频转剧本生产
 
-云端的生产服务一次从数据站储备里领一部剧，把原片放进这部剧的工作区，每 10 集开一个 Muse 会话转写。每批结束后它做机械检查（剧本、逐帧审看、语音识别、Word），缺的部分最多追问 2 次。全剧完成后剧本上架储备看板，原片删除；做不完的剧标为待处理。
+云端的生产服务从数据站储备里领剧，可以同时做几部，每部占一个位置。它把原片放进这部剧的工作区，每 10 集开一个 Muse 会话转写。每批结束后它做机械检查（剧本、逐帧审看、语音识别、Word），缺的部分最多追问 2 次。全剧完成后剧本上架储备看板，原片删除；做不完的剧标为待处理。
 
-你负责盯住它、按用户的要求控制它、把结果告诉用户。你不自己转写，不建转写 Bot，不派单，也不调用 `workshop_video_transcribe`。
+你负责分配和管理它：决定先做哪部、跳过哪部、同时做几部、什么时候暂停，处理做不完的剧，把结果告诉用户。检查标准和追问次数由程序定，你不用也不能改。你不自己转写，不建转写 Bot，不派单，也不调用 `workshop_video_transcribe`。
 
 ## 文件
 
@@ -15,14 +15,15 @@ description: 监管云端的视频转剧本生产。收到「【储备变化】�
 
 `.production/status.json`：生产服务的状态，每分钟更新。
 
-- `stage`：`claimed` 刚领到，`preparing` 准备原片（新剧下载可能要几小时，期间不更新），`transcribing` 转写中，`paused` 已暂停，`idle` 没有可领的剧，`error` 出错（看 `error.code` 和 `error.message`）。
-- `current`：正在做的剧，含 `workspace`、`retries`（重新排队过几次）和各批次 `batches`（`episodes` 集数范围、`done`、`followUps` 已追问次数）。
+- `control`：生效中的控制设置；`maxDramasAtOnce`：同时做几部的上限。
+- `slots`：每个位置一行。`stage` 为 `claimed` 刚领到，`preparing` 准备原片（新剧下载可能要几小时，期间不更新），`transcribing` 转写中，`paused` 已暂停，`idle` 没有可领的剧，`error` 出错（看 `error.code` 和 `error.message`）。`current` 是这个位置正在做的剧，含 `workspace`、`retries`（重新排队过几次）和各批次 `batches`（`episodes` 集数范围、`done`、`followUps` 已追问次数）。
 - `recent`：最近十部的结果。`outcome` 为 `published` 是已上架，`needs-attention` 是待处理，`reason` 是原因。
 - 除 `preparing` 外，`updatedAt` 超过 15 分钟没变，说明生产服务停了。
 
 `.production/control.json`：你改这个文件来控制生产服务。读出来，改字段，整份写回，保持 JSON 有效。
 
-- `paused`：`true` 让它做完当前这一批后停住，也不领新剧；`false` 恢复。
+- `paused`：`true` 让每部在做的剧做完当前这一批后停住，也不领新剧；`false` 恢复。
+- `dramasAtOnce`：同时做几部，1 到 `maxDramasAtOnce`。调大后马上去领新剧；调小后多出的位置做完手上这部再停。新剧要先下载，红果对同一台服务器的下载有限速，同时下载的剧越多，每部越慢；一部剧还没顺利上架之前保持 1。
 - `skipSeries`：不领的剧。
 - `onlySeries`：只领这些剧；空列表表示不限。
 - 剧号写数据站编号（如 `hongguo:7550544718799588376`）或纯数字都行。
@@ -43,6 +44,7 @@ description: 监管云端的视频转剧本生产。收到「【储备变化】�
 
 - 问进度：读 `status.json`，说正在做哪部、做到哪一批，最近上架和待处理的各是哪几部。
 - 暂停、恢复：改 `paused`，告诉用户当前这一批做完后生效。
+- 同时做几部：改 `dramasAtOnce`，告诉用户上限和调整后的生效方式。
 - 跳过某部、只做某几部：改 `skipSeries` 或 `onlySeries`。
 - 优先某部、重做待处理的剧：用 `data_station_search` 找到编号，再用 `data_station_requeue` 放到队列最前。生产服务做完当前这部剧才会领它。
 - 抽查：打开工作区里的一集剧本，对照 `qa/` 里的待核项，看场次标题、人物、动作和台词是否完整通顺。只报告，不改稿。
