@@ -321,7 +321,7 @@ export class JubianClient {
 
   private async readBounded(response: Response, signal: AbortSignal, timeout: AbortSignal): Promise<Uint8Array> {
     const reader = response.body?.getReader()
-    if (!reader) throw new JubianError('CONTRACT_CHANGED', 'response body is not readable')
+    if (!reader) return new Uint8Array(0)
     const chunks: Uint8Array[] = []
     let size = 0
     try {

@@ -239,10 +239,12 @@ describe('JubianClient.request', () => {
     expect(transport).not.toHaveBeenCalled()
   })
 
-  it('rejects a successful response with no readable body', async () => {
-    const message: unknown = expect.stringContaining('not readable')
+  it('rejects an empty successful response and retains its transport evidence', async () => {
+    const message: unknown = expect.stringContaining('0 bytes')
     await expect(client(async () => new Response(null, { status: 200 })).request({ method: 'GET', path: '/x' }))
-      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', message })
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', message,
+        responseEvidence: { httpStatus: 200, applicationCode: null,
+          responseSha256: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' } })
   })
 
   it('contains cancellation failure while rejecting an HTTP error', async () => {
