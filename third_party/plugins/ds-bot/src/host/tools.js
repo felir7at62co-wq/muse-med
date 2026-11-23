@@ -432,6 +432,7 @@ export function install(rt) {
       const result = await rt.imSend(sender.id, args.chat === undefined ? undefined : String(args.chat).trim(), body)
       if ('sent' in result) return `Sent to ${result.sent}.`
       if (result.error === 'none') refuse('No chat app chat comes to you, so there is nowhere to send this.')
+      if (result.error === 'reply-only') refuse('This Feishu connection handles replies to incoming messages. Tell the user in Muse instead.')
       if (result.error === 'offline') refuse('That chat\'s connection is offline right now; try again later or tell the user in Muse.')
       refuse(`${result.error === 'which' ? 'You have several chats; name one' : 'No chat by that name'}. Your chats: ${result.chats.join(', ')}`)
     },

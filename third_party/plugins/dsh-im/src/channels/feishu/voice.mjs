@@ -12,9 +12,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MAX_TTS_CHARS, TTS_ENDPOINT, normalizeFeishuVoiceConfig } from './voice-config.mjs';
 
-function runFfmpeg(bin, args) {
+function runFfmpeg(bin, args, signal) {
   return new Promise((resolve, reject) => {
-    const p = spawn(bin, ['-hide_banner', '-loglevel', 'error', '-y', ...args]);
+    const p = spawn(bin, ['-hide_banner', '-loglevel', 'error', '-y', ...args], { signal });
     let err = '';
     p.stderr.on('data', (d) => { err += d; if (err.length > 2000) err = err.slice(-2000); });
     // 启动失败(未安装 ffmpeg、配置路径不存在或不可执行)时 spawn 触发
@@ -64,7 +64,8 @@ export function createVoice({ settings, secret, logger } = {}) {
     ffmpeg: config.ffmpeg ?? 'ffmpeg',
   });
 
-  async function transcribeIncoming(event, client) {
+  async function transcribeIncoming(event, client, signal) {
+    signal?.throwIfAborted();
     const fileKey = JSON.parse(event.message.content).file_key;
     if (!fileKey) return null;
     const resource = await client.im.v1.messageResource.get({
@@ -78,11 +79,12 @@ export function createVoice({ settings, secret, logger } = {}) {
       const opusIn = join(work, 'in.opus');
       const wavIn = join(work, 'in.wav');
       writeFileSync(opusIn, opusBuf);
-      await runFfmpeg(frozen.ffmpeg, ['-i', opusIn, '-ar', '16000', '-ac', '1', wavIn]);
+      await runFfmpeg(frozen.ffmpeg, ['-i', opusIn, '-ar', '16000', '-ac', '1', wavIn], signal);
       const b64 = readFileSync(wavIn).toString('base64');
       // qwen3-asr-flash 走 compatible-mode chat/completions + input_audio data URI
       const res = await fetch(`${frozen.asrBaseUrl}/chat/completions`, {
         method: 'POST',
+        signal,
         headers: { Authorization: `Bearer ${frozen.apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: frozen.asrModel,
@@ -103,19 +105,20 @@ export function createVoice({ settings, secret, logger } = {}) {
     }
   }
 
-  async function synthesize(text) {
+  async function synthesize(text, signal) {
     const clean = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_TTS_CHARS);
     if (!clean) return null;
     // qwen3-tts-flash 走 DashScope 原生 multimodal-generation 接口(compatible-mode 不支持 TTS)
     const res = await fetch(TTS_ENDPOINT, {
       method: 'POST',
+      signal,
       headers: { Authorization: `Bearer ${frozen.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: frozen.ttsModel, input: { text: clean, voice: frozen.ttsVoice } }),
     });
     const j = await res.json().catch(() => null);
     const url = j?.output?.audio?.url;
     if (!url) throw new Error(`TTS 无音频:${res.status} ${JSON.stringify(j ?? {}).slice(0, 160)}`);
-    const aud = await fetch(url);
+    const aud = await fetch(url, { signal });
     if (!aud.ok) throw new Error(`TTS 音频下载 ${aud.status}`);
     const work = join(tmpdir(), `dsh-voice-${randomUUID()}`);
     mkdirSync(work, { recursive: true });
@@ -123,7 +126,7 @@ export function createVoice({ settings, secret, logger } = {}) {
       const wavOut = join(work, 'out.wav');
       const opusOut = join(work, 'out.opus');
       writeFileSync(wavOut, Buffer.from(await aud.arrayBuffer()));
-      await runFfmpeg(frozen.ffmpeg, ['-i', wavOut, '-c:a', 'libopus', '-b:a', '48k', opusOut]);
+      await runFfmpeg(frozen.ffmpeg, ['-i', wavOut, '-c:a', 'libopus', '-b:a', '48k', opusOut], signal);
       return readFileSync(opusOut);
     } finally {
       rmSync(work, { recursive: true, force: true });

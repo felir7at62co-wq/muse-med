@@ -247,19 +247,21 @@ test('the settings file action shows only when the Host has a document to open',
 })
 
 // The dialog with DSH's ledger: renderSlot answers with a marker naming what it drew.
-function dialog({ page = 'general', id = null, sections, items = [], actions = {} } = {}) {
+function dialog({ page = 'general', id = null, sections, items = [], actions = {}, connections } = {}) {
   const calls = []
   const drawn = []
   const dsh = {
     sections: sections ?? [{ id: 'account', order: -10, label: 'Account' }, { id: 'general', order: 0, label: 'General' }, { id: 'models', order: 10, label: 'Models' }, { id: 'plugins', order: 15, label: 'Plugins' }, { id: 'agent-presets', order: 20, label: 'Agent presets' }],
     items,
-    renderSlot: (name, owner, opts) => { drawn.push([name, opts?.only ?? null]); return { type: 'slot', props: { name, only: opts?.only ?? null } } },
+    renderSlot: (name, owner, opts) => { drawn.push([name, opts?.only ?? null]); return { type: 'slot', props: { name, owner, only: opts?.only ?? null } } },
   }
   const all = { closeSettings: () => calls.push('close'), openSettings: (...args) => calls.push(args), providers: () => {}, ...actions }
-  const tree = SettingsDialog({ page, id, roster, actions: all, useUpdate: pick => pick({}), dsh })
+  const team = connections === undefined ? roster : { ...roster, im: { connections } }
+  const tree = SettingsDialog({ page, id, roster: team, actions: all, useUpdate: pick => pick({}), dsh })
   return { tree, calls, drawn }
 }
 const navLabels = tree => walk(walk(tree, node => node.type === 'nav')[0], node => node.type === 'button').map(textOf)
+const imPageOf = tree => walk(tree, node => typeof node.type === 'function' && node.type.name === 'ImPage')[0]
 
 test('one Settings: DS Bot\'s pages, then DSH\'s, then Feedback and About; no Harness settings', () => {
   const labels = navLabels(dialog().tree)
@@ -276,6 +278,29 @@ test('a DSH page opens in the dialog and draws that section', () => {
   const page = dialog({ page: 'dsh', id: 'plugins' })
   assert.ok(page.drawn.some(([name, only]) => name === 'settings.section' && only === 'plugins'))
   assert.equal(textOf(walk(page.tree, node => node.type === 'h2')[0]), 'Plugins')
+})
+
+const feishuSection = { id: 'xmanrui-dsh-im', order: 21, label: 'IM bots' }
+const mappedConnection = { id: 'im_a12bc345', platform: 'feishu', dshImBotId: 'legacy_feishu' }
+
+test('a mapped Feishu connection gets its own settings inside the IM page', () => {
+  const { tree, drawn } = dialog({ page: 'im', sections: [feishuSection], connections: [mappedConnection] })
+  const labels = navLabels(tree)
+  assert.equal(labels.filter(label => label === 'IM').length, 1)
+  assert.ok(!labels.includes(feishuSection.label))
+
+  const settings = imPageOf(tree).props.renderFeishuSettings(mappedConnection.dshImBotId)
+  assert.deepEqual(drawn.at(-1), ['settings.section', feishuSection.id])
+  assert.equal(settings.props.owner.museFeishuBotId, 'legacy_feishu')
+})
+
+test('IM preserves standalone settings unless the provider and mapping are both present', () => {
+  const separate = dialog({ page: 'im', sections: [feishuSection], connections: [{ id: 'im_b12bc345', platform: 'feishu' }] })
+  assert.ok(navLabels(separate.tree).includes(feishuSection.label))
+  assert.equal(imPageOf(separate.tree).props.renderFeishuSettings, undefined)
+
+  const withoutProvider = dialog({ page: 'im', sections: [], connections: [mappedConnection] })
+  assert.equal(imPageOf(withoutProvider.tree).props.renderFeishuSettings, undefined)
 })
 
 test('a DSH page that left the ledger falls back to General', () => {

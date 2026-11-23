@@ -115,13 +115,15 @@ export function createImHostPlugin(internals = {}) {
           ['sessionController', 'workspaceController'],
           activate,
         );
-        ctx.inject(['webServer'], (httpCtx) => {
-          startDeliveryHttp(httpCtx, deliveryService);
-        });
+        if (config.deliveryHttp !== false) {
+          ctx.inject(['webServer'], (httpCtx) => {
+            startDeliveryHttp(httpCtx, deliveryService);
+          });
+        }
         return;
       }
       await activate(ctx);
-      if (ctx?.webServer?.register && typeof ctx?.effect === 'function') {
+      if (config.deliveryHttp !== false && ctx?.webServer?.register && typeof ctx?.effect === 'function') {
         startDeliveryHttp(ctx, deliveryService);
       }
     },

@@ -46,6 +46,7 @@ const LAST_PAGES = new Set(['feedback', 'about'])
 const TEAM_PAGES = new Set(['bots', 'bot-models', 'groups', 'capabilities', 'browser', 'schedules'])
 // DSH sections DS Bot's own pages already hold; Account holds the Muse account section.
 // Muse: Jubian's token form opens from its tile on the Connectors page.
+const IM_ROBOT_SECTION = 'xmanrui-dsh-im'
 const MERGED_SECTIONS = new Set(['general', 'models', MUSE_ACCOUNT_SECTION, 'jubian'])
 // DSH General rows that sit under Appearance; the rest go under More.
 const LOOK_ITEMS = ['appearance', 'font-size']
@@ -316,7 +317,8 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
   const bot = page === 'bots' && id ? roster.byId[id] : undefined
   const room = page === 'groups' && id ? roster.roomsById[id] : undefined
   const pages = SETTINGS_PAGES.filter(([key]) => (key !== 'models' || actions.providers !== undefined) && (key !== 'account' || hasSection(dsh, MUSE_ACCOUNT_SECTION)))
-  const extra = dshPages(dsh)
+  const mergedIm = hasSection(dsh, IM_ROBOT_SECTION) && (roster.im?.connections ?? []).some(conn => conn.dshImBotId)
+  const extra = dshPages(dsh).filter(row => !mergedIm || row.id !== IM_ROBOT_SECTION)
   // A DSH page is `dsh` with its section id; one no longer registered falls back to General.
   const section = page === 'dsh' ? extra.find(row => row.id === id) : undefined
   // DSH's Models page, one level into Models.
@@ -382,7 +384,9 @@ export function SettingsDialog({ page, id, roster, actions, useUpdate, leaving =
           room ? h('div', { className: 'bt-settings-form' }, h(GroupSettingsForm, { key: room.id, room, roster, actions, run })) : null,
           shown === 'groups' && !room ? h(GroupsPage, { roster, actions, run }) : null,
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions, dsh }) : null,
-          shown === 'im' ? h(ImPage, { roster, actions }) : null,
+          shown === 'im' ? h(ImPage, { roster, actions,
+            renderFeishuSettings: mergedIm ? botId => dsh.renderSlot('settings.section', { close, museFeishuBotId: botId }, { only: IM_ROBOT_SECTION }) : undefined,
+          }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
           shown === 'phone' ? h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
           shown === 'browser' ? h(BrowserPage, { roster, actions, run, Section: SetSection, Row: SetRow }) : null,

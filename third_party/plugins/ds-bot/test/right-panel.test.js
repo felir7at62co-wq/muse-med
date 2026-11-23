@@ -102,7 +102,6 @@ const room = { id: 'g', name: 'Writers', named: true, members: ['a'] }
 const roster = { byId: { a: bot }, roomsById: { g: room }, bots: [], exchangeTurns: {}, questions: {}, memory: false }
 const hook = value => select => select(value)
 const drawer = (sessionId, actions, liveRoster = roster, more = {}) => DetailsDrawer({
-  ...more,
   sessionId, roster: liveRoster, actions,
   useSessions: hook({ byId: {} }),
   useSessionStatus: hook(new Map()),
@@ -110,6 +109,7 @@ const drawer = (sessionId, actions, liveRoster = roster, more = {}) => DetailsDr
   useWork: hook({ bots: {}, approvals: [] }),
   useBrowserTabs: hook({}),
   useBrowserPages: hook({}),
+  ...more,
 })
 // Muse: a row of tabs sits under the Bot's name, with each tab's content under it; an open
 // Jingliu project has a strip tab of its own and takes the drawer's whole height.
@@ -419,14 +419,31 @@ test('the Bot label and instructions are keyed by Bot id and stay read-only when
   assert.equal(about.props.onSave, undefined)
 })
 
-// Muse: the Bot details show no Sessions block, for a cloud-model Bot or a local-agent one.
-test('no Bot gets the Sessions section in its details', () => {
-  const plain = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Chief', sessionId: 'a' } } })
-  const engine = drawer('a', {}, { ...roster, byId: { a: { id: 'a', name: 'Writer', sessionId: 'a', engine: 'claude-code', parts: ['a', 'a-old'] } } })
-  for (const tree of [plain, engine]) {
-    assert.doesNotMatch(textOf(tree), /Sessions/)
-    assert.equal(buttonsOf(tree).find(button => textOf(button).includes('New session')), undefined)
+test('Bot details open the current, running and earlier sessions or create a new session', () => {
+  const calls = []
+  const actions = {
+    closeOverlay: () => calls.push(['close']),
+    openSession: id => calls.push(['current', id]),
+    openPart: (id, part, running = false) => calls.push(['open', id, part, running]),
+    newPart: id => calls.push(['new', id]),
   }
+  const owner = { ...bot, engine: 'claude-code', parts: ['a-old', 'a-running', 'a'], openParts: [{ sessionId: 'a-running' }] }
+  const liveRoster = { ...roster, byId: { a: owner }, partsRunning: { 'a-running': true } }
+  const useSessions = hook({ byId: { a: { title: 'Current script' }, 'a-old': { title: 'First draft' } } })
+  const tree = drawer('a', actions, liveRoster, { useSessions })
+  const section = named(tree, 'BotSessions')[0]
+  assert.match(textOf(section), /SessionsNew session/)
+  const [create, current, running, old] = buttonsOf(section)
+  assert.equal(current.props['aria-current'], true)
+  assert.equal(textOf(current), 'Current scriptCurrent')
+  assert.equal(running.props.title, 'Open this running session')
+  assert.equal(textOf(old), 'First draft')
+  for (const button of [current, running, old, create]) button.props.onClick()
+  assert.deepEqual(calls, [['close'], ['current', 'a'], ['open', 'a', 'a-running', true], ['open', 'a', 'a-old', false], ['new', 'a']])
+  const locked = named(drawer('a', actions, { ...liveRoster, readOnly: 'Another dsh holds this team.' }, { useSessions }), 'BotSessions')[0]
+  const [lockedCreate, lockedCurrent, lockedRunning, lockedOld] = buttonsOf(locked)
+  assert.ok(lockedCreate.props.disabled && lockedRunning.props.disabled && lockedOld.props.disabled)
+  assert.ok(!lockedCurrent.props.disabled)
 })
 
 // A second instance of the drawer bundle whose React runs effects at once and keeps

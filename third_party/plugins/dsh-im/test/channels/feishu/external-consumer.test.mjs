@@ -1,6 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeExternalText, ExclusiveInboundConsumers } from '../../../src/channels/feishu/external-consumer.mjs';
+import { normalizeExternalCard, normalizeExternalText, ExclusiveInboundConsumers } from '../../../src/channels/feishu/external-consumer.mjs';
+
+test('rich consumers receive authenticated image routes and button callbacks', () => {
+  const identity = { botId: 'bot', appId: 'app', botOpenId: 'ou_bot', fingerprint: '0'.repeat(64) };
+  const image = { app_id: 'app', event_id: 'evt', sender: { sender_type: 'user', sender_id: { open_id: 'ou_member' } },
+    message: { chat_type: 'group', message_type: 'image', chat_id: 'oc_group', message_id: 'om_image',
+      create_time: '1700000000000', content: '{"image_key":"img_example"}' } };
+  assert.equal(normalizeExternalText(image, identity), null);
+  const normalized = normalizeExternalText(image, { ...identity, rich: true, groupResponseMode: 'all' });
+  assert.equal(normalized.imageKey, 'img_example');
+  assert.equal(normalized.groupResponseMode, 'all');
+  assert.equal(normalized.reply.actorId, 'ou_member');
+  const callback = { app_id: 'app', operator: { open_id: 'ou_member' }, context: { open_chat_id: 'oc_group',
+    open_message_id: 'om_card' }, action: { value: { v: 'q:example:1' } } };
+  assert.equal(normalizeExternalCard(callback, identity).value, 'q:example:1');
+  assert.throws(() => normalizeExternalCard({ ...callback, app_id: 'other' }, identity), { code: 'account-changed' });
+});
 
 const fingerprint = 'a'.repeat(64);
 function event() {
@@ -108,4 +124,29 @@ test('group evidence requires authenticated account identity and valid mention a
   input.message.mentions = [];
   input.message.create_time = '9e99';
   assert.throws(() => normalized(input), { code: 'invalid-inbound' });
+});
+
+test('voice controls are attached only for an authenticated audio event and share the consumer cancellation', async () => {
+  const input = event();
+  input.message.message_type = 'audio';
+  input.message.content = '{"file_key":"file_1"}';
+  const identity = { botId: 'bot', appId: 'app', botOpenId: 'bot-open-id', fingerprint };
+  assert.equal(normalizeExternalText(input, identity), null);
+  const routed = normalizeExternalText(input, { ...identity, rich: true, stepPushMode: 'streaming_card' });
+  assert.equal(routed.audioKey, 'file_1');
+  assert.equal(routed.text, '');
+  assert.equal(routed.stepPushMode, 'streaming_card');
+  const consumers = new ExclusiveInboundConsumers();
+  const voice = { transcribe: async () => 'voice-to-text' };
+  let signal;
+  const release = consumers.register('bot', { fingerprint, async onEvent(evidence, ctx) {
+    assert.equal(evidence.reply.chatId, undefined);
+    assert.equal(evidence.reply.conversationId, 'conversation');
+    assert.equal(ctx.voice, voice);
+    signal = ctx.signal;
+    return { accepted: true };
+  } });
+  await consumers.accept('bot', routed, undefined, () => voice);
+  release();
+  assert.equal(signal.aborted, true);
 });

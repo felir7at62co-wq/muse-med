@@ -141,7 +141,7 @@ curl --request POST \
 
 接口路径固定为 `POST /api/dsh-im/delivery/messages`，复用当前 DSH Host 的 WebServer，不会另开端口。示例中的 `3080` 是 Web profile 的默认端口；实际地址以 Host 启动时显示的地址为准。
 
-当前 HTTP 接口不包含鉴权，也不提供 CORS。只应在本机或可信网络中使用，不要直接暴露到公网。
+当前 HTTP 接口不包含鉴权，也不提供 CORS。只应在本机或可信网络中使用。插件配置 `deliveryHttp: false` 可关闭 HTTP 投递端点，Host 内的 `ctx.dshIm` 仍可使用。
 
 ## 在同一 Host 的插件中发送
 
@@ -387,7 +387,7 @@ options 必须包含 `expectedFingerprint`、`expectedTargetDigest`，可选 `si
 
 调用 `describeBot(botId)` 校验身份和 `exclusive-text-consumer`、`reply-text-checked` 能力，然后调用 `consumeInbound(botId, {expectedFingerprint, signal, onEvent})`。`onEvent(event, {signal})` 应先进行群授权、去重和应用持久提交，再返回 `{accepted: true}`。返回的释放函数应随应用 Registration/Fiber 释放。回调仅用于同 Host Service，不暴露至浏览器 RPC 或 HTTP。完整示例见[英文契约](PROACTIVE_DELIVERY.en.md#exclusive-feishulark-text-intake-same-host)。
 
-事件 v1 携带平台、账号和可信 fingerprint、eventId/messageId、发送人原始 ID、群/私聊 ID、mentions、mentionedAccount、ISO 时间、原始文本和原消息回复路由（messageId/conversationId/actorId/threadId/rootId/parentId）。平台提供的可选姓名仅用于展示；此切片不提供头像或附件，有界历史读取见下文。应用自行决定收件范围和唤醒策略。
+事件 v1 携带平台、账号和可信 fingerprint、eventId/messageId、发送人原始 ID、群/私聊 ID、mentions、mentionedAccount、ISO 时间、原始文本和原消息回复路由（messageId/conversationId/actorId/threadId/rootId/parentId）。平台提供的可选姓名仅用于展示。应用自行决定收件范围和唤醒策略。支持 `muse-rich-consumer` 的 Host 可接收 `rich: true`，额外传入飞书图片资源 ID、群聊响应方式和经过校验的 Muse 卡片回调。
 
 每个账号只能有一个 Consumer；冲突返回 `consumer-conflict`。`consumerMode: external-consumer` 持久保存后，不创建独立 Session，不执行原生卡片或 slash command。释放 Consumer、Registration 替换、Host 重启均不自动回退独立处理；需重新注册 Consumer，或者明确修改账号模式并重连。应用持久提交需响应取消；已完成的提交不能被释放操作撤销。
 

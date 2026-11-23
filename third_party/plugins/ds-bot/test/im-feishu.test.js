@@ -482,3 +482,21 @@ test('a group message carries the group and sender names read from Feishu; witho
   await until(() => messages.length === 4)
   assert.equal(fake.calls.filter(call => call.path === '/open-apis/im/v1/chats/oc_2').length, 1)
 })
+
+test('a Feishu progress card replies inside the original topic and edits its own message', async (t) => {
+  const { createFeishuHttp } = await import('../src/host/im/platforms/feishu.js')
+  const fake = await fakeFeishu()
+  t.after(() => fake.close())
+  const client = createFeishuHttp(FIELDS, env(fake))
+  const route = { messageId: 'om_source', threadId: 'omt_original' }
+  const id = await client.progress(route, 'Muse is working', { mode: 'streaming_card' })
+  await client.progress(route, 'Muse finished', { mode: 'streaming_card', messageId: id })
+  const [send, edit] = fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/messages'))
+  assert.equal(send.path, '/open-apis/im/v1/messages/om_source/reply')
+  assert.equal(send.params.reply_in_thread, true)
+  assert.equal(send.params.msg_type, 'interactive')
+  assert.equal(JSON.parse(send.params.content).body.elements[0].content, 'Muse is working')
+  assert.equal(edit.method, 'PATCH')
+  assert.equal(edit.path, '/open-apis/im/v1/messages/om_x')
+  assert.equal(JSON.parse(edit.params.content).body.elements[0].content, 'Muse finished')
+})

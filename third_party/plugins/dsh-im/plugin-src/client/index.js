@@ -558,13 +558,17 @@ export function apply(ctx) {
 
   // Stable for this plugin lifetime: creating an element must not create a
   // new component type and reset the reader's selected tab or unsaved input.
-  function IMPanel({ preferredSectionId }) {
+  function IMPanel({ preferredSectionId, museFeishuBotId }) {
     React.useSyncExternalStore(subscribeLocale, localeSnapshot, localeSnapshot);
     return h(IMPanelErrorBoundary, null,
-      h(IMSettingsTab, { ...panelDependencies, preferredSectionId }));
+      museFeishuBotId
+        ? h('div', { className: 'dim-page' },
+            h(FeishuSettingsTab, { rpcCall: feishuRpcCall, onlyBotId: museFeishuBotId }))
+        : h(IMSettingsTab, { ...panelDependencies, preferredSectionId }));
   }
   const buildPanelElement = (props = {}) => h(IMPanel, {
     preferredSectionId: props.preferredSectionId,
+    museFeishuBotId: props.museFeishuBotId,
   });
 
   installImPluginPage(ctx, { packageName: manifest.name, renderPanel: buildPanelElement });

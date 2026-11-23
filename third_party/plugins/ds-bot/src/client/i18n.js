@@ -93,6 +93,8 @@ const ZH = {
   IM: 'IM',
   'via {platform}': '来自 {platform}',
   'Your IM bots': '我的 IM 机器人',
+  'Bot execution settings': 'Bot 执行设置',
+  'Feishu settings': '飞书设置',
   'Add an IM bot': '添加 IM 机器人',
   'Choose a platform': '选择平台',
   'Waiting for approval': '等你允许',

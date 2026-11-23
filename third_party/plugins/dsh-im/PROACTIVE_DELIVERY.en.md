@@ -141,7 +141,7 @@ The body accepts the required `botId`, `targetId`, and `text` fields, plus optio
 
 The fixed endpoint is `POST /api/dsh-im/delivery/messages`. It reuses the current DSH Host WebServer and does not open another port. Port `3080` is the default for the Web profile; use the address printed by the running Host when it differs.
 
-The HTTP endpoint currently has no authentication and does not provide CORS. Use it only on the local machine or a trusted network; never expose it directly to the public internet.
+The HTTP endpoint has no authentication or CORS support. Use it only on the local machine or a trusted network. Set `deliveryHttp: false` in the plugin configuration to disable the HTTP endpoint and keep the in-process `ctx.dshIm` service.
 
 ## Send from a plugin in the same Host
 
@@ -408,7 +408,7 @@ dispose();
 
 Check the account's `exclusive-text-consumer` and `reply-text-checked` capabilities before enabling reception. Only one consumer may own an account; conflicts fail with `consumer-conflict`. The Host-only callback is not exposed through browser RPC or HTTP.
 
-A version-1 event contains `channel`, `botId`, authenticated `fingerprint`, `eventId`, `messageId`, `actor: {kind: 'user', id}`, `conversation: {kind: 'group' | 'dm', id}`, `mentions: [{id, key}]`, `mentionedAccount`, ISO `at`, original `text`, and `reply: {messageId, conversationId, actorId, threadId?, rootId?, parentId?}`. These are platform-native IDs; optional server names are display-only; avatars and attachments are outside this slice. Bounded history is described below. Applications decide which conversations/messages to accept and when to wake an agent.
+A version-1 event contains `channel`, `botId`, authenticated `fingerprint`, `eventId`, `messageId`, `actor: {kind: 'user', id}`, `conversation: {kind: 'group' | 'dm', id}`, `mentions: [{id, key}]`, `mentionedAccount`, ISO `at`, original `text`, and `reply: {messageId, conversationId, actorId, threadId?, rootId?, parentId?}`. Optional server names are display-only. Applications decide which conversations and messages to accept and when to wake an agent. A Host advertising `muse-rich-consumer` supports `rich: true` for image resource IDs, group response mode, and authenticated Muse card callbacks.
 
 The mode is saved per account as `consumerMode: 'external-consumer'`. In that mode the native Session bridge, card callbacks and slash commands do not run. Releasing the consumer, losing its Registration, or restarting the Host does not restore standalone processing; intake fails closed until a consumer registers again. Returning to standalone requires an explicit configuration change and reconnect. A consumer must cooperate with cancellation while committing; releasing a consumer cannot undo an application commit already completed.
 

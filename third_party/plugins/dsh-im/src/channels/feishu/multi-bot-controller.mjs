@@ -1,4 +1,4 @@
-import { ExclusiveInboundConsumers, normalizeExternalText } from './external-consumer.mjs';
+import { ExclusiveInboundConsumers, normalizeExternalCard, normalizeExternalText } from './external-consumer.mjs';
 import { atConnectionStage, createConnectionDiagnostics } from '../shared/connection-error.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { connectionTestMessage } from '../shared/connection-test.mjs';
@@ -610,11 +610,11 @@ export class MultiBotDshFeishuController {
       this.#assertOpen('capability-unavailable');
       return { version: 1, botId, channel: 'feishu', account,
         connected: isConnected(connectionStatus(this.#runtimes.get(botId))),
-        capabilities: ['proactive-text-checked', 'proactive-receipt-checked', 'exclusive-text-consumer', 'reply-text-checked', 'history-text-checked', 'thread-history-text-checked'] };
+        capabilities: ['proactive-text-checked', 'proactive-receipt-checked', 'exclusive-text-consumer', 'reply-text-checked', 'history-text-checked', 'thread-history-text-checked', 'muse-rich-consumer'] };
     });
   }
 
-  async consumeInbound(botId, { expectedFingerprint, onEvent, signal } = {}) {
+  async consumeInbound(botId, { expectedFingerprint, onEvent, signal, rich = false } = {}) {
     this.#assertOpen();
     return this.#serializeConfig(() => this.#withBotTransition(botId, async () => {
       this.#assertOpen();
@@ -625,7 +625,7 @@ export class MultiBotDshFeishuController {
       signal?.throwIfAborted();
       if (account.fingerprint !== expectedFingerprint)
         throw Object.assign(new Error('account-changed'), { code: 'account-changed' });
-      const dispose = this.#inboundConsumers.register(botId, { fingerprint: expectedFingerprint, onEvent, signal });
+      const dispose = this.#inboundConsumers.register(botId, { fingerprint: expectedFingerprint, onEvent, signal, rich: rich === true });
       try {
         const saved = await this.#configStore.saveBot({ ...config, consumerMode: 'external-consumer' });
         this.#assertOpen('capability-unavailable');
@@ -843,12 +843,14 @@ export class MultiBotDshFeishuController {
     const normalized = normalizeFeishuVoiceConfig(voice);
     return this.#serializeConfig(() => this.#withBotTransition(botId, async () => {
       const config = this.#requireBot(botId);
-      const saved = await this.#configStore.saveBot({ ...config, voice: normalized });
-      // 语音是可选的渠道能力:凭据缺失时静默降级为禁用,不打断配置保存。
       const secret = normalized
         ? await atConnectionStage('credential.read', () => this.#credentials.resolve(normalized.secretRef), 'credential-store').catch(() => null)
         : null;
-      this.#runtimes.get(botId)?.setVoice?.({ config: normalized, secret: secret?.value ?? null });
+      if (normalized && !secret?.value && config.consumerMode === 'external-consumer') {
+        throw Object.assign(new Error('请先在服务器凭据库添加语音服务密钥'), { code: 'voice-credential-unavailable' });
+      }
+      const saved = await this.#configStore.saveBot({ ...config, voice: normalized });
+      this.#runtimes.get(botId)?.setVoice?.({ config: saved.voice, secret: secret?.value ?? null });
       this.#touch();
       return this.status(botId);
     }));
@@ -1489,7 +1491,7 @@ export class MultiBotDshFeishuController {
       config,
       appSecret,
       repair: this.#runtimeRepairCapability(config.id),
-      acceptExternal: async (event, { signal } = {}) => {
+      acceptExternal: async (event, { signal, card = false } = {}) => {
         const assertCurrent = () => {
           this.#assertOpen('capability-unavailable');
           signal?.throwIfAborted();
@@ -1505,14 +1507,19 @@ export class MultiBotDshFeishuController {
           const current = assertCurrent();
           const account = await this.#deliveryAccount(current);
           assertCurrent();
-          return normalizeExternalText(event, { botId: current.id, appId: current.appId,
-            botOpenId: current.botOpenId, fingerprint: account.fingerprint });
+          const rich = this.#inboundConsumers.acceptsRich(config.id, account.fingerprint);
+          const identity = { botId: current.id, appId: current.appId, botOpenId: current.botOpenId,
+            fingerprint: account.fingerprint, rich, groupResponseMode: current.groupResponseMode,
+            stepPushMode: current.stepPush ? normalizeFeishuStepPushMode(current.stepPushMode) : undefined };
+          return card ? (rich ? normalizeExternalCard(event, identity) : null) : normalizeExternalText(event, identity);
         });
         // Never hold the account queue across application work: onEvent may
         // await a checked read/reply, and stop must be able to abort its signal.
         assertCurrent();
         if (evidence === null) return { accepted: true, ignored: true };
-        const result = await this.#inboundConsumers.accept(config.id, evidence, signal);
+        const voice = evidence.audioKey && typeof runtime.externalVoice === 'function'
+          ? (deliverySignal) => runtime.externalVoice(event, evidence.reply, deliverySignal) : undefined;
+        const result = await this.#inboundConsumers.accept(config.id, evidence, signal, voice);
         assertCurrent();
         return result;
       },

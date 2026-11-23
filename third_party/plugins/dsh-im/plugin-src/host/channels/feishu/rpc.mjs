@@ -878,8 +878,12 @@ export function createFeishuRpcHandler(controller, { encodeQr = qrCodeDataUrl } 
       return { ok: true, value };
     } catch (error) {
       const workspaceError = publicWorkspaceError(error);
-      return diagnosticRpcResult(diagnostics, error, signal?.aborted ? cancelled() : workspaceError
-        ? { ok: false, error: { ...workspaceError, details: {} } }
+      const voiceError = endpoint === FEISHU_ENDPOINTS.setVoice && error?.code === 'voice-credential-unavailable'
+        ? { code: error.code, message: '请先在服务器凭据库添加语音服务密钥' }
+        : undefined;
+      const publicFailure = workspaceError ?? voiceError;
+      return diagnosticRpcResult(diagnostics, error, signal?.aborted ? cancelled() : publicFailure
+        ? { ok: false, error: { ...publicFailure, details: {} } }
         : internalFailure(), { operation: endpoint, botId: payload?.botId });
     }
   };

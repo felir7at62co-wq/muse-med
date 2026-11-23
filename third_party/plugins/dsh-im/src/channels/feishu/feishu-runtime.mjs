@@ -416,10 +416,12 @@ export class FeishuRuntime {
         // subscribes card.action.trigger; the number-reply fallback covers
         // apps that do not).
         'card.action.trigger': (event) => {
-          if (!isCurrentStart() || this.#consumerMode === 'external-consumer') return;
+          if (!isCurrentStart()) return;
           this.#status.cardActionsReceived += 1;
           this.#status.lastCardActionAt = new Date().toISOString();
-          if (!this.#consumeCardActionProbe(event)) void bridge.onCardAction(event);
+          if (this.#consumeCardActionProbe(event)) return;
+          if (this.#consumerMode === 'external-consumer') return this.#acceptExternal?.(event, { signal, card: true });
+          void bridge.onCardAction(event);
         },
       });
 
@@ -783,9 +785,52 @@ export class FeishuRuntime {
     return result;
   }
 
+  /**
+   * Attach voice controls to one authenticated audio event. The consumer calls
+   * transcribe only after its own conversation and sender checks succeed.
+   */
+  externalVoice(event, route, signal) {
+    const voice = this.#voice;
+    const client = this.#client;
+    if (!voice?.enabled || !client || this.#consumerMode !== 'external-consumer') return undefined;
+    const check = () => {
+      signal.throwIfAborted();
+      if (client !== this.#client || voice !== this.#voice)
+        throw Object.assign(new Error('voice-unavailable'), { code: 'voice-unavailable' });
+    };
+    return {
+      async transcribe() {
+        check();
+        const text = await voice.transcribeIncoming(event, client, AbortSignal.any([signal, AbortSignal.timeout(40_000)]));
+        check();
+        return text;
+      },
+      reply: async (text) => {
+        check();
+        const opus = await voice.synthesize(text, AbortSignal.any([signal, AbortSignal.timeout(40_000)]));
+        if (!opus) return;
+        check();
+        const upload = await client.im.v1.file.create({
+          data: { file_type: 'opus', file_name: 'dsh-im-voice-reply.opus', file: opus },
+        });
+        const fileKey = upload?.file_key ?? upload?.data?.file_key;
+        if (upload?.code || !fileKey)
+          throw Object.assign(new Error('voice-upload-failed'), { code: 'voice-upload-failed' });
+        check();
+        return this.#checkedReply(route, 'audio', { file_key: fileKey }, signal);
+      },
+    };
+  }
+
   async replyChecked(route, text, { signal } = {}) {
+    if (typeof text !== 'string' || !text.trim() || text.length > 4000)
+      throw Object.assign(new Error('bad-request'), { code: 'bad-request' });
+    return this.#checkedReply(route, 'text', { text }, signal);
+  }
+
+  async #checkedReply(route, type, content, signal) {
     if (!route || typeof route.messageId !== 'string' || typeof route.conversationId !== 'string'
-      || typeof route.actorId !== 'string' || typeof text !== 'string' || !text.trim() || text.length > 4000)
+      || typeof route.actorId !== 'string')
       throw Object.assign(new Error('bad-request'), { code: 'bad-request' });
     const client = this.#client;
     if (!client || this.#consumerMode !== 'external-consumer')
@@ -804,7 +849,7 @@ export class FeishuRuntime {
     try {
       response = await client.im.v1.message.reply({
         path: { message_id: route.messageId },
-        data: { msg_type: 'text', content: JSON.stringify({ text }), reply_in_thread: Boolean(route.threadId) },
+        data: { msg_type: type, content: JSON.stringify(content), reply_in_thread: Boolean(route.threadId) },
       });
     } catch (cause) {
       // The request may have reached Lark. Do not turn an ambiguous result into

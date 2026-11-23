@@ -966,7 +966,7 @@ test('FeishuRuntime rejects imprecise probe operators and probes before connecti
 });
 
 
-test('external group handler awaits durable acceptance and cannot start the native bridge or card actions', async () => {
+test('external messages and cards await durable acceptance without starting the native bridge', async () => {
   let calls = 0;
   const committed = deferred();
   const runtime = new FeishuRuntime({
@@ -984,9 +984,13 @@ test('external group handler awaits durable acceptance and cannot start the nati
   const pending = socket.dispatcher.handlers['im.message.receive_v1']({ message: { chat_type: 'group', thread_id: 'thread' } }).then(() => { acknowledged = true; });
   await Promise.resolve();
   assert.equal(calls, 1); assert.equal(acknowledged, false);
-  socket.dispatcher.handlers['card.action.trigger']({});
-  assert.equal(runtime.status.cardActionsReceived, 0);
-  committed.resolve(); await pending;
+  let cardAccepted = false;
+  const card = socket.dispatcher.handlers['card.action.trigger']({}).then(() => { cardAccepted = true; });
+  assert.equal(runtime.status.cardActionsReceived, 1);
+  assert.equal(calls, 2);
+  assert.equal(cardAccepted, false);
+  committed.resolve(); await Promise.all([pending, card]);
+  assert.equal(cardAccepted, true);
   assert.equal(acknowledged, true);
   await runtime.stop();
 });

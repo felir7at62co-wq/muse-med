@@ -153,6 +153,10 @@ test('Host provides #65 and installs #84 with the same delivery service', async 
   assert.deepEqual(sent, [['bot_one', 'target', 'hello', undefined]]);
   assert.deepEqual(await provided[0][1].historyChecked('bot_one', {messageId:'anchor'}, {scope:'thread',limit:1}, {}), {events:[],hasMore:false});
   assert.deepEqual(historyReads, [['bot_one',{messageId:'anchor'},{scope:'thread',limit:1},{}]]);
+  http.length = 0;
+  await createImHostPlugin(internals).apply(ctx, { deliveryHttp: false });
+  assert.deepEqual(http, []);
+  assert.equal(provided.at(-1)[1].inboundVersion, 1);
 });
 
 test('#65 activates a real Cordis consumer without crossing the Connection RPC', async (t) => {

@@ -205,6 +205,8 @@ See the [Proactive Delivery Guide](PROACTIVE_DELIVERY.en.md) ([简体中文](PRO
 
 Shells can embed the complete IM management panel through the optional `dshImClient` service and hide or restore its settings entry. DSH web keeps Settings → IM bots by default. See the [client integration guide](docs/client-integration.md) for the contract, compatibility requirements and lifecycle example.
 
+Muse displays the managed Feishu account under **Settings → IM**. A Muse-bound turn can send progress and voice replies inside its original chat. Model and working-folder settings belong to the bound Muse Bot. The standalone Feishu settings keep their original controls.
+
 ### Context enhancement
 
 [Read the context enhancement guide](docs/context-enhancement.md)

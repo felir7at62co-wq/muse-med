@@ -11,7 +11,8 @@ import { MaskedInput } from './secret-card.js'
 import { Switch } from './bot-settings.js'
 import { Segmented } from './motion.js'
 import { BotAvatar } from './mark.js'
-import { Caret, useAnchoredMenu } from './model-menu.js'
+import { FolderMenu } from './folder-menu.js'
+import { Caret, ModelMenu, useAnchoredMenu } from './model-menu.js'
 import { CheckIcon, ChatsIcon, ChevronLeftIcon, ChevronRightIcon } from './icons.js'
 import { hostText, t } from './i18n.js'
 
@@ -285,7 +286,25 @@ function useRun() {
   return { busy, error, run }
 }
 
-function DetailView({ conn, status, roster, actions, onBack }) {
+function FeishuExecution({ roster, actions, botIds, run }) {
+  const [selected, setSelected] = useState(null)
+  const bots = botIds.map(id => roster.bots.find(bot => bot.id === id)).filter(Boolean)
+  const bot = bots.find(item => item.id === selected) ?? bots[0]
+  if (!bot) return null
+  return h('section', { className: 'bt-set-section' },
+    h('h3', null, t('Bot execution settings')),
+    h('div', { className: 'bt-set-card' },
+      h(Row, { label: t('Bot') },
+        h('select', { className: 'bt-input', 'aria-label': t('Bot'), value: bot.id, onChange: event => setSelected(event.target.value) },
+          bots.map(item => h('option', { key: item.id, value: item.id }, item.name)))),
+      h(Row, { label: t('Model') }, h(ModelMenu, { key: bot.id, bot, roster, actions, run })),
+      h(Row, { label: t('Working folder') }, h(FolderMenu, {
+        key: bot.id, value: bot.workDir, actions, run,
+        onPick: workDir => run(actions.updateBot(bot.id, { workDir })),
+      }))))
+}
+
+function DetailView({ conn, status, roster, actions, onBack, renderFeishuSettings }) {
   const shown = platformOf(conn.platform)
   const { busy, error, run } = useRun()
   const [confirm, setConfirm] = useState(null)
@@ -296,6 +315,8 @@ function DetailView({ conn, status, roster, actions, onBack }) {
     void run(task())
   }
   const chats = Object.entries(conn.chats ?? {})
+  const botIds = [...new Set([conn.botId, ...chats.map(([, chat]) => chat.target?.botId)].filter(Boolean))]
+  const feishu = conn.dshImBotId && renderFeishuSettings
   return h(Subview, { title: t(conn.account?.name ?? shown.name), onBack },
     error ? h('div', { className: 'bt-im-banner', role: 'alert' }, hostText(error)) : null,
     h('div', { className: 'bt-set-card' },
@@ -310,6 +331,7 @@ function DetailView({ conn, status, roster, actions, onBack }) {
       h(Row, { label: t('Talks to') }, h(TargetMenu, { value: conn.botId ? { botId: conn.botId } : null, roster, label: t('Talks to'), disabled: busy, onPick: next => next?.botId && run(actions.imUpdate(conn.id, { botId: next.botId })) })),
       h(Row, { label: t('A Bot for each chat') }, h(Switch, { on: conn.chatBots !== false, label: t('A Bot for each chat'), disabled: busy, onChange: on => run(actions.imUpdate(conn.id, { chatBots: on })) }))),
     h(Access, { conn, busy, run, actions }),
+    feishu ? h(FeishuExecution, { roster, actions, botIds, run }) : null,
     conn.requests.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Waiting for approval')),
       h('div', { className: 'bt-set-card bt-im-attn' }, h(Requests, { conn, run, busy, actions }))) : null,
@@ -340,6 +362,9 @@ function DetailView({ conn, status, roster, actions, onBack }) {
               ? h(TargetMenu, { value: chat.target ?? null, roster, rooms: true, label: t('Bound to'), disabled: busy, onPick: target => run(actions.imChat(conn.id, { chatKey: key, target })) })
               : null,
             h('button', { type: 'button', className: 'bt-mini bt-im-danger', 'data-confirm': confirm === `c:${key}` || undefined, disabled: busy, onClick: () => ask(`c:${key}`, () => actions.imChat(conn.id, { chatKey: key, remove: true })) }, confirm === `c:${key}` ? t('Remove?') : t('Remove'))))))) : null,
+    feishu ? h('section', { className: 'bt-set-section' },
+      h('h3', null, t('Feishu settings')),
+      renderFeishuSettings(conn.dshImBotId)) : null,
     h('div', { className: 'bt-set-card' },
       h('button', { type: 'button', className: 'bt-set-row bt-im-remove', 'data-confirm': confirm === 'conn' || undefined, disabled: busy, onClick: () => ask('conn', () => Promise.resolve(actions.imRemove(conn.id)).then(onBack)) },
         confirm === 'conn' ? t('Remove this IM bot? Its accounts and chats are removed too.') : t('Remove IM bot'))))
@@ -369,7 +394,7 @@ function PlatformTile({ platform, count, onOpen }) {
     h('button', { type: 'button', className: 'bt-app-btn', onClick: onOpen }, t('Connect')))
 }
 
-export function ImPage({ roster, actions }) {
+export function ImPage({ roster, actions, renderFeishuSettings }) {
   const [view, setView] = useState(null)
   const { busy, error, run } = useRun()
   const list = roster.im?.connections ?? []
@@ -379,7 +404,7 @@ export function ImPage({ roster, actions }) {
 
   if (view?.add) return h(AddView, { key: view.add, platform: view.add, roster, actions, onBack: back })
   const open = view?.conn ? list.find(conn => conn.id === view.conn) : undefined
-  if (open) return h(DetailView, { conn: open, status: statuses[open.id], roster, actions, onBack: back })
+  if (open) return h(DetailView, { conn: open, status: statuses[open.id], roster, actions, onBack: back, renderFeishuSettings })
 
   const waiting = list.filter(conn => conn.requests.length > 0)
   return h('div', { className: 'bt-apps bt-im-page' },

@@ -1,4 +1,4 @@
-/** Build the pinned IM implementation without changing retained upstream files. */
+/** Apply the Desktop integration to the pinned IM source in the build directory. */
 import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,6 +15,7 @@ export const imDesktopCompatibility = {
   workspace: 'one selected workspace per Feishu bot with independent conversation histories',
   remoteProvider: 'retained at @wenbin_wb/dsh-bridge/remote',
   sessionRouting: 'existing chat keys, native Session and workspace bindings, durable claims and topic replies remain authoritative without Muse Bot',
+  managedFeishu: 'verified Muse connections own their existing chat bindings, with native Feishu transport, progress and optional voice',
   updates: 'supplied only by Muse application updates',
 }
 
@@ -48,7 +49,7 @@ export function applyImDesktopCompatibility(directory) {
     ['        harness: workspaceScope.harness,\n        state: workspaceScope.state,', '        harness: sessionScope.harness,\n        state: sessionScope.state,'],
     ['        accessPolicy: accessPolicyProvider(workspaces, id, {', '        museAdmission: sessionScope.admission ?? config.museAdmission?.forBot(id, workspaces),\n        accessPolicy: accessPolicyProvider(workspaces, id, {'],
   ])
-  edit(directory, 'plugin-src/client/channels/feishu/index.js', '4dfa9310756bd0ca6d0d570b1cbde24f18175a1c18997f077a47d2c526e492bc', [
+  edit(directory, 'plugin-src/client/channels/feishu/index.js', '0e7242c2a957c8bf928633e023402bb4d1be69aa99c290b770d8cffee13db12f', [
     ['          onSave: onWorkspaceSave,\n        }),', '          onSave: onWorkspaceSave,\n        }),\n      h("p", { className: "dim-help" }, "同一机器人的私聊和群聊共用此工作区，聊天记录各自独立。"),'],
   ])
   edit(directory, 'plugin-src/client/i18n.js', '1b785ceca110674f02b3d0ccb56684216e6c2fc8b1a8b267d46db96a02243200', [
@@ -63,7 +64,7 @@ export function applyImDesktopCompatibility(directory) {
     ["      return commandResult(t('已清除对话专属工作区，当前使用 bot 默认工作区：{workspace}（之后默认工作区的变化会同步到本对话）', { workspace: current }));", "      return commandResult(harness.workspaceScope === 'bot'\n        ? harness.sharedWorkspaceMessage('clear', current)\n        : t('已清除对话专属工作区，当前使用 bot 默认工作区：{workspace}（之后默认工作区的变化会同步到本对话）', { workspace: current }));"],
     ["    return commandResult(t('当前对话工作区已切换为：{workspace}', { workspace: current }));", "    return commandResult(harness.workspaceScope === 'bot'\n      ? harness.sharedWorkspaceMessage('switched', current)\n      : t('当前对话工作区已切换为：{workspace}', { workspace: current }));"],
   ])
-  edit(directory, 'src/channels/feishu/feishu-runtime.mjs', 'b601d7730c7eef4d26681f3240366a489cb5d45236f1b1ce62726cfc69c2d92b', [
+  edit(directory, 'src/channels/feishu/feishu-runtime.mjs', '903f35ed7c2296e034233b0b293717c8062ed01988ee29a06c557108dae8b74c', [
     ["import { createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';", "import { closeMuseImSocket } from '../../../lib/muse-im-socket.mjs';\nimport { createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';"],
     ['  #botOpenId;', '  #botOpenId;\n  #museAdmission;'],
     ['    botOpenId,', '    botOpenId,\n    museAdmission,'],
@@ -139,7 +140,7 @@ export function applyImDesktopCompatibility(directory) {
   edit(directory, 'plugin-src/host/channels/shared/access-policy-production.mjs', '73177cf116e079045659a285ab3a9800188197734ec2c6af9b07f006dcdb4ba0', [
     ["  if (key === 'feishu' || key === 'qq') {", "  if (key === 'feishu') return initialAccessPolicyFor(channel, config);\n  if (key === 'qq') {"],
   ])
-  edit(directory, 'plugin-src/host/index.mjs', 'd0ae0ef86e4db327391f057226178564338ef2f7e2c20f0ddd687a399ad86170', [
+  edit(directory, 'plugin-src/host/index.mjs', '5f4359d0b10197837fc573690734f7d7095910e6414c4dd10bfa555e8495af28', [
     ["import { installOutboundArtifactTool } from '../../src/channels/shared/semantic/artifact.mjs';", "import { createOutboundArtifactTool, outboundArtifactRegistry } from '../../src/channels/shared/semantic/artifact.mjs';\nimport { installMuseImFiles } from '../../lib/muse-im-files.mjs';"],
     ['        installOutboundArtifactTool(artifactCtx);', '        installMuseImFiles(artifactCtx, { registry: outboundArtifactRegistry, createTool: createOutboundArtifactTool, maxFileBytes: config.feishu.maxFileBytes });'],
     ['      installOutboundArtifactTool(ctx);', '      installMuseImFiles(ctx, { registry: outboundArtifactRegistry, createTool: createOutboundArtifactTool, maxFileBytes: config.feishu.maxFileBytes });'],

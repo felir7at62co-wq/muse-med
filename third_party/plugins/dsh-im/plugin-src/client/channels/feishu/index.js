@@ -18,6 +18,8 @@ import {
 } from "./api.js";
 import { useAnimationFrameScheduler } from "../../lifecycle.js";
 import { WorkspaceEditor } from "../../workspace-editor.js";
+import { GroupResponseModeEditor } from "./group-settings.js";
+import { VoiceEditor } from "./voice-editor.js";
 import { ContextEnhancementEditor } from "../../context-enhancement.js";
 import {
   AgentPresetCatalogContext,
@@ -467,10 +469,10 @@ function RemoveConfirmation({ bot, busy, onConfirm, onCancel }) {
 }
 
 /** One select for the step-push presentation. */
-function StepPushEditor({ value = false, mode = "post", disabled = false, onSave, onModeSave }) {
+function StepPushEditor({ value = false, mode = "post", managed = false, disabled = false, onSave, onModeSave }) {
   const titleId = React.useId();
   const helpId = `${titleId}-help`;
-  const current = value === true ? mode : "off";
+  const current = value === true ? (managed && mode === "live_cot" ? "streaming_card" : mode) : "off";
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState(null);
 
@@ -497,11 +499,9 @@ function StepPushEditor({ value = false, mode = "post", disabled = false, onSave
         return;
       }
       const nextMode = ["streaming_card", "live_cot"].includes(next) ? next : "post";
-      // Enabling (or switching presentation) may need both writes; the flag
-      // must land before the mode so the runtime never sees a mode without
-      // step push enabled.
-      if (value !== true) await onSave?.(true);
+      // Apply the presentation before allowing the next request to start progress.
       if (nextMode !== mode) await onModeSave?.(nextMode);
+      if (value !== true) await onSave?.(true);
     });
   };
 
@@ -510,8 +510,8 @@ function StepPushEditor({ value = false, mode = "post", disabled = false, onSave
     : current === "live_cot"
       ? "使用飞书原生思考过程展示推理、工具调用与结果，最终答案单独发送"
       : current === "streaming_card"
-      ? "推荐长任务使用：过程与最终答案都在同一张卡片里实时更新，不刷屏"
-      : "每一步都单独发一条消息（含工具调用和过程说明）；注意长任务会连续发送较多消息";
+      ? managed ? "任务阶段和步骤数量更新在同一张卡片中，最终答复单独发送" : "推荐长任务使用：过程与最终答案都在同一张卡片里实时更新，不刷屏"
+      : managed ? "任务运行时发送步骤统计，最终答复单独发送" : "每一步都单独发一条消息（含工具调用和过程说明）；注意长任务会连续发送较多消息";
 
   return h("section", {
     className: "dim-feishuGroupControl",
@@ -531,7 +531,7 @@ function StepPushEditor({ value = false, mode = "post", disabled = false, onSave
           id: helpId,
           className: "dim-presetTooltip",
           role: "tooltip",
-        }, "设置任务执行过程的呈现方式：不显示、原生直播、实时卡片或逐步消息"))),
+        }, managed ? "选择如何在飞书显示任务执行进度" : "设置任务执行过程的呈现方式：不显示、原生直播、实时卡片或逐步消息"))),
     saving
       ? h("span", { className: "dim-feishuGroupControlStatus", role: "status" }, "保存中…")
       : null),
@@ -543,7 +543,7 @@ function StepPushEditor({ value = false, mode = "post", disabled = false, onSave
     onChange: change,
   },
   h("option", { value: "off" }, "不显示过程（只发送最终答案）"),
-  h("option", { value: "live_cot" }, "实时直播（飞书原生思考过程）"),
+  managed ? null : h("option", { value: "live_cot" }, "实时直播（飞书原生思考过程）"),
   h("option", { value: "streaming_card" }, "实时过程卡（全程一张卡片动态更新）"),
   h("option", { value: "post" }, "逐步直播（每一步单独发一条消息）")),
   h("p", { className: "dim-feishuGroupHelp" }, helpText),
@@ -566,6 +566,9 @@ export function BotCard({
   onRepairCallback,
   onWorkspaceSave,
   onAliasSave,
+  managed,
+  onVoiceSave,
+  onGroupModeSave,
   onModelSave,
   onAgentPresetSave,
   onContextEnhancementSave,
@@ -600,7 +603,7 @@ export function BotCard({
   },
     h("div", { className: "bxf-cardBody dim-botCardBody" },
       h(CollapsibleAccountSection, {
-        settings: h(BotSettingsButton, {
+        settings: managed ? null : h(BotSettingsButton, {
           channel: "feishu",
           botId: connection.botId,
           botName: bot.name,
@@ -639,7 +642,7 @@ export function BotCard({
             }),
             h(AccountSettingsToggle))),
       },
-        h(WorkspaceEditor, {
+      managed ? null : h(React.Fragment, null, h(WorkspaceEditor, {
           workspace: connection.workspace,
           disabled: Boolean(busy),
           onSave: onWorkspaceSave,
@@ -658,14 +661,28 @@ export function BotCard({
         config: connection.contextEnhancement,
         disabled: Boolean(busy),
         onSave: onContextEnhancementSave,
-      }),
+      })),
       h(StepPushEditor, {
         value: connection.stepPush,
         mode: connection.stepPushMode,
+        managed,
         disabled: Boolean(busy),
         onSave: onStepPushSave,
         onModeSave: onStepPushModeSave,
       }),
+      managed ? h(GroupResponseModeEditor, {
+        value: connection.groupResponseMode,
+        permissionGranted: connection.groupMessagePermissionGranted,
+        authorizationDisabled: Boolean(busy) || repairDisabled,
+        disabled: Boolean(busy),
+        onSave: onGroupModeSave,
+        onAuthorize: onRepairCallback,
+      }) : null,
+      managed ? h(VoiceEditor, {
+        value: connection.voice,
+        disabled: Boolean(busy),
+        onSave: (voice) => onVoiceSave(voice === null ? null : { ...connection.voice, ...voice }),
+      }) : null,
       provisionContent
         ? h("section", {
             className: "bxf-botProvision dim-botProvision",
@@ -699,7 +716,7 @@ export function BotCard({
               },
                 h("strong", null, "补全范围"),
                 h("span", null, "增量添加当前缺少的卡片回调 card.action.trigger、接收未 @ 群消息所需的 im:message.group_msg、读取消息内图片或文件所需的 im:message:readonly（飞书显示为“获取单聊、群组消息”）、上传机器人图片或文件所需的 im:resource，以及原生命令面板所需的 application:app_slash_command:read / write；确认页只显示当前缺少项，不会创建新应用，群回复方式保持不变，实际收到的群消息和文件会自动保存。"))),
-            h(Button, {
+            managed ? null : h(Button, {
               className: "dim-cardAction", kind: "danger", onClick: onRequestRemove,
               disabled: Boolean(busy), ref: removeButtonRef,
               "aria-label": `从 DeepSeek Harness 移除${bot.name}`,
@@ -741,6 +758,9 @@ function BotList(props) {
       props.bots.map((bot) => h("li", { key: bot.botId },
         h(BotCard, {
           connection: bot,
+          managed: props.managed,
+          onVoiceSave: (voice) => props.onVoiceSave(bot, voice),
+          onGroupModeSave: (mode) => props.onGroupModeSave(bot, mode),
           busy: props.busyByBot[bot.botId]
             ?? (isTargetedAppUpdate(props.provisioning)
               && props.provisioning.botId === bot.botId ? props.provisioning.operation : undefined),
@@ -818,7 +838,7 @@ export function mergeFeishuSnapshotState(
   };
 }
 
-export function FeishuSettingsTab({ rpcCall }) {
+export function FeishuSettingsTab({ rpcCall, onlyBotId }) {
   const [operationError, setOperationError] = React.useState(null);
   const [model, setModel] = React.useState({
     phase: "loading",
@@ -1502,13 +1522,14 @@ export function FeishuSettingsTab({ rpcCall }) {
     else removeButtonRefs.current.delete(botId);
   }, []);
 
+  const visibleBots = onlyBotId ? model.bots.filter((bot) => bot.botId === onlyBotId) : model.bots;
   return h(ModelCatalogContext.Provider, {
     value: model.modelCatalog ?? EMPTY_MODEL_CATALOG,
   }, h(AgentPresetCatalogContext.Provider, {
     value: model.agentPresetCatalog ?? EMPTY_AGENT_PRESET_CATALOG,
   }, h("section", { className: "bxf-page dim-channelPage", "aria-label": "飞书机器人设置" },
     operationError ? h(ConnectionError, { error: operationError }) : null,
-    h(Heading, {
+    onlyBotId ? null : h(Heading, {
       totals: model.totals,
       onAdd: () => void startProvisioning(),
       onCredential: () => { setCredentialOpen((value) => !value); setCredentialError(null); },
@@ -1535,14 +1556,22 @@ export function FeishuSettingsTab({ rpcCall }) {
             busy: pageBusy,
           })
         : h(React.Fragment, null,
-            credentialContent,
-            targetedProvisioning ? null : provisionContent,
-            model.bots.length === 0 && !provision && !credentialOpen
+            onlyBotId ? null : credentialContent,
+            onlyBotId || targetedProvisioning ? null : provisionContent,
+            onlyBotId && visibleBots.length === 0 ? h("p", { role: "alert" }, "暂时无法读取此飞书连接的设置") : null,
+            !onlyBotId && visibleBots.length === 0 && !provision && !credentialOpen
               ? h(EmptyView, { onStart: () => void startProvisioning(), busy: provisionBusy })
               : null,
-            model.bots.length > 0
+            visibleBots.length > 0
               ? h(BotList, {
-                  bots: model.bots,
+                  bots: visibleBots,
+                  managed: Boolean(onlyBotId),
+                  onVoiceSave: (connection, voice) => saveBotSetting(
+                    connection, "voice", FEISHU_ENDPOINTS.setVoice, { voice },
+                  ),
+                  onGroupModeSave: (connection, groupResponseMode) => saveBotSetting(
+                    connection, "group-mode", FEISHU_ENDPOINTS.setGroupResponseMode, { groupResponseMode },
+                  ),
                   busyByBot,
                   errorsByBot,
                   testNoticesByBot,

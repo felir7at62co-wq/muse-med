@@ -129,6 +129,8 @@ WhatsApp、飞书、Telegram、Discord、Slack、QQ 支持自动保存实际收�
 
 [查看 AI Office Connector 说明](docs/AI-Office-Connector.md)
 
+Muse 托管的飞书账号在 **设置 → IM** 管理。模型和工作区由绑定的 Muse Bot 使用。任务进度和语音回复在发起任务的飞书会话中显示。语音需配置 DashScope 凭据并安装 ffmpeg。
+
 ## 安装
 
 推荐从 npm 安装已发布的稳定版本：

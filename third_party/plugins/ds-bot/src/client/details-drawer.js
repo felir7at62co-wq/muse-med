@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import { isMainOf } from './sources.js'
 import { currentPart, runStatsOf, usageOf } from './text.js'
-import { PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon, SideIcon, TerminalIcon, FolderIcon, MonitorIcon } from './icons.js'
+import { AlertIcon, PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon, SideIcon, TerminalIcon, FolderIcon, MonitorIcon } from './icons.js'
 import { BotMark } from './mark.js'
 import { DetailsAvatar } from './details-avatar.js'
 import { GlobeIcon, Favicon } from './browser-pane.js'
@@ -236,6 +236,49 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
   ]
 }
 
+function BotSessions({ bot, part, run, useSessions, actions, running, readOnly, openCurrent }) {
+  const runningOf = id => running?.[id] === true
+  const open = (bot.openParts ?? []).map(entry => ({ id: entry.sessionId, open: true, running: runningOf(entry.sessionId) }))
+  const backgroundRunning = open.some(entry => entry.running)
+  const entries = [
+    { id: part, current: true, running: runningOf(part) },
+    ...open,
+    ...(bot.parts ?? []).filter(id => id !== part && !open.some(entry => entry.id === id)).reverse().map(id => ({ id })),
+  ]
+  const rows = useSessions(list => entries.map(entry => list.byId?.[entry.id]), rowsEqual)
+  const total = entries.length
+  const openPart = (entry) => {
+    if (entry.current) return openCurrent
+    return () => run(actions.openPart(bot.id, entry.id, entry.running))
+  }
+  return h('div', { className: 'bt-drawer-model' },
+    h('div', { className: 'bt-agent-sessions-head' },
+      h('div', { className: 'bt-section-title' }, t('Sessions')),
+      h('button', { type: 'button', className: 'bt-agent-sessions-new', disabled: readOnly, onClick: () => run(actions.newPart(bot.id)) }, h(PlusIcon), t('New session'))),
+    backgroundRunning
+      ? h('div', { className: 'bt-agent-sessions-warn', role: 'status' },
+          h(AlertIcon),
+          h('span', null, t('A running session keeps using model calls in the background.')))
+      : null,
+    h('div', { className: 'bt-agent-sessions' }, entries.map((entry, index) => {
+      const row = rows[index]
+      const when = row?.updatedAt ?? row?.createdAt
+      const label = row?.title && row.title.trim() !== '' ? row.title : t('Session {number}', { number: total - index })
+      const title = entry.current ? t('Current session') : entry.open && entry.running ? t('Open this running session') : entry.open ? t('Open this session') : t('Open this earlier session')
+      return h('button', {
+        key: entry.id, type: 'button', 'aria-current': entry.current || undefined,
+        disabled: readOnly && !entry.current,
+        className: `bt-agent-session${entry.current ? ' is-current' : ''}${entry.running ? ' is-running' : ''}`,
+        title, onClick: openPart(entry),
+      },
+        h('span', { className: 'bt-agent-session-name' }, label),
+        h('span', { className: 'bt-agent-session-meta' },
+          entry.running ? h('span', { className: 'bt-agent-session-run', role: 'status' }, t('Running'))
+            : entry.current ? t('Current')
+              : when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''))
+    })))
+}
+const rowsEqual = (a, b) => a.length === b.length && a.every((row, index) => row?.title === b[index]?.title && row?.updatedAt === b[index]?.updatedAt && row?.createdAt === b[index]?.createdAt)
 
 export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, projects = NO_PROJECTS, scripts = NO_PROJECTS, terminals = NO_PROJECTS, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages, useComputer, renderSlot }) {
   const owner = roster.byId[sessionId]
@@ -386,6 +429,11 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
         ...(slot === TAB_SLOTS.data ? { platform: platformId, openPlatform: platform => actions.openDataPlatform(sessionId, platform) } : {}),
       })) : null,
       bot && tab === 'details' ? [
+        h(BotSessions, {
+          key: 'sessions', bot, part, run, useSessions, actions,
+          running: roster.partsRunning, readOnly: roster.readOnly,
+          openCurrent: () => { close(); actions.openSession(part ?? sessionId) },
+        }),
         h(RunStats, { key: 'stats', bot, part, running, actions }),
         // Muse: what runs in the background comes first; the settings follow.
         h(BackgroundPanel, { key: 'background', sources: botBackgroundSources(bot, part), botId: bot.id, tabs: terminals, turns, useSessions, readOnly: roster.readOnly, actions }),

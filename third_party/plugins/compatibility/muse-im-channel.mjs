@@ -19,6 +19,7 @@ export const Config = z.object({
   registeredBy: z.string().default('').volatile(),
   allowFrom: z.array(z.string()).default([]).volatile(),
   activeSessionId: z.string().default('').volatile(),
+  deliveryHttp: z.boolean().default(true),
   requireMention: z.boolean().default(true),
   denyTools: z.array(z.string()).default(['exit_plan_mode']),
   agentPreset: z.string().default('short-drama-v2'),
@@ -61,7 +62,7 @@ export async function apply(ctx, supplied) {
     } })
     return installUpdateRpc(updateCtx, { service: { ...statusService, check: refuseUpdate, install: refuseUpdate } })
   } })
-  await plugin.apply(ctx, { dshHome: config.dshHome, feishu: {
+  await plugin.apply(ctx, { dshHome: config.dshHome, deliveryHttp: config.deliveryHttp, feishu: {
     agentPreset: config.agentPreset,
     maxFileBytes: config.maxFileBytes,
     ...(config.defaultCwd === undefined ? {} : { workspace: config.defaultCwd }),

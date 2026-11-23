@@ -10,10 +10,13 @@ import { viewCardText } from '../parts.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { adapters } from './platforms/index.js'
+import { connectDshImFeishu, feishuDshImConfig } from './platforms/feishu-dsh-im.js'
+import { createFeishuTurn } from './feishu-turn.js'
 import { nameProblem } from '../../shared/mentions.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
+const MODEL_CONTEXT_SOURCES = new Set(['runtime-context', 'skill-catalog', 'time-context', 'ds-bot-time-context'])
 const RETRY_MS = 5_000
 // A send that keeps failing is given up on, with a bounded backoff, so one broken
 // message cannot hold every later message in the same chat forever (#1417).
@@ -25,6 +28,9 @@ const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
 export function install(rt) {
+  const legacyFeishu = feishuDshImConfig(rt.config.feishuDshIm)
+  let dshIm
+  const supportsButtons = conn => imPlatform(conn.platform)?.buttons === true && (!legacyFeishu.has(conn.id) || runners.get(conn.id)?.handle?.rich === true)
   const { ctx, state } = rt
   const imDir = join(rt.home, 'im')
   const langKey = () => {
@@ -40,6 +46,24 @@ export function install(rt) {
   }
   const text = (key, values = {}) => {
     const lang = langKey()
+    const feishu = lang === 'zh' || lang === 'zh-TW'
+      ? {
+          feishuStarted: 'Muse 正在处理这条消息…',
+          feishuWorking: `Muse 正在执行 · ${values.active} 步进行中 · ${values.completed} 步完成`,
+          feishuDone: 'Muse 已完成',
+          feishuStopped: 'Muse 已停止',
+          feishuFailed: 'Muse 未能完成这次任务',
+          feishuVoiceUnavailable: '这条语音未能转写，请改用文字发送。',
+        }
+      : {
+          feishuStarted: 'Muse is working on your message…',
+          feishuWorking: `Muse is working · ${values.active} running · ${values.completed} completed`,
+          feishuDone: 'Muse finished',
+          feishuStopped: 'Muse stopped',
+          feishuFailed: 'Muse could not finish this task',
+          feishuVoiceUnavailable: 'This voice message could not be transcribed. Please send it as text.',
+        }
+    if (Object.hasOwn(feishu, key)) return feishu[key]
     const table = {
       en: {
         requested: 'A connection request was sent to Muse; allow it in Settings → IM on the computer.',
@@ -496,6 +520,11 @@ export function install(rt) {
   // Session id → the chat its running turn came from.
   const origins = new Map()
   const mixed = new Set()
+  const feishuTurns = new Map()
+  const cancelFeishuTurn = sessionId => {
+    feishuTurns.get(sessionId)?.cancel()
+    feishuTurns.delete(sessionId)
+  }
 
   // The target a chat currently points at, as a comparable string. A direct chat falls
   // back to the connection's Bot; an unbound group chat has no target.
@@ -525,7 +554,7 @@ export function install(rt) {
   const peekImOrigin = (sessionId, token) => {
     const entry = token === undefined ? undefined : resumedOrigins.get(token)
     if (entry === undefined) return
-    claimOrigin(sessionId, entry.connId, entry.chatKey, entry.senderId, entry.binding)
+    claimOrigin(sessionId, entry.connId, entry.chatKey, entry.senderId, entry.binding, entry.reply)
     if (!mixed.has(sessionId)) entry.activeOn = sessionId
   }
   const dropImOrigin = (token) => {
@@ -534,16 +563,19 @@ export function install(rt) {
   const detachHeldOrigin = (sessionId) => {
     for (const held of resumedOrigins.values()) if (held.activeOn === sessionId) held.activeOn = undefined
   }
-  const claimOrigin = (sessionId, connId, chatKey, senderId, binding) => {
+  const topicOf = reply => reply?.threadId ?? reply?.rootId
+  const claimOrigin = (sessionId, connId, chatKey, senderId, binding, reply) => {
     if (sessionId === undefined || connId === undefined) return
     if (mixed.has(sessionId)) return
     const previous = origins.get(sessionId)
-    if (previous !== undefined && (previous.connId !== connId || previous.chatKey !== chatKey || previous.senderId !== senderId)) {
+    if (previous !== undefined && (previous.connId !== connId || previous.chatKey !== chatKey
+      || previous.senderId !== senderId || topicOf(previous.reply) !== topicOf(reply))) {
       dropOrigin(sessionId)
       return
     }
     for (const [token, held] of resumedOrigins) {
-      if (held.activeOn === sessionId && (held.connId !== connId || held.chatKey !== chatKey || held.senderId !== senderId)) {
+      if (held.activeOn === sessionId && (held.connId !== connId || held.chatKey !== chatKey
+        || held.senderId !== senderId || topicOf(held.reply) !== topicOf(reply))) {
         resumedOrigins.delete(token)
       }
     }
@@ -552,14 +584,16 @@ export function install(rt) {
       const conn = Object.values(connections()).find(item => item.id === connId)
       bound = conn === undefined ? undefined : bindingOf(conn, chatKey)
     }
-    origins.set(sessionId, { connId, chatKey, senderId, binding: bound, at: Date.now() })
+    origins.set(sessionId, { connId, chatKey, senderId, binding: bound, reply, at: Date.now() })
   }
   const dropOrigin = (sessionId) => {
+    cancelFeishuTurn(sessionId)
     origins.delete(sessionId)
     mixed.add(sessionId)
     for (const [token, held] of resumedOrigins) if (held.activeOn === sessionId) resumedOrigins.delete(token)
   }
   const resetOrigin = (sessionId) => {
+    cancelFeishuTurn(sessionId)
     origins.delete(sessionId)
     mixed.delete(sessionId)
   }
@@ -569,8 +603,7 @@ export function install(rt) {
    * paired, or the chat no longer pointing at the target whose turn asked. A card goes
    * out on this connection alone.
    */
-  const originOf = (sessionId) => {
-    const entry = sessionId === undefined ? undefined : origins.get(sessionId)
+  const resolveOrigin = (entry) => {
     if (entry === undefined) return undefined
     const conn = Object.values(connections()).find(item => item.id === entry.connId)
     if (conn === undefined || !runners.has(conn.id)) return undefined
@@ -580,12 +613,13 @@ export function install(rt) {
     // The chat may have been unbound or pointed at another Bot or group while the work
     // it started keeps running; that work's late lines must not follow the old origin.
     if (entry.binding === undefined || bindingOf(conn, entry.chatKey) !== entry.binding) return undefined
-    return { conn, chatKey: entry.chatKey, chat }
+    return { conn, chatKey: entry.chatKey, chat: entry.reply === undefined ? chat : { ...chat, reply: entry.reply } }
   }
-  const rememberRequest = (requestId, conn, chatKey, senderId) => {
+  const originOf = sessionId => resolveOrigin(origins.get(sessionId))
+  const rememberRequest = (requestId, conn, chatKey, senderId, reply, feishu) => {
     // The binding is captured when the message arrives, not when it is admitted: a chat
     // rebound while the message waits in the queue still answers the target that asked.
-    requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), at: Date.now() })
+    requests.set(requestId, { connId: conn.id, chatKey, senderId, binding: bindingOf(conn, chatKey), reply, feishu, at: Date.now() })
   }
   // The Session a Bot writes into now, for a card that carries no Session of its own.
   const chatOfBot = botId => rt.botOf(botId) === undefined ? undefined : rt.chatOf(botId)
@@ -593,7 +627,7 @@ export function install(rt) {
   const claimChat = (conn, chat, senderId) => {
     const target = conn.chats?.[chat.key]?.target ?? (chat.kind === 'direct' ? { botId: conn.botId } : undefined)
     const sessionId = target?.roomId !== undefined ? (rt.roomOf(target.roomId)?.sessionId ?? target.roomId) : chatOfBot(target?.botId)
-    claimOrigin(sessionId, conn.id, chat.key, senderId)
+    claimOrigin(sessionId, conn.id, chat.key, senderId, undefined, chat.reply)
   }
 
   const failClass = (error) => {
@@ -655,6 +689,13 @@ export function install(rt) {
           const settled = queue.stoppedSend
           queue.stoppedSend = undefined
           const how = failClass(error)
+          if (error?.unknown === true && legacyFeishu.has(conn.id)) {
+            queue.jobs.shift()
+            clearPendingSend(conn.id, chatKey, settled)
+            if (!runner.stopped) setSendStatus(conn.id, chatKey, { state: 'error', error: failMessage(error) })
+            rt.warn('ds-bot: Feishu reply outcome could not be confirmed: %s', failMessage(error))
+            continue
+          }
           if (runner.stopped || connections()[conn.id] === undefined) {
             queue.jobs.shift()
             const waiter = settled?.waiter
@@ -844,7 +885,7 @@ export function install(rt) {
     const valid = labels.filter(label => (found.question.options ?? []).some(option => option.label === label))
     if (valid.length === 0) return false
     const requestId = `im:${conn.platform}:${randomUUID()}`
-    rememberRequest(requestId, conn, chat.key, senderId)
+    rememberRequest(requestId, conn, chat.key, senderId, chat.reply)
     try {
       await rt.answerQuestion(found.sessionId, found.question.id, { selected: valid }, requestId)
       await settleCard(conn.id, held.cardKey, valid.join(', '))
@@ -877,7 +918,7 @@ export function install(rt) {
     }
     return 'answered'
   }
-  const sendCardReply = async (conn, chat, body) => sendText(conn, { key: chat.key, kind: chat.kind, title: chat.title }, body)
+  const sendCardReply = async (conn, chat, body) => sendText(conn, { key: chat.key, kind: chat.kind, title: chat.title, reply: chat.reply }, body)
 
   // The chat's newest still-open card, questions and approvals together: a bare
   // number answers whatever arrived last, not always a question.
@@ -893,6 +934,7 @@ export function install(rt) {
   }
 
   const onMessage = (conn) => async (msg) => {
+    msg.signal?.throwIfAborted()
     if (!mayTalk(conn, msg.chat.kind, msg.sender.id)) {
       if (msg.chat.kind === 'group' && !msg.mentioned) return
       if (!requested(conn, msg)) return
@@ -901,21 +943,24 @@ export function install(rt) {
       return
     }
     conn.chats ??= {}
-    if (msg.chat.kind === 'group' && !msg.mentioned) return
+    if (msg.chat.kind === 'group' && !msg.mentioned
+      && !(msg.allowKnownGroup && conn.chats[msg.chat.key] !== undefined)) return
     if (conn.chats[msg.chat.key] === undefined) {
       conn.chats[msg.chat.key] = { kind: msg.chat.kind, title: msg.chat.title, at: Date.now() }
       await rt.save()
     }
-    const body = String(msg.text ?? '').trim()
+    let body = String(msg.text ?? '').trim()
     const chat = conn.chats[msg.chat.key]
-    // A chat renamed on the platform, or whose name could only now be read, keeps its
-    // current name here, and so does the Bot made for it.
-    if (msg.chat.title && chat.title !== msg.chat.title) {
+    // A lookup that returns an ID must preserve the display name already on record.
+    const hasDisplayName = msg.chat.title && msg.chat.title !== msg.chat.key && !ID_NAME.test(msg.chat.title)
+    if (hasDisplayName && chat.title !== msg.chat.title) {
       chat.title = msg.chat.title
       await followChatName(conn, msg.chat.key, chat)
       await rt.save()
     }
     await ensureChatBot(conn, msg.chat.key, chat, msg.sender.id, msg.sender.name)
+    const binding = bindingOf(conn, msg.chat.key)
+    msg.signal?.throwIfAborted()
     const target = resolveTarget(conn, chat)
     if (/^\/start(?:@\S+)?\s*$/.test(body)) {
       const name = target === undefined ? undefined : targetName(conn, target)
@@ -983,6 +1028,22 @@ export function install(rt) {
       await sendText(conn, msg.chat, text(msg.chat.kind === 'group' ? 'unboundGroup' : 'unbound'))
       return
     }
+    if (msg.voice !== undefined) {
+      try {
+        body = (await msg.voice?.transcribe())?.trim() ?? ''
+      } catch {
+        rt.warn('ds-bot: Feishu speech transcription failed')
+      }
+      msg.signal?.throwIfAborted()
+      if (body === '') {
+        await sendText(conn, msg.chat, text('feishuVoiceUnavailable'))
+        return
+      }
+      // A slow speech service must not admit a message against a stale binding.
+      const current = fresh(conn.id)
+      if (!current || !mayTalk(current, msg.chat.kind, msg.sender.id)
+        || bindingOf(current, msg.chat.key) !== binding) return
+    }
     const sessionId = target.botId ?? target.roomId
     // The receipt has to sit on the Session that takes the message. A group's own
     // Session moves on to a fresh part (`room.sessionId`) while `room.id` stays the
@@ -1004,10 +1065,17 @@ export function install(rt) {
       }
     }
     if (content.length === 0) return
-    const requestId = `im:${conn.platform}:${randomUUID()}`
+    const requestId = msg.requestId ?? `im:${conn.platform}:${randomUUID()}`
     // The turn this starts belongs to this chat: its replies go back here and nowhere else.
-    rememberRequest(requestId, conn, msg.chat.key, msg.sender.id)
-    await rt.sendUser({ sessionId, content, requestId })
+    msg.signal?.throwIfAborted()
+    rememberRequest(requestId, conn, msg.chat.key, msg.sender.id, msg.chat.reply,
+      target.botId !== undefined && (msg.stepPushMode || msg.voice) ? { mode: msg.stepPushMode, voice: msg.voice } : undefined)
+    try {
+      await rt.sendUser({ sessionId, content, requestId })
+    } catch (error) {
+      requests.delete(requestId)
+      throw error
+    }
   }
 
   const onAction = (conn) => async (action) => {
@@ -1071,7 +1139,7 @@ export function install(rt) {
     scheduleWrite(conn.id)
     for (const { chatKey, chat } of pending) {
       enqueue(conn, chatKey, {
-        chat: { key: chatKey, kind: chat.kind, title: chat.title },
+        chat: { key: chatKey, kind: chat.kind, title: chat.title, reply: chat.reply },
         text: body,
         buttons,
         after: (sent) => { void markCard(conn.id, cardKey, chatKey, sent?.messageId, body) },
@@ -1095,7 +1163,7 @@ export function install(rt) {
         // A card follows its own turn: only the chat that asked for it gets one.
         const origin = originOf(sessionId)
         if (origin === undefined || origin.conn.id !== conn.id) continue
-        const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.question(question) : undefined
+        const buttons = supportsButtons(conn) ? cardButtons.question(question) : undefined
         await sendCard(conn, cardKey, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.question(bot.name, question), buttons)
       }
       // Approvals: one card per open approval id, resent to chats whose earlier send dropped.
@@ -1105,7 +1173,7 @@ export function install(rt) {
         const origin = originOf(entry.roomId !== undefined ? (rt.roomOf(entry.roomId)?.sessionId ?? entry.roomId) : chatOfBot(entry.botId))
         if (origin === undefined || origin.conn.id !== conn.id) continue
         const targets = [{ chatKey: origin.chatKey, chat: origin.chat }]
-        const buttons = imPlatform(conn.platform)?.buttons === true ? cardButtons.approval(entry.id) : undefined
+        const buttons = supportsButtons(conn) ? cardButtons.approval(entry.id) : undefined
         await sendCard(conn, cardKey, targets, cardText.approval(bot?.name ?? '?', entry), buttons)
       }
       // Secret requests: text only — the key is typed on the computer or phone.
@@ -1216,19 +1284,22 @@ export function install(rt) {
   const start = async (conn) => {
     const adapter = adapters[conn.platform]
     if (adapter === undefined || runners.has(conn.id)) return
+    const legacyBot = legacyFeishu.get(conn.id)
     const platform = imPlatform(conn.platform)
-    if (platform?.ws === true && globalThis.WebSocket === undefined) {
+    if (legacyBot === undefined && platform?.ws === true && globalThis.WebSocket === undefined) {
       setStatus(conn.id, { state: 'error', error: 'This dsh runs on a Node without WebSocket', at: Date.now() })
       return
     }
     // The slot is reserved before the async work: a concurrent sync cannot
     // start a second adapter for the same connection.
-    const runner = { handle: undefined, queues: new Map(), typing: undefined }
+    const runner = { handle: undefined, queues: new Map(), typing: undefined,
+      legacyService: legacyBot === undefined ? undefined : dshIm,
+      controller: legacyBot === undefined ? undefined : new AbortController() }
     runners.set(conn.id, runner)
     setStatus(conn.id, { state: 'connecting', at: Date.now() })
     try {
       const env = await envFor(conn)
-      const handle = adapter.connect(fieldsOf(conn), env, {
+      const handlers = {
         onMessage: (msg) => {
           const current = fresh(conn.id)
           return current === undefined ? undefined : onMessage(current)(msg).catch(error => rt.warn('ds-bot: im message failed: %s', error))
@@ -1238,7 +1309,24 @@ export function install(rt) {
           return current === undefined ? undefined : onAction(current)(action).catch(error => rt.warn('ds-bot: im action failed: %s', error))
         },
         onStatus: onStatus(conn.id),
-      })
+      }
+      let handle
+      if (legacyBot === undefined) {
+        handle = adapter.connect(fieldsOf(conn), env, handlers)
+      } else {
+        if (conn.platform !== 'feishu') throw new Error('Only Feishu connections can use dsh-im')
+        handle = await connectDshImFeishu(runner.legacyService, legacyBot, conn, fieldsOf(conn), env, async msg => {
+          const current = fresh(conn.id)
+          if (current === undefined || runners.get(conn.id) !== runner || rt.readOnly() !== undefined) {
+            throw new Error('The Muse IM connection is no longer active')
+          }
+          await onMessage(current)(msg)
+        }, runner.controller.signal, async action => {
+          const current = fresh(conn.id)
+          if (current === undefined || runners.get(conn.id) !== runner || rt.readOnly() !== undefined) return
+          await onAction(current)(action)
+        })
+      }
       // A stop() during connect took the slot back: undo the just-started
       // adapter instead of leaving it running unreachable.
       if (runners.get(conn.id) !== runner) {
@@ -1246,6 +1334,7 @@ export function install(rt) {
         return
       }
       runner.handle = handle
+      if (legacyBot !== undefined) handlers.onStatus({ state: 'ready' })
       for (const chatKey of runner.queues.keys()) void drain(conn, chatKey)
       if (typeof runner.handle?.typing === 'function') {
         runner.typing = setInterval(() => {
@@ -1257,8 +1346,10 @@ export function install(rt) {
       }
       await diffCards()
     } catch (error) {
-      runners.delete(conn.id)
-      setStatus(conn.id, { state: 'error', error: String(error?.message ?? error).slice(0, 300), at: Date.now() })
+      if (runners.get(conn.id) === runner) {
+        await stop(conn.id)
+        setStatus(conn.id, { state: 'error', error: String(error?.message ?? error).slice(0, 300), at: Date.now() })
+      }
     }
   }
   const stop = async (id) => {
@@ -1270,6 +1361,7 @@ export function install(rt) {
       return
     }
     runner.stopped = true
+    runner.controller?.abort()
     if (runner.typing !== undefined) clearInterval(runner.typing)
     const dropOnly = stopped || connections()[id] === undefined
     if (dropOnly) {
@@ -1322,8 +1414,9 @@ export function install(rt) {
       for (const conn of Object.values(conns)) {
         const wants = stopped !== true && adapters[conn.platform] !== undefined && conn.enabled !== false
           && rt.readOnly() === undefined && hasSecrets(conn)
+        const runner = runners.get(conn.id)
+        if (runner !== undefined && (!wants || (legacyFeishu.has(conn.id) && runner.legacyService !== dshIm))) await stop(conn.id)
         if (wants && !runners.has(conn.id)) await start(conn)
-        else if (!wants && runners.has(conn.id)) await stop(conn.id)
       }
       for (const id of [...runners.keys()]) if (conns[id] === undefined) await stop(id)
       for (const id of [...statuses.keys()]) if (conns[id] === undefined) { statuses.delete(id); sendStatuses.delete(id) }
@@ -1339,6 +1432,23 @@ export function install(rt) {
   }
 
   let stopped = false
+  if (legacyFeishu.size > 0) {
+    const attach = (sub) => {
+      const service = sub.dshIm
+      sub.effect(() => {
+        dshIm = service
+        void rt.load().then(() => sync()).catch(() => {})
+        return () => {
+          if (dshIm !== service) return
+          dshIm = undefined
+          for (const id of legacyFeishu.keys()) runners.get(id)?.controller?.abort()
+          return sync()
+        }
+      }, 'ds-bot: dsh-im Feishu service')
+    }
+    if (typeof ctx.inject === 'function') ctx.inject(['dshIm'], attach)
+    else if (ctx.get?.('dshIm') !== undefined) attach({ dshIm: ctx.get('dshIm'), effect: (...args) => ctx.effect(...args) })
+  }
 
   // ---------------------------------------------------------------- endpoints
   const secretName = (conn, key) => `IM_${conn.platform.toUpperCase()}_${conn.id.slice(3, 9).toUpperCase()}_${secretField(key)}`
@@ -1384,6 +1494,7 @@ export function install(rt) {
     access: { direct: sceneOf(conn, 'direct'), group: sceneOf(conn, 'group') },
     chats: Object.fromEntries(Object.entries(conn.chats ?? {}).map(([key, chat]) => [key, { ...chat }])),
     createdAt: conn.createdAt,
+    ...(legacyFeishu.has(conn.id) ? { dshImBotId: legacyFeishu.get(conn.id) } : {}),
   })
 
   const endpoints = {
@@ -1649,6 +1760,8 @@ export function install(rt) {
       const source = event.data?.source
       const imOrigin = source?.imOrigin
       const rpcId = source?.rpcId
+      // Model context uses user-role events without creating a new request.
+      if (imOrigin === undefined && rpcId === undefined && MODEL_CONTEXT_SOURCES.has(source?.kind)) return
       // A late member result or part-switch handoff continues the work the chat asked for;
       // any other first message starts a fresh turn, which clears the previous turn's origin.
       if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
@@ -1656,7 +1769,7 @@ export function install(rt) {
         const resumed = resumedOrigins.get(imOrigin)
         resumedOrigins.delete(imOrigin)
         if (resumed === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding)
+        else claimOrigin(session.id, resumed.connId, resumed.chatKey, resumed.senderId, resumed.binding, resumed.reply)
       } else if (typeof rpcId === 'string' && rpcId.startsWith('im:')) {
         if (Number.isInteger(event.seq)) imVia.set(session.id, { ...imVia.get(session.id), [event.seq]: rpcId.split(':')[1] })
         // The chat this message came from is the one its turn answers. A message this
@@ -1664,7 +1777,23 @@ export function install(rt) {
         const asked = requests.get(rpcId)
         requests.delete(rpcId)
         if (asked === undefined) dropOrigin(session.id)
-        else claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding)
+        else {
+          claimOrigin(session.id, asked.connId, asked.chatKey, asked.senderId, asked.binding, asked.reply)
+          cancelFeishuTurn(session.id)
+          const runner = runners.get(asked.connId)
+          if (asked.feishu && !mixed.has(session.id) && asked.reply && runner?.handle?.progress) {
+            const { mode, voice } = asked.feishu
+            feishuTurns.set(session.id, createFeishuTurn({
+              mode,
+              voice,
+              signal: runner.controller.signal,
+              isCurrent: () => resolveOrigin(asked) !== undefined && runners.get(asked.connId) === runner,
+              sendProgress: (caption, options) => runner.handle.progress(asked.reply, caption, options),
+              t: text,
+              warn: () => rt.warn('ds-bot: Feishu progress or voice delivery could not be confirmed'),
+            }))
+          }
+        }
       } else if (source?.kind === REPLY_KIND) {
         // Web and phone answers carry no registered IM request.
         dropOrigin(session.id)
@@ -1678,6 +1807,10 @@ export function install(rt) {
       }
     }
     if (event.type === 'turn/end') {
+      const feishu = feishuTurns.get(session.id)
+      feishuTurns.delete(session.id)
+      const reason = event.data?.reason?.kind
+      feishu?.finish(reason === 'completed' ? 'success' : reason === 'aborted' ? 'cancelled' : 'error')
       // A group's own Session ends its relay turn at once while its members keep
       // working and post later; only a Bot's turn ending ends the chat's claim. A
       // pending reset means the turn never got a message to classify, so apply it now.
@@ -1696,10 +1829,13 @@ export function install(rt) {
     }
     const origin = originOf(session.id)
     if (origin === undefined) return
+    const feishu = feishuTurns.get(session.id)
+    feishu?.observe(event)
     for (const item of rt.displayItems(session.id, [event])) {
       if (item.kind !== 'bot' && item.kind !== 'view') continue
       const body = item.kind === 'bot' ? item.text : viewCardText({ title: item.title, view: item.view }) || (item.title ?? '')
-      sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
+      const after = item.kind === 'bot' ? feishu?.reply(body) : undefined
+      sendTo(origin.conn, origin.chatKey, { ...origin.chat, key: origin.chatKey }, body, undefined, after)
     }
   })
 
@@ -1708,7 +1844,7 @@ export function install(rt) {
     const origin = originOf(room.sessionId ?? room.id)
     if (origin === undefined) return
     const body = `**${line.who}**: ${line.text}`
-    sendTo(origin.conn, origin.chatKey, { key: origin.chatKey, kind: origin.chat.kind, title: origin.chat.title }, body)
+    sendTo(origin.conn, origin.chatKey, { ...origin.chat, key: origin.chatKey }, body)
   })
 
   rt.onApproval((kind, data) => {
@@ -1718,7 +1854,7 @@ export function install(rt) {
         const origin = originOf(sessionId)
         if (origin === undefined) return
         const bot = rt.botOf(data.botId)
-        const buttons = imPlatform(origin.conn.platform)?.buttons === true ? cardButtons.approval(data.id) : undefined
+        const buttons = supportsButtons(origin.conn) ? cardButtons.approval(data.id) : undefined
         await sendCard(origin.conn, `a:${data.id}`, [{ chatKey: origin.chatKey, chat: origin.chat }], cardText.approval(bot?.name ?? '?', data), buttons)
       })().catch(error => rt.warn('ds-bot: im approval card failed: %s', error))
       return
@@ -1777,7 +1913,7 @@ export function install(rt) {
    * @param {string} botId - The Bot that writes.
    * @param {string | undefined} chatName - The chat's name; may be left out when the Bot has one chat.
    * @param {string} body - Message text.
-   * @returns {Promise<{ sent: string } | { error: 'none' | 'which' | 'unknown' | 'offline', chats: string[] }>}
+   * @returns {Promise<{ sent: string } | { error: 'none' | 'which' | 'unknown' | 'offline' | 'reply-only', chats: string[] }>}
    */
   const imSend = async (botId, chatName, body) => {
     const chats = chatsOfBot(botId)
@@ -1786,6 +1922,7 @@ export function install(rt) {
     const picked = chatName === undefined || chatName === '' ? (chats.length === 1 ? chats[0] : undefined) : chats.find(item => item.name === chatName)
     if (picked === undefined) return { error: chatName === undefined || chatName === '' ? 'which' : 'unknown', chats: names }
     if (!runners.has(picked.conn.id)) return { error: 'offline', chats: names }
+    if (legacyFeishu.has(picked.conn.id) && runners.get(picked.conn.id)?.handle?.rich !== true) return { error: 'reply-only', chats: names }
     await sendTo(picked.conn, picked.chatKey, { key: picked.chatKey, kind: picked.chat.kind, title: picked.chat.title }, body)
     return { sent: picked.name }
   }

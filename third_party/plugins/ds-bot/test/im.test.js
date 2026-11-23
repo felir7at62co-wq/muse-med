@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -64,7 +65,7 @@ const TEAM = () => ({
   revision: 0,
 })
 
-async function start({ platform = 'telegram', adapter, seed, services = {} } = {}) {
+async function start({ platform = 'telegram', adapter, seed, services = {}, config = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'dsb-im-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(seed ?? TEAM()))
   const ctx = fakeContext({ services })
@@ -98,7 +99,7 @@ async function start({ platform = 'telegram', adapter, seed, services = {} } = {
   const fake = adapter ?? fakeAdapter()
   const real = adapters[platform]
   adapters[platform] = fake
-  const rt = createRuntime(ctx, { home })
+  const rt = createRuntime(ctx, { ...config, home })
   const emitEvent = (sessionId, type, data) => {
     for (const listener of ctx.listeners.get('session/event') ?? []) {
       if (listener.length >= 2) listener({ id: sessionId }, { type, data, time: Date.now() })
@@ -700,6 +701,113 @@ test('reply origin: an IM turn answers its own chat, and only that chat', async 
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'only for u1' }] } })
   await s.flush()
   assert.deepEqual(s.fake.sent.map(entry => entry.chat.key), ['dm-u1'])
+})
+
+test('dsh-im Feishu keeps an existing Bot, deduplicates delivery, and replies only to the originating topic', async (t) => {
+  const connId = 'im_12345678'
+  const legacyBot = 'bot_existing'
+  const identity = { provider: 'feishu', domain: 'feishu', appId: 'cli_example', botOpenId: 'ou_bot' }
+  const fingerprint = createHash('sha256').update(JSON.stringify(identity)).digest('hex')
+  const seed = TEAM()
+  seed.bots.b.name = 'oc_existing'
+  seed.im = { connections: { [connId]: {
+    id: connId, platform: 'feishu', enabled: true, botId: 'a', account: { id: 'ou_bot' },
+    settings: { domain: 'feishu', appId: identity.appId }, secrets: {},
+    paired: [{ id: 'ou_actor', name: 'Member' }], requests: [],
+    chats: { oc_existing: { kind: 'group', title: 'oc_existing', target: { botId: 'b' }, auto: true, at: 1 } },
+  } } }
+  let onEvent
+  let subscriptionSignal
+  let disposals = 0
+  let uncertainSends = 0
+  const replies = []
+  const service = {
+    inboundVersion: 1,
+    describeBot: async () => ({ channel: 'feishu', account: { fingerprint },
+      capabilities: ['exclusive-text-consumer', 'reply-text-checked'] }),
+    async consumeInbound(botId, options) {
+      assert.equal(botId, legacyBot)
+      assert.equal(options.expectedFingerprint, fingerprint)
+      onEvent = options.onEvent
+      subscriptionSignal = options.signal
+      return () => { disposals += 1 }
+    },
+    async replyChecked(botId, route, text, options) {
+      assert.equal(botId, legacyBot)
+      assert.equal(options.expectedFingerprint, fingerprint)
+      if (text === 'Unconfirmed answer') {
+        uncertainSends += 1
+        throw Object.assign(new Error('reply-result-unknown'), { code: 'reply-result-unknown' })
+      }
+      replies.push({ route, text })
+      return { sent: true, messageId: 'om_answer' }
+    },
+  }
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    const path = new URL(url).pathname
+    if (path === '/open-apis/auth/v3/tenant_access_token/internal') return Response.json({ code: 0, tenant_access_token: 'fixture', expire: 7200 })
+    if (path.endsWith('/members')) return Response.json({ code: 0, data: { items: [{ member_id: 'ou_actor', name: 'Mei' }] } })
+    return Response.json({ code: 0, data: { name: 'Studio group' } })
+  })
+  const s = await start({ platform: 'feishu', seed, services: { dshIm: service }, config: { feishuDshIm: { [connId]: legacyBot } } })
+  t.after(s.stop)
+  await s.rt.load()
+  await s.flush()
+  assert.equal(s.fake.handlers, null, 'the built-in Feishu adapter did not open a second connection')
+  assert.equal(typeof onEvent, 'function')
+  const event = (messageId, threadId) => ({
+    version: 1, channel: 'feishu', botId: legacyBot, fingerprint, messageId,
+    conversation: { id: 'oc_existing', kind: 'group' }, actor: { id: 'ou_actor' },
+    text: '@_user_1 Make a preview', mentions: [{ key: '@_user_1' }], mentionedAccount: true,
+    reply: { messageId, conversationId: 'oc_existing', actorId: 'ou_actor', threadId },
+  })
+  const inbound = { signal: new AbortController().signal }
+  await assert.rejects(async () => onEvent({ ...event('om_untrusted', 'omt_a'), fingerprint: 'wrong' }, inbound), /sender account/)
+  await Promise.all([onEvent(event('om_first', 'omt_a'), inbound), onEvent(event('om_first', 'omt_a'), inbound)])
+  assert.equal(s.prompts.length, 1)
+  assert.equal(s.prompts[0].sessionId, 'b')
+  assert.equal(s.prompts[0].content[0].text, 'Make a preview')
+  assert.equal(s.rt.botOf('b').name, 'Studio group')
+  s.imTurn('b')
+  for (const kind of ['runtime-context', 'skill-catalog', 'time-context']) {
+    s.emitEvent('b', 'user/message', { source: { kind } })
+  }
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Preview done' }] } })
+  await s.flush()
+  assert.deepEqual(replies, [{ route: event('om_first', 'omt_a').reply, text: 'Preview done' }])
+  s.emitEvent('b', 'turn/end', {})
+  await onEvent(event('om_second', 'omt_b'), inbound)
+  assert.deepEqual(s.prompts.map(prompt => prompt.sessionId), ['b', 'b'])
+  s.imTurn('b')
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Second topic' }] } })
+  await s.flush()
+  assert.deepEqual(replies.at(-1), { route: event('om_second', 'omt_b').reply, text: 'Second topic' })
+  s.emitEvent('b', 'turn/start', {})
+  s.emitEvent('b', 'user/message', { source: { kind: 'user' } })
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Only in Muse' }] } })
+  await s.flush()
+  assert.equal(replies.length, 2)
+  await onEvent(event('om_third', 'omt_c'), inbound)
+  s.imTurn('b')
+  s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Unconfirmed answer' }] } })
+  await s.flush()
+  await s.rt.imEndpoint('im-retry', { id: connId })
+  await s.flush()
+  assert.equal(uncertainSends, 1)
+  const direct = { ...event('om_direct', undefined), mentions: [], mentionedAccount: false,
+    conversation: { id: 'oc_private', kind: 'dm' }, reply: { messageId: 'om_direct', conversationId: 'oc_private', actorId: 'ou_actor' } }
+  await onEvent(direct, inbound)
+  assert.equal(s.prompts.at(-1).sessionId, 'a')
+  assert.equal(s.rt.state.im.connections[connId].chats.oc_private.title, 'Mei')
+  s.imTurn('a')
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'Private answer' }] } })
+  await s.flush()
+  assert.deepEqual(replies.at(-1), { route: direct.reply, text: 'Private answer' })
+  assert.deepEqual(await s.rt.imSend('b', 'Studio group', 'Unsolicited text'), { error: 'reply-only', chats: ['Studio group'] })
+  await s.rt.imEndpoint('im-update', { id: connId, enabled: false })
+  assert.equal(subscriptionSignal.aborted, true)
+  assert.equal(disposals, 1)
+  await assert.rejects(async () => onEvent(event('om_late', 'omt_c'), inbound), { name: 'AbortError' })
 })
 
 test('reply origin: a Web turn does not reach IM', async (t) => {
@@ -2119,6 +2227,9 @@ test('a chat Bot named after an id takes the chat\'s real name once it can be re
   const bot = botNamed(s, 'oc_abc')
   assert.ok(bot)
   await gm(s, 'u1', 'hi again', { chat: { key: 'oc_abc', kind: 'group', title: '短剧剧组' } })
+  assert.equal(s.rt.botOf(bot.id).name, '短剧剧组')
+  await gm(s, 'u1', 'group info unavailable', { chat: { key: 'oc_abc', kind: 'group', title: 'oc_abc' } })
+  assert.equal(s.rt.state.im.connections[conn.id].chats.oc_abc.title, '短剧剧组')
   assert.equal(s.rt.botOf(bot.id).name, '短剧剧组')
   await s.rt.updateBot(bot.id, { name: 'Ops desk' })
   await gm(s, 'u1', 'renamed', { chat: { key: 'oc_abc', kind: 'group', title: '剧组二' } })

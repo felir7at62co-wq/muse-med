@@ -20,7 +20,7 @@ const { VerifiedFeishuChannel } = await native('src/channels/feishu/feishu-chann
 const { promptContentForMessage } = await native('src/channels/shared/image-prompt.mjs')
 const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
 
-async function configuredFeishu(ctx, config) {
+async function configuredIm(ctx, config) {
   const entry = new URL(pathToFileURL(join(source, 'lib/index.js')))
   entry.searchParams.set('native-session-check', randomUUID())
   const capturedUrl = `data:text/javascript,${encodeURIComponent(`export let captured; export function createImHostPlugin() {
@@ -42,7 +42,7 @@ async function configuredFeishu(ctx, config) {
     const wrapper = await import(entry.href)
     await wrapper.apply(ctx, { ...config, ...Object.fromEntries(['appId', 'appSecret', 'registeredBy', 'allowFrom', 'activeSessionId']
       .map(key => [key, { get: () => config[key] }])) })
-    return (await import(capturedUrl)).captured.feishu
+    return (await import(capturedUrl)).captured
   } finally { hook.deregister() }
 }
 
@@ -100,7 +100,7 @@ async function fixture(t) {
     get: key => ({ sessions, sessionPersistence: { stat: async id => sessions.get(id) } })[key],
     inject() {}, effect: acquire => { const dispose = acquire(); if (typeof dispose === 'function') effects.push(dispose) },
   }
-  const supplied = { enabled: false, dshHome: root, feishuDataDir: dataDir, defaultCwd: workspace,
+  const supplied = { enabled: false, deliveryHttp: false, dshHome: root, feishuDataDir: dataDir, defaultCwd: workspace,
     appId: '', appSecret: '', registeredBy: '', allowFrom: [], activeSessionId: '', agentPreset: 'short-drama',
     inboundClaimRetentionMs: 86400000, inboundClaimMaxEntries: 1000, maxFileBytes: 1024 * 1024 }
   class OfflineHarness {
@@ -124,7 +124,8 @@ async function fixture(t) {
     }
   }
   const connect = async () => {
-    const feishu = await configuredFeishu(ctx, supplied)
+    const { feishu, deliveryHttp } = await configuredIm(ctx, supplied)
+    assert.equal(deliveryHttp, false)
     const production = await createProductionController(ctx, { ...feishu, dshHome: root,
       harnessBaseUrl: 'http://localhost', slashCommands: false }, {
       HarnessClient: OfflineHarness,

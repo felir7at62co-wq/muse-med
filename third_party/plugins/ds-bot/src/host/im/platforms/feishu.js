@@ -22,6 +22,80 @@ const pingInterval = seconds => {
 
 const apiBase = (env, fields) => String(env.config?.api ?? (fields.domain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn')).replace(/\/+$/, '')
 
+function namesByChat(rest, env) {
+  const chats = new Map()
+  return async (chatId, direct) => {
+    const held = chats.get(chatId)
+    if (held !== undefined && Date.now() - held.at < NAME_TTL_MS) return held.result
+    const result = (async () => {
+      const names = { title: '', members: new Map() }
+      const path = `/open-apis/im/v1/chats/${encodeURIComponent(chatId)}`
+      try {
+        if (!direct) names.title = String((await rest(path))?.data?.name ?? '').trim()
+        let pageToken
+        for (let page = 0; page < NAME_MEMBER_PAGES; page += 1) {
+          const query = `member_id_type=open_id&page_size=100${pageToken === undefined ? '' : `&page_token=${encodeURIComponent(pageToken)}`}`
+          const data = (await rest(`${path}/members?${query}`))?.data ?? {}
+          for (const item of data.items ?? []) {
+            const name = String(item.name ?? '').trim()
+            if (item.member_id && name !== '') names.members.set(String(item.member_id), name)
+          }
+          if (data.has_more !== true || !data.page_token) break
+          pageToken = String(data.page_token)
+        }
+      } catch (error) {
+        env.log?.warn?.('ds-bot im: feishu names for %s unavailable: %s', chatId, error?.message ?? error)
+      }
+      return names
+    })()
+    chats.set(chatId, { at: Date.now(), result })
+    return result
+  }
+}
+
+/** Authenticate Feishu REST operations without opening a message connection. */
+export function createFeishuHttp(fields, env) {
+  let token
+  let pending
+  const bearer = async () => {
+    if (token === undefined || Date.now() > token.expiresAt - 30_000) {
+      pending ??= tenantToken(fields, env).then(value => { token = value }).finally(() => { pending = undefined })
+      await pending
+    }
+    return token.token
+  }
+  const rest = async (path, options) => api(env, apiBase(env, fields), await bearer(), path, options)
+  const delivery = feishuDelivery(rest)
+  return {
+    ...delivery,
+    async progress(route, caption, { messageId, mode } = {}) {
+      if (messageId !== undefined) {
+        await rest(`/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`, {
+          method: 'PATCH', body: { msg_type: 'interactive', content: progressCard(caption) },
+        })
+        return messageId
+      }
+      const card = mode !== 'post'
+      const sent = await rest(`/open-apis/im/v1/messages/${encodeURIComponent(route.messageId)}/reply`, {
+        method: 'POST',
+        body: {
+          msg_type: card ? 'interactive' : 'text',
+          content: card ? progressCard(caption) : JSON.stringify({ text: caption }),
+          reply_in_thread: Boolean(route.threadId),
+        },
+      })
+      if (typeof sent?.data?.message_id !== 'string' || !sent.data.message_id) throw new Error('Feishu progress was not confirmed')
+      return sent.data.message_id
+    },
+    names: namesByChat(path => rest(path, { method: 'GET' }), env),
+    async image(messageId, key) {
+      const bytes = await resource(env, apiBase(env, fields), await bearer(), messageId, key, 'image')
+      const buffer = Buffer.from(bytes)
+      return { mediaType: imageMediaType(buffer), data: buffer.toString('base64') }
+    },
+  }
+}
+
 // ---- pbbp2.Frame codec (protobuf wire format, only this message) ----------
 // Frame: SeqID u64=1, LogID u64=2, service i32=3, method i32=4,
 // headers repeated Header=5, payload_encoding string=6, payload_type
@@ -176,31 +250,7 @@ export default {
     // person's from the chat's member list, both readable with the app's
     // im:chat:readonly scope; without it, or for a member past the pages read, the id
     // stands in. Each chat is read once and again after NAME_TTL_MS.
-    const chatNames = new Map()
-    const namesOf = async (chatId, direct) => {
-      const held = chatNames.get(chatId)
-      if (held !== undefined && Date.now() - held.at < NAME_TTL_MS) return held
-      const entry = { at: Date.now(), title: '', members: new Map() }
-      chatNames.set(chatId, entry)
-      const chatPath = `/open-apis/im/v1/chats/${encodeURIComponent(chatId)}`
-      try {
-        if (!direct) entry.title = String((await rest(chatPath, { method: 'GET' }))?.data?.name ?? '').trim()
-        let pageToken
-        for (let page = 0; page < NAME_MEMBER_PAGES; page += 1) {
-          const query = `member_id_type=open_id&page_size=100${pageToken === undefined ? '' : `&page_token=${encodeURIComponent(pageToken)}`}`
-          const data = (await rest(`${chatPath}/members?${query}`, { method: 'GET' }))?.data ?? {}
-          for (const item of data.items ?? []) {
-            const name = String(item.name ?? '').trim()
-            if (item.member_id && name !== '') entry.members.set(String(item.member_id), name)
-          }
-          if (data.has_more !== true || !data.page_token) break
-          pageToken = String(data.page_token)
-        }
-      } catch (error) {
-        env.log?.warn?.('ds-bot im: feishu names for %s unavailable: %s', chatId, error?.message ?? error)
-      }
-      return entry
-    }
+    const namesOf = namesByChat(path => rest(path, { method: 'GET' }), env)
 
     const sendFrame = (buffer) => { if (socket?.readyState === 1) socket.send(buffer) }
     const pong = (frame) => sendFrame(encodeFrame({ ...frame, headers: frame.headers.map(h => h.key === 'type' ? { key: 'type', value: 'pong' } : h), payload: Buffer.from('pong') }))
@@ -416,6 +466,29 @@ export default {
       if (!stopped) await open()
     })()
 
+    return {
+      ...feishuDelivery(rest),
+      stop: () => {
+        stopped = true
+        generation += 1
+        clearTimeout(reconnectTimer)
+        clearSocketTimers()
+        parts.clear()
+        const previous = socket
+        socket = undefined
+        try { previous?.close(1000, 'stop') } catch { /* not open */ }
+      },
+    }
+  },
+}
+
+const progressCard = text => JSON.stringify({
+  schema: '2.0',
+  config: { update_multi: true },
+  body: { elements: [{ tag: 'markdown', content: text }] },
+})
+
+function feishuDelivery(rest) {
     const card = (text, buttons) => JSON.stringify({
       schema: '2.0',
       body: {
@@ -440,7 +513,7 @@ export default {
         for (const [index, chunk] of chunks.entries()) {
           const interactive = buttons !== undefined && index === chunks.length - 1
           const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
-            body: {
+            method: 'POST', body: {
               receive_id: chat.key,
               msg_type: interactive ? 'interactive' : 'text',
               content: interactive ? card(chunk, buttons) : JSON.stringify({ text: chunk }),
@@ -453,21 +526,10 @@ export default {
       edit: async (chat, messageId, { text, buttons }) => {
         await rest(`/open-apis/im/v1/messages/${messageId}`, {
           method: 'PATCH',
-          body: { msg_type: 'interactive', content: card(toMarkdown(text).slice(0, TEXT_LIMIT), buttons) },
+          body: { msg_type: 'interactive', content: card(String(text ?? '').slice(0, TEXT_LIMIT), buttons) },
         })
       },
-      stop: () => {
-        stopped = true
-        generation += 1
-        clearTimeout(reconnectTimer)
-        clearSocketTimers()
-        parts.clear()
-        const previous = socket
-        socket = undefined
-        try { previous?.close(1000, 'stop') } catch { /* not open */ }
-      },
     }
-  },
 }
 
 const safeJson = (text) => { try { return JSON.parse(text ?? '{}') } catch { return {} } }
