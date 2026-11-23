@@ -1752,6 +1752,8 @@ export const FR = {
   'Language model': 'Modèle de langage',
   'Background jobs': 'Arrière-plan',
   'Background jobs · {count}': 'Arrière-plan · {count}',
+  'and {count} more tasks': 'et {count} autres tâches',
+  'Run in progress': 'En cours',
   'Nothing running': 'Rien en cours',
   Services: 'Services',
   'Stopping…': 'Arrêt…',

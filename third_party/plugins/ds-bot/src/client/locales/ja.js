@@ -1752,6 +1752,8 @@ export const JA = {
   'Language model': '言語モデル',
   'Background jobs': 'バックグラウンド',
   'Background jobs · {count}': 'バックグラウンド · {count}',
+  'and {count} more tasks': 'ほか {count} 件のタスク',
+  'Run in progress': '実行中',
   'Nothing running': '実行中のものはありません',
   Services: 'サービス',
   'Stopping…': '停止中…',

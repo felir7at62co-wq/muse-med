@@ -1787,6 +1787,8 @@ export const ES = {
   'Language model': 'Modelo de lenguaje',
   'Background jobs': 'En segundo plano',
   'Background jobs · {count}': 'En segundo plano · {count}',
+  'and {count} more tasks': 'y {count} tareas más',
+  'Run in progress': 'En ejecución',
   'Nothing running': 'Nada en ejecución',
   Services: 'Servicios',
   'Stopping…': 'Deteniendo…',

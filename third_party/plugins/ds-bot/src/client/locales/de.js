@@ -1787,6 +1787,8 @@ export const DE = {
   'Language model': 'Sprachmodell',
   'Background jobs': 'Hintergrund',
   'Background jobs · {count}': 'Hintergrund · {count}',
+  'and {count} more tasks': 'und {count} weitere Aufgaben',
+  'Run in progress': 'Wird ausgeführt',
   'Nothing running': 'Nichts läuft',
   Services: 'Dienste',
   'Stopping…': 'Wird gestoppt…',

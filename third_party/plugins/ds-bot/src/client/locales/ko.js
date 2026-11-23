@@ -1787,6 +1787,8 @@ export const KO = {
   'Language model': '언어 모델',
   'Background jobs': '백그라운드',
   'Background jobs · {count}': '백그라운드 · {count}',
+  'and {count} more tasks': '작업 {count}개 더',
+  'Run in progress': '실행 중',
   'Nothing running': '실행 중인 항목 없음',
   Services: '서비스',
   'Stopping…': '중지 중…',
