@@ -2503,6 +2503,50 @@ describe('select_assets', () => {
   const selections = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
   const emptyStoryboard = { ...STORYBOARD, storyboardMaterialList: [] }
 
+  it.each(['object', 'JSON string'])('reports a %s saved model when a free selection differs from the session choice', async (encoding) => {
+    const expected = { modelId: 'doubao-seedance-2.5-flash', platformId: 'YU_DIAN', standardId: 101, resolution: '720p' }
+    const legacyConfig = { ...MODEL_CONFIG, modelId: 'doubao-seedance-2.5', standardId: 93 }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...emptyStoryboard, modelConfig: JSON.stringify({ ...legacyConfig, ...expected }) },
+      onPut: (payload) => {
+        const config = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
+        const saved = { ...config, modelId: legacyConfig.modelId, standardId: '93' }
+        provider.storyboard.modelConfig = encoding === 'JSON string' ? JSON.stringify(saved) : saved
+      } }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-model-readback' }
+    const client = clientFor(provider)
+    const difference = { status: 'differs_from_session',
+      expected: { ...expected, standardId: '101' },
+      actual: { modelId: legacyConfig.modelId, platformId: 'YU_DIAN', standardId: '93', resolution: '720p', videoStandardId: '91' },
+      differing_fields: ['modelId', 'standardId'] }
+    const first = await selectAssetsMethod(client, ledger, args, expected)
+    expect(first).toMatchObject({ status: 'applied', paid_requests: 0, video_model_readback: difference })
+    expect(first.next).toContain('会话选择不一致')
+    expect(await selectAssetsMethod(client, ledger, args, expected)).toMatchObject({
+      status: 'already_applied', video_model_readback: difference,
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body?.isGenerate).toBe(0)
+  })
+
+  it('matches the same saved model with a numeric-string ID and a sub-specification alias', async () => {
+    const { platformId, modelId, standardId, resolution, videoStandardId, ...rest } = MODEL_CONFIG
+    const savedConfig = { ...rest, platformId, modelId, standardId: String(standardId), resolution,
+      modelVideoStandardId: videoStandardId, materialList: MATERIALS }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, modelConfig: savedConfig } }
+    const client = clientFor(provider)
+    const actual = { platformId, modelId, standardId: String(standardId), resolution,
+      videoStandardId: String(videoStandardId) }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-model-match' }
+    expect(await selectAssetsMethod(client, ledger, args, MODEL_CONFIG)).toMatchObject({
+      status: 'already_applied',
+      video_model_readback: { status: 'matches_session', actual, differing_fields: [] },
+    })
+    expect(await selectAssetsMethod(client, ledger, args)).not.toHaveProperty('video_model_readback')
+    expect(putCalls(provider)).toEqual([])
+  })
+
   it('saves with isGenerate=0, reads the order back and proves no task appeared', async () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {} }
     const result = await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,

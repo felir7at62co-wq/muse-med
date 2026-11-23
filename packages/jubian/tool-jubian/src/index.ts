@@ -1302,6 +1302,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       const agent = exec.agent
       const service = config.sessionVideoSelection ? ctx.get('jubianVideoSelection') : undefined
       const assertVideoModel = agent && service ? (model: Record<string, unknown>) =>{  service.assertCurrent(agent, model) } : undefined
+      const selectionVideoModel = args.method === 'select_assets' && agent
+        ? service?.selectionFor(agent.session) ?? undefined
+        : undefined
       return await guarded('jubian_storyboard', async (input) => {
         let dispatchSignal = exec.signal
         const creationWorkspaceDir = input.method === 'create' || input.method === 'create_batch'
@@ -1313,6 +1316,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
             ...(promptRiskReview ? { promptRiskReview } : {}),
             ...(assertVideoModel ? { assertVideoModel } : {}),
+            ...(selectionVideoModel ? { selectionVideoModel } : {}),
           })
           // Only this Host's successful watch enrollment may issue these identities.
           const { generation_watch_id: _watchId, generation_watch_group_exchange_id: _groupId, ...safe } = result
