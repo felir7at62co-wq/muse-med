@@ -3,6 +3,15 @@
 export const NS = 'sessionVideo'
 /** Simplified Chinese source dictionary. */
 export const zh = {
+  shotAdvice: '镜头建议', adviceBasis: '核对依据', adviceChange: '修改建议',
+  compareVersions: '同一镜头', editionLabel: '版本 {number}', adoptVersion: '采用此版', versionAdopted: '已采用此版',
+  originalEdition: '原版 V{number}', revisedEdition: '新版 V{number}', adoptRevised: '采用新版',
+  bringSuggestion: '带入修改', revisedDelivery: '新版已回传', compareOriginal: '对比原版', revisionNumber: 'V{number}',
+  adoptionHint: '仅记为此浏览器当前会话与镜头的首选，保留所有原文件', adoptFailed: '未能保存采用版本，请重试',
+  suggestionInvalid: '这条修改建议已失效，请重新审阅',
+  addVideo: '添加视频', emptyHint: '添加本地视频后，可选集数、定位镜头并带入对话',
+  pickerHint: '播放只切换预览，勾选会把视频带入对话', previewing: '预览中',
+  draftSelectionCount: '对话中已选 {count} 项', selectedInterval: '{start}–{end} 秒',
   settingTitle: 'Muse 视频工作区',
   settingDescription: '在当前会话选择集数、视频和画面片段，停靠或浮动预览，并通过聊天审片和修改',
   settingError: '设置未能生效，请重试',
@@ -36,7 +45,7 @@ export const zh = {
   referenceStale: '所选视频已变化或无法播放，请刷新后重新选择',
   selectedSegmentReference: '{name} · {start}–{end} 秒',
   selectionHeading: '所选视频：',
-  requestReview: '请只读审阅所选视频或片段，给出至多3条具体问题及修改建议，每条附上对应画面定位。只评价所选范围，不启动整片逐帧扫描。先别修改或生成，等我的要求。',
+  requestReview: '请对照剧本和交付要求审阅已选镜头，有问题时给出具体的修改建议。',
   requestEdit: '请按我的要求修改本条消息中选定的视频或画面片段，只调整涉及的部分，保留原版和未涉及的内容。具体要求：',
   requestRegenerate: '请按我的要求重新生成本条消息中选定的视频或画面片段，核对来源、对应视频卡和费用，保留原版，不扩大范围。具体要求：',
 } as const
@@ -44,6 +53,15 @@ export const zh = {
 export type VideoKey = keyof typeof zh
 /** English fallback dictionary. */
 export const en: Record<VideoKey, string> = {
+  shotAdvice: 'Shot advice', adviceBasis: 'Basis', adviceChange: 'Suggestion',
+  compareVersions: 'Shot versions', editionLabel: 'Version {number}', adoptVersion: 'Adopt this version', versionAdopted: 'Adopted',
+  originalEdition: 'Original V{number}', revisedEdition: 'New V{number}', adoptRevised: 'Adopt new version',
+  bringSuggestion: 'Use this suggestion in chat', revisedDelivery: 'New version received', compareOriginal: 'Compare with original', revisionNumber: 'V{number}',
+  adoptionHint: 'Preferred for this conversation and shot on this browser only. All original files are kept.', adoptFailed: 'The preferred version could not be saved. Please retry.',
+  suggestionInvalid: 'This suggested change is no longer valid. Review the video again.',
+  addVideo: 'Add video', emptyHint: 'Add a local video to choose episodes, locate shots and bring them into chat.',
+  pickerHint: 'Play changes the preview. Check a video to add it to chat.', previewing: 'Previewing',
+  draftSelectionCount: '{count} selected in chat', selectedInterval: '{start}–{end} s',
   settingTitle: 'Muse video workspace',
   settingDescription: 'Choose episodes, videos and visual segments in this conversation, dock or float the preview, and review or edit through chat.',
   settingError: 'The setting could not be applied. Please retry.',
@@ -77,7 +95,7 @@ export const en: Record<VideoKey, string> = {
   referenceStale: 'The selected video changed or cannot be played. Refresh and select it again.',
   selectedSegmentReference: '{name} · {start}–{end} s',
   selectionHeading: 'Selected videos:',
-  requestReview: 'Perform a read-only review of only these selected videos or intervals. Give at most 3 specific issues and suggested fixes, each with its source link. Stay within the selection; do not start a complete-video scan. Wait for my changes before editing or generating.',
+  requestReview: 'Review the selected footage against the script and delivery requirements, and suggest specific fixes for any issues.',
   requestEdit: 'Apply my requested changes to the videos or visual segments selected in this message. Change only the requested parts, retaining the original version and unaffected content. Requested changes: ',
   requestRegenerate: 'Regenerate the videos or visual segments selected in this message according to my request. Check the sources, corresponding video cards and cost; retain the original version and do not expand the scope. Generation requirements: ',
 }
@@ -87,6 +105,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Japanese video workspace copy. */
 export const ja: Record<VideoKey, string> = {
+  shotAdvice: 'ショットの提案', adviceBasis: '確認根拠', adviceChange: '修正提案',
+  compareVersions: '同じショットの版', editionLabel: 'バージョン {number}', adoptVersion: 'この版を採用', versionAdopted: '採用済み',
+  originalEdition: '元の版 V{number}', revisedEdition: '新版 V{number}', adoptRevised: '新しい版を採用',
+  bringSuggestion: '修正案を取り込む', revisedDelivery: '新しい版が届きました', compareOriginal: '元の版と比較', revisionNumber: 'V{number}',
+  adoptionHint: 'このブラウザで、現在の会話とショットの優先版として保存します。元のファイルはすべて保持されます。', adoptFailed: '優先版を保存できませんでした。もう一度お試しください。',
+  suggestionInvalid: 'この修正案は無効になりました。動画を再レビューしてください。',
+  addVideo: '動画を追加', emptyHint: 'ローカル動画を追加して、話数やショットを選び、チャットに取り込めます。',
+  pickerHint: '再生はプレビューを切り替えます。チェックするとチャットに追加されます。', previewing: 'プレビュー中',
+  draftSelectionCount: 'チャットで {count} 件を選択中', selectedInterval: '{start}–{end} 秒',
   settingTitle: 'Muse 動画ワークスペース',
   settingDescription: 'この会話で話数、動画、映像区間を選び、ドッキングまたはフローティング表示でプレビューし、チャットでレビューや修正を依頼できます。',
   settingError: '設定を適用できませんでした。もう一度お試しください。',
@@ -130,12 +157,21 @@ export const ja: Record<VideoKey, string> = {
   readOnlyReview: 'レビューのみ', reviewModeInvalid: 'このレビューモードは無効です。削除してから、もう一度レビューを開始してください。',
   referenceStale: '選択した動画が変更されたか、再生できません。更新してから選び直してください。',
   selectedSegmentReference: '{name} · {start}–{end} 秒', selectionHeading: '選択した動画：',
-  requestReview: '選択した動画や区間だけを読み取り専用でレビューし、具体的な問題点と修正案を最大3件、それぞれの該当箇所へのリンク付きで示してください。選択範囲だけを評価し、動画全体のスキャンは開始しないでください。修正や生成はせず、私の変更指示を待ってください。',
+  requestReview: '選択した映像を脚本と納品要件に照らして確認し、問題があれば具体的な修正案を提案してください。',
   requestEdit: 'このメッセージで選択した動画や映像区間を、私の指示に従って修正してください。指定した部分だけを変更し、元の版と対象外の内容を保持してください。修正内容：',
   requestRegenerate: 'このメッセージで選択した動画や映像区間を、私の指示に従って再生成してください。参照元、対応する動画カード、費用を確認し、元の版を保持して対象範囲を広げないでください。生成要件：',
 }
 /** Spanish video workspace copy. */
 export const es: Record<VideoKey, string> = {
+  shotAdvice: 'Sugerencia para el plano', adviceBasis: 'Fundamento', adviceChange: 'Sugerencia',
+  compareVersions: 'Versiones del plano', editionLabel: 'Versión {number}', adoptVersion: 'Adoptar esta versión', versionAdopted: 'Adoptada',
+  originalEdition: 'Original V{number}', revisedEdition: 'Nueva V{number}', adoptRevised: 'Adoptar la nueva versión',
+  bringSuggestion: 'Usar esta sugerencia en el chat', revisedDelivery: 'Nueva versión recibida', compareOriginal: 'Comparar con la versión original', revisionNumber: 'V{number}',
+  adoptionHint: 'Preferida solo para esta conversación y este plano en este navegador. Se conservan todos los archivos originales.', adoptFailed: 'No se pudo guardar la versión preferida. Inténtalo de nuevo.',
+  suggestionInvalid: 'Este cambio sugerido ya no es válido. Revisa el vídeo de nuevo.',
+  addVideo: 'Añadir vídeo', emptyHint: 'Añade un vídeo local para elegir episodios, localizar planos y llevarlos al chat.',
+  pickerHint: 'Reproducir cambia la vista previa. Marca un vídeo para añadirlo al chat.', previewing: 'En vista previa',
+  draftSelectionCount: '{count} seleccionados en el chat', selectedInterval: '{start}–{end} s',
   settingTitle: 'Espacio de vídeo de Muse',
   settingDescription: 'Elige episodios, vídeos y fragmentos en esta conversación, acopla o deja flotante la vista previa y revisa o modifica mediante el chat.',
   settingError: 'No se pudo aplicar el ajuste. Inténtalo de nuevo.',
@@ -179,12 +215,21 @@ export const es: Record<VideoKey, string> = {
   readOnlyReview: 'Revisión sin cambios', reviewModeInvalid: 'Este modo de revisión no es válido. Elimínalo e inicia una nueva revisión.',
   referenceStale: 'El vídeo seleccionado ha cambiado o no se puede reproducir. Actualiza y vuelve a seleccionarlo.',
   selectedSegmentReference: '{name} · {start}–{end} s', selectionHeading: 'Vídeos seleccionados:',
-  requestReview: 'Revisa únicamente los vídeos o intervalos seleccionados, sin modificarlos. Indica hasta 3 problemas concretos y propuestas de mejora, cada uno con un enlace al punto correspondiente del vídeo de origen. Limítate a la selección; no inicies un análisis del vídeo completo. Espera mis indicaciones antes de modificar o generar contenido.',
+  requestReview: 'Contrasta el vídeo seleccionado con el guion y los requisitos de entrega, y propón correcciones concretas si hay problemas.',
   requestEdit: 'Aplica los cambios que solicito a los vídeos o fragmentos seleccionados en este mensaje. Modifica solo las partes indicadas y conserva la versión original y el contenido no afectado. Cambios solicitados: ',
   requestRegenerate: 'Vuelve a generar los vídeos o fragmentos seleccionados en este mensaje según mi solicitud. Comprueba los vídeos de origen, las fichas de vídeo correspondientes y el coste; conserva la versión original y no amplíes el alcance. Requisitos de generación: ',
 }
 /** French video workspace copy. */
 export const fr: Record<VideoKey, string> = {
+  shotAdvice: 'Suggestion pour le plan', adviceBasis: 'Justification', adviceChange: 'Suggestion',
+  compareVersions: 'Versions du plan', editionLabel: 'Version {number}', adoptVersion: 'Adopter cette version', versionAdopted: 'Adoptée',
+  originalEdition: 'Originale V{number}', revisedEdition: 'Nouvelle V{number}', adoptRevised: 'Adopter la nouvelle version',
+  bringSuggestion: 'Utiliser cette suggestion dans la conversation', revisedDelivery: 'Nouvelle version reçue', compareOriginal: 'Comparer à la version originale', revisionNumber: 'V{number}',
+  adoptionHint: 'Version préférée pour cette conversation et ce plan dans ce navigateur uniquement. Tous les fichiers originaux sont conservés.', adoptFailed: 'Impossible d’enregistrer la version préférée. Réessayez.',
+  suggestionInvalid: 'Cette modification suggérée n’est plus valide. Examinez à nouveau la vidéo.',
+  addVideo: 'Ajouter une vidéo', emptyHint: 'Ajoutez une vidéo locale pour choisir des épisodes, repérer des plans et les joindre au chat.',
+  pickerHint: 'La lecture change l’aperçu. Cochez une vidéo pour l’ajouter au chat.', previewing: 'Aperçu en cours',
+  draftSelectionCount: '{count} sélectionnés dans le chat', selectedInterval: '{start}–{end} s',
   settingTitle: 'Espace vidéo Muse',
   settingDescription: 'Choisissez des épisodes, des vidéos et des segments dans cette conversation, ancrez ou détachez l’aperçu et demandez une analyse ou des modifications dans le chat.',
   settingError: 'Le paramètre n’a pas pu être appliqué. Réessayez.',
@@ -228,12 +273,21 @@ export const fr: Record<VideoKey, string> = {
   readOnlyReview: 'Analyse sans modification', reviewModeInvalid: 'Ce mode d’analyse est invalide. Supprimez-le et lancez une nouvelle analyse.',
   referenceStale: 'La vidéo sélectionnée a changé ou ne peut pas être lue. Actualisez, puis sélectionnez-la à nouveau.',
   selectedSegmentReference: '{name} · {start}–{end} s', selectionHeading: 'Vidéos sélectionnées :',
-  requestReview: 'Analysez uniquement les vidéos ou intervalles sélectionnés, sans les modifier. Signalez au maximum 3 problèmes précis et proposez des corrections, avec un lien vers le passage source pour chaque problème. Respectez la sélection et ne lancez pas d’analyse de la vidéo entière. Attendez mes instructions avant de modifier ou de générer du contenu.',
+  requestReview: 'Vérifiez la vidéo sélectionnée au regard du scénario et des exigences de livraison, puis proposez des corrections précises en cas de problème.',
   requestEdit: 'Appliquez les modifications que je demande aux vidéos ou segments sélectionnés dans ce message. Modifiez uniquement les parties indiquées, en conservant la version originale et le contenu non concerné. Modifications demandées : ',
   requestRegenerate: 'Régénérez les vidéos ou segments sélectionnés dans ce message selon ma demande. Vérifiez les sources, les fiches vidéo correspondantes et le coût ; conservez la version originale et n’élargissez pas le périmètre. Consignes de génération : ',
 }
 /** German video workspace copy. */
 export const de: Record<VideoKey, string> = {
+  shotAdvice: 'Empfehlung zur Einstellung', adviceBasis: 'Grundlage', adviceChange: 'Empfehlung',
+  compareVersions: 'Versionen der Einstellung', editionLabel: 'Version {number}', adoptVersion: 'Diese Version übernehmen', versionAdopted: 'Übernommen',
+  originalEdition: 'Original V{number}', revisedEdition: 'Neu V{number}', adoptRevised: 'Neue Version übernehmen',
+  bringSuggestion: 'Vorschlag im Chat verwenden', revisedDelivery: 'Neue Version erhalten', compareOriginal: 'Mit dem Original vergleichen', revisionNumber: 'V{number}',
+  adoptionHint: 'Nur für diese Unterhaltung und Einstellung in diesem Browser bevorzugt. Alle Originaldateien bleiben erhalten.', adoptFailed: 'Die bevorzugte Version konnte nicht gespeichert werden. Versuche es erneut.',
+  suggestionInvalid: 'Diese Änderung ist nicht mehr gültig. Prüfe das Video erneut.',
+  addVideo: 'Video hinzufügen', emptyHint: 'Füge ein lokales Video hinzu, um Folgen und Einstellungen auszuwählen und in den Chat zu übernehmen.',
+  pickerHint: 'Wiedergabe ändert die Vorschau. Markiere ein Video, um es dem Chat hinzuzufügen.', previewing: 'In der Vorschau',
+  draftSelectionCount: '{count} im Chat ausgewählt', selectedInterval: '{start}–{end} s',
   settingTitle: 'Muse-Videobereich',
   settingDescription: 'Wähle Folgen, Videos und Videosegmente in dieser Unterhaltung aus, docke die Vorschau an oder löse sie ab und prüfe oder bearbeite Videos über den Chat.',
   settingError: 'Die Einstellung konnte nicht angewendet werden. Bitte erneut versuchen.',
@@ -277,12 +331,21 @@ export const de: Record<VideoKey, string> = {
   readOnlyReview: 'Prüfung ohne Änderungen', reviewModeInvalid: 'Dieser Prüfmodus ist ungültig. Entferne ihn und starte eine neue Prüfung.',
   referenceStale: 'Das ausgewählte Video wurde geändert oder kann nicht abgespielt werden. Aktualisiere die Ansicht und wähle es erneut aus.',
   selectedSegmentReference: '{name} · {start}–{end} s', selectionHeading: 'Ausgewählte Videos:',
-  requestReview: 'Prüfe ausschließlich die ausgewählten Videos oder Zeitbereiche, ohne sie zu verändern. Nenne höchstens 3 konkrete Probleme und Verbesserungsvorschläge, jeweils mit einem Link zur entsprechenden Stelle im Quellvideo. Bleibe innerhalb der Auswahl und starte keine Prüfung des gesamten Videos. Warte auf meine Anweisungen, bevor du Inhalte bearbeitest oder generierst.',
+  requestReview: 'Prüfe das ausgewählte Material anhand des Drehbuchs und der Liefervorgaben und schlage bei Problemen konkrete Korrekturen vor.',
   requestEdit: 'Setze meine Änderungswünsche an den in dieser Nachricht ausgewählten Videos oder Videosegmenten um. Ändere nur die angeforderten Teile und behalte die Originalversion sowie alle nicht betroffenen Inhalte bei. Gewünschte Änderungen: ',
   requestRegenerate: 'Generiere die in dieser Nachricht ausgewählten Videos oder Videosegmente nach meinen Vorgaben neu. Prüfe die Quellen, die zugehörigen Videokarten und die Kosten. Behalte die Originalversion bei und erweitere den Umfang nicht. Vorgaben für die Generierung: ',
 }
 /** Russian video workspace copy. */
 export const ru: Record<VideoKey, string> = {
+  shotAdvice: 'Рекомендация для кадра', adviceBasis: 'Основание', adviceChange: 'Рекомендация',
+  compareVersions: 'Версии кадра', editionLabel: 'Версия {number}', adoptVersion: 'Принять эту версию', versionAdopted: 'Принята',
+  originalEdition: 'Оригинал V{number}', revisedEdition: 'Новая V{number}', adoptRevised: 'Принять новую версию',
+  bringSuggestion: 'Перенести предложение в чат', revisedDelivery: 'Получена новая версия', compareOriginal: 'Сравнить с оригиналом', revisionNumber: 'V{number}',
+  adoptionHint: 'Предпочтительна только для этого чата и кадра в этом браузере. Все исходные файлы сохраняются.', adoptFailed: 'Не удалось сохранить предпочтительную версию. Повторите попытку.',
+  suggestionInvalid: 'Это предложение больше недействительно. Просмотрите видео снова.',
+  addVideo: 'Добавить видео', emptyHint: 'Добавьте локальное видео, чтобы выбрать серии и кадры и перенести их в чат.',
+  pickerHint: 'Воспроизведение меняет предпросмотр. Отметьте видео, чтобы добавить его в чат.', previewing: 'Предпросмотр',
+  draftSelectionCount: 'В чате выбрано: {count}', selectedInterval: '{start}–{end} с',
   settingTitle: 'Рабочая область видео Muse',
   settingDescription: 'Выбирайте серии, видео и фрагменты в этой беседе, закрепляйте или отделяйте окно предпросмотра и запрашивайте проверку или изменения в чате.',
   settingError: 'Не удалось применить настройку. Повторите попытку.',
@@ -326,12 +389,21 @@ export const ru: Record<VideoKey, string> = {
   readOnlyReview: 'Проверка без изменений', reviewModeInvalid: 'Этот режим проверки недействителен. Удалите его и начните новую проверку.',
   referenceStale: 'Выбранное видео изменилось или не воспроизводится. Обновите список и выберите его заново.',
   selectedSegmentReference: '{name} · {start}–{end} с', selectionHeading: 'Выбранные видео:',
-  requestReview: 'Проверь только выбранные видео или временные интервалы, ничего не изменяя. Укажи не более 3 конкретных проблем и предложений по исправлению, для каждой добавь ссылку на соответствующее место в исходном видео. Не выходи за пределы выбранного диапазона и не запускай проверку всего видео. Дождись моих указаний, прежде чем изменять или генерировать содержимое.',
+  requestReview: 'Сверь выбранное видео со сценарием и требованиями к сдаче и предложи конкретные исправления, если есть проблемы.',
   requestEdit: 'Внеси запрошенные мной изменения в видео или фрагменты, выбранные в этом сообщении. Изменяй только указанные части, сохрани исходную версию и всё остальное содержимое. Требуемые изменения: ',
   requestRegenerate: 'Сгенерируй заново выбранные в этом сообщении видео или фрагменты по моим требованиям. Проверь источники, соответствующие видеокарточки и стоимость; сохрани исходную версию и не расширяй объём работы. Требования к генерации: ',
 }
 /** Portuguese video workspace copy. */
 export const pt: Record<VideoKey, string> = {
+  shotAdvice: 'Sugestão para o plano', adviceBasis: 'Fundamento', adviceChange: 'Sugestão',
+  compareVersions: 'Versões do plano', editionLabel: 'Versão {number}', adoptVersion: 'Adotar esta versão', versionAdopted: 'Adotada',
+  originalEdition: 'Original V{number}', revisedEdition: 'Nova V{number}', adoptRevised: 'Adotar a nova versão',
+  bringSuggestion: 'Usar esta sugestão no chat', revisedDelivery: 'Nova versão recebida', compareOriginal: 'Comparar com a versão original', revisionNumber: 'V{number}',
+  adoptionHint: 'Preferida apenas para esta conversa e plano neste navegador. Todos os ficheiros originais são mantidos.', adoptFailed: 'Não foi possível guardar a versão preferida. Tente novamente.',
+  suggestionInvalid: 'Esta alteração sugerida já não é válida. Reveja o vídeo novamente.',
+  addVideo: 'Adicionar vídeo', emptyHint: 'Adicione um vídeo local para escolher episódios, localizar planos e trazê-los para o chat.',
+  pickerHint: 'Reproduzir muda a prévia. Marque um vídeo para adicioná-lo ao chat.', previewing: 'Em prévia',
+  draftSelectionCount: '{count} selecionados no chat', selectedInterval: '{start}–{end} s',
   settingTitle: 'Espaço de vídeo do Muse',
   settingDescription: 'Escolha episódios, vídeos e trechos nesta conversa, fixe ou destaque a prévia e peça revisões ou alterações pelo chat.',
   settingError: 'Não foi possível aplicar a configuração. Tente novamente.',
@@ -375,7 +447,7 @@ export const pt: Record<VideoKey, string> = {
   readOnlyReview: 'Revisão sem alterações', reviewModeInvalid: 'Este modo de revisão é inválido. Remova-o e inicie uma nova revisão.',
   referenceStale: 'O vídeo selecionado foi alterado ou não pode ser reproduzido. Atualize a lista e selecione-o novamente.',
   selectedSegmentReference: '{name} · {start}–{end} s', selectionHeading: 'Vídeos selecionados:',
-  requestReview: 'Revise apenas os vídeos ou intervalos selecionados, sem alterá-los. Aponte no máximo 3 problemas específicos e sugestões de correção, cada um com um link para o ponto correspondente no vídeo de origem. Limite-se à seleção e não inicie uma análise do vídeo inteiro. Aguarde minhas instruções antes de alterar ou gerar conteúdo.',
+  requestReview: 'Confira o vídeo selecionado com base no roteiro e nos requisitos de entrega e sugira correções específicas se houver problemas.',
   requestEdit: 'Aplique as alterações que solicitei aos vídeos ou trechos selecionados nesta mensagem. Altere somente as partes indicadas, mantendo a versão original e o conteúdo não afetado. Alterações solicitadas: ',
   requestRegenerate: 'Gere novamente os vídeos ou trechos selecionados nesta mensagem conforme minha solicitação. Confira as fontes, as fichas de vídeo correspondentes e o custo; mantenha a versão original e não amplie o escopo. Requisitos de geração: ',
 }

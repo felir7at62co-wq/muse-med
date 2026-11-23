@@ -234,6 +234,17 @@
   cursor: default;
 }
 
+:global(html[data-dsh-product='muse']) .header:not(.headerFloating) .crumbCurrent {
+  max-width: 100%;
+  padding-inline-start: 1px;
+  font-size: 19px;
+  line-height: 26px;
+}
+
+:global(html[data-dsh-product='muse']) .header:not(.headerFloating, .headerBlank) {
+  border-bottom-color: var(--dsw-alias-market-border);
+}
+
 .headerActions {
   display: flex;
   flex: none;
@@ -680,6 +691,7 @@
 
 .heroWorkspaceRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
   min-width: 0;

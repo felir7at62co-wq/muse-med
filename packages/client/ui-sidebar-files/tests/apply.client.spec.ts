@@ -77,7 +77,7 @@ async function boot(references?: WorkspaceFileReferenceActions) {
   }
   const sidebar = {
     tabDomain: { occurrence: vi.fn(() => ({ navigation: source })) },
-    commandTarget: vi.fn(), openTabFromTarget: vi.fn(),
+    commandTarget: vi.fn(), openTabFromTarget: vi.fn(), openTab: vi.fn(),
     mounted: createSnapshotStore<SessionId | undefined>(undefined),
     isExpanded: vi.fn(() => true), toggleExpanded: vi.fn(),
   }
@@ -97,6 +97,20 @@ async function boot(references?: WorkspaceFileReferenceActions) {
   await fiber.await()
   return { ctx, tabs, registered, dictionaries, fiber, sidebar, commands, slots, navigation, source }
 }
+
+it('opens the registered files pane only for the active Muse session from the material shortcut', async () => {
+  vi.stubGlobal('document', { documentElement: { dataset: { dshProduct: 'muse' } } })
+  onTestFinished(() => { vi.unstubAllGlobals() })
+  const h = await boot()
+  const header = h.registered.find(entry => entry.name === 'conversation.session.header.utilities')
+  if (header?.inject === undefined) throw new Error('Muse materials action is missing')
+  const actions = header.inject(SESSION, {}) as { openMaterials(): void }
+  actions.openMaterials()
+  expect(h.sidebar.openTab).not.toHaveBeenCalled()
+  h.sidebar.mounted.set(SESSION)
+  actions.openMaterials()
+  expect(h.sidebar.openTab).toHaveBeenCalledExactlyOnceWith(FILES_KIND)
+})
 
 /** Run the files command for one target. */
 function run(h: Awaited<ReturnType<typeof boot>>, target: object): void {

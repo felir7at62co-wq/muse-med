@@ -31,7 +31,7 @@ Mount this plugin in the browser roster of a muse-med deployment. Its image occu
 
 The Web application supplies the original transparent 1254 × 1254 artwork as `./muse-med-logo-black.webp` and `./muse-med-logo-white.webp`. Brand marks use black for the application's resolved light theme and white for its resolved dark theme, including manual selection and system-following mode. The browser favicon always uses black artwork independently of the application theme. The packaged desktop and PWA install icons remain theme-independent. `DSH_CLIENT_BUILD_PROFILE` does not gate registration. This plugin does not occupy `sidebar.brand.name`; the sidebar owns its localized name and build metadata.
 
-The package also publishes the optional home-background atlas under its content-revisioned `./assets/*` export; the Muse marks do not mount that background.
+Muse Desktop uses the existing purple Muse character as the in-app brand mark. The package also publishes the optional home-background atlas under its content-revisioned `./assets/*` export; the Muse marks do not mount that background.
 
 ### Replacing the brand
 

@@ -499,7 +499,7 @@ function makeHarness(
   const fenceCalls: { owner: MarkdownDelegateFenceInfo; entryKey: string | undefined }[] = []
   const renderSlot = (
     key: string,
-    owner: ChatFlowOwnerProps | MarkdownDelegateFenceInfo,
+    owner: ChatFlowOwnerProps | MarkdownDelegateFenceInfo | { address: string; host: string },
     opts: Parameters<FlowRenderer>[2] & { entryKey?: string; children?: React.ReactNode },
   ) => {
     if (key === 'conversation.chat.text-interaction' || key === 'conversation.chat.pinned') return null
@@ -507,7 +507,8 @@ function makeHarness(
       fenceCalls.push({ owner, entryKey: opts.entryKey })
       return opts.children ?? null
     }
-    if (key !== 'conversation.chat.flow' || 'lang' in owner) throw new Error(`Undeclared ChatView child: ${key}`)
+    if (key === 'conversation.chat.markdown.resource-link' && 'host' in owner) return opts.children ?? null
+    if (key !== 'conversation.chat.flow' || 'lang' in owner || 'host' in owner) throw new Error(`Undeclared ChatView child: ${key}`)
     if ('renderSlot' in owner || 'useStore' in owner || 'actions' in owner) {
       throw new Error('Flow owner data must not replace its rendering or store authority')
     }

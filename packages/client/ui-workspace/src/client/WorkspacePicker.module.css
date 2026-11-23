@@ -4,6 +4,9 @@
   min-width: 72px;
 }
 
+.directoryAction { min-width: 0; max-width: 100%; }
+.directoryAction > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .modalError,
 .menuStatus {
   margin-top: 8px;

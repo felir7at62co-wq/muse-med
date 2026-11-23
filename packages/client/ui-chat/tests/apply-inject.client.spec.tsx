@@ -27,6 +27,7 @@ import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings
 import type { LinkOpeningRowInjected } from '../src/client/settings/LinkOpeningRow.tsx'
 import type { TranscriptViewRowInjected } from '../src/client/settings/TranscriptViewRow.tsx'
 import { zh } from '../src/client/locale.ts'
+import type { ChatStartFilesActions } from '../src/client/chat/ChatStartFiles.tsx'
 
 usePinnedBrowserLanguages('zh-CN')
 
@@ -144,6 +145,26 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
 }
 
 describe('Chat inject API', () => {
+  it('routes the empty-chat file entry through the current composer and reports an unavailable picker', async () => {
+    const b = await bench()
+    try {
+      const input = b.runtime.ctx.conversation.input.for(b.rootReference.binding.ctx)
+      input.setDraft('Keep the current instruction')
+      const pick = vi.spyOn(input, 'pickFiles').mockReturnValueOnce(true).mockReturnValueOnce(false)
+      const entry = b.runtime.slots.entries('conversation.hero.options').find(item => item.options.id === 'chat-add-files')
+      if (entry?.inject === undefined) throw Error('The empty-chat file entry has no action')
+      const addFiles = entry.inject(ROOT as never).addFiles as ChatStartFilesActions['addFiles']
+      addFiles()
+      expect(pick).toHaveBeenCalledOnce()
+      expect(input.state.getSnapshot().draft).toBe('Keep the current instruction')
+      expect(b.session.prompt).not.toHaveBeenCalled()
+      addFiles()
+      const composer = b.runtime.slots.entries('conversation.composer.bar')[0]
+      if (composer?.inject === undefined) throw Error('The composer has no notice source')
+      const hooks = composer.inject(ROOT as never).hooks as ComposerBarInjected['hooks']
+      expect(hooks.notices.getSnapshot()).toMatchObject({ level: 'info', text: zh['chat.addFilesUnavailable'] })
+    } finally { await b.runtime.dispose() }
+  })
   it('routes text gestures from each Chat view to the registered consumer with its own Session', async () => {
     const b = await bench()
     try {
@@ -533,6 +554,10 @@ describe('Chat inject API', () => {
     const flowEntry = b.runtime.slots.entries('conversation.chat.flow')[0]!
     const injectFlow = flowEntry.inject as (sessionId: SessionId) => ChatFlowDataInjected
     expect(() => injectFlow('never-listed' as SessionId)).toThrow(/unknown session/)
+    const files = b.runtime.slots.entries('conversation.hero.options').find(item => item.options.id === 'chat-add-files')
+    const injectFiles = files?.inject
+    if (injectFiles === undefined) throw Error('The empty-chat file entry has no action')
+    expect(() => injectFiles('never-listed' as never)).toThrow('ui-chat: unknown session "never-listed"')
     await b.runtime.dispose()
   })
 
@@ -556,7 +581,7 @@ describe('Chat inject API', () => {
     expect(fileMentions(owner, getFileTriggerProps)).toBeUndefined()
     const mentions = { resolve: vi.fn() } as never
     const forClosing = vi.fn(() => mentions)
-    b.runtime.ctx.provide('chatFileMentions', { forClosing } as never)
+    b.runtime.ctx.provide('chatFileMentions', { forClosing })
     expect(fileMentions(owner, getFileTriggerProps)).toBe(mentions)
     expect(forClosing).toHaveBeenCalledWith(owner, ROOT, getFileTriggerProps)
 

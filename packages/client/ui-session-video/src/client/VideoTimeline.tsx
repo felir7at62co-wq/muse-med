@@ -1,6 +1,7 @@
 /** Proportional shot filmstrips and a keyboard-accessible media playhead. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactElement, RefObject } from 'react'
+import { videoClock } from './timeline.ts'
 import styles from './VideoTimeline.module.css'
 
 /** One ordered shot, with media time in seconds and an optional real thumbnail URL. */
@@ -46,11 +47,6 @@ function withMountedRef<T extends HTMLElement, R>(ref: RefObject<T | null>, acti
   const element = ref.current
   if (element === null) return
   return action(element)
-}
-
-function timeText(seconds: number): string {
-  const whole = Math.floor(seconds)
-  return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`
 }
 
 function tickInterval(pixelsPerSecond: number): number {
@@ -215,7 +211,7 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
             const tickStyle: TimelineStyle = { '--video-tick-left': `${time * pixelsPerSecond}px` }
             return <span key={time} className={styles.tick} style={tickStyle}
               data-major={major} data-end={time === duration && time !== 0}>
-              {major && <span className={styles.tickLabel}>{timeText(time)}</span>}
+              {major && <span className={styles.tickLabel}>{videoClock(time)}</span>}
             </span>
           })}
         </div>
@@ -239,7 +235,7 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
         </div>
         <div className={styles.playhead} role="slider" tabIndex={0} aria-label={labels.playhead}
           aria-valuemin={0} aria-valuemax={duration} aria-valuenow={position}
-          aria-valuetext={timeText(position)} aria-orientation="horizontal"
+          aria-valuetext={videoClock(position)} aria-orientation="horizontal"
           onPointerDown={startDrag} onKeyDown={moveWithKeyboard}>
           <span className={styles.cap} aria-hidden="true" />
         </div>

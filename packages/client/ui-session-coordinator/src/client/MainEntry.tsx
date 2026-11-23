@@ -1,6 +1,6 @@
 /** Dedicated profile-wide routing conversation in the workspace region. */
 import { useRef, useState } from 'react'
-import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconLayersOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { NS } from './locales.ts'
@@ -14,7 +14,7 @@ export interface MainEntryActions {
 type Props = Pick<PropsRuntime<'sidebar.workspaces.entry'>, 'wide' | 'useRemoteAccess'> & PropsLocale<typeof NS> & MainEntryActions
 
 /**
- * Show the Muse spider entry in the full sidebar or compact rail.
+ * Show the retained Main Session entry in the full sidebar or compact rail.
  * @param props - Sidebar geometry, localized label and owner-only open action.
  * @returns accessible routing entry with duplicate-click suppression.
  */
@@ -33,7 +33,9 @@ export function MainEntry({ wide, openMain, t, useRemoteAccess }: Props) {
   return <Tooltip label={t('mainEntry')} disabled={wide} side="right">
     <button type="button" className={`${css.entry} ${wide ? css.wide : css.rail}`} disabled={pending}
       aria-label={t('mainEntry')} data-muse-main-entry onClick={() => { void open() }}>
-      <span className={css.spider} aria-hidden="true" />
+      <span className={css.mark} aria-hidden="true">
+        <IconLayersOutlineRegular size={20} />
+      </span>
       {wide && <span>{t('mainEntry')}</span>}
     </button>
   </Tooltip>

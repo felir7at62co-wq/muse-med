@@ -593,22 +593,24 @@ function anchorWrapsOnlyImages(children: Md.PhrasingContent[]): boolean {
 }
 
 /** Anchor over a safe absolute href, with optional resource or HTTP(S) navigation. */
-function renderSafeLink(href: string, children: ReactNode[], key: Key, glyph = true): ReactNode {
+function renderSafeLink(href: string, children: ReactNode[], key: Key, glyph = true, streaming = false): ReactNode {
   const safeHref = sanitizeUrl(href)
   if (safeHref === '') return <Fragment key={key}>{children}</Fragment>
-  return <MarkdownAnchor key={key} href={safeHref} glyph={glyph}>{children}</MarkdownAnchor>
+  return <MarkdownAnchor key={key} href={safeHref} glyph={glyph} streaming={streaming}>{children}</MarkdownAnchor>
 }
 
-function MarkdownAnchor({ href, glyph, children }: {
+function MarkdownAnchor({ href, glyph, streaming, children }: {
   readonly href: string
   readonly glyph: boolean
+  readonly streaming: boolean
   readonly children: ReactNode[]
 }): ReactNode {
-  const { openExternalLink, openResourceLink, getTriggerProps } = useMarkdownDelegate()
-  const protocol = new URL(href).protocol
-  const external = ['http:', 'https:'].includes(protocol)
-  const open = external ? openExternalLink : protocol === 'dsh-resource:' ? openResourceLink : undefined
-  return (
+  const { openExternalLink, openResourceLink, renderResourceLink, getTriggerProps } = useMarkdownDelegate()
+  const url = new URL(href)
+  const external = ['http:', 'https:'].includes(url.protocol)
+  const resource = url.protocol === 'dsh-resource:'
+  const open = external ? openExternalLink : resource ? openResourceLink : undefined
+  const anchor = (
     <a
       href={href}
       {...external ? getTriggerProps?.({ kind: 'url', url: href }) : {}}
@@ -623,6 +625,9 @@ function MarkdownAnchor({ href, glyph, children }: {
       {children}
     </a>
   )
+  return resource && !streaming && renderResourceLink !== undefined
+    ? renderResourceLink({ address: href, host: url.hostname }, anchor)
+    : anchor
 }
 
 /** Local destinations use the scoped file delegate after settlement. */
@@ -632,7 +637,7 @@ function renderAnchor(url: string, children: ReactNode[], key: Key, glyph = true
     if (streaming) return <Fragment key={key}>{children}</Fragment>
     return <MarkdownFileLink key={key} file={file} glyph={glyph}>{children}</MarkdownFileLink>
   }
-  return renderSafeLink(normalizeUri(url), children, key, glyph)
+  return renderSafeLink(normalizeUri(url), children, key, glyph, streaming)
 }
 
 function MarkdownFileLink({ file, glyph, children }: {

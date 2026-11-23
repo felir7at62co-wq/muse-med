@@ -2,6 +2,7 @@
 // otherwise this view owns it. Each row subscribes to one stable node key.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import type {
   NodeKey, RenderEntry,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -9,7 +10,7 @@ import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   Button, FenceCodeBlock, IconChevronDownOutlineRegular, MarkdownDelegateProvider, Modal,
-  type MarkdownDelegateFenceInfo, type MarkdownMenuTarget,
+  type MarkdownDelegateFenceInfo, type MarkdownDelegateResourceLinkInfo, type MarkdownMenuTarget,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { isAtOrOutside } from '../contract/group-tree.ts'
 import type { ChatFlowHookContext, ChatViewSlotProps, OpenFileOptions } from '../contract/slots.ts'
@@ -117,6 +118,8 @@ export function ChatView({
       <FenceCodeBlock lang={fence.lang} code={fence.code} streaming={fence.streaming} labels={codeLabels} diff={false} />
     ),
   }), [renderSlot, codeLabels])
+  const renderResourceLink = useCallback((link: MarkdownDelegateResourceLinkInfo, fallback: ReactNode) =>
+    renderSlot('conversation.chat.markdown.resource-link', link, { entryKey: link.host, children: fallback }), [renderSlot])
   const running = useSession(s => s.running)
   // Fold transitions run while a Turn is live, while an input is pending, and briefly after settling.
   const [motionTail, setMotionTail] = useState(false)
@@ -279,6 +282,7 @@ export function ChatView({
               openResourceLink={openResourceLink}
               fileImages={fileImages}
               renderCode={renderCode}
+              renderResourceLink={renderResourceLink}
             >
               {renderSlot('conversation.chat.flow', {
                 entries, pendingInputs, lastInputTurn, deferCollapse,

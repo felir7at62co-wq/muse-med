@@ -52,6 +52,8 @@ export interface WorkspacePickFlowProps {
   side?: 'bottom' | 'top' | 'right'
   /** Currently active workspace (trailing check in the picker list). */
   selectedId?: WorkspaceId | undefined
+  /** Show a direct directory action beside the empty conversation's Workspace selector. */
+  directoryAction?: boolean
 }
 
 /**
@@ -73,6 +75,7 @@ export function WorkspacePickFlow({
   onBusyChange,
   side = 'bottom',
   selectedId,
+  directoryAction = false,
 }: WorkspacePickFlowProps) {
   // Without an owner-provided anchor, the menu remains hidden.
   const absentAnchor = useRef<HTMLElement>(null)
@@ -209,6 +212,10 @@ export function WorkspacePickFlow({
 
   return (
     <>
+      {directoryAction && flowAvailable && <Button size="sm" variant="ghost" className={css.directoryAction}
+        disabled={flowBusy} onClick={openDirectoryFlow}>
+        <IconFolderCloseRegular size={16} /><span>{t('workspace.chooseFolder')}</span>
+      </Button>}
       <Menu
         open={open && !addIsTheOnlyEntry && !menuIsEmpty}
         anchor={null}
@@ -271,6 +278,7 @@ export function WorkspacePicker({
       useDirectoryFlow={useDirectoryFlow}
       renderDirectoryFlow={owner => renderSlot('conversation.hero.workspace.directoryFlow', owner)}
       selectedId={selectedId}
+      directoryAction
       onPick={onPick}
       onClose={onClose}
     />

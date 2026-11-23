@@ -11,6 +11,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { createVideoStore } from '../src/client/store.ts'
 import { VideoHeader } from '../src/client/VideoHeader.tsx'
 import { DeliveredVideoCard, GeneratedVideoCards } from '../src/client/InlineVideoCard.tsx'
+import { VideoComposerScope } from '../src/client/VideoComposerScope.tsx'
 import type { VideoInjected } from '../src/client/face.ts'
 import { NS, en, zh } from '../src/client/locales.ts'
 import type { OwnerOf } from '@deepseek-ai/dsh-client-ui-slots'
@@ -95,12 +96,13 @@ export async function fixture(items: SessionVideoSource[] = [source()]) {
   const store = createVideoStore()
   const resource = createSnapshotStore<ResourceSnapshot<SessionVideoInventory>>({ status: 'live', value: inventory(items), failure: undefined })
   runtime.slots.provideRoot({ keyedHooks: { resource: () => resource } })
-  const openWorkspace = vi.fn(), refreshVideos = vi.fn(), addTargetReference = vi.fn().mockReturnValue(true),
+  const openWorkspace = vi.fn<VideoInjected['openWorkspace']>(), refreshVideos = vi.fn(), addTargetReference = vi.fn().mockReturnValue(true),
     removeTargetReference = vi.fn().mockReturnValue(true)
   const injected = { detectShots, pixelsPerSecond: 48, openWorkspace, refreshVideos, addTargetReference, removeTargetReference,
-    setReviewMode: vi.fn().mockReturnValue(true) }
+    setReviewMode: vi.fn().mockReturnValue(true), addVideoAttachment: vi.fn().mockReturnValue(true) }
   await runtime.declare({ 'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
-    'test.video.delivered': { kind: 'list', scope: 'session' }, 'conversation.chat.turnTail': { kind: 'list', scope: 'session' } })
+    'test.video.delivered': { kind: 'list', scope: 'session' }, 'conversation.chat.turnTail': { kind: 'list', scope: 'session' },
+    'conversation.input.dock': { kind: 'list', scope: 'session' } })
   await runtime.mount({ inject: ['slots'], apply(ctx) {
     ctx.slots.register({ name: 'test.video.delivered', id: 'owner',
       children: { 'deliverables.video': { kind: 'chain', scope: 'session' } } },
@@ -111,8 +113,9 @@ export async function fixture(items: SessionVideoSource[] = [source()]) {
       inject: () => injected }, DeliveredVideoCard)
     ctx.slots.register({ name: 'conversation.chat.turnTail', id: 'generated', store, locale: NS,
       inject: () => injected }, GeneratedVideoCards)
+    ctx.slots.register({ name: 'conversation.input.dock', id: 'video-scope', store, locale: NS }, VideoComposerScope)
   } })
   const panel = runtime.renderSlot('conversation.session.header.utilities', { activeView: null, selectView: vi.fn() }, { session: reference })
   const instance = runtime.storeOf('conversation.session.header.utilities', reference) as ReturnType<typeof store.create>
-  return { runtime, panel, reference, instance, detectShots, inputActions, input, openWorkspace, resource }
+  return { runtime, panel, reference, instance, detectShots, inputActions, input, openWorkspace, resource, chat }
 }

@@ -122,7 +122,7 @@ export { JsonBlock } from './markdown/JsonBlock.tsx'
 export { MarkdownDelegateProvider, useMarkdownDelegate } from './markdown/MarkdownDelegate.tsx'
 export type {
   MarkdownDelegate, MarkdownDelegateProviderProps, MarkdownExternalLinkHandler, MarkdownResourceLinkHandler,
-  MarkdownDelegateFenceInfo,
+  MarkdownDelegateFenceInfo, MarkdownDelegateResourceLinkInfo,
 } from './markdown/MarkdownDelegate.tsx'
 export { DetailDocument, detailDocumentState, useDetailDocumentLabels } from './DetailDocument.tsx'
 export type { DetailDocumentCopy, DetailDocumentLabels, DetailDocumentRead, DetailDocumentState } from './DetailDocument.tsx'

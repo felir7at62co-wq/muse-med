@@ -10,11 +10,30 @@ export const VIDEO_SELECTION_OPEN = '<muse-video-selection>'
 export const VIDEO_SELECTION_CLOSE = '</muse-video-selection>'
 /** Recorded intent consumed by the bounded, read-only review operation. */
 export const VIDEO_REVIEW_REQUEST = '<!-- muse-video-review: use muse_video review for the selected source/version/interval and include its review_link with every suggestion. -->'
+/** Protocol bound for one ordinary-text change carried by an advice link. */
+export const VIDEO_SUGGESTION_MAX_LENGTH = 2000
+
+/** Accept one bounded plain-text suggestion without embedded protocol or control markup.
+ * @param text - Decoded text carried by an Assistant resource link.
+ * @returns Whether it can be inserted as ordinary editable draft text.
+ */
+export function isVideoSuggestionText(text: string): boolean {
+  return text.length > 0 && text.length <= VIDEO_SUGGESTION_MAX_LENGTH && text.trim() === text
+    && !/[\p{Cc}\p{Zl}\p{Zp}<>]/u.test(text)
+}
 
 /** A Session video address optionally points at one exact recorded source version. */
 export interface VideoWorkspaceNavigation {
   readonly sessionId: SessionId
   readonly target?: VideoTarget
+  /** Source-local evidence time, independent of the selected draft range. */
+  readonly seekSeconds?: number
+  /** Observation and its screenplay or delivery basis from one published advice link. */
+  readonly issue?: { readonly problem: string; readonly basis: string }
+  /** A published suggestion becomes an unsent edit request, preserving the target coordinates. */
+  readonly editSuggestion?: string
+  /** A returned shot opens at an aligned comparison position. */
+  readonly compareVersions?: true
   /** Presentation-only moves retain the navigation already applied to this workspace. */
   readonly retainedNavigationKey?: string
 }
@@ -65,13 +84,15 @@ export function targetKey(target: VideoTarget): string {
 /** Build a navigable workspace or version-bound advice address.
  * @param sessionId - Conversation owning the selected source.
  * @param target - Source or cut to locate; omitted opens the workspace.
+ * @param seekSeconds - Source-local position inside the selected source or cut.
  * @returns A resource URL whose time coordinates belong to the original source.
  */
-export function videoWorkspaceAddress(sessionId: SessionId, target?: VideoTarget): string {
+export function videoWorkspaceAddress(sessionId: SessionId, target?: VideoTarget, seekSeconds?: number): string {
   const address = new URL(`dsh-resource://session-video/session/${encodeURIComponent(sessionId)}`)
   if (target !== undefined) {
     address.searchParams.set('source', target.sourceId)
     address.searchParams.set('version', target.sourceVersion)
+    if (seekSeconds !== undefined) address.searchParams.set('at', String(seekSeconds))
     if (target.kind === 'shot') {
       address.searchParams.set('shot', target.shotId)
       address.searchParams.set('start', String(target.startSeconds))
@@ -88,7 +109,8 @@ export function videoWorkspaceAddress(sessionId: SessionId, target?: VideoTarget
 export function parseVideoWorkspaceAddress(address: string): VideoWorkspaceNavigation | null {
   let url: URL
   try { url = new URL(address) } catch (_error: unknown) { return null /* Not a resource URL. */ }
-  if (url.protocol !== 'dsh-resource:' || url.hostname !== 'session-video' || url.username !== '' || url.password !== '') return null
+  if (url.protocol !== 'dsh-resource:' || url.hostname !== 'session-video' || url.username !== '' || url.password !== ''
+    || url.port !== '' || url.hash !== '') return null
   const encodedSession = /^\/session\/([^/]+)$/u.exec(url.pathname)?.[1]
   if (encodedSession === undefined) return null
   let session: string
@@ -96,16 +118,29 @@ export function parseVideoWorkspaceAddress(address: string): VideoWorkspaceNavig
   const sessionId = brandString<SessionId>(session)
   const source = url.searchParams.get('source'), version = url.searchParams.get('version')
   const shot = url.searchParams.get('shot'), start = url.searchParams.get('start'), end = url.searchParams.get('end')
-  if ([...url.searchParams.keys()].some(key => !['source', 'version', 'shot', 'start', 'end'].includes(key)
+  const editSuggestion = url.searchParams.get('suggestion')
+  const at = url.searchParams.get('at'), problem = url.searchParams.get('problem'), basis = url.searchParams.get('basis')
+  const seekSeconds = at === null ? undefined : Number(at)
+  if (editSuggestion !== null && !isVideoSuggestionText(editSuggestion)) return null
+  if (seekSeconds !== undefined && (!/^\d+(?:\.\d+)?$/u.test(at ?? '') || !Number.isFinite(seekSeconds))) return null
+  if ((problem !== null || basis !== null || seekSeconds !== undefined && editSuggestion !== null)
+    && (problem === null || basis === null || seekSeconds === undefined || editSuggestion === null
+      || !isVideoSuggestionText(problem) || !isVideoSuggestionText(basis))) return null
+  if ([...url.searchParams.keys()].some(key => !['source', 'version', 'shot', 'start', 'end', 'suggestion', 'at', 'problem', 'basis'].includes(key)
     || url.searchParams.getAll(key).length !== 1)) return null
-  if (source === null && version === null && shot === null && start === null && end === null) return { sessionId }
+  if (source === null && version === null && shot === null && start === null && end === null) {
+    return editSuggestion === null && seekSeconds === undefined ? { sessionId } : null
+  }
   if (!source || !version) return null
   const common = { sourceId: brandString<SessionVideoSourceId>(source), sourceVersion: version }
-  if (shot === null && start === null && end === null) return { sessionId, target: { ...common, kind: 'source' } }
+  const details = { ...(editSuggestion === null ? {} : { editSuggestion }), ...(seekSeconds === undefined ? {} : { seekSeconds }),
+    ...(problem === null || basis === null ? {} : { issue: { problem, basis } }) }
+  if (shot === null && start === null && end === null) return { sessionId, target: { ...common, kind: 'source' }, ...details }
   if (!shot || !start || !end) return null
   const startSeconds = Number(start), endSeconds = Number(end)
   if (!Number.isFinite(startSeconds) || !Number.isFinite(endSeconds) || startSeconds < 0 || endSeconds <= startSeconds) return null
-  return { sessionId, target: { ...common, kind: 'shot', shotId: brandString<SessionVideoShotId>(shot), startSeconds, endSeconds } }
+  if (seekSeconds !== undefined && (seekSeconds < startSeconds || seekSeconds >= endSeconds)) return null
+  return { sessionId, target: { ...common, kind: 'shot', shotId: brandString<SessionVideoShotId>(shot), startSeconds, endSeconds }, ...details }
 }
 
 /** Prepare source evidence without accepting a replaced or unavailable source version.

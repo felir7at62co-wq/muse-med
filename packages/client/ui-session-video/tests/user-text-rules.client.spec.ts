@@ -66,7 +66,7 @@ it('accepts current production metadata and whole-video references without requi
   const serialized = serializeVideoTargets([whole(item)], [item], sessionId)
   if (!serialized.ok) throw new Error('selection fixture is unavailable')
   expect(serialized.text).toContain('"storyboardId": 51')
-  expect(videoSelectionRule.match(serialized.text, 0, { read: () => undefined })).toMatchObject({
+  expect(videoSelectionRule.match(serialized.text, 0)).toMatchObject({
     data: { items: [{ label: item.label, reviewLink: videoWorkspaceAddress(sessionId, whole(item)) }] },
   })
   expect(parseVideoSelectionData(evidence().json)).not.toBeNull()
@@ -82,11 +82,11 @@ it('refuses mixed-Session or duplicate references rather than giving ambiguous l
 it('uses original UTF-16 offsets and can find later valid evidence after an invalid envelope', () => {
   const fixture = evidence(), invalid = `${VIDEO_SELECTION_OPEN}not JSON${VIDEO_SELECTION_CLOSE}`
   const text = `🙂 ${invalid}\n${fixture.text}`
-  const node = videoSelectionRule.match(text, 0, { read: () => undefined })
+  const node = videoSelectionRule.match(text, 0)
   expect(node?.start).toBe(text.indexOf(fixture.text))
   expect(node?.end).toBe(text.length)
-  expect(videoSelectionRule.match(text, text.length, { read: () => undefined })).toBeUndefined()
-  expect(videoSelectionRule.match(fixture.text, 1, { read: () => undefined })).toBeUndefined()
+  expect(videoSelectionRule.match(text, text.length)).toBeUndefined()
+  expect(videoSelectionRule.match(fixture.text, 1)).toBeUndefined()
 })
 
 it('hides only the exact recorded review intent while leaving surrounding user text intact', () => {

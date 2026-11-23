@@ -57,8 +57,15 @@ export async function command(ctx: Context, argv: readonly string[], policy: San
   }
 }
 
-/** Validated video-track dimensions and full container duration. */
-export interface VideoFacts { readonly durationSeconds: number; readonly width: number; readonly height: number }
+/** Validated container duration and measured stream metadata. */
+export interface VideoFacts {
+  readonly durationSeconds: number
+  readonly width: number
+  readonly height: number
+  readonly hasAudio: boolean
+  readonly averageFps: number | null
+  readonly videoBitrateBps: number | null
+}
 
 /**
  * Validate the bounded FFprobe report before accepting any cut ranges.
@@ -67,11 +74,17 @@ export interface VideoFacts { readonly durationSeconds: number; readonly width: 
  */
 export function facts(bytes: Uint8Array): VideoFacts {
   const value = record(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)))
-  const stream = Array.isArray(value?.streams) ? value.streams.map(record).find(item => item?.codec_type === 'video') : undefined
+  const streams = Array.isArray(value?.streams) ? value.streams.map(record) : []
+  const stream = streams.find(item => item?.codec_type === 'video')
   const durationSeconds = Number(record(value?.format)?.duration), width = Number(stream?.width), height = Number(stream?.height)
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || !Number.isSafeInteger(width) || width <= 0
     || !Number.isSafeInteger(height) || height <= 0) throw Error('Input has no valid video duration or dimensions')
-  return { durationSeconds, width, height }
+  const rate = typeof stream?.avg_frame_rate === 'string' ? /^(\d+)\/(\d+)$/u.exec(stream.avg_frame_rate) : null
+  const fps = rate === null ? NaN : Number(rate[1]) / Number(rate[2])
+  const bitrate = Number(stream?.bit_rate)
+  return { durationSeconds, width, height, hasAudio: streams.some(item => item?.codec_type === 'audio'),
+    averageFps: Number.isFinite(fps) && fps > 0 ? fps : null,
+    videoBitrateBps: Number.isSafeInteger(bitrate) && bitrate > 0 ? bitrate : null }
 }
 
 /**

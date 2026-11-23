@@ -1,0 +1,4 @@
+:global(html[data-dsh-product='muse']) .mark {
+  content: url('./assets/muse-spider.svg');
+  object-fit: contain;
+}

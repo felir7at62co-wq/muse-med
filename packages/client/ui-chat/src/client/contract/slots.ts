@@ -17,7 +17,9 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { ConnectionStateSource } from '@deepseek-ai/dsh-client-connection/client'
-import type { FileDragActions, MarkdownDelegateFenceInfo, MarkdownFileMentions, MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
+import type {
+  FileDragActions, MarkdownDelegateFenceInfo, MarkdownDelegateResourceLinkInfo, MarkdownFileMentions, MarkdownLabels,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ContextMenuTriggerProps } from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import type { ChatKey } from '../locale.ts'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -394,6 +396,7 @@ export type ChatViewSlotProps =
   PropsRuntime<'conversation.view'>
   & PropsRenderSlots<
     'conversation.chat.flow' | 'conversation.chat.text-interaction' | 'conversation.chat.pinned' | 'conversation.chat.markdown.fence'
+    | 'conversation.chat.markdown.resource-link'
   >
   & PropsStore<ChatStore>
   & InjectFace<ChatViewInjected>
@@ -435,6 +438,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.chat.text-interaction': { kind: 'keyed'; scope: 'session'; owner: TextInteractionSurface }
     /** Language-keyed layers around one Markdown fence in the Chat flow; the content is the plain code block. */
     'conversation.chat.markdown.fence': { kind: 'hoc'; scope: 'session'; owner: MarkdownDelegateFenceInfo }
+    /** URL-host keyed presentation of settled application-resource links. */
+    'conversation.chat.markdown.resource-link': { kind: 'hoc'; scope: 'session'; inline: true; owner: MarkdownDelegateResourceLinkInfo }
 
     /** Session contributions above the scrolling Chat rows. */
     'conversation.chat.pinned': { kind: 'list'; scope: 'session' }

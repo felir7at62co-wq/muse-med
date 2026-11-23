@@ -29,6 +29,8 @@ Browse a Session's workspace tree beside the files you preview. Each pane keeps 
 <a id="what-it-registers"></a>
 ## What it registers
 
+In Muse Desktop, **Materials folder** in an active conversation's header opens the same workspace files tab. The action is available once the conversation has a workspace directory.
+
 The `workspace.files` command shows the navigator beside a docked preview or expands the search bar on an existing docked files page, and moves keyboard focus to its search field, keeping the tab; from the conversation it uses the current Session's active dock pane. Elsewhere — a tab without the navigator, a Session without a working directory, a floating tab — it opens or focuses the files page, whose tree always shows. A guide gives way to the files page, and repeated opens retain one files page per pane. Desktop defaults to Mod+P. The guide entry displays the effective shortcut; Windows and macOS Web use the [shortcut service’s platform defaults](../shortcuts/README.md); Linux Web leaves this command unbound by default.
 
 - **The type** — `ctx.sidebarRightTabs.register(...)` with kind `files`, id `@deepseek-ai/dsh-client-ui-sidebar-files`, band `builtin`, no patterns, and one guide entry (order 10, its title and description from the `sidebarFiles` namespace, its glyph a yellow folder) that opens the type.

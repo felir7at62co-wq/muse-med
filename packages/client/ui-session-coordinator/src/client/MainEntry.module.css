@@ -18,6 +18,20 @@
 .rail { justify-content: center; margin-inline: 8px; width: 40px; padding-inline: 0; }
 .entry:disabled { opacity: .6; cursor: wait; }
 .entry:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
-.spider { flex: none; width: 48px; height: 41px; background: url('./assets/muse-spider.svg') center / contain no-repeat; }
-.rail .spider { width: 32px; height: 28px; }
+.mark { display: flex; flex: none; width: 20px; height: 20px; }
 @media (hover: hover) { .entry:hover { background: var(--dsw-alias-bg-l2); } }
+
+:global(html[data-dsh-product='muse']) .mark {
+  background: url('./assets/muse-spider.svg') center / contain no-repeat;
+}
+:global(html[data-dsh-product='muse']) .mark > svg { display: none; }
+
+:global(html[data-dsh-product='muse']) .entry.wide {
+  margin-block: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
+@media (hover: hover) {
+  :global(html[data-dsh-product='muse']) .entry.wide:hover { background: var(--dsw-alias-market-surface-hover); }
+}

@@ -1,5 +1,11 @@
 /* Atomic reference metrics stay inside the composer line. */
 
+:global(html[data-dsh-product='muse'] [data-composer-chip='muse-video']) .chip:not(.invalid) {
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-market-surface-hover);
+  color: var(--dsw-alias-market-accent-label);
+}
+
 .chip {
   display: inline-flex;
   align-items: baseline;

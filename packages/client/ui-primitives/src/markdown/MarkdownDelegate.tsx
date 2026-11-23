@@ -15,6 +15,12 @@ export type MarkdownExternalLinkHandler = (href: string) => void
  */
 export type MarkdownResourceLinkHandler = (address: string) => void
 
+/** A safe application-resource destination from settled Markdown. */
+export interface MarkdownDelegateResourceLinkInfo {
+  readonly address: string
+  readonly host: string
+}
+
 /** Explicit object and viewport coordinates from the element owning a context gesture. */
 export type MarkdownMenuTarget =
   | { kind: 'file'; path: string; line?: number }
@@ -54,6 +60,12 @@ export interface MarkdownDelegate {
   readonly openExternalLink?: MarkdownExternalLinkHandler | undefined
   /** Application-resource activation; absent handlers retain native anchor behavior. */
   readonly openResourceLink?: MarkdownResourceLinkHandler | undefined
+  /** Render a settled application-resource link using its owning surface's presentation.
+   * @param link - Safe address and URL host.
+   * @param fallback - The ordinary resource anchor.
+   * @returns The resource link or its ordinary anchor.
+   */
+  readonly renderResourceLink?: ((link: MarkdownDelegateResourceLinkInfo, fallback: ReactNode) => ReactNode) | undefined
   /**
    * Open a decoded local destination from settled Markdown; absent handlers leave plain text.
    * @param path - Absolute or workspace-relative file path.
@@ -87,13 +99,15 @@ export function MarkdownDelegateProvider({
   children,
   openExternalLink,
   openResourceLink,
+  renderResourceLink,
   openFile,
   fileImages,
   getTriggerProps,
   renderCode,
 }: MarkdownDelegateProviderProps): ReactNode {
-  const delegate = useMemo(() => ({ openExternalLink, openResourceLink, openFile, fileImages, getTriggerProps, renderCode }),
-    [openExternalLink, openResourceLink, openFile, fileImages, getTriggerProps, renderCode])
+  const delegate = useMemo(() => ({
+    openExternalLink, openResourceLink, renderResourceLink, openFile, fileImages, getTriggerProps, renderCode,
+  }), [openExternalLink, openResourceLink, renderResourceLink, openFile, fileImages, getTriggerProps, renderCode])
   return (
     <MarkdownDelegateContext.Provider value={delegate}>
       {children}

@@ -3,6 +3,7 @@ import { expect, it } from 'vitest'
 import { parseVideoWorkspaceAddress, prepareVideoPrompt, serializeVideoTargets, targetKey, videoWorkspaceAddress } from '../src/client/target-selection.ts'
 import { createVideoStore } from '../src/client/store.ts'
 import { authoredShots } from '../src/client/timeline.ts'
+import { parseVideoReference } from '../src/client/references.ts'
 import { sessionId, shot, source, whole } from './selection-fixture.client.ts'
 
 it('serializes source identity and original cut coordinates without model-facing playback routes', () => {
@@ -44,6 +45,23 @@ it('round-trips source links and refuses incomplete, duplicated and invalid medi
     expect(parseVideoWorkspaceAddress(invalid), invalid).toBeNull()
   }
   expect(parseVideoWorkspaceAddress('dsh-resource://session-video/session/a?source=one')).toBeNull()
+})
+
+it('parses evidence time separately from the selected editing range', () => {
+  const selected = shot()
+  const scoped = videoWorkspaceAddress(sessionId, selected)
+  const inspect = videoWorkspaceAddress(sessionId, selected, 4.25)
+  const description = '&problem=眼睛被遮住&basis=剧本要求以眼部特写收尾&suggestion=结尾回到眼睛特写'
+  expect(parseVideoWorkspaceAddress(inspect)).toEqual({ sessionId, target: selected, seekSeconds: 4.25 })
+  expect(parseVideoWorkspaceAddress(inspect + description)).toEqual({ sessionId, target: selected, seekSeconds: 4.25,
+    issue: { problem: '眼睛被遮住', basis: '剧本要求以眼部特写收尾' }, editSuggestion: '结尾回到眼睛特写' })
+  expect(parseVideoReference(inspect)).toBeNull()
+  expect(parseVideoReference(inspect + description)).toBeNull()
+  for (const invalid of [`${scoped}&at=3.9`, `${scoped}&at=8`, `${scoped}&at=`, `${scoped}&at=Infinity`,
+    `${inspect}&at=5`, `${inspect}&problem=Hidden&suggestion=Change`, `${inspect}&suggestion=Change`,
+    `${scoped}${description}`, `${inspect}&problem=%3Cimg%3E&basis=script&suggestion=Change`]) {
+    expect(parseVideoWorkspaceAddress(invalid), invalid).toBeNull()
+  }
 })
 
 it('retains episode and playback choices per workspace without keeping a second composer selection', () => {

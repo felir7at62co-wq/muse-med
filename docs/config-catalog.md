@@ -4132,7 +4132,7 @@ export interface Config extends SessionTitleLlmConfig {
 ## `@deepseek-ai/dsh-session-video`
 
 - `inject`: `sessions` · `sessionQuery` · `sessionProjections` · `fs` · `attachments` · `subprocess` · `sandboxPolicy` · `connection` · `tools`
-- `source`: [`packages/drama/session-video/src/index.ts:34`](../packages/drama/session-video/src/index.ts)
+- `source`: [`packages/drama/session-video/src/index.ts:36`](../packages/drama/session-video/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-controlled subprocess, source, cache and playback limits. */
@@ -4143,6 +4143,8 @@ export interface Config {
   readonly maxReviewSeconds: number
   /** Largest extracted review-frame dimension, in pixels. */
   readonly reviewFrameDimension: number
+  /** Maximum bytes of each supporting reference or transcript returned to the reviewer. */
+  readonly maxReviewEvidenceBytes: number
   /** FFmpeg executable name or path in the configured execution world. */
   readonly ffmpegPath: string
   /** FFprobe executable name or path in the configured execution world. */

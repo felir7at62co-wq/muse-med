@@ -1,7 +1,8 @@
 /** Compact presentation applies only to this plugin's validated selection envelope. */
 import { z } from 'zod'
 import type { UserTextRule } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { parseVideoWorkspaceAddress, VIDEO_SELECTION_CLOSE, VIDEO_SELECTION_OPEN, VIDEO_REVIEW_REQUEST } from './target-selection.ts'
+import { parseVideoReference } from './references.ts'
+import { VIDEO_SELECTION_CLOSE, VIDEO_SELECTION_OPEN, VIDEO_REVIEW_REQUEST } from './target-selection.ts'
 
 const positiveId = z.number().int().positive()
 const production = z.object({ scriptId: positiveId, episodeId: positiveId.optional(), episodeNumber: positiveId.optional(),
@@ -16,7 +17,7 @@ const selection = z.object({ source_id: z.string().min(1), source_version: z.str
   review_tool: z.literal('muse_video').optional(), authored_shot_number: positiveId.optional(),
   start_seconds: z.number().nonnegative().optional(), end_seconds: z.number().positive().optional(),
 }).strict().superRefine((value, context) => {
-  const parsed = parseVideoWorkspaceAddress(value.review_link)
+  const parsed = parseVideoReference(value.review_link)
   const target = parsed?.target
   const hasSegment = value.shot_id !== undefined || value.start_seconds !== undefined || value.end_seconds !== undefined
   const matches = target !== undefined && target.sourceId === value.source_id && target.sourceVersion === value.source_version
@@ -57,8 +58,8 @@ export function parseVideoSelectionData(text: string): VideoSelectionData | null
   if (!parsed.success) return null
   // oxlint-disable-next-line typescript/no-non-null-assertion -- The parsed schema requires a nonempty array.
   const first = parsed.data[0]!
-  const sessionId = parseVideoWorkspaceAddress(first.review_link)?.sessionId
-  if (sessionId === undefined || parsed.data.some(item => parseVideoWorkspaceAddress(item.review_link)?.sessionId !== sessionId)
+  const sessionId = parseVideoReference(first.review_link)?.sessionId
+  if (sessionId === undefined || parsed.data.some(item => parseVideoReference(item.review_link)?.sessionId !== sessionId)
     || new Set(parsed.data.map(item => item.review_link)).size !== parsed.data.length) return null
   return { sessionId, items: parsed.data.map(item => ({ label: item.label, reviewLink: item.review_link,
     ...(item.start_seconds === undefined ? {} : { startSeconds: item.start_seconds }),
@@ -66,7 +67,7 @@ export function parseVideoSelectionData(text: string): VideoSelectionData | null
 }
 
 /** Match the next valid owned envelope; arbitrary JSON and malformed evidence stay visible. */
-export const videoSelectionRule: UserTextRule<'muse-video-selection'> = {
+export const videoSelectionRule = {
   id: 'muse-video-selection', order: 20,
   match(text, from) {
     for (let start = text.indexOf(VIDEO_SELECTION_OPEN, from); start !== -1;
@@ -79,7 +80,7 @@ export const videoSelectionRule: UserTextRule<'muse-video-selection'> = {
     }
     return undefined
   },
-}
+} satisfies UserTextRule<'muse-video-selection'>
 
 /** Hide only the exact owned review intent, preserving it in logged model input. */
 export const videoReviewRule: UserTextRule<'muse-video-review'> = {
