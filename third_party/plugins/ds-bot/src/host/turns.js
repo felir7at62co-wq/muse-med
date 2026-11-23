@@ -398,14 +398,24 @@ export function install(rt) {
     await rt.load()
     const sessionId = rt.chatOf(botId)
     if (sessionId === undefined) return false
-    const turnRunning = live.get(sessionId)?.turn !== undefined
+    return stopChatPart(sessionId)
+  }
+
+  async function stopOpenPart(botId, sessionId) {
+    await rt.load()
+    if (!rt.botOf(botId)?.openParts?.some(part => part.sessionId === sessionId)) return false
+    return stopChatPart(sessionId)
+  }
+
+  async function stopChatPart(sessionId) {
+    const turn = live.get(sessionId)?.turn
     const subRunning = hasSubagents?.(sessionId) === true
-    if (!turnRunning && !subRunning) return false
-    await stopSubagents(sessionId)
-    if (turnRunning) {
-      const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
-      agent?.cancel?.({ kind: 'user' })
-    }
+    if (turn === undefined && !subRunning) return false
+    const stoppedChildren = await stopSubagents(sessionId)
+    if (turn === undefined || live.get(sessionId)?.turn !== turn) return stoppedChildren
+    const agent = await rt.resolveAgent(sessionId).catch(() => undefined)
+    if (live.get(sessionId)?.turn !== turn || agent?.cancel === undefined) return stoppedChildren
+    agent.cancel({ kind: 'user' })
     return true
   }
 
@@ -1404,5 +1414,5 @@ export function install(rt) {
     }, 'ds-bot: prompt rejection reasons')
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, completionsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, completionsView, steeredView, callDetail, doingOf, stopRoomTurn, stopChat, stopOpenPart, releaseBot, unblockBots, resumeBot, markSteerCut, hasSubagents, stopSubagents, adoptLiveWork })
 }

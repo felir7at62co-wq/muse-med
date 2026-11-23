@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, File, Form, UploadFile, Depends
 from pydantic import BaseModel, Field, validator
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..auth import get_current_user, require_admin, User
@@ -3572,6 +3573,22 @@ async def export_unified(
     ⚠️ 老端点全部保留不动 —— 旧工作台还在用它们，v1 退役前不能动。
     ⚠️ 小说/推文**不走这里**：`/v1/adapt/{kind}/export/{fmt}` 三种格式本来就齐。
     """
+    async with session_scope() as s:
+        return await render_draft_export(s, draft_id, kind=kind, scope=scope, fmt=fmt)
+
+
+async def render_draft_export(
+    s: AsyncSession, draft_id: int, *, kind: str, scope: str, fmt: str,
+) -> Response:
+    """Render an export using the caller’s authorized database session.
+
+    @param s — Session in which the caller checked draft access.
+    @param draft_id — Accessible Workshop draft.
+    @param kind — Chapters, storyboards, mixed, or outline.
+    @param scope — All episodes or a single episode number.
+    @param fmt — Word, plain text, or Markdown.
+    @returns The download content and media headers.
+    """
     kind = (kind or "chapters").strip()
     fmt = (fmt or "docx").strip().lower()
     scope = (scope or "all").strip()
@@ -3588,25 +3605,20 @@ async def export_unified(
     if kind == "mixed" and one is not None:
         raise HTTPException(400, "mixed 只支持整本导出")
 
-    async with session_scope() as s:
-        draft = await s.get(ScriptDraft, draft_id)
-        if not draft:
-            raise HTTPException(404, "draft not found")
-        title = draft.title or "未命名"
-        # 大纲不在任何表里，它是 script_drafts.outline 这个 JSON 列。
-        # 单独取一份原始 dict（后面 docx / txt / md 三条渲染路都要用）。
-        outline_raw = dict(draft.outline or {}) if kind == "outline" else {}
-        # 分集标题表：剧本导出要用它当副标题（见下面 sb_rows 的注释）。
-        # 在 session 内取出来，避免会话关闭后再碰 ORM 对象。
-        outline_all = {"chapters": list((draft.outline or {}).get("chapters") or [])}
+    draft = await s.get(ScriptDraft, draft_id)
+    if not draft:
+        raise HTTPException(404, "draft not found")
+    title = draft.title or "未命名"
+    outline_raw = dict(draft.outline or {}) if kind == "outline" else {}
+    outline_all = {"chapters": list((draft.outline or {}).get("chapters") or [])}
 
-        ch_stmt = select(ScriptChapter).where(ScriptChapter.draft_id == draft_id)
-        sb_stmt = select(ScriptStoryboard).where(ScriptStoryboard.draft_id == draft_id)
-        if one is not None:
-            ch_stmt = ch_stmt.where(ScriptChapter.chapter_order == one)
-            sb_stmt = sb_stmt.where(ScriptStoryboard.chapter_order == one)
-        chapters = (await s.execute(ch_stmt.order_by(ScriptChapter.chapter_order))).scalars().all()
-        boards = (await s.execute(sb_stmt.order_by(ScriptStoryboard.chapter_order))).scalars().all()
+    ch_stmt = select(ScriptChapter).where(ScriptChapter.draft_id == draft_id)
+    sb_stmt = select(ScriptStoryboard).where(ScriptStoryboard.draft_id == draft_id)
+    if one is not None:
+        ch_stmt = ch_stmt.where(ScriptChapter.chapter_order == one)
+        sb_stmt = sb_stmt.where(ScriptStoryboard.chapter_order == one)
+    chapters = (await s.execute(ch_stmt.order_by(ScriptChapter.chapter_order))).scalars().all()
+    boards = (await s.execute(sb_stmt.order_by(ScriptStoryboard.chapter_order))).scalars().all()
 
     # ── 大纲：走完全独立的一条路，读完直接返回，不碰下面正文/剧本那套 ──
     # 为什么单独返回而不是塞进后面的 ch_rows/sb_rows 流程：那个流程的每个分支

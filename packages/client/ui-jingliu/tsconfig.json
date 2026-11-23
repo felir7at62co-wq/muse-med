@@ -72,6 +72,9 @@
       "path": "../../util/brand"
     },
     {
+      "path": "../../util/crypto"
+    },
+    {
       "path": "../../api/workspace-controller/tsconfig.client.json"
     },
     {

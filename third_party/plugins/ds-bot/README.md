@@ -101,6 +101,10 @@ Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot'
 - To send images, the provider needs `defaultInput: [ text, image ]`.
 - Keep API keys out of the repository. Use dsh's own key storage or environment variables.
 
+## Background work
+
+Open a Bot or group chat’s details to see the background jobs, commands and terminal sessions it owns. Bot details also show its other open conversations. Group details cover its own conversation and those of each member inside that group. Stop ends the selected item. Pause and Resume change when a scheduled task next delivers its prompt. Runs already started by that schedule continue.
+
 ## Memory
 
 A Bot remembers what should last beyond one conversation: your preferences, decisions, corrections and facts it should not ask again. Memory is plain Markdown in the [Agent Memory Repo](https://github.com/AgentMemoryRepo/agentmemoryrepo) format: one entry per line, ending in `[source: …; added: …]`.

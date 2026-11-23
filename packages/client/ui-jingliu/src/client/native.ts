@@ -187,6 +187,18 @@ export function installNative(ctx: Context): void {
         open: (address, { signal }) => once(signal, () => api.scriptDraftEpisode({
           draftId: Number(param(address, 'id')), episode: Number(param(address, 'episode')),
         })) }))
+      const episodeOf = (address: string) => ({ draftId: Number(param(address, 'id')), episode: Number(param(address, 'episode')) })
+      const historyOf = (address: string) => ({
+        ...episodeOf(address), layer: param(address, 'layer') === 'storyboard' ? 'storyboard' as const : 'chapter' as const,
+      })
+      host.effect(() => host.resources.register<'workshop-draft-storyboard'>({ protocol: 'workshop-draft-storyboard',
+        open: (address, { signal }) => once(signal, () => api.scriptDraftStoryboard(episodeOf(address))) }))
+      host.effect(() => host.resources.register<'workshop-draft-history'>({ protocol: 'workshop-draft-history',
+        open: (address, { signal }) => once(signal, () => api.scriptDraftHistory(historyOf(address))) }))
+      host.effect(() => host.resources.register<'workshop-draft-history-entry'>({ protocol: 'workshop-draft-history-entry',
+        open: (address, { signal }) => once(signal, () => api.scriptDraftHistoryEntry({
+          ...historyOf(address), historyId: Number(param(address, 'row')),
+        })) }))
       const inAccount = async <T>(call: () => Promise<T>): Promise<T> => {
         const account = epoch.getSnapshot()
         const value = await call()
@@ -194,6 +206,10 @@ export function installNative(ctx: Context): void {
         return value
       }
       const draftActions: DraftActions = {
+        createDraft: request => inAccount(() => settled(api.createScriptDraft(request))),
+        saveStoryboard: request => inAccount(() => settled(api.saveScriptDraftStoryboard(request))),
+        restoreHistory: request => inAccount(() => settled(api.restoreScriptDraftHistory(request))),
+        exportDraft: request => inAccount(() => settled(api.exportScriptDraft(request))),
         saveEpisode: request => inAccount(() => settled(api.saveScriptDraftEpisode(request))),
         applyCandidate: request => inAccount(() => settled(api.applyScriptDraftCandidate(request))),
         discardCandidate: request => inAccount(() => settled(api.discardScriptDraftCandidate(request))),

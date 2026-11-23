@@ -600,6 +600,8 @@ export function install(rt) {
         }
         case 'stop-chat':
           return ok(await rt.stopChat(String(body.botId ?? '')))
+        case 'stop-open-part':
+          return ok(await rt.stopOpenPart(String(body.botId ?? ''), String(body.sessionId ?? '')))
         case 'dismiss-question':
           await rt.load()
           if (rt.own(state.questions, body.sessionId) !== undefined) {
@@ -660,6 +662,7 @@ export function install(rt) {
         case 'schedules':
         case 'schedule-create':
         case 'schedule-delete':
+        case 'schedule-set-active':
           await rt.load()
           return ok(await rt.scheduleEndpoint(endpoint, body))
         case 'memory-view':

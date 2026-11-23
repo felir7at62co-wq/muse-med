@@ -66,6 +66,8 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 
 同域部署在 Muse 账号站的 `/jubengongfang/` 提供剧本工坊，`/jingliu/` 提供镜流。[路径代理](shared-host/nginx_locations.py)为每次业务请求核验当前 Muse 登录和对应工作台的账号绑定，业务接口接收自己的令牌。入口页按浏览器标签页和关联账号保存原版页面所需的状态。两个应用共享 Muse 网页源，这些路径只应提供公司管理的应用代码。
 
+普通编辑在部署后的 Muse 完成新建、导入、分场编辑、历史恢复和导出后，可以收起旧工坊网页入口。从客户端 UI 插件配置移除 `workshopOrigin`，并在同域代理配置的 JSON 中设置 `archiveWorkshopWeb: true`，配套发布网页路由和边缘服务。管理员回退入口为 `/jubengongfang/_archive`，使用绑定了工坊账号的 Muse 管理员登录。保留该入口所需的旧网页发布版本。工坊 API 和工作进程继续运行。需要重新开放旧入口时，恢复客户端 UI 配置并设置 `archiveWorkshopWeb: false`。
+
 用 [prepare.py](shared-host/prepare.py) 适配两套原版前端，用 [prepare_uploads.py](shared-host/prepare_uploads.py) 配置工坊上传目录，再以 `NEXT_PUBLIC_ORCHESTRATOR_URL=/jubengongfang` 构建 Next。服务器上的 [provision.py](shared-host/provision.py) 在 `/srv/muse-workbenches/config` 下初始化各服务凭据和首名已核验成员。账号代理和业务接口共用各应用的 `bindings/*.json` 文件。工坊使用独立的 PostgreSQL、Redis 和任务进程。镜流将 SQLite 和素材保存在自己的数据目录。桌面和网页共用已登录账号的素材目录。已有部署先运行 `install.py --audience jingliu --library-only --backend <backend> --frontend <studio-site>`，再使用镜流服务的环境和 Python 路径运行 `import_character_references.py <verified-export>`。导入会校验每张原图的摘要、保留元数据和使用范围，重复执行时跳过相同记录。[activate.py](shared-host/activate.py) 检查生成的路径配置后平滑重载现有 Muse HTTPS 站点。
 
 ### Muse 桌面与独立站

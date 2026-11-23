@@ -48,7 +48,7 @@ A session belongs to the Muse login that opened it. It is discarded when Muse an
 
 `workshopConnection` is also a Typert Remote service for the Client's 剧本 tab: `scripts` reads one page of the finalized-script library with counts per stage, `script` reads one script with its versions and one version's episodes, `pickScript` picks a version for production, and `scriptProduction` records the Jingliu project a picked script became. Every member can read the library; the Workshop refuses `pickScript` and `scriptProduction` without the `script_pick` permission. `scriptList`, `scriptDetail` and `scriptOf` check the responses; one that does not match fails with `WORKSHOP_INVALID_RESULT`.
 
-The draft editor uses the same signed-in account for draft search, episode reads, candidate review, and publishing. Only the owner of the Muse connection can invoke these draft methods remotely. A save targets one episode revision, and a publish targets the reviewed whole-draft revision.
+The draft editor uses the same signed-in account for draft creation and import, episode and structured screenplay edits, candidate review, version restore, export, and publishing. Only the owner of the Muse connection can invoke these draft methods remotely. A save or restore targets one episode revision. A publish targets the reviewed whole-draft revision.
 
 <a id="model-experience"></a>
 ## Model Experience

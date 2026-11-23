@@ -108,6 +108,31 @@ test('the state lists the live open part and reads its run state, while chatOf s
   assert.deepEqual(rt.partsOfThread('w1', 'w3').map(part => part.sessionId), ['w4', 'w3'])
 })
 
+test('stopping an open conversation targets that Bot’s exact part without stopping its current conversation', async (t) => {
+  const { call, rt } = await team(t)
+  await rt.load()
+  const cancelled = []
+  rt.resolveAgent = async id => ({ cancel: () => cancelled.push(id) })
+  rt.live.set('m1', { turn: {} })
+  rt.live.set('w2', { turn: {} })
+  rt.live.set('w3', { turn: {} })
+  assert.equal((await call('stop-open-part', { botId: 'm1', sessionId: 'w3' })).value, false)
+  assert.equal((await call('stop-open-part', { botId: 'w1', sessionId: 'w2' })).value, false)
+  assert.equal((await call('stop-open-part', { botId: 'w1', sessionId: 'w3' })).value, true)
+  assert.deepEqual(cancelled, ['w3'])
+})
+
+test('a new turn that replaces the selected one before the Agent resolves continues running', async (t) => {
+  const { call, rt } = await team(t)
+  await rt.load()
+  rt.live.set('w3', { turn: {} })
+  rt.resolveAgent = async () => {
+    rt.live.set('w3', { turn: {} })
+    return { cancel: () => assert.fail('the replacement turn must keep running') }
+  }
+  assert.equal((await call('stop-open-part', { botId: 'w1', sessionId: 'w3' })).value, false)
+})
+
 // A background thread that moved on twice keeps its own earlier parts: reading one of
 // them goes on in that thread, not in the foreground chain.
 const MOVED_BACK = {

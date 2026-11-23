@@ -1,8 +1,9 @@
 """Render nginx locations for the two applications under the existing Muse TLS server."""
-def gate(mount, upstream, native=False):
+def gate(mount, upstream, native=False, *, auth_check=None):
+    auth_check = auth_check or mount
     block = f"""
     set $wb_original_method $request_method;
-    auth_request /_muse_wb_auth_{mount};
+    auth_request /_muse_wb_auth_{auth_check};
     auth_request_set $wb_{mount}_bearer $upstream_http_x_workbench_authorization;
     proxy_set_header Authorization $wb_{mount}_bearer;
     proxy_set_header Cookie "";
@@ -35,11 +36,8 @@ def route(path, contents):
     return "location " + path + " {" + contents + "}\n"
 
 
-def render():
-    blocks = []
-    for mount in ("jubengongfang", "jingliu"):
-        blocks.append(route(f"= /{mount}", f" return 308 /{mount}/; "))
-        blocks.append(route(f"= /_muse_wb_auth_{mount}", f"""
+def auth_location(name, path):
+    return route(f"= /_muse_wb_auth_{name}", f"""
     internal;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
@@ -49,17 +47,28 @@ def render():
     proxy_set_header X-Workbench-Path $request_uri;
     proxy_set_header Authorization "";
     access_log off;
-    proxy_pass http://127.0.0.1:19740/check/{mount};
-"""))
-        for endpoint, kind in (("/", "enter"), ("/_session", "session")):
-            blocks.append(route(f"= /{mount}{endpoint}", f"""
+    proxy_pass http://127.0.0.1:19740/{path};
+""")
+
+
+def edge_location(mount, endpoint, kind):
+    return route(f"= /{mount}{endpoint}", f"""
     proxy_set_header Cookie $http_cookie;
     proxy_set_header Authorization "";
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
     access_log off;
     proxy_pass http://127.0.0.1:19740/{kind}/{mount};
-"""))
+""")
+
+
+def render():
+    blocks = []
+    for mount in ("jubengongfang", "jingliu"):
+        blocks.append(route(f"= /{mount}", f" return 308 /{mount}/; "))
+        blocks.append(auth_location(mount, f"check/{mount}"))
+        for endpoint, kind in (("/", "enter"), ("/_session", "session")):
+            blocks.append(edge_location(mount, endpoint, kind))
         blocks.append(route(f"= /{mount}/_store.js", """
     alias /srv/muse-workbenches/current/muse_storage.js;
     default_type application/javascript;
@@ -77,7 +86,11 @@ def render():
         blocks.append(route("^~ /jubengongfang/" + api + "/", gate("jubengongfang", "http://127.0.0.1:19741/v1/", True)))
     for path in ("login", "register", "v1/auth/muse/login"):
         blocks.append(route("= /jubengongfang/" + path, " return 302 /jubengongfang/; "))
-    blocks.append(route("^~ /jubengongfang/", gate("jubengongfang", "http://127.0.0.1:19742")))
+    blocks.append(edge_location("jubengongfang", "/_archive", "archive"))
+    blocks.append(auth_location("workshop_web", "check-web/jubengongfang"))
+    blocks.append(route("^~ /jubengongfang/", gate(
+        "jubengongfang", "http://127.0.0.1:19742", auth_check="workshop_web",
+    )))
     blocks.append(route("= /jingliu/fwp/v2/auth/muse/internal-session", " return 404; "))
     blocks.append(route("= /jingliu/fwp/v2/auth/muse/login", " return 302 /jingliu/; "))
     blocks.append(route("^~ /jingliu/fwp/", gate("jingliu", "http://127.0.0.1:19743/", True)))

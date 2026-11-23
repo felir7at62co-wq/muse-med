@@ -1,5 +1,4 @@
-// Scheduled tasks: Settings → Scheduled tasks, a Bot's card in its settings, and the
-// line in its details panel. DSH runs the tasks (see src/host/schedules.js); a task
+// Scheduled tasks, shared between Settings and the details panel. A task
 // sends its prompt to the Bot's chat when it is due.
 import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { BotAvatar, RoomAvatar } from './mark.js'
@@ -11,8 +10,10 @@ const POLL_MS = 30_000
 
 // One view for every surface that shows tasks; each asks again when it mounts.
 let shared = null
+let revision = 0
 const listeners = new Set()
-function publish(view) {
+export function publishSchedules(view) {
+  revision++
   shared = view
   for (const listener of listeners) listener(view)
 }
@@ -22,10 +23,13 @@ export function useSchedules(actions) {
     listeners.add(setView)
     let stopped = false
     let timer
-    const load = () => actions.schedules?.()
-      .then((next) => { if (!stopped) publish(next) })
-      .catch(() => {})
-      .finally(() => { if (!stopped) timer = setTimeout(load, POLL_MS) })
+    const load = () => {
+      const requestedAt = revision
+      actions.schedules?.()
+        .then((next) => { if (!stopped && requestedAt === revision) publishSchedules(next) })
+        .catch(() => {})
+        .finally(() => { if (!stopped) timer = setTimeout(load, POLL_MS) })
+    }
     load()
     return () => { stopped = true; clearTimeout(timer); listeners.delete(setView) }
   }, [])
@@ -77,7 +81,7 @@ export function timingText(task) {
     default: return ''
   }
 }
-const nextText = (task) => {
+export const nextScheduleText = (task) => {
   if (task.state === 'overdue' || (task.state === undefined && task.status === 'active' && Date.parse(task.scheduledAt) <= Date.now())) return t('Overdue: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) })
   if (task.status === 'paused') return t('Paused')
   return task.status === 'active' ? t('Next: {time}', { time: dayAndTime(Date.parse(task.scheduledAt)) }) : t('Finished')
@@ -104,7 +108,7 @@ function TaskRow({ task, actions, onView, showBot, roster }) {
       h('span', { className: 'bt-task-title' }, task.title),
       h('span', { className: 'bt-set-hint' }, [timingText(task), room ? t('in {name}', { name: room.name }) : ''].filter(Boolean).join(' · ')),
       task.prompt && task.prompt !== task.title ? h('span', { className: 'bt-task-prompt', 'data-open': expanded || undefined }, task.prompt) : null),
-    h('span', { className: 'bt-task-next', 'data-state': task.state === 'overdue' ? 'overdue' : undefined }, nextText(task)),
+    h('span', { className: 'bt-task-next', 'data-state': task.state === 'overdue' ? 'overdue' : undefined }, nextScheduleText(task)),
     h('button', {
       type: 'button', className: 'bt-mini bt-task-remove', 'data-confirm': confirming || undefined, disabled: busy,
       'aria-label': confirming ? t('Click again to delete') : t('Delete task'), title: confirming ? undefined : t('Delete task'), onClick: remove,
@@ -199,7 +203,7 @@ export function SchedulesPage({ roster, actions, start }) {
   const [adding, setAdding] = useState(Boolean(start) && owner === null)
   if (view === null) return h('div', { className: 'bt-set-hint' }, t('Loading…'))
   if (!view.available) return h(AutomationOff, { actions })
-  const shown = next => { publish(next); setAdding(false) }
+  const shown = next => { publishSchedules(next); setAdding(false) }
   const byChat = [
     ...roster.bots.map(bot => [bot.id, h(BotAvatar, { bot, size: 18, badge: false, live: false }), bot.name, view.tasks.filter(task => task.botId === bot.id)]),
     ...roster.rooms.map(room => [room.id, h(RoomAvatar, { room, roster, size: 18 }), room.name, view.tasks.filter(task => task.botId === undefined && task.roomId === room.id)]),
@@ -217,7 +221,7 @@ export function SchedulesPage({ roster, actions, start }) {
           index === 0
             ? h('div', { className: 'bt-la-sec-head' }, h('h3', { className: 'bt-task-head' }, avatar, name), addBar)
             : h('h3', { className: 'bt-task-head' }, avatar, name),
-          h('div', { className: 'bt-set-card' }, tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish }))))),
+          h('div', { className: 'bt-set-card' }, tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publishSchedules }))))),
   ]
 }
 
@@ -234,25 +238,9 @@ export function BotSchedules({ bot, roster, actions }) {
             h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-set-hint' }, t('Switch on Automation tasks on the Plugins page in Settings.'))),
             h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('dsh', 'plugins') }, t('Open Plugins')))
         : [
-            ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publish })),
+            ...tasks.map(task => h(TaskRow, { key: task.id, task, actions, roster, onView: publishSchedules })),
             h('button', { key: 'new', type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add', onClick: () => actions.openSettings('schedules', bot.id) }, h(PlusIcon), t('New task')),
           ]))
-}
-
-// The details panel's line: the Bot's next tasks, or how to add one.
-export function ScheduleSummary({ bot, actions }) {
-  const view = useSchedules(actions)
-  const tasks = view?.available ? view.tasks.filter(task => task.botId === bot.id && task.status === 'active') : []
-  const title = h('div', { className: 'bt-section-title' }, tasks.length === 0 ? t('Scheduled tasks') : t('Scheduled tasks · {count}', { count: tasks.length }))
-  return h('div', null,
-    // Muse: with tasks listed, the plus beside the title adds another; the empty line below is the way in otherwise.
-    tasks.length === 0 ? title : h('div', { className: 'bt-members-head' }, title,
-      h('button', { type: 'button', className: 'bt-icon-btn', 'aria-label': t('New task'), title: t('New task'), onClick: () => actions.openSettings('schedules', bot.id) }, h(PlusIcon))),
-    tasks.length === 0
-      ? h('button', { type: 'button', className: 'bt-more', onClick: () => actions.openSettings('schedules', bot.id) }, view?.available === false ? t('Switch on Automation tasks on the Plugins page in Settings.') : t('No scheduled tasks yet. Add one'))
-      : h('div', { className: 'bt-task-list' }, tasks.slice(0, 3).map(task => h('button', { key: task.id, type: 'button', className: 'bt-task-line', onClick: () => actions.openSettings('schedules', `bot:${bot.id}`) },
-
-          h(ClockIcon), h('span', { className: 'bt-task-line-title' }, task.title), h('span', { className: 'bt-task-line-when' }, timingText(task))))))
 }
 
 export const SCHEDULE_CSS = `
@@ -291,12 +279,6 @@ export const SCHEDULE_CSS = `
 .bt-task-off-mark svg{width:20px;height:20px}
 .bt-task-off-title{font-size:14px;line-height:20px;font-weight:600}
 .bt-task-off .bt-set-hint{max-width:380px}
-.bt-task-list{display:flex;flex-direction:column;gap:2px}
-.bt-task-line{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:6px 8px;border:0;border-radius:8px;background:none;color:var(--bt-ink);font:inherit;font-size:13px;text-align:left;cursor:pointer;transition:background-color .12s ease}
-.bt-task-line:hover{background:var(--bt-hover)}
-.bt-task-line svg{flex:none;color:var(--bt-ink-3)}
-.bt-task-line-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bt-task-line-when{flex:none;font-size:12px;color:var(--bt-ink-3)}
 @media (prefers-reduced-motion:reduce){.bt-task-form{animation:none}}
 /* Phone-width viewports: the form's fixed minimums would overflow; let the
    fields wrap and share the row. */
