@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-22-video-character-observations.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-22-video-character-observations.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-22-video-character-observations:
+  en: 965a0a0362562a6c
+  zh: 59655bcd06b1dbb3
+/2026-11-22-video-character-observations/summary:
+  en: 4b9ccef7d977d36e
+  zh: 5ebb2a4d4e88ba95
+/2026-11-22-video-character-observations/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-22-video-character-observations/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-22-video-character-observations/compatibility:
+  en: c305b03f9e091b4c
+  zh: a6ab207b83f6c221
+/2026-11-22-video-character-observations/verification:
+  en: 573c1153768ce3b5
+  zh: f317815397e638cf
+/2026-11-22-video-character-observations/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269
