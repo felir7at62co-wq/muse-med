@@ -248,6 +248,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
       ui.set(state => (state.readOnlyPart === null ? state : { ...state, readOnlyPart: null }))
       return after(call('stop-chat', { botId }))
     },
+    stopOpenPart: (botId, sessionId) => after(call('stop-open-part', { botId, sessionId })),
     stopRoomWork: roomId => after(call('stop-room-work', { roomId })),
     goalDraft: (roomId, text) => after(call('goal-draft', { roomId, text })),
     goalControl: (roomId, goalId, action, stopWork) => after(call('goal-control', { roomId, goalId, action, ...(stopWork ? { stopWork: true } : {}) })),
@@ -308,6 +309,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     schedules: () => call('schedules'),
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
+    scheduleSetActive: (task, active) => call('schedule-set-active', { sessionId: task.sessionId, id: task.id, updatedAt: task.updatedAt ?? null, active }),
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
     exchangeText: (id, a, b) => call('exchange-text', { id, ...(a !== undefined && b !== undefined ? { a, b } : {}) }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),

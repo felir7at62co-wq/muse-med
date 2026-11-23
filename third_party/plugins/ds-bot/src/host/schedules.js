@@ -125,7 +125,7 @@ export function install(rt) {
         : entry.status === 'paused' ? 'paused' : 'finished'
       tasks.push({ ...entry, sessionId, ...owner, state })
     }
-    return { available: true, tasks }
+    return { available: true, canSetActive: hostWide(service), tasks }
   }
 
   const endpoints = {
@@ -157,6 +157,17 @@ export function install(rt) {
       } else {
         await service.delete({ sessionId: body.sessionId, id: body.id })
       }
+      return schedulesView()
+    },
+    async 'schedule-set-active'(body) {
+      if (service === null || !hostWide(service)) throw invalid('Pausing scheduled tasks is unavailable')
+      if (typeof body.sessionId !== 'string' || !known(ownerOf(body.sessionId)) || typeof body.id !== 'string'
+        || typeof body.active !== 'boolean' || (body.updatedAt !== null && typeof body.updatedAt !== 'string')) throw invalid('No such task')
+      const entry = (await service.catalog()).find(task => task.id === body.id && sessionOf(task) === body.sessionId)
+      if (entry === undefined || entry.status === 'ended') throw invalid('No such task')
+      const result = await service.edit({ id: entry.id, action: 'update', patch: { active: body.active }, expectedUpdatedAt: body.updatedAt })
+      if (result.code === 'schedule_conflict') throw invalid('This task changed. Refresh and try again')
+      if (result.code === 'schedule_not_found') throw invalid('No such task')
       return schedulesView()
     },
   }

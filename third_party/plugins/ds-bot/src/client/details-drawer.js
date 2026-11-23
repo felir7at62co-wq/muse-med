@@ -11,7 +11,6 @@ import { GroupSettingsForm, ROOM_MODES, roomSubtitle, shownMode } from './group-
 import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
-import { ScheduleSummary } from './schedules.js'
 import { useGlide, useMorph } from './motion.js'
 import { MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
 import { canSetGoal, goalView, hasGoalAdmin } from './goal.js'
@@ -21,7 +20,7 @@ import { ComputerView } from './computer.js'
 import { t } from './i18n.js'
 import { DRAWER_TAB_LABELS, drawerTabOf, drawerTabs, drawerTools, listTabOf, platformOfTab, projectOfTab, scriptOfTab, terminalOfTab } from './side-model.js'
 import { TerminalCards } from './terminal-cards.js'
-import { BotBackground, GroupBackground } from './background-panel.js'
+import { BackgroundPanel, botBackgroundSources, groupBackgroundSources } from './background-panel.js'
 import { FilesTree } from './files-tree.js'
 
 // Muse: a row of tabs sits under the Bot's name and each tab's content shows under it: the
@@ -208,7 +207,7 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
       h('div', { className: 'bt-members', role: 'list' }, members.map(member => h(MemberRow, {
         key: member.id, member, entry: entries.find(item => item.id === member.id), room, roster, actions,
       })))),
-    h(GroupBackground, { key: 'background', room, roster, actions }),
+    h(BackgroundPanel, { key: 'background', sources: groupBackgroundSources(room, roster.byId), room, bots: roster.byId, readOnly: roster.readOnly, actions }),
     h('div', { key: 'tasks' }, h(TaskBoard, { room, roster, actions })),
     h('div', { key: 'goal' }, h('div', { className: 'bt-section-title' }, t('Goal')),
       h('div', { className: 'bt-kv' },
@@ -269,6 +268,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
   const running = useSessionStatus(map => map.get(part)?.running === true)
   const awaitingInput = useSessionStatus(map => map.get(part)?.pendingInteraction !== undefined)
   const completedAt = useWork(work => work.completed?.[part])
+  const turns = useWork(work => work.turns)
   const doing = useActivity(map => map[bot?.id ?? sessionId])
   const usage = useSessions(list => usageOf(list, [part, ...(bot?.parts ?? room?.parts ?? [])]))
   const run = promise => Promise.resolve(promise)
@@ -388,7 +388,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
       bot && tab === 'details' ? [
         h(RunStats, { key: 'stats', bot, part, running, actions }),
         // Muse: what runs in the background comes first; the settings follow.
-        h(BotBackground, { key: 'background', sessionId, part, tabs: terminals, actions }),
+        h(BackgroundPanel, { key: 'background', sources: botBackgroundSources(bot, part), botId: bot.id, tabs: terminals, turns, useSessions, readOnly: roster.readOnly, actions }),
         h('div', { key: 'model', className: 'bt-drawer-model' },
           h('div', { className: 'bt-section-title' }, t('Model')),
           h(ModelMenu, { bot, roster, actions, run, wide: true, inline: true }),
@@ -407,7 +407,6 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
         roster.memory === false ? null : h(MemoryRow, { key: 'memory', owner: { id: bot.id, name: bot.name }, actions }),
         usage ? h('div', { key: 'usage' }, h('div', { className: 'bt-section-title' }, t('Usage')),
           h('div', { className: 'bt-kv' }, h('span', null, t('Language model')), h('span', null, usage))) : null,
-        h(ScheduleSummary, { key: 'routines', bot, actions }),
       ] : null,
       bot && tab === 'browser' ? h(BrowserCards, { bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) : null)]
 }

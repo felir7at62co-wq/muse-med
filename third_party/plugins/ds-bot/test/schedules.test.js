@@ -72,12 +72,21 @@ function hostSchedule() {
       return { id }
     },
     async catalog() {
-      return [...tasks.values()].map(task => ({ ...task.record, target: task.target, status: task.status }))
+      return [...tasks.values()].map(task => ({ ...task.record, target: task.target, status: task.status, updatedAt: task.updatedAt }))
     },
     async edit(request) {
       edits.push(request)
+      const task = tasks.get(request.id)
+      if (task === undefined) return { id: request.id, code: 'schedule_not_found' }
+      if (request.expectedUpdatedAt !== undefined && request.expectedUpdatedAt !== (task.updatedAt ?? null)) {
+        return { id: request.id, code: 'schedule_conflict' }
+      }
       if (request.action === 'delete') tasks.delete(request.id)
-      else Object.assign(tasks.get(request.id), request.patch)
+      else {
+        Object.assign(task, request.patch)
+        if (request.patch.active !== undefined) task.status = request.patch.active ? 'active' : 'paused'
+        task.updatedAt = new Date(edits.length).toISOString()
+      }
       return { id: request.id }
     },
   }
@@ -115,6 +124,32 @@ test('a time with seconds, as a browser\'s time picker can report it, is accepte
     assert.equal(created.ok, true, JSON.stringify(created))
     assert.deepEqual([...schedule.tasks.values()].at(-1).record.timing, timing)
   }
+})
+
+test('a scheduled task can pause and resume only at the same destination and revision', async (t) => {
+  const schedule = hostSchedule()
+  const { ctx, home, call } = setup({ schedule })
+  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
+  const when = { kind: 'daily', time: '09:00', timeZone: 'UTC' }
+  const created = await call('schedule-create', { target: 'w1', title: 'Brief', prompt: 'Summarize', when })
+  const groupMade = await call('schedule-create', { target: 'g1', title: 'Standup', prompt: 'Discuss', when })
+  assert.equal(created.value.canSetActive, true)
+  assert.equal(groupMade.ok, true)
+  const task = created.value.tasks[0]
+  const payload = { id: task.id, sessionId: task.sessionId, updatedAt: null, active: false }
+  const wrongChat = await call('schedule-set-active', { ...payload, sessionId: 'g1' })
+  assert.equal(wrongChat.ok, false)
+  assert.equal(schedule.edits.length, 0)
+  const paused = await call('schedule-set-active', payload)
+  assert.equal(paused.value.tasks.find(item => item.id === task.id).state, 'paused')
+  assert.equal(paused.value.tasks.find(item => item.roomId === 'g1').status, 'active')
+  const stale = await call('schedule-set-active', { ...payload, active: true })
+  assert.equal(stale.ok, false)
+  assert.match(stale.error.message, /changed/)
+  assert.equal(schedule.tasks.get(task.id).status, 'paused')
+  const updatedAt = paused.value.tasks.find(item => item.id === task.id).updatedAt
+  const resumed = await call('schedule-set-active', { ...payload, updatedAt, active: true })
+  assert.equal(resumed.value.tasks.find(item => item.id === task.id).status, 'active')
 })
 
 test('tasks are created on the Bot’s current part, listed by Bot, and deleted', async (t) => {
