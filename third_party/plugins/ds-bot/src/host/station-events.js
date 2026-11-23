@@ -1,7 +1,8 @@
-// Muse: the data station's 储备 changes wake the main Bot. The station posts signed batches of job
-// changes to one route; each verified batch becomes one message in the main Bot's own chat, so the
-// main Bot can hand transcription out. The route is off unless MUSE_STATION_EVENTS_SECRET_FILE names
-// a private file holding the secret the station signs with.
+// Muse: the data station's 储备 changes wake the Bot that supervises transcription. The station posts
+// signed batches of job changes to one route; each verified batch becomes one message in that Bot's own
+// chat: the Bot named by MUSE_STATION_EVENTS_BOT (config `stationEventsBot`), or the first main Bot when
+// none is named. The route is off unless MUSE_STATION_EVENTS_SECRET_FILE names a private file holding
+// the secret the station signs with.
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { readFileSync, lstatSync } from 'node:fs'
 
@@ -28,7 +29,7 @@ export function verifySignature(secret, timestamp, body, signature) {
 const named = event => `《${event.title || event.workId}》`
 const why = event => (event.note ? `（${event.note}）` : '')
 
-// One line per change, in the words the main Bot works with.
+// One line per change, in the words the supervising Bot works with.
 export function describeEvent(event) {
   if (event.note === '立即转写') return `立即转写：${named(event)}，${event.actor} 发起`
   switch (event.to) {
@@ -44,7 +45,7 @@ export function describeEvent(event) {
 }
 
 export function describeDelivery(events) {
-  return ['【储备变化】数据站自动通知，不是用户发的消息；按技能 hit-transcription-dispatch 处理。', ...events.map(event => `- ${describeEvent(event)}`)].join('\n')
+  return ['【储备变化】数据站自动通知，不是用户发的消息；按技能 transcription-supervision 处理。', ...events.map(event => `- ${describeEvent(event)}`)].join('\n')
 }
 
 function validEvents(value) {
@@ -77,6 +78,9 @@ export function install(rt) {
   const { ctx } = rt
   const secretFile = rt.config.stationEventsSecretFile ?? process.env.MUSE_STATION_EVENTS_SECRET_FILE
   if (!secretFile) return
+  const botName = rt.config.stationEventsBot ?? process.env.MUSE_STATION_EVENTS_BOT
+  // A named Bot that does not exist is refused (503) rather than redirected, so the station keeps the batch.
+  const target = () => (botName ? rt.findBot(botName)?.id : rt.state.mainBotIds?.[0])
   const seen = []
   const reply = (response, status, body) => {
     response.statusCode = status
@@ -98,9 +102,12 @@ export function install(rt) {
       if (parsed === undefined) return reply(response, 400, { error: 'events' })
       // The station sends a batch again until it is acknowledged; a repeat is acknowledged without a second message.
       if (seen.includes(parsed.deliveryId)) return reply(response, 200, { accepted: 0, repeated: true })
-      const mainBotId = rt.state.mainBotIds?.[0]
-      if (mainBotId === undefined) return reply(response, 503, { error: 'no-main-bot' })
-      await rt.sendUser({ sessionId: mainBotId, content: [{ type: 'text', text: describeDelivery(parsed.events) }], requestId: `station:${parsed.deliveryId}` })
+      const botId = target()
+      if (botId === undefined) {
+        if (botName) rt.warn?.('ds-bot: station events: no Bot is named %s', botName)
+        return reply(response, 503, { error: botName ? 'no-named-bot' : 'no-main-bot' })
+      }
+      await rt.sendUser({ sessionId: botId, content: [{ type: 'text', text: describeDelivery(parsed.events) }], requestId: `station:${parsed.deliveryId}` })
       seen.push(parsed.deliveryId)
       if (seen.length > REMEMBERED_DELIVERIES) seen.shift()
       return reply(response, 202, { accepted: parsed.events.length })

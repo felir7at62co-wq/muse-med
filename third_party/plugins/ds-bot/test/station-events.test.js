@@ -1,4 +1,4 @@
-// Muse: the data station's signed 储备 changes reach the main Bot's chat as one message per batch.
+// Muse: the data station's signed 储备 changes reach the supervising Bot's chat as one message per batch.
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -13,7 +13,7 @@ const NOW = 1_795_200_000_000
 const sign = (timestamp, body, secret = SECRET) => 'sha256=' + createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')
 const event = patch => ({ id: 1, workId: 'hongguo:7460844307990187033', title: '好一个乖乖女', at: '2026-11-21T00:00:00.000Z', from: null, to: 'queued', actor: 'selection', note: '新上榜作品入选', ...patch })
 
-function harness({ mainBotIds = ['main-bot'], secretMode = 0o600, writeSecret = true } = {}) {
+function harness({ mainBotIds = ['main-bot'], secretMode = 0o600, writeSecret = true, stationEventsBot, bots = {} } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'station-events-'))
   const secretFile = join(directory, 'secret')
   if (writeSecret) { writeFileSync(secretFile, `${SECRET}\n`); chmodSync(secretFile, secretMode) }
@@ -21,8 +21,9 @@ function harness({ mainBotIds = ['main-bot'], secretMode = 0o600, writeSecret = 
   const routes = []
   const disposed = []
   const rt = {
-    config: { stationEventsSecretFile: secretFile },
+    config: { stationEventsSecretFile: secretFile, ...(stationEventsBot ? { stationEventsBot } : {}) },
     state: { mainBotIds },
+    findBot: ref => Object.values(bots).find(bot => bot.id === ref || bot.name === ref),
     now: () => NOW,
     warn: () => {},
     sendUser: async (message) => { sent.push(message) },
@@ -67,10 +68,24 @@ test('a signed batch becomes one message in the main Bot chat, and a repeat is a
     assert.equal(h.sent.length, 1)
     assert.equal(h.sent[0].sessionId, 'main-bot')
     assert.equal(h.sent[0].requestId, 'station:7-8')
-    assert.equal(h.sent[0].content[0].text, '【储备变化】数据站自动通知，不是用户发的消息；按技能 hit-transcription-dispatch 处理。\n- 新入储备：《好一个乖乖女》（新上榜作品入选）\n- 立即转写：《hongguo:2》，成员甲 发起')
+    assert.equal(h.sent[0].content[0].text, '【储备变化】数据站自动通知，不是用户发的消息；按技能 transcription-supervision 处理。\n- 新入储备：《好一个乖乖女》（新上榜作品入选）\n- 立即转写：《hongguo:2》，成员甲 发起')
     assert.deepEqual(await h.post(batch), { status: 200, body: { accepted: 0, repeated: true } })
     assert.equal(h.sent.length, 1)
   } finally { h.cleanup() }
+})
+
+test('a named Bot receives the batches, and a name no Bot has makes the station retry', async () => {
+  const bots = { 'main-bot': { id: 'main-bot', name: 'Muse' }, 'script-bot': { id: 'script-bot', name: '剧本管理' } }
+  const named = harness({ stationEventsBot: '剧本管理', bots })
+  try {
+    assert.deepEqual(await named.post({ deliveryId: '2-2', events: [event({ to: 'published', note: null })] }), { status: 202, body: { accepted: 1 } })
+    assert.equal(named.sent[0].sessionId, 'script-bot')
+  } finally { named.cleanup() }
+  const gone = harness({ stationEventsBot: '剧本组', bots })
+  try {
+    assert.deepEqual(await gone.post({ deliveryId: '3-3', events: [event({})] }), { status: 503, body: { error: 'no-named-bot' } })
+    assert.equal(gone.sent.length, 0)
+  } finally { gone.cleanup() }
 })
 
 test('forged, stale, malformed and misdirected deliveries are refused before any message', async () => {
