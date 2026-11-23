@@ -50,6 +50,9 @@
 /muse-accounts-gateway/release-inputs/model-request-diagnostics:
   en: 9386a54ab336f13a
   zh: 47b6dfbc0f791a61
+/muse-accounts-gateway/release-inputs/deepseek-flash-supplier-routing:
+  en: 75addc44f17b7031
+  zh: 5487e87ac9e0707e
 /muse-accounts-gateway/release-inputs/model-key-pools:
   en: 10e14583e3d4087d
   zh: b4cb6fb5aaeed818
