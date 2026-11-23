@@ -1016,18 +1016,32 @@ it('compares recorded observations with the actual draft without completing pend
   expect(h.results().at(-1)?.isError).toBe(false)
 }, 30_000)
 
-it('returns source time windows and cached original image blocks without extraction or observation changes', async () => {
+it('returns the source window index from scan and status only, and cached original image blocks without extraction or observation changes', async () => {
   const h = await fixture({ config: { reviewTimelineWindowSeconds: 1 } })
   const transcript = join(h.root, 'timeline-asr.json')
   await writeFile(transcript, JSON.stringify([{ start: 0, end: 1, text: '先别走。', speaker_id: '1' }]))
   await h.run(h.call('scan', { transcript_path: transcript }), h.record, undefined)
-  const automaticallyReturned = h.results().at(-1)?.content.find(block => block.type === 'text')
-  if (automaticallyReturned?.type !== 'text') throw Error('Missing ordinary observation result')
-  expect(JSON.parse(automaticallyReturned.text)).toMatchObject({ source_timeline_index: {
-    available: true, total_windows: 3, scan_complete: true, pending_frames: h.review().frames.length - 2,
+  const [scanned, observed] = h.results().slice(-2).map(result => result.content.find(block => block.type === 'text'))
+  if (scanned?.type !== 'text' || observed?.type !== 'text') throw Error('Missing scan or observation result')
+  expect(JSON.parse(scanned.text)).toMatchObject({ source_timeline_index: {
+    available: true, total_windows: 3, scan_complete: true, pending_frames: h.review().frames.length,
     speech_status: 'available', speech_segment_count: 1,
     windows: [{ window_id: 'W00001', speech_segment_ids: ['S00001'] }, { window_id: 'W00002' }, { window_id: 'W00003' }],
   } })
+  expect(JSON.parse(observed.text)).not.toHaveProperty('source_timeline_index')
+  await h.run(h.call('status'), undefined)
+  const status = h.results().at(-1)?.content.find(block => block.type === 'text')
+  if (status?.type !== 'text') throw Error('Missing status result')
+  expect(JSON.parse(status.text)).toMatchObject({ source_timeline_index: { pending_frames: h.review().frames.length - 2,
+    windows: [{ window_id: 'W00001' }, { window_id: 'W00002' }, { window_id: 'W00003' }] } })
+  const recorded = h.review().frames.find(value => value.observation !== undefined)!
+  await h.run(h.call('revisit', { frame_ids: [recorded.id] }), h.call('events', { event_groups: [] }), h.call('next'), undefined)
+  for (const result of h.results().slice(-3)) {
+    const text = result.content.find(block => block.type === 'text')
+    if (text?.type !== 'text') throw Error('Missing follow-up result')
+    expect(result.isError).toBe(false)
+    expect(JSON.parse(text.text)).not.toHaveProperty('source_timeline_index')
+  }
   const before = JSON.stringify(h.review()), options = { windowSeconds: 1, maxTranscriptBytes: 4096,
     maxBytes: 100_000, maxFrames: 2 }
   const summary = Video.videoReviewSummaries(h.readReviews, h.agent.session)[0]!

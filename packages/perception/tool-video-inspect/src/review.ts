@@ -388,8 +388,9 @@ export async function applyCompleteReview(ctx: Context, config: Config,
               current_version: link.transcript_reference.version, reason: error.message, notice: unavailableNotice } }))
           }
         }
+        // Only scan and status carry the window index; per-batch results would otherwise repeat it on every observe.
         const indexed = (result: ReviewResult, review: VideoReview, link: ReviewSpeechLink): ReviewResult => {
-          if (!review.id) return result
+          if (!review.id || args.method !== 'scan' && args.method !== 'status') return result
           const timeline = buildVideoSourceTimeline(review, { windowSeconds: config.reviewTimelineWindowSeconds },
             link.speech, link.speech_unavailable)
           const summary: NonNullable<ReviewResult['source_timeline_index']> = { available: true,
