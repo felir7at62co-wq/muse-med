@@ -2,19 +2,14 @@
 import { once } from 'node:events'
 
 /**
- * Close one SDK connection without leaving an unobserved close listener after failure.
+ * Close one SDK connection and wait until its socket has closed.
+ * The SDK's `close()` removes every socket listener before it terminates the socket, so the
+ * close listener is attached only after `close()` returns; `terminate()` emits `close` later.
  * @param {object | null} client SDK client whose pinned wsConfig exposes its current socket.
  * @returns {Promise<void>} Settles after socket closure, or rejects with the close failure.
  */
 export async function closeMuseImSocket(client) {
   const socket = client?.wsConfig?.getWSInstance?.()
-  const controller = new AbortController()
-  const closed = socket && socket.readyState !== 3 ? once(socket, 'close', { signal: controller.signal }) : undefined
-  closed?.catch(() => undefined)
-  try {
-    await client?.close({ force: true })
-    await closed
-  } finally {
-    controller.abort()
-  }
+  await client?.close({ force: true })
+  if (socket && socket.readyState !== 3) await once(socket, 'close')
 }
