@@ -99,8 +99,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Actions owned by the location and account registries. */
 export interface ProductionActions {
-  hooks: { accountEpoch: HostObservable<number>; workspaceList: IWorkspaces['list'] }
-  addWorkspace(path: string): Promise<void>
+  hooks: { accountEpoch: HostObservable<number> }
   /** Tie a production to one conversation without leaving the current view. */
   chooseProject(sessionId: SessionId, project: Pick<StudioProject, 'id'>): Promise<void>
   /** Create a production and tie it to one conversation; resolves to the new production. */
@@ -175,26 +174,37 @@ export function Failure({ t, retry }: { t: Text; retry: () => void }) {
 }
 
 /**
- * Show the working directory and production of the current conversation.
- * @param props - The conversation visible in this right pane.
- * @returns Its local environment and confirmed production.
+ * Show the workspace attached to the current conversation and open the directory picker.
+ * @param props - The right-sidebar tab and workspace actions.
+ * @returns The workspace tab body.
  */
-export function Environment({ sessionId, t, useWorkspaceList, addWorkspace, renderSlot }: Props & PropsRenderSlots<'workspace.environment.directoryFlow'> & { sessionId: SessionId }) {
+export function WorkspaceTab({ sessionId, t, useWorkspaceList, useDirectoryFlow, addWorkspace, renderSlot }:
+  & PropsRuntime<'sidebar.right.pane.tab'>
+  & PropsLocale<'jingliuStudio'>
+  & PropsRenderSlots<'workspace.environment.directoryFlow'>
+  & InjectFace<{ hooks: { workspaceList: IWorkspaces['list']; directoryFlow: HostObservable<boolean> }; addWorkspace(path: string): Promise<void> }>) {
   const workspace = useWorkspaceList(list => list.items.find(row => row.sessionIds.includes(sessionId)))
-  const folderName = workspace && workspaceDisplayTitle(workspace.title, '')
+  const directoryFlowAvailable = useDirectoryFlow(available => available)
   const [pick, setPick] = useState(false)
   const [pickerError, setPickerError] = useState(false)
   const act = useAction()
-  return <section className={css.environment} aria-label={t('environment')}>
-    <header><strong>{t('environment')}</strong><button type="button" title={t('addWorkspace')} aria-label={t('addWorkspace')}
-      disabled={act.busy} onClick={() => { setPickerError(false); setPick(true) }}>+</button></header>
-    <div className={css.machine} title={workspace?.path}><IconFolderOpenOutlineRegular size={16} /><span>{t('computer')}</span>{folderName && <small>{folderName}</small>}</div>
+  return <section className={css.workspaceTab} aria-label={t('workspaceTab')}>
+    {workspace && <div className={css.workspaceFolder}>
+      <span className={css.workspaceIcon}><IconFolderOpenOutlineRegular size={18} /></span>
+      <div className={css.workspaceDetails}>
+        <strong>{workspaceDisplayTitle(workspace.title, t('workspaceTab'))}</strong>
+        <span className={css.workspacePath}>{workspace.path}</span>
+      </div>
+    </div>}
+    <Button variant="ghost" size="sm" disabled={!directoryFlowAvailable || act.busy} onClick={() => { setPickerError(false); setPick(true) }}>
+      {t('addWorkspace')}
+    </Button>
     {renderSlot('workspace.environment.directoryFlow', {
-      open: pick, busy: act.busy,
+      open: pick && directoryFlowAvailable, busy: act.busy,
       onPicked: (path) => { setPick(false); void act.run(() => addWorkspace(path)) },
       onCancel: () => setPick(false), onError: () => { setPick(false); setPickerError(true) },
     })}
-    {(act.error || pickerError) && <small role="alert">{t('envFailed')}</small>}
+    {(act.error || pickerError) && <small role="alert">{t('workspaceUnavailable')}</small>}
   </section>
 }
 

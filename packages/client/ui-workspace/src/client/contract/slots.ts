@@ -137,7 +137,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
     'sidebar.workspaces.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
-    /** Folder selection requested from a conversation's environment panel. */
+    /** Folder selection requested from a conversation's workspace tab. */
     'workspace.environment.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
     /**
      * Leading decoration of one Session row, in the 16px cell before the title

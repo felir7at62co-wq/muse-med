@@ -1,11 +1,26 @@
-.environment { pointer-events:auto; flex:none; padding:10px 16px; color:var(--dsw-alias-label-primary); background:var(--dsw-alias-bg-base,var(--dsw-alias-bg-layer-1)); border-bottom:1px solid var(--dsw-alias-border-secondary); }
-.environment header,.machine { display:flex; align-items:center; gap:8px; }
-.environment header { justify-content:space-between; color:var(--dsw-alias-label-secondary); font-size:12px; }
-.environment button { color:inherit; background:transparent; border:0; font:inherit; cursor:pointer; border-radius:6px; text-align:start; }
-.environment button:hover { background:var(--dsw-alias-bg-layer-2); }
-.environment header button { font-size:18px; height:26px; width:28px; text-align:center; }
-.machine { padding:4px; font-size:13px; overflow-wrap:anywhere; }
-.machine small { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--dsw-alias-label-tertiary); }
+.workspaceTab {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  overflow: auto;
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+}
+.workspaceFolder { display: flex; align-items: center; gap: 10px; max-width: 100%; }
+.workspaceIcon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-markdown-tag);
+}
+.workspaceDetails { display: grid; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.workspaceDetails strong { font-weight: 500; }
+.workspacePath { color: var(--dsw-alias-label-secondary); user-select: text; }
 .page { width:min(100%, 980px); margin-inline:auto; padding:max(28px, var(--dsh-frame-top-clearance, 0px)) clamp(18px,4%,48px) 32px; box-sizing:border-box; height:100%; overflow:auto; display:flex; flex-direction:column; gap:16px; color:var(--dsw-alias-label-primary); }
 .heading,.toolbar,.setting,.amount { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .heading h1 { font-size:1.5rem; line-height:1.3; margin:0; font-weight:600; }

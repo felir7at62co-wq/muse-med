@@ -58,7 +58,7 @@ import css from './SidebarRight.module.css'
 type Store = PropsStore<ReturnType<typeof createSidebarRightStore>>
 
 /** The child seats this component renders. */
-type Children = PropsRenderSlots<'sidebar.right.pane.tab' | 'sidebar.right.pane.tab.title' | 'sidebar.right.environment'>
+type Children = PropsRenderSlots<'sidebar.right.pane.tab' | 'sidebar.right.pane.tab.title'>
 
 /** What the panel reports to the frame: drawn or not, and whether it wants a track. */
 export interface SidebarRightPresentation {
@@ -245,9 +245,14 @@ function bodiesFor(panel: PanelProps): TabRenderer {
   )
 }
 
-/** Dispatch a tab's title to its registered type; without one the chip shows the title captured at open time. */
+/** Dispatch each tab's title, giving plain titles the same leading mark as tool tabs. */
 function titlesFor(panel: PanelProps): TabRenderer {
-  return tab => <TabSlot key={tab.id} {...panel} tab={tab} seat="sidebar.right.pane.tab.title" fallback={tab.title} />
+  return tab => <TabSlot key={tab.id} {...panel} tab={tab} seat="sidebar.right.pane.tab.title" fallback={
+    <>
+      <span className={css.tabInitial} aria-hidden="true" data-initial={Array.from(tab.title.trim())[0]} />
+      <span className={css.tabName}>{tab.title}</span>
+    </>
+  } />
 }
 
 /** Expand-to-viewport glyph from the shared product artwork. */
@@ -349,7 +354,6 @@ function SidebarPanel(panel: PanelProps & { width: number; panelRef: RefObject<H
       // Dockkit hides individual docked hosts; floating descendants remain accessible.
       aria-hidden={(!expanded && surface.layout.floats.length === 0) || undefined}
     >
-      {expanded && panel.active && panel.renderSlot('sidebar.right.environment', { sessionId })}
       <div className={css.panelBody}>
         <DockLayout
           state={surface.layout}
