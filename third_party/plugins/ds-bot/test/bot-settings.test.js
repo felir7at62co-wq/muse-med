@@ -63,7 +63,7 @@ test('a private Bot can always turn privacy off, and cannot become Main or be du
 })
 
 // Muse: the form behind the gear of the details panel leaves out what the details page edits.
-test('the lean form keeps only the settings the details page lacks', () => {
+test('the lean form keeps the settings and task creation the details page lacks', () => {
   const titles = (tree) => tree.filter(node => typeof node.props?.title === 'string').map(node => node.props.title)
   const roster = { mainBotIds: [], mainBotId: null, rooms: [], models: [], memory: true }
   const form = lean => walk(BotSettingsForm({ bot: { ...bot, workDir: '/work' }, roster, actions: {}, run: fn => fn, lean }))
@@ -72,12 +72,12 @@ test('the lean form keeps only the settings the details page lacks', () => {
   const lean = titles(form(true))
   for (const title of ['Profile', 'Model', 'Working folder', 'Instructions']) assert.equal(lean.includes(title), false, title)
   for (const title of ['Privacy', 'Main Bot', 'Sidebar', 'Manage']) assert.ok(lean.includes(title), title)
-  // Memory and scheduled tasks are components of their own: present in the full form only.
+  // Schedule creation remains available when an idle avatar has no task bubbles.
   const named = (tree, name) => tree.some(node => node.type?.name === name)
   assert.equal(named(form(false), 'MemoryCard'), true)
   assert.equal(named(form(false), 'BotSchedules'), true)
   assert.equal(named(form(true), 'MemoryCard'), false)
-  assert.equal(named(form(true), 'BotSchedules'), false)
+  assert.equal(named(form(true), 'BotSchedules'), true)
 })
 
 // One InlineText with working state, so a test can type into it, press keys and blur it.

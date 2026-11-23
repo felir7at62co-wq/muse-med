@@ -790,6 +790,7 @@ const ZH = {
   'Language model': '语言模型',
   'Background jobs': '后台',
   'Background jobs · {count}': '后台 · {count}',
+  'and {count} more tasks': '还有 {count} 项',
   'No live jobs': '暂无后台作业',
   'Another conversation': '其他会话',
   'Pause {name}': '暂停 {name}',

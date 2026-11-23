@@ -113,7 +113,7 @@ Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot'
 
 ## Background work
 
-Open a Bot or group chat’s details to see the background jobs, commands and terminal sessions it owns. Bot details also show its other open conversations. Group details cover its own conversation and those of each member inside that group. Stop ends the selected item. Pause and Resume change when a scheduled task next delivers its prompt. Runs already started by that schedule continue.
+Background work appears as small bubbles around the avatar in Bot and group chat details. Open a bubble to see the task’s reported progress or next scheduled run. Bot details include the Bot’s other open conversations. Group details cover the group’s own conversation and each member’s conversation in that group. Stop ends the selected job, command, terminal, or open turn. Pause and Resume control future scheduled deliveries. A run that has already started continues. Use Bot or group settings to add a scheduled task.
 
 ## Memory
 

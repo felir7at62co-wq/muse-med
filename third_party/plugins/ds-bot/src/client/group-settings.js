@@ -108,6 +108,9 @@ export function GroupSettingsForm({ room, roster, actions, run, onDeleted }) {
         h('span', { className: 'bt-set-copy' }, h('span', { className: 'bt-bs-label' }, t('Folder'))),
         h(FolderMenu, { value: room.workDir, group: true, actions, run, onPick: workDir => update({ workDir }) }))),
     h(GroupPermission, { room, catalog: roster.permissions, update }),
+    !roster.readOnly && actions.openSettings ? h(Card, { title: t('Scheduled tasks') },
+      h('button', { type: 'button', className: 'bt-set-row bt-bs-row bt-gs-add',
+        onClick: () => actions.openSettings('schedules', room.id) }, h(PlusIcon), t('New task'))) : null,
     h(Card, { title: t('Members · {count}', { count: members.length }) },
       members.map((member) => {
         const leads = room.admin === member.id

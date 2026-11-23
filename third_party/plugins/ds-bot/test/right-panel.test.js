@@ -78,12 +78,18 @@ const bundle = await build({
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 const module = { exports: {} }
+const element = (type, props, ...children) => ({
+  type, props: children.length > 0
+    ? { ...props, children: children.length === 1 ? children[0] : children }
+    : props ?? {},
+  children: (children.length > 0 ? children : [props?.children]).flat(Infinity),
+})
 runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports, URL, URLSearchParams, setTimeout, clearTimeout,
   require: (name) => {
     const platform = {
       react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useId: () => 'dv-id',
-        createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+        createElement: element,
         useState: initial => [initial, () => {}], useEffect: () => {}, useRef: current => ({ current }),
         useLayoutEffect: () => {}, useMemo: make => make(), useCallback: fn => fn,
         useSyncExternalStore: (subscribe, get) => { subscribe(() => {})(); return get() }, Fragment: 'fragment',
@@ -332,9 +338,8 @@ const named = (node, name, expand = false, out = []) => {
   if (Array.isArray(node)) { for (const child of node) named(child, name, expand, out); return out }
   if (node === null || typeof node !== 'object') return out
   if (typeof node.type === 'function') {
-    if (node.type.name === name) out.push(node)
-    else if (expand) named(node.type(node.props), name, expand, out)
-    return out
+    if (node.type.name === name) { out.push(node); return out }
+    if (expand) return named(node.type(node.props), name, expand, out)
   }
   for (const child of node.children ?? []) named(child, name, expand, out)
   return out
@@ -457,7 +462,7 @@ let runStatsState
 const runStatsReact = {
   createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ children }) => children; return ctx },
   useContext: ctx => ctx.value, useId: () => 'rv-id',
-  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
+  createElement: element,
   useState: () => [runStatsState, value => { runStatsState = value }],
   useEffect: effect => effect(), useRef: current => ({ current }), useLayoutEffect: () => {},
   useMemo: make => make(), useCallback: fn => fn,
@@ -504,8 +509,7 @@ test('the Bot status line needs the runStats action and then draws turns, speed,
   assert.equal(RunStats({ bot, part: 'a-2', running: false, actions: { runStats: () => ({ then() {} }) } }), null)
 })
 
-// Muse: the Background section opens the details page. It reads the jobs store of the Bot's
-// current conversation and that conversation's open terminals.
+// The avatar bubbles read jobs and terminals from the same conversations as details.
 const jobsOf = (rows, kills = []) => {
   const state = {
     rows, listeners: new Set(),
@@ -520,62 +524,83 @@ const keyed = (node, key) => {
   if (node.props?.key === key) return node
   return (node.children ?? []).map(child => keyed(child, key)).find(Boolean)
 }
-test('the Background section groups what runs in the conversation and stops a job or a terminal', () => {
+test('the avatar shows its conversation’s tasks and opens the exact stop controls', async () => {
   const kills = []
   const ended = []
   const jobs = jobsOf({ a: [
-    { id: 'j1', kind: 'workflow', label: 'render episode 3', status: 'running', progress: '3/8', startedAt: Date.now() },
-    { id: 'j2', kind: 'bash', label: 'ffmpeg -i ep05.mp4', status: 'running', startedAt: Date.now() },
-    { id: 'j3', kind: 'bash', label: 'finished', status: 'succeeded', startedAt: Date.now() },
-    { id: 'j4', kind: 'workflow', label: 'on its way out', status: 'stopping', startedAt: Date.now() },
+    { id: 'j1', owner: 'a', kind: 'workflow', label: 'render episode 3', status: 'running', progress: '3/8', startedAt: Date.now() },
+    { id: 'j2', owner: 'a', kind: 'bash', label: 'ffmpeg -i ep05.mp4', status: 'running', startedAt: Date.now() },
+    { id: 'j3', owner: 'a', kind: 'bash', label: 'finished', status: 'succeeded', startedAt: Date.now() },
+    { id: 'j4', owner: 'a', kind: 'workflow', label: 'on its way out', status: 'stopping', startedAt: Date.now() },
   ] }, kills)
   const actions = {
     backgroundJobs: () => jobs, terminalOf: tab => tab.terminalId,
     endTerminal: (sessionId, part, target) => ended.push([sessionId, part, target]),
   }
-  const block = keyed(drawer('a', actions, roster, { terminals: [{ key: 't1', terminalId: 'term-1' }] }), 'background')
-  const text = textOf(block)
-  assert.match(text, /^Background jobs · 4/)
-  // Tasks first, then commands, then the open terminal.
-  assert.ok(text.indexOf('Tasks') < text.indexOf('render episode 3') && text.indexOf('render episode 3') < text.indexOf('Commands'))
-  assert.ok(text.indexOf('Commands') < text.indexOf('ffmpeg -i ep05.mp4') && text.indexOf('ffmpeg -i ep05.mp4') < text.indexOf('Services'))
+  const tree = drawer('a', actions, roster, { terminals: [{ key: 't1', session: 'a', terminalId: 'term-1' }] })
+  const block = keyed(identityOf(tree), 'background:a')
+  const shown = block.type(block.props)
+  const { props } = shown
+  assert.equal(props.avatar.type.name, 'DetailsAvatar')
+  assert.deepEqual(Array.from(props.rows, row => [row.label, row.state]), [
+    ['render episode 3', 'running'], ['on its way out', 'stopping'], ['ffmpeg -i ep05.mp4', 'running'], ['Terminal', 'running'],
+  ])
+  assert.deepEqual(buttonsOf(shown).filter(button => button.props.className === 'bt-thoughts-chip').map(textOf), ['render episode 3', 'and 3 more tasks'])
+  const render = props.renderPanel(null)
+  const text = textOf(render)
+  assert.match(text, /Tasks.*render episode 3.*Commands.*ffmpeg -i ep05.mp4.*Services.*Terminal/)
   assert.match(text, /render episode 33\/8/)
   assert.match(text, /on its way outStopping…/)
   assert.doesNotMatch(text, /finished/)
-  const stops = buttonsOf(block).filter(entry => textOf(entry) === 'Stop')
+  const job = props.rows.find(row => row.label === 'ffmpeg -i ep05.mp4')
+  const selected = props.renderPanel(job.key)
+  assert.doesNotMatch(textOf(selected), /render episode 3|Terminal/)
+  const stops = buttonsOf(render).filter(entry => textOf(entry) === 'Stop')
   assert.deepEqual(stops.map(entry => entry.props['aria-label']), ['Stop render episode 3', 'Stop ffmpeg -i ep05.mp4', 'Stop Terminal'])
-  stops[1].props.onClick()
+  await buttonsOf(selected).find(entry => entry.props['aria-label'] === 'Stop ffmpeg -i ep05.mp4').props.onClick()
   assert.deepEqual(kills, [['a', 'j2']])
-  stops[2].props.onClick()
+  await stops[2].props.onClick()
   // The target object comes from the bundle's own realm, so it is compared as JSON.
   assert.equal(JSON.stringify(ended), JSON.stringify([['a', 'a', { tab: 't1', terminalId: 'term-1' }]]))
 })
 
-test('the Background section stays on the page when nothing runs', () => {
-  assert.match(textOf(keyed(drawer('a', { backgroundJobs: () => jobsOf({}) }), 'background')), /^Background jobsNothing running$/)
-  // Without the jobs plugin the section still shows, empty.
-  assert.match(textOf(keyed(drawer('a', {}), 'background')), /^Background jobsNothing running$/)
+test('the idle avatar has no task bubbles, with or without the jobs plugin', () => {
+  for (const actions of [{ backgroundJobs: () => jobsOf({}) }, {}]) {
+    const block = keyed(identityOf(drawer('a', actions)), 'background:a')
+    const shown = block.type(block.props)
+    assert.equal(shown.props.avatar.type.name, 'DetailsAvatar')
+    assert.equal(shown.props.rows.length, 0)
+    assert.ok(buttonsOf(shown).every(button => !button.props['aria-expanded']))
+    assert.doesNotMatch(textOf(shown), /Background jobs|No live jobs/)
+  }
 })
 
-test('a group\'s Background section watches each member\'s conversation there and leads a row with the member', () => {
+test('the script tab keeps the avatar without mounting background work', () => {
+  const tree = drawer('a', slots, roster, { startTab: 'scripts', renderSlot: () => null })
+  const identity = identityOf(tree)
+  assert.equal(keyed(identity, 'background:a'), undefined)
+  assert.equal(named(identity, 'DetailsAvatar').length, 1)
+})
+
+test('a group’s avatar uses its own and current member conversations only', async () => {
   const kills = []
-  const watched = []
-  const jobs = jobsOf({ 'g-a': [{ id: 'j1', kind: 'bash', label: 'pnpm build', status: 'running', startedAt: Date.now() }] }, kills)
-  jobs.watchRows = (sessionId) => { watched.push(sessionId); return () => {} }
-  const group = { ...room, sessionId: 'g-own', admin: 'a', memberSessions: { a: 'g-a' } }
+  const buildJob = { id: 'j1', owner: 'g-a', kind: 'bash', label: 'pnpm build', status: 'running', startedAt: Date.now() }
+  const jobs = jobsOf({
+    'g-a': [buildJob],
+    'g-former': [{ ...buildJob, id: 'j2', owner: 'g-former', label: 'Former member job' }],
+    a: [{ ...buildJob, id: 'j3', owner: 'a', label: 'Private member job' }],
+  }, kills)
+  const group = { ...room, sessionId: 'g-own', admin: 'a', memberSessions: { a: 'g-a', former: 'g-former' } }
   const live = { ...roster, roomsById: { g: group } }
-  // The group's overview is a component of its own inside the drawer.
-  const typed = (node, name) => {
-    if (Array.isArray(node)) return node.map(child => typed(child, name)).find(Boolean)
-    if (node === null || typeof node !== 'object') return undefined
-    if (node.type?.name === name) return node
-    return (node.children ?? []).map(child => typed(child, name)).find(Boolean)
-  }
-  const overview = typed(drawer('g', { backgroundJobs: () => jobs }, live), 'GroupOverview')
-  const block = keyed(overview.type(overview.props), 'background')
-  const shown = block.type(block.props)
-  assert.equal(JSON.stringify(shown.props.sources.map(source => [source.sessionId, source.bot?.id])), JSON.stringify([['g-own', 'a'], ['g-a', 'a']]))
-  assert.match(textOf(block), /^Background jobs · 1Commands/)
-  buttonsOf(block).find(entry => textOf(entry) === 'Stop').props.onClick()
+  const block = keyed(identityOf(drawer('g', { backgroundJobs: () => jobs }, live)), 'background:g')
+  assert.equal(JSON.stringify(block.props.sources.map(source => [source.sessionId, source.bot?.id])), JSON.stringify([['g-own', null], ['g-a', 'a']]))
+  const { props } = block.type(block.props)
+  assert.equal(props.avatar.type.name, 'MemberPile')
+  assert.deepEqual(Array.from(props.rows, row => row.label), ['Chief · pnpm build'])
+  const render = props.renderPanel(null)
+  assert.doesNotMatch(textOf(render), /Former member job|Private member job/)
+  const controls = buttonsOf(render).filter(entry => textOf(entry) === 'Stop')
+  assert.deepEqual(controls.map(entry => entry.props['aria-label']), ['Stop Chief: pnpm build'])
+  await controls[0].props.onClick()
   assert.deepEqual(kills, [['g-a', 'j1']])
 })

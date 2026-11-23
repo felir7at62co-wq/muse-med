@@ -5,6 +5,7 @@ import { PlusIcon } from './icons.js'
 import { terminalCards } from './side-model.js'
 import { nextScheduleText, publishSchedules, useSchedules } from './schedules.js'
 import { hostText, t } from './i18n.js'
+import { BackgroundThoughtBubbles, BACKGROUND_THOUGHT_CSS } from './background-thought-bubbles.js'
 
 const NO_SUBSCRIBE = () => () => {}
 const NO_ROWS = {}
@@ -89,13 +90,15 @@ function BackgroundRow({ row, action, onControl, actions }) {
   const name = row.bot ? `${row.bot.name}: ${row.label}` : row.label
   const tooltip = row.extra ? `${row.extra} · ${name}` : name
   const actionLabel = action === 'Pause' ? t('Pause {name}', { name }) : action === 'Resume' ? t('Resume {name}', { name }) : t('Stop {name}', { name })
+  const status = row.stopping ? t('Stopping…') : row.note || t('Run in progress')
   return h('div', { className: 'bt-bg-row', title: tooltip },
     row.bot ? h(BotMark, { bot: row.bot, size: 18 }) : null,
-    h('span', { className: 'bt-bg-label', 'data-command': row.command || undefined }, row.label),
-    row.note ? h('span', { className: 'bt-bg-note', title: row.note }, row.note) : null,
-    row.stopping
-      ? h('span', { className: 'bt-note' }, t('Stopping…'))
-      : onControl && h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, 'aria-label': actionLabel, onClick: change }, t(action)))
+    h('div', { className: 'bt-bg-copy' },
+      h('span', { className: 'bt-bg-label', 'data-command': row.command || undefined }, row.label),
+      h('span', { className: 'bt-bg-note' }, status)),
+    !row.stopping && onControl
+      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, 'aria-label': actionLabel, onClick: change }, t(action))
+      : null)
 }
 
 function BackgroundTurnRow({ row, useSessions, ...props }) {
@@ -109,34 +112,9 @@ function backgroundSchedules(tasks, { botId, room, bots }) {
       ? task.roomId === undefined && task.botId === botId
       : task.roomId === room.id && (task.botId === undefined || room.members.includes(task.botId))))
     .map(task => ({
-      key: task.id, label: task.title, note: task.executionActive === true ? t('Run in progress') : nextScheduleText(task), task,
+      key: `schedule:${task.id}`, label: task.title,
+      note: task.executionActive === true ? t('Run in progress') : nextScheduleText(task), task,
       bot: room !== undefined ? bots[task.botId] : undefined,
-    }))
-}
-
-function BackgroundSchedules({ botId, room, bots, actions, readOnly }) {
-  const view = useSchedules(actions)
-  if (view === null || (!view.available && (readOnly || room !== undefined))) return null
-  const rows = backgroundSchedules(view.tasks, { botId, room, bots })
-  const target = room?.id ?? botId
-  const settings = () => actions.openSettings('schedules', target)
-  return h('div', { className: 'bt-bg-group', role: 'group', 'aria-label': t('Scheduled tasks') },
-    h('div', { className: 'bt-members-head' },
-      h('div', { className: 'bt-bg-kind' }, t('Scheduled tasks')),
-      !readOnly && view.available && rows.length > 0 && h('button', {
-        type: 'button', className: 'bt-icon-btn', 'aria-label': t('New task'), title: t('New task'), onClick: settings,
-      }, h(PlusIcon))),
-    rows.length === 0 && !readOnly && h('button', { type: 'button', className: 'bt-more', onClick: settings },
-      view.available ? t('No scheduled tasks yet. Add one') : t('Configure scheduled tasks')),
-    rows.map(row => {
-      const active = row.task.status === 'active'
-      const canSetActive = active || row.task.status === 'paused'
-      return h(BackgroundRow, {
-        key: row.key, row, actions, action: active ? 'Pause' : 'Resume',
-        onControl: !readOnly && canSetActive && view.canSetActive && actions.scheduleSetActive
-          ? async () => publishSchedules(await actions.scheduleSetActive(row.task, !active))
-          : undefined,
-      })
     }))
 }
 
@@ -159,7 +137,8 @@ function useBackgroundTerminals(sessionKey, tabs, actions) {
   [actions, listed, tabs, sessionKey])
 }
 
-export function BackgroundPanel({ sources, botId, room, bots, tabs = NO_TABS, turns, useSessions, readOnly, actions }) {
+/** Attach one live background subscription and its controls to the details avatar. */
+export function BackgroundAvatar({ avatar, children, sources, botId, room, bots, tabs = NO_TABS, turns, useSessions, readOnly, actions }) {
   const jobs = actions.backgroundJobs?.() ?? null
   const sessionKey = [...new Set(sources.map(source => source.sessionId))].join('\n')
   useEffect(() => {
@@ -172,32 +151,62 @@ export function BackgroundPanel({ sources, botId, room, bots, tabs = NO_TABS, tu
   const terminals = useBackgroundTerminals(sessionKey, tabs, actions)
   const now = useNow()
   const view = backgroundView({ sources, rows, terminals, turns, now })
+  const schedules = useSchedules(actions)
+  const scheduled = schedules?.available ? backgroundSchedules(schedules.tasks, { botId, room, bots }) : []
+  const groups = scheduled.length === 0 ? view.groups : [...view.groups, { title: 'Scheduled tasks', items: scheduled }]
   const stop = row => {
     if (readOnly) return undefined
     if (row.terminal) return () => actions.endTerminal(room?.id ?? botId, row.sessionId, { tab: row.terminal.tab, terminalId: row.terminal.id ?? undefined })
     if (row.turn) return () => actions.stopOpenPart(botId, row.sessionId)
     return () => jobs.kill(row.sessionId, row.jobId)
   }
-  return h('section', { className: 'bt-bg', 'aria-label': t('Background jobs') },
-    h('div', { className: 'bt-section-title' }, view.count === 0 ? t('Background jobs') : t('Background jobs · {count}', { count: view.count })),
-    view.count === 0
-      ? h('div', { className: 'bt-note bt-bg-none' }, t('No live jobs'))
-      : view.groups.map(group => h('div', { key: group.title, className: 'bt-bg-group', role: 'group', 'aria-label': t(group.title) },
+  const summaries = groups.flatMap(group => group.items.map(row => ({
+    key: row.key,
+    label: row.bot ? `${row.bot.name} · ${row.label}` : row.label,
+    state: row.stopping ? 'stopping' : row.task !== undefined && !row.task.executionActive
+      ? row.task.status === 'paused' ? 'paused' : 'scheduled'
+      : 'running',
+  })))
+  const renderRow = row => {
+    if (row.task === undefined) {
+      const props = { key: row.key, row, actions, action: 'Stop', onControl: stop(row) }
+      return row.turn ? h(BackgroundTurnRow, { ...props, useSessions }) : h(BackgroundRow, props)
+    }
+    const active = row.task.status === 'active'
+    const canSetActive = active || row.task.status === 'paused'
+    return h(BackgroundRow, {
+      key: row.key, row, actions, action: active ? 'Pause' : 'Resume',
+      onControl: !readOnly && canSetActive && schedules?.canSetActive && actions.scheduleSetActive
+        ? async () => publishSchedules(await actions.scheduleSetActive(row.task, !active))
+        : undefined,
+    })
+  }
+  const renderPanel = selectedKey => groups.map(group => {
+    const visible = selectedKey === null ? group.items : group.items.filter(row => row.key === selectedKey)
+    if (visible.length === 0) return null
+    return h('div', { key: group.title, className: 'bt-bg-group', role: 'group', 'aria-label': t(group.title) },
+      h('div', { className: 'bt-bg-group-head' },
         h('div', { className: 'bt-bg-kind' }, t(group.title)),
-        group.items.map(row => {
-          const props = { key: row.key, row, actions, action: 'Stop', onControl: stop(row) }
-          return row.turn ? h(BackgroundTurnRow, { ...props, useSessions }) : h(BackgroundRow, props)
-        }))),
-    h(BackgroundSchedules, { botId, room, bots, actions, readOnly }))
+        group.title === 'Scheduled tasks' && !readOnly && actions.openSettings
+          ? h('button', {
+              type: 'button', className: 'bt-icon-btn', 'aria-label': t('New task'), title: t('New task'),
+              onClick: () => actions.openSettings('schedules', room?.id ?? botId),
+            }, h(PlusIcon))
+          : null),
+      visible.map(renderRow))
+  })
+  return h(BackgroundThoughtBubbles, { avatar, rows: summaries, renderPanel, group: room !== undefined }, children)
 }
 
-export const BACKGROUND_CSS = `
-.bt-bg-group+.bt-bg-group,.bt-bg-none+.bt-bg-group{margin-top:8px}
+export const BACKGROUND_CSS = BACKGROUND_THOUGHT_CSS + `
+.bt-bg-group+.bt-bg-group{margin-top:10px}
+.bt-bg-group-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:22px}
+.bt-bg-group-head>.bt-icon-btn{width:24px;height:24px}
 .bt-bg-kind{font-size:11px;line-height:16px;color:var(--bt-ink-3)}
-.bt-bg-row{display:flex;align-items:center;gap:8px;min-height:32px;font-size:12px;line-height:20px;color:var(--bt-ink)}
-.bt-bg-row .bt-bg-label{flex:1 1 auto}
+.bt-bg-row{display:flex;align-items:center;gap:8px;min-height:34px;padding:4px 0;font-size:12px;line-height:18px;color:var(--bt-ink)}
+.bt-bg-copy{display:flex;flex:1;min-width:0;flex-direction:column}
+.bt-bg-row .bt-bg-label{white-space:normal;overflow-wrap:anywhere}
 .bt-bg-label[data-command]{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
-.bt-bg-note{max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--bt-ink-2);font-variant-numeric:tabular-nums}
+.bt-bg-note{color:var(--bt-ink-2);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .bt-bg-row .bt-soft-sm{flex:none;margin:0}
-.bt-bg-none{margin-top:0}
 `
