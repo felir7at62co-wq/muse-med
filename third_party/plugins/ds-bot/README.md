@@ -107,13 +107,15 @@ The same card can carry DSH itself: a DS Bot release may name the DSH release it
 
 Model providers are set up in DS Bot's **Settings → Models** (or the Main Bot's setup card) and stored through dsh's `llm-pi-ai` plugin in `cordis.patch.yml` and `.credentials.yaml`. Every Bot runs on one model of its own, from the models DSH serves. A new team's first Main Bot starts on a model card when more than one provider is ready or none is configured yet, and greets the user once a usable model is connected. **Settings → General → New Bots** can set a team default model for newly created Bots: the Create Bot form starts on that team default model when it is served and usable (otherwise the DSH default model, or the first usable model), and a Main Bot's `create_bot` without a named model uses the team default model before falling back to the creator's own model. The Bot's details panel and settings (or a Main Bot's `update_bot`) change a Bot's model; a Bot whose model is no longer served falls back to its last working model or shows the card again. A team saved by an older version keeps the model each Bot last ran on.
 
+When Muse account settings are available, the Main Bot’s setup card offers Muse sign-in alongside custom model settings. The sign-in button opens the same account page as the sidebar.
+
 - Give every model a `contextWindow`. DS Bot takes its lines from it: the usable window is the window minus the reply reserve (`maxTokens`), the hard line is 95% of that, and the check line is `checkRatio` of it, capped at `checkTokens` (default 380,000) so a huge window does not keep one part past the point where a provider's prefix cache stops helping. A model without `contextWindow` gets the adapter's default (262,144 tokens for `llm-pi-ai`), which may be wrong for that model; a model that reports no window at all counts as 500,000.
 - To send images, the provider needs `defaultInput: [ text, image ]`.
 - Keep API keys out of the repository. Use dsh's own key storage or environment variables.
 
 ## Background work
 
-Background work appears as small bubbles around the avatar in Bot and group chat details. A bubble expands in place to show progress, the next scheduled run, or available actions. Finished tasks fade out of the details. Bot details include the Bot’s other open conversations. Group details cover the group’s own conversation and each member’s conversation in that group. Stop ends the selected job, command, terminal, or open turn. Pause and Resume control future scheduled deliveries. A run that has already started continues. Use Bot or group settings to add a scheduled task.
+Background work appears as small bubbles around the avatar in Bot and group chat details. A bubble expands over the details view to show progress, the next scheduled run, or available actions. Finished tasks fade out of the details. Bot details include the Bot’s other open conversations. Group details cover the group’s own conversation and each member’s conversation in that group. Stop ends the selected job, command, terminal, or open turn. Pause and Resume control future scheduled deliveries. A run that has already started continues. Use Bot or group settings to add a scheduled task.
 
 ## Memory
 

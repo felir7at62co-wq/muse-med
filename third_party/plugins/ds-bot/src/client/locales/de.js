@@ -355,6 +355,7 @@ export const DE = {
   'Mode': 'Modus',
   'Sign in to DeepSeek': 'Bei DeepSeek anmelden',
   'Enter a DeepSeek API key': 'DeepSeek-API-Schlüssel eingeben',
+  'Sign in to use Muse': 'Anmelden, um Muse zu nutzen',
   'Open settings to set up a custom model': 'Einstellungen öffnen, um ein eigenes Modell einzurichten',
   'Create a key on the DeepSeek platform ↗': 'Schlüssel auf der DeepSeek-Plattform erstellen ↗',
   'The API is billed by usage; the account needs a balance first.': 'Die API wird nach Nutzung abgerechnet; das Konto benötigt zuerst Guthaben.',

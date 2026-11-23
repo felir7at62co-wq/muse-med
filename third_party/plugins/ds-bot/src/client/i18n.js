@@ -340,6 +340,7 @@ const ZH = {
   'Mode': '模式',
   'Sign in to DeepSeek': '登录 DeepSeek 账号',
   'Enter a DeepSeek API key': '填入 DeepSeek API key',
+  'Sign in to use Muse': '登录使用muse',
   'Open settings to set up a custom model': '打开设置配置自定义模型',
   'Create a key on the DeepSeek platform ↗': '去 DeepSeek 开放平台创建 Key ↗',
   'The API is billed by usage; the account needs a balance first.': 'API 按用量计费，账户里要先有余额。',

@@ -169,6 +169,31 @@ const keyless = [
   { ref: 'official/pro', provider: 'official', providerName: 'DeepSeek', name: 'DeepSeek Pro', needsKey: true },
 ]
 
+test('Muse model setup opens the account sign-in and keeps the custom model settings', () => {
+  const opened = []
+  const bot = { id: 'chief', name: 'Chief' }
+  const actions = {
+    canOpenAccount: () => true,
+    openSettings: page => opened.push(page),
+    canSignIn: () => true,
+    signIn: () => assert.fail('opened DeepSeek sign-in'),
+    openHarnessOnboarding: () => assert.fail('opened provider credential onboarding'),
+    setProviderKey: () => assert.fail('requested a provider key'),
+  }
+  for (const models of [[], keyless]) {
+    const tree = ModelChoiceDock({
+      sessionId: bot.id, useRoster: select => select({ ready: true, byId: { chief: bot }, models }), actions,
+    })
+    const buttons = nodes(tree, node => node.type === 'button')
+    assert.deepEqual(buttons.map(button => button.children[0]), [
+      'Sign in to use Muse', 'Open settings to set up a custom model',
+    ])
+    assert.equal(nodes(tree, node => node.type === ModelKeyCard).length, 0)
+    for (const button of buttons) button.props.onClick()
+  }
+  assert.deepEqual(opened, ['account', 'models', 'account', 'models'])
+})
+
 test('models that need an API key are no choice', () => {
   const buttons = tree => nodes(tree, node => node.type === 'button').map(button => button.children[0])
   assert.deepEqual(buttons(dock([...keyless, models[1]], { harness: false }).tree), ['DeepSeek Flash'])

@@ -605,7 +605,7 @@ test('a group’s avatar uses its own and current member conversations only', as
   assert.deepEqual(kills, [['g-a', 'j1']])
 })
 
-test('a thought bubble opens in its own slot, closes back to its trigger, and fades there when work ends', async t => {
+test('a thought bubble opens over the details view, closes back to its trigger, and fades when work ends', async t => {
   const { outputFiles } = await build({
     entryPoints: [fileURLToPath(new URL('../src/client/background-thought-bubbles.js', import.meta.url))],
     bundle: true, format: 'cjs', platform: 'node', write: false, external: ['react'],
@@ -650,14 +650,18 @@ test('a thought bubble opens in its own slot, closes back to its trigger, and fa
     const shell = left.closest('.bt-thoughts-slot')
     const rightShell = right.closest('.bt-thoughts-slot')
     assert.ok(shell && rightShell)
+    const surface = left.closest('.bt-thoughts-surface')
+    assert.ok(surface)
+    assert.equal(shell.hasAttribute('data-overlay'), false)
     act(() => left.click())
     assert.deepEqual(chips(), [left, right])
     assert.equal(left.getAttribute('aria-expanded'), 'true')
     assert.equal(shell.hasAttribute('data-open'), true)
+    assert.equal(shell.hasAttribute('data-overlay'), true)
     const details = detailsOf(left)
     assert.ok(details)
     assert.equal(left.closest('.bt-thoughts-slot'), shell)
-    assert.equal(details.closest('.bt-thoughts-slot'), shell)
+    assert.equal(details.closest('.bt-thoughts-surface'), surface)
     assert.deepEqual(Array.from(container.querySelectorAll('.bt-thoughts-panel:not([aria-hidden])')), [details])
     assert.equal(globals.document.activeElement, details)
     const control = details.querySelector('button')
@@ -672,6 +676,8 @@ test('a thought bubble opens in its own slot, closes back to its trigger, and fa
     assert.equal(shell.hasAttribute('data-open'), false)
     assert.equal(details.hasAttribute('inert'), true)
     assert.equal(globals.document.activeElement, left)
+    act(() => t.mock.timers.tick(900))
+    assert.equal(shell.hasAttribute('data-overlay'), false)
 
     act(() => right.click())
     assert.equal(detailsOf(right)?.closest('.bt-thoughts-slot'), rightShell)

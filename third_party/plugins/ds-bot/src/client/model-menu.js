@@ -565,8 +565,9 @@ export function ModelChoiceDock({ sessionId, useRoster, actions }) {
   const lost = bot.model ? !models.some(model => model.ref === bot.model) : false
   // An unknown catalog (none listed) cannot tell a lost model from a slow provider.
   if (bot.model && (!lost || models.length === 0)) return null
-  // The missing key is taken here, through the host.
-  const keyFor = usable.length === 0 && actions.setProviderKey ? models.find(model => model.needsKey) : undefined
+  const museSignIn = Boolean(actions.canOpenAccount?.() && actions.openSettings)
+  // Without Muse sign-in, a missing provider key can be set through the host.
+  const keyFor = !museSignIn && usable.length === 0 && actions.setProviderKey ? models.find(model => model.needsKey) : undefined
   const manage = manageModels(actions)
   const pick = (ref) => {
     setBusy(ref)
@@ -584,7 +585,7 @@ export function ModelChoiceDock({ sessionId, useRoster, actions }) {
         ? t("Hi, I'm {name}. I don't have a model yet. How do you want to set one up?", { name: bot.name })
         : t("Hi, I'm {name}. Pick a model for me first. You can change it later in my details.", { name: bot.name })
   const choices = usable.length === 0
-    ? setupChoices(actions).map(([label, run]) => h('button', { key: label, type: 'button', className: 'bt-model-chip', onClick: run }, label))
+    ? setupChoices(actions, museSignIn).map(([label, run]) => h('button', { key: label, type: 'button', className: 'bt-model-chip', onClick: run }, label))
     : [
         ...groupModels(usable).map(([provider, list]) => h('div', { key: list[0].provider ?? provider, className: 'bt-model-choice-group', role: 'group', 'aria-label': provider },
           h('div', { className: 'bt-model-choice-provider', 'aria-hidden': true }, provider),
@@ -642,15 +643,16 @@ export function ModelKeyCard({ model, actions, onSaved }) {
 // Where the providers are set up: the Models page of Settings.
 export const manageModels = actions => actions.openModels ?? (actions.openSettings ? () => actions.openSettings('models') : undefined)
 
-// Ways to get a first model. The DeepSeek sign-in exists only where the shell carries
-// its account plugin; the API key uses the shell's own editor.
-function setupChoices(actions) {
+// Ways to get a first model. Muse account settings use the same sign-in as the sidebar.
+function setupChoices(actions, museSignIn) {
   const custom = manageModels(actions)
-  return [
-    actions.canSignIn?.() ? [t('Sign in to DeepSeek'), () => actions.signIn()] : null,
-    actions.openHarnessOnboarding ? [t('Enter a DeepSeek API key'), () => actions.openHarnessOnboarding('deepseek-official')] : null,
-    custom ? [t('Open settings to set up a custom model'), () => custom()] : null,
-  ].filter(Boolean)
+  const accounts = museSignIn
+    ? [[t('Sign in to use Muse'), () => actions.openSettings('account')]]
+    : [
+        actions.canSignIn?.() ? [t('Sign in to DeepSeek'), () => actions.signIn()] : null,
+        actions.openHarnessOnboarding ? [t('Enter a DeepSeek API key'), () => actions.openHarnessOnboarding('deepseek-official')] : null,
+      ]
+  return [...accounts, custom ? [t('Open settings to set up a custom model'), custom] : null].filter(Boolean)
 }
 
 // The shell's own DeepSeek sign-in dialog, borrowed from its account plugin: the

@@ -44,24 +44,25 @@ function ThoughtBubble({ item, side, expanded, panelId, panel, open, close, expi
 
   return h('div', {
     className: 'bt-thoughts-slot', 'data-side': side,
-    'data-open': expanded || undefined, 'data-leaving': leaving || undefined,
+    'data-open': expanded || undefined, 'data-overlay': Boolean(body) || undefined, 'data-leaving': leaving || undefined,
   },
-    h('button', {
-      type: 'button', className: 'bt-thoughts-chip', 'data-side': side, 'data-state': state,
-      'data-leaving': leaving || undefined, disabled: leaving || undefined, 'aria-hidden': leaving || undefined,
-      'aria-expanded': leaving ? undefined : expanded, 'aria-controls': expanded ? panelId : undefined,
-      'aria-label': leaving || status === undefined ? undefined : `${label} · ${status}`,
-      title: leaving ? undefined : label, onClick: event => open(item.key, event.currentTarget),
-    },
-    state === undefined ? null : h('span', { className: 'bt-thoughts-dot', 'aria-hidden': true }),
-    h('span', { className: 'bt-thoughts-label' }, label),
-    expanded ? h(ChevronUpIcon) : null),
-    h('div', { className: 'bt-thoughts-reveal' }, body ? h('section', {
-      id: expanded ? panelId : undefined, ref: expanded ? panel : undefined, tabIndex: expanded ? -1 : undefined,
-      className: 'bt-thoughts-panel', 'aria-label': row?.label ?? t('Background jobs'),
-      'aria-hidden': expanded ? undefined : true, inert: expanded ? undefined : '',
-      'data-overflow': row === undefined || undefined,
-    }, body) : null),
+    h('div', { className: 'bt-thoughts-surface' },
+      h('button', {
+        type: 'button', className: 'bt-thoughts-chip', 'data-side': side, 'data-state': state,
+        'data-leaving': leaving || undefined, disabled: leaving || undefined, 'aria-hidden': leaving || undefined,
+        'aria-expanded': leaving ? undefined : expanded, 'aria-controls': expanded ? panelId : undefined,
+        'aria-label': leaving || status === undefined ? undefined : `${label} · ${status}`,
+        title: leaving ? undefined : label, onClick: event => open(item.key, event.currentTarget),
+      },
+      state === undefined ? null : h('span', { className: 'bt-thoughts-dot', 'aria-hidden': true }),
+      h('span', { className: 'bt-thoughts-label' }, label),
+      expanded ? h(ChevronUpIcon) : null),
+      h('div', { className: 'bt-thoughts-reveal' }, body ? h('section', {
+        id: expanded ? panelId : undefined, ref: expanded ? panel : undefined, tabIndex: expanded ? -1 : undefined,
+        className: 'bt-thoughts-panel', 'aria-label': row?.label ?? t('Background jobs'),
+        'aria-hidden': expanded ? undefined : true, inert: expanded ? undefined : '',
+        'data-overflow': row === undefined || undefined,
+      }, body) : null)),
     expanded ? h(ThoughtEscape, { close }) : null)
 }
 
@@ -98,7 +99,7 @@ export function BackgroundThoughtBubbles({ avatar, children, group = false, rows
   useEffect(() => {
     if (!expanded) return undefined
     const away = event => {
-      if (!root.current?.contains(event.target)) select(undefined)
+      if (!trigger.current?.closest('.bt-thoughts-slot')?.contains(event.target)) select(undefined)
     }
     document.addEventListener('pointerdown', away, true)
     return () => document.removeEventListener('pointerdown', away, true)
@@ -138,6 +139,7 @@ export function BackgroundThoughtBubbles({ avatar, children, group = false, rows
 
 export const BACKGROUND_THOUGHT_CSS = `
 .bt-thoughts{display:flex;flex-direction:column;align-items:center;align-self:stretch;min-width:0;container:bt-thoughts / inline-size}
+.bt-drawer-id:has(.bt-thoughts-slot[data-overlay]){position:relative;z-index:2}
 .bt-thoughts-stage{align-self:stretch;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:14px;align-items:start;margin-bottom:16px}
 .bt-thoughts-avatar{grid-column:2;grid-row:1;display:flex;align-items:center;justify-content:center;line-height:0}
 .bt-thoughts-avatar>.bt-spider-detail{margin-bottom:0}
@@ -146,16 +148,25 @@ export const BACKGROUND_THOUGHT_CSS = `
   --bt-thought-max:min(100%,132px);
   --bt-thought-fill:color-mix(in srgb,var(--bt-accent) 5%,var(--bt-hover));
   --bt-thought-edge:color-mix(in srgb,var(--bt-accent) 12%,var(--bt-line));
-  display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 0fr;grid-row:1;
-  min-width:0;max-width:var(--bt-thought-max);box-sizing:border-box;border:1px solid var(--bt-thought-edge);border-radius:15px;
+  display:grid;grid-template:30px / minmax(0,1fr);grid-row:1;position:relative;
+  min-width:0;max-width:var(--bt-thought-max);
+  animation:bt-thought-appear .2s ease-out both;transition:${spring(SPRING_SHAPE, 'min-width')}
+}
+.bt-thoughts-surface{
+  display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto 0fr;align-self:start;
+  min-width:0;box-sizing:border-box;border:1px solid var(--bt-thought-edge);border-radius:15px;
   background:var(--bt-thought-fill);color:var(--bt-ink-2);
-  animation:bt-thought-appear .2s ease-out both;
-  transition:${spring(SPRING_SHAPE, 'grid-template-rows', 'min-width', 'border-radius')},background-color .14s ease,border-color .14s ease,color .14s ease
+  transition:${spring(SPRING_SHAPE, 'grid-template-rows', 'border-radius')},background-color .14s ease,border-color .14s ease,color .14s ease
 }
 .bt-thoughts-slot[data-side=left]{--bt-thought-in:5px;grid-column:1;justify-self:end;margin-top:4px}
 .bt-thoughts-slot[data-side=right]{--bt-thought-in:-5px;grid-column:3;justify-self:start;margin-top:30px}
-.bt-thoughts-slot:is([data-open],:has(>.bt-thoughts-chip:is(:hover,:focus-visible))){background:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-active));border-color:var(--bt-line-2);color:var(--bt-ink)}
-.bt-thoughts-slot[data-open]{grid-template-rows:auto 1fr;min-width:var(--bt-thought-max);border-radius:14px}
+.bt-thoughts-surface:has(>.bt-thoughts-chip:is(:hover,:focus-visible)){background:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-active));border-color:var(--bt-line-2);color:var(--bt-ink)}
+.bt-thoughts-slot[data-overlay]{z-index:1}
+.bt-thoughts-slot[data-open]{z-index:2;min-width:var(--bt-thought-max)}
+.bt-thoughts-slot[data-overlay]>.bt-thoughts-surface{background:color-mix(in srgb,var(--bt-accent) 12%,var(--bt-card));border-color:var(--bt-line-2);color:var(--bt-ink);box-shadow:var(--bt-card-shadow)}
+.bt-thoughts-slot[data-open]>.bt-thoughts-surface{grid-template-rows:auto 1fr;border-radius:14px}
+.bt-thoughts-slot[data-overlay]:not([data-open])>.bt-thoughts-surface{pointer-events:none}
+.bt-thoughts-slot[data-overlay]:not([data-open],[data-leaving]) .bt-thoughts-chip{pointer-events:auto}
 .bt-thoughts-slot[data-leaving]{pointer-events:none;animation:bt-thought-fade ${EXIT_MS}ms ease-in-out both}
 .bt-thoughts-chip{
   display:flex;align-items:center;gap:5px;min-width:0;min-height:28px;padding:4px var(--bt-thought-inset);
@@ -172,7 +183,7 @@ export const BACKGROUND_THOUGHT_CSS = `
 .bt-thoughts[data-group] .bt-thoughts-slot{grid-row:2;margin:0}
 .bt-thoughts[data-group] .bt-thoughts-slot[data-side=right]{grid-column:2}
 .bt-thoughts-reveal{min-height:0;overflow:hidden;contain:inline-size;opacity:0;transition:opacity .16s ease}
-.bt-thoughts-slot[data-open]>.bt-thoughts-reveal{opacity:1}
+.bt-thoughts-slot[data-open] .bt-thoughts-reveal{opacity:1}
 .bt-thoughts-panel{
   align-self:stretch;max-height:min(36dvh,240px);overflow-y:auto;overscroll-behavior:contain;
   padding:0 var(--bt-thought-inset) 8px;box-sizing:border-box;color:var(--bt-ink);font-size:12px;line-height:18px;text-align:start
@@ -198,9 +209,9 @@ export const BACKGROUND_THOUGHT_CSS = `
   .bt-thoughts-slot[data-side=right]{grid-column:2}
 }
 @media(prefers-reduced-motion:reduce){
-  .bt-thoughts-slot,.bt-thoughts-reveal{animation:none;transition:none}
+  .bt-thoughts-slot,.bt-thoughts-surface,.bt-thoughts-reveal{animation:none;transition:none}
   .bt-thoughts-slot[data-leaving]{display:none}
 }
-body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-thoughts-slot,.bt-thoughts-reveal){animation:none;transition:none}
+body:is([data-bt-effects=reduced],[data-bt-effects=off]) :is(.bt-thoughts-slot,.bt-thoughts-surface,.bt-thoughts-reveal){animation:none;transition:none}
 body:is([data-bt-effects=reduced],[data-bt-effects=off]) .bt-thoughts-slot[data-leaving]{display:none}
 `
