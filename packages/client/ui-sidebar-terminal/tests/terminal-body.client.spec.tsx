@@ -6,10 +6,10 @@ import type { ReactNode } from 'react'
 import type { ITheme } from '@xterm/xterm'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
+import type { TerminalView, TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { PanelTerminal, TerminalBody, type TerminalBodyProps } from '../src/client/terminal.tsx'
+import { PanelTerminal, TerminalBody, type PanelTerminalProps, type TerminalBodyProps } from '../src/client/terminal.tsx'
 import { TerminalTitle } from '../src/client/TerminalTitle.tsx'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -504,21 +504,25 @@ it('keeps the screen on a temporary disconnect and presents reconnection without
 it('shows a Bot panel tab\'s terminal, looks its model up once per tab and opens a new terminal through the panel', () => {
   const state = createSnapshotStore<TerminalViewState>({ ...idle, info: { ...info, state: 'exited', exitCode: 0 }, phase: 'failed' })
   const detach = vi.fn()
-  const model = {
+  const model: Pick<TerminalView, 'state' | 'mount' | 'refresh' | 'connect' | 'write' | 'resize' | 'acknowledge'> = {
     state, mount: vi.fn(() => detach), refresh: vi.fn(async () => {}),
     connect: vi.fn(), write: vi.fn(), resize: vi.fn(), acknowledge: vi.fn(),
   }
-  const panelView = vi.fn(() => model)
+  // The panel only uses these public commands. The transport and lifecycle stay in the model's own tests.
+  const panelView = vi.fn<PanelTerminalProps['panelView']>(() => model as TerminalView)
   const replace = vi.fn()
   const theme: ThemeSnapshot = {
     preference: 'light', fontSizes: { text: 14, code: 11, terminal: 13 }, fontFamilies: { text: '', code: '', terminal: '' },
     active: { id: 'light', colorScheme: 'light', tokens: {} }, themes: [], revision: 0,
   }
-  // The test supplies the owner share and the model lookup; the remaining slot props are framework-owned.
-  const panel = (tabId: string) => <PanelTerminal {...{
-    sessionId: 'session', tabId, visible: true, replace, panelView,
-    useTheme: (select: (value: ThemeSnapshot) => unknown) => select(theme), t: makeTranslate(en),
-  } as never} />
+  const useTheme: PanelTerminalProps['useTheme'] = select => select(theme)
+  const panel = (tabId: string) => {
+    // Render the component directly with the owner and injected props it uses.
+    const props: Pick<PanelTerminalProps, 'sessionId' | 'tabId' | 'visible' | 'replace' | 'panelView' | 'useTheme' | 't'> = {
+      sessionId: 'session' as PanelTerminalProps['sessionId'], tabId, visible: true, replace, panelView, useTheme, t: makeTranslate(en),
+    }
+    return <PanelTerminal {...props as PanelTerminalProps} />
+  }
   const view = render(panel('bot-terminal:1'))
   expect(panelView).toHaveBeenCalledExactlyOnceWith('session', 'bot-terminal:1', undefined)
   expect(model.mount).toHaveBeenCalledOnce()
