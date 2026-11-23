@@ -10,8 +10,9 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { registerProductionTool } from '../src/production.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
-import { encodeVoiceSlot } from '@deepseek-ai/dsh-jubian-api'
+import { encodeVoiceSlot, stableSha256 } from '@deepseek-ai/dsh-jubian-api'
 import type { ProductionConfig } from '../src/production.ts'
+import type { ProductionPlan } from '../src/production-types.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { sessionVideoShot } from './fixtures/session-video.ts'
 import { actionShot, speakingShot, tempDir, cleanup } from './harness.ts'
@@ -149,6 +150,67 @@ it('keeps the previous manifest when one package has an uncertain free-write out
   expect(await f.call({ method: 'apply', plan_path: report.plan_path })).toMatchObject({ saved: 0,
     source_manifest: { status: 'not_published', reason: 'package_results_incomplete' } })
   expect(await readFile(path, 'utf8')).toBe(before)
+})
+
+it('requires a refreshed plan for a saved offscreen prop reference and continues the independent package', async () => {
+  const f = await fixture()
+  const prop = { id: 301, scriptId: 4908, assetType: 3, assetName: '三足铜蟾',
+    assetUrl: 'https://cdn.example.test/toad.png', delFlag: '0' }
+  f.assets.push(prop)
+  f.materials.push({ id: 1301, scriptId: 4908, assetId: 301, hsAssetId: 'asset-301',
+    assetName: prop.assetName, assetUrl: prop.assetUrl, isUsed: 1, hsAssetStatus: 'Active' })
+  await f.service.initialize(f.agent)
+  const short = (await f.service.catalogue()).find(item => item.maxDurationSeconds === 15)!
+  await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+  const initial = await f.preview()
+  expect(await f.call({ method: 'apply', plan_path: initial.plan_path })).toMatchObject({ saved: 2 })
+  const originalFirstCard = structuredClone(f.cards.get(10000))
+  const manifestPath = join(f.root, 'episode_packages', '01', 'package.json')
+  const originalManifest = await readFile(manifestPath, 'utf8')
+
+  const dialogue = '铜蟾：你仔细听。'
+  const visible = '画面：苏晚低头端详三足铜蟾。'
+  const offscreen = '画面：苏晚低头，器物不在画面内、不开口。'
+  const secondDialogue = '苏晚：这回我听明白了。'
+  const source = [speakingShot(1, dialogue, ['出镜人物：苏晚', '核心场景：后厨', '关键道具：三足铜蟾',
+    visible, '发声类型：心声', '时长：8秒']), speakingShot(2, secondDialogue,
+    ['出镜人物：苏晚', '核心场景：后厨', '发声类型：dialogue', '时长：8秒'])].join('\n\n')
+  await writeFile(f.script, source)
+  const preview = await f.preview()
+  const { fingerprint: _previewFingerprint, ...legacy } = JSON.parse(await readFile(String(preview.plan_path), 'utf8')) as ProductionPlan
+  const firstPack = legacy.packages[0]!
+  expect(legacy.matches).toContainEqual(expect.objectContaining({ shot: 1, kind: 'prop', selected_asset_id: 301 }))
+  expect(firstPack.prompt).toContain('@[三足铜蟾](asset_301)')
+  expect(firstPack.prompt).toContain(visible)
+  // Preserve the old compiler's binding while bringing the signed fixture and source onto the same raw revision.
+  legacy.source = source.replace(visible, offscreen)
+  legacy.source_sha256 = productionHash(legacy.source)
+  firstPack.prompt = firstPack.prompt.replace(visible, offscreen)
+  const fingerprint = stableSha256(legacy)
+  const planPath = join(f.root, '.muse', 'production', `${fingerprint}.json`)
+  await writeFile(f.script, legacy.source)
+  await writeFile(planPath, JSON.stringify({ ...legacy, fingerprint }))
+
+  const beforeApply = f.calls.length
+  const partial = await f.call({ method: 'apply', plan_path: planPath })
+  expect(partial).toMatchObject({ paid_requests: 0, processed: 2, saved: 1,
+    results: [{ index: 1, status: 'offscreen_prop_plan_needs_update' }, { index: 2, status: 'saved', storyboard_id: 10001 }],
+    source_manifest: { status: 'not_published' } })
+  const writes = f.calls.slice(beforeApply).filter(call => call.method !== 'GET' && call.path === '/aigc/storyboard')
+  expect(new Set(writes.map(call => `${call.method}:${String(call.body?.id)}`))).toEqual(new Set(['PUT:10001']))
+  expect(f.cards.get(10000)).toEqual(originalFirstCard)
+  expect(String(f.cards.get(10001)?.modelConfig)).toContain(secondDialogue)
+  expect(await readFile(manifestPath, 'utf8')).toBe(originalManifest)
+
+  const refreshed = await f.call({ method: 'update', plan_path: planPath })
+  expect(await f.call({ method: 'apply', plan_path: refreshed.plan_path })).toMatchObject({ paid_requests: 0, saved: 2,
+    results: [{ index: 1, storyboard_id: 10000 }, { index: 2, storyboard_id: 10001 }], source_manifest: { status: 'published' } })
+  const prompt = String(f.cards.get(10000)?.modelConfig)
+  expect(prompt).toContain(dialogue)
+  expect(prompt).toContain(offscreen)
+  expect(prompt).not.toContain('(asset_301)')
+  expect(f.cards.size).toBe(2)
+  expect(await readFile(f.script, 'utf8')).toBe(legacy.source)
 })
 
 it('retains saved card receipts when the manifest cannot be written', async () => {
