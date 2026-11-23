@@ -92,7 +92,7 @@ test(`${code} RPC failures provide conversation and bot-default recovery paths`,
   assert.equal(failure.code, 'MODEL_UNAVAILABLE');
   assert.equal(failure.reason, code.toUpperCase().replaceAll('-', '_').replaceAll('/', '_'));
   assert.match(failure.message, /\/models.*\/model <序号>.*当前聊天/u);
-  assert.match(failure.message, /后续新会话.*DSH 设置.*IM机器人/u);
+  assert.match(failure.message, /后续新会话.*Muse 设置.*IM机器人/u);
   assert.doesNotMatch(JSON.stringify(failure), /private provider detail/u);
 });
 
@@ -103,7 +103,7 @@ test('English model failures distinguish the current conversation from bot defau
   const failure = classifyMessageFailure({ code: 'session/model-unavailable' }, options);
   assert.equal(failure.code, 'MODEL_UNAVAILABLE');
   assert.match(failure.message, /\/models.*\/model <index>.*current conversation/u);
-  assert.match(failure.message, /new conversations.*DSH Settings.*IM Bots/u);
+  assert.match(failure.message, /new conversations.*Muse Settings.*IM Bots/u);
   assert.doesNotMatch(failure.message, /[\u4e00-\u9fff]/u);
 });
 

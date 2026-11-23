@@ -30,8 +30,8 @@ export default {
   '消息处理失败，请稍后重试。': 'Failed to process the message. Please try again later.',
   '卡片已结束，请查看后续消息。': 'This card has ended. Please check the next message.',
   '工具调用「{name}」未成功，请检查工具配置或稍后重试。': 'Tool call "{name}" did not succeed. Check the tool configuration or try again later.',
-  '无法连接处理服务，消息尚未提交。请确认 DeepSeek Harness 正在运行后重试。':
-    'Could not connect to the processing service, so the message was not submitted. Make sure DeepSeek Harness is running, then try again.',
+  '无法连接处理服务，消息尚未提交。请确认 Muse 正在运行后重试。':
+    'Could not connect to the processing service, so the message was not submitted. Make sure Muse is running, then try again.',
   '处理服务响应超时，消息尚未开始处理。请稍后重试。':
     'The processing service timed out before the message started. Please try again later.',
   '暂时无法确认任务状态，任务可能已经开始。请先等待或发送 /stop，不要立即重复提交。':
@@ -40,12 +40,12 @@ export default {
     'The message submission could not be confirmed and the task may have started. Wait or send /status before submitting it again.',
   '暂时无法读取任务进度，任务可能仍在运行。请先等待或发送 /stop，不要立即重复提交。':
     'Task progress is temporarily unavailable and the task may still be running. Wait or send /stop before submitting it again.',
-  '处理服务拒绝了机器人连接。请管理员检查 Harness 地址、代理或访问配置后重试。':
-    'The processing service rejected the bot connection. Ask an administrator to check the Harness address, proxy, or access settings.',
-  '机器人与 DeepSeek Harness 的接口不兼容。请管理员检查 Harness 地址并更新相关版本。':
-    'The bot and DeepSeek Harness use incompatible APIs. Ask an administrator to check the Harness address and update the related components.',
-  'DeepSeek Harness 暂时无法完成请求，请稍后重试。':
-    'DeepSeek Harness could not complete the request. Please try again later.',
+  '处理服务拒绝了机器人连接。请管理员检查 Muse 服务地址、代理或访问配置后重试。':
+    'The processing service rejected the bot connection. Ask an administrator to check the Muse service address, proxy, or access settings.',
+  '机器人与 Muse 的接口不兼容。请管理员检查 Muse 服务地址并更新相关版本。':
+    'The bot and Muse use incompatible APIs. Ask an administrator to check the Muse service address and update the related components.',
+  'Muse 暂时无法完成请求，请稍后重试。':
+    'Muse could not complete the request. Please try again later.',
   '等待模型回复超时，任务可能仍在运行。请先等待或发送 /stop，不要立即重复提交。':
     'Waiting for the model reply timed out and the task may still be running. Wait or send /stop before submitting it again.',
   '模型凭据缺失或已失效。请管理员检查模型配置后重试。':
@@ -58,8 +58,8 @@ export default {
     'This conversation exceeds the model context limit. Send /compact or /new, then try again.',
   '当前模型不存在或暂不可用。请发送 /models 查看并使用 /model 切换模型。':
     'The current model does not exist or is unavailable. Send /models and use /model to switch models.',
-  '当前模型不存在或不支持所选配置。请发送 /models，再用 /model <序号> 为当前聊天重新选择。若要修改后续新会话的默认模型，请到 DSH 设置 → IM机器人 → 对应机器人卡片修改。':
-    'The current model does not exist or does not support the selected settings. Send /models, then use /model <index> to choose a model for the current conversation. To change the default model for new conversations, open DSH Settings → IM Bots → the corresponding bot card.',
+  '当前模型不存在或不支持所选配置。请发送 /models，再用 /model <序号> 为当前聊天重新选择。若要修改后续新会话的默认模型，请到 Muse 设置 → IM机器人 → 对应机器人卡片修改。':
+    'The current model does not exist or does not support the selected settings. Send /models, then use /model <index> to choose a model for the current conversation. To change the default model for new conversations, open Muse Settings → IM Bots → the corresponding bot card.',
   '当前模型不支持这类内容或所选配置。请调整内容、模型或推理等级后重试。':
     'The current model does not support this content or the selected settings. Adjust the content, model, or reasoning effort and try again.',
   '当前模型不支持所选配置。请切换模型或推理等级后重试。':
@@ -78,12 +78,12 @@ export default {
     'The model rejected the current content. Revise the request and try again.',
   '模型达到输出长度上限，但没有生成可显示的结果。请缩小任务范围后重试。':
     'The model reached its output limit without producing a displayable result. Reduce the task scope and try again.',
-  '本轮处理被阻止，未能完成。请在 DSH 中查看会话状态和相关提示。':
-    'This turn was blocked and did not finish. Check the Session status and related notices in DSH.',
-  '当前会话已归档，无法继续处理。请在 DSH 中取消归档，或发送 /new 创建新会话。':
-    'The current Session is archived and cannot continue. Unarchive it in DSH, or send /new to create a new Session.',
-  '本条消息可能仍在会话队列中，请先到 DSH 查看状态，避免重复提交。':
-    'This message may still be queued in the Session. Check its status in DSH before submitting it again.',
+  '本轮处理被阻止，未能完成。请在 Muse 中查看会话状态和相关提示。':
+    'This turn was blocked and did not finish. Check the Session status and related notices in Muse.',
+  '当前会话已归档，无法继续处理。请在 Muse 中取消归档，或发送 /new 创建新会话。':
+    'The current Session is archived and cannot continue. Unarchive it in Muse, or send /new to create a new Session.',
+  '本条消息可能仍在会话队列中，请先到 Muse 查看状态，避免重复提交。':
+    'This message may still be queued in the Session. Check its status in Muse before submitting it again.',
   '任务被意外中断，本次未完成。请重试。':
     'The task was unexpectedly interrupted and did not finish. Please try again.',
   '当前会话已不存在。请发送 /new 创建新会话后重试。':
@@ -126,7 +126,7 @@ export default {
     'Send text, an image, or a file directly to continue the current session.',
   '直接发送文字、图片、文件或带文字识别结果的语音即可继续当前会话。':
     'Send text, an image, a file, or a voice message already transcribed to text to continue the current session.',
-  '{label}机器人已连接 DeepSeek Harness。': 'The {label} bot is connected to DeepSeek Harness.',
+  '{label}机器人已连接 Muse。': 'The {label} bot is connected to Muse.',
   '查看最近历史消息（仅私聊）': 'Show recent history (private chats only)',
   '按序号列出当前模型可用推理等级': 'List reasoning efforts for the current model by index',
   '查看或切换当前推理等级': 'Show or switch the current reasoning effort',
@@ -209,8 +209,8 @@ export default {
   '/status  检查连接状态': '/status  Check the connection status',
   '/version  查看插件版本': '/version  Show the plugin version',
   '/help  显示本帮助': '/help  Show this help',
-  '{label}机器人与 DeepSeek Harness 连接正常。':
-    'The {label} bot is connected to DeepSeek Harness and working normally.',
+  '{label}机器人与 Muse 连接正常。':
+    'The {label} bot is connected to Muse and working normally.',
   '{label}机器人凭据缺失，请移除后重新接入。':
     '{label} bot credentials are missing. Remove the bot and connect it again.',
   '{label}连接未就绪，插件会自动重试。':

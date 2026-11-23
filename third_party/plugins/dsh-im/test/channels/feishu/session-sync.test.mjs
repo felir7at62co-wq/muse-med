@@ -107,7 +107,7 @@ test('mirror keeps every long code segment fenced across cards without losing in
   assert.deepEqual(receivedRows, rows);
   assert.match(cards.at(-1), /END_LONG_CODE/);
   assert.match(cards.at(-1), /已完成/);
-  assert.equal(f.texts.filter(args => args[3].startsWith('[DSH 助手]')).length, 0);
+  assert.equal(f.texts.filter(args => args[3].startsWith('[Muse 助手]')).length, 0);
 });
 
 test('mirror snapshots match the delivered expansion even if preferences change during PATCH', async t => {
@@ -165,15 +165,15 @@ for (const input of [user, scheduled]) {
       await flush();
       f.emit(end());
       await flush();
-      assert.equal(f.texts.filter(r => r[3].startsWith('[DSH 助手]')).length, 0, 'wait for real card outcome');
+      assert.equal(f.texts.filter(r => r[3].startsWith('[Muse 助手]')).length, 0, 'wait for real card outcome');
       release();
       await f.drain();
-      assert.equal(f.texts.filter(r => r[3] === '[DSH 助手]\n\ncomplete answer').length, 1);
-      if (input === scheduled) assert.equal(f.texts.filter(r => r[3].startsWith('[来自 DSH]')).length, 0);
+      assert.equal(f.texts.filter(r => r[3] === '[Muse 助手]\n\ncomplete answer').length, 1);
+      if (input === scheduled) assert.equal(f.texts.filter(r => r[3].startsWith('[来自 Muse]')).length, 0);
       f.emit(start(2)); f.emit(input(2)); f.emit(answer('next answer', 2)); f.emit(end(2));
       await f.drain();
       assert.ok([...f.visible.values()].some(text => text.includes('next answer')));
-      assert.equal(f.texts.filter(r => r[3].includes('[DSH 助手]\n\nnext answer')).length, 0);
+      assert.equal(f.texts.filter(r => r[3].includes('[Muse 助手]\n\nnext answer')).length, 0);
     });
   }
 }
@@ -206,8 +206,8 @@ for (const phase of ['create', 'running patch', 'final patch']) {
       assert.ok([...f.visible.values()].some(text => text.includes('next answer')),
         'a hanging request must not block the next turn');
       await f.drain();
-      assert.equal(f.texts.filter(r => r[0] === 'bot-a' && r[3] === '[DSH 助手]\n\ncomplete answer').length, 1);
-      assert.ok(f.texts.some(r => r[0] === 'bot-b' && r[3] === '[DSH 助手]\n\ncomplete answer'));
+      assert.equal(f.texts.filter(r => r[0] === 'bot-a' && r[3] === '[Muse 助手]\n\ncomplete answer').length, 1);
+      assert.ok(f.texts.some(r => r[0] === 'bot-b' && r[3] === '[Muse 助手]\n\ncomplete answer'));
       assert.ok(f.warnings.some(args => args.some(arg => String(arg).includes('timed out'))));
       const saved = structuredClone(f.state.mirrorEntries());
       const delivered = structuredClone(f.texts);
@@ -253,7 +253,7 @@ test('same target id on another channel/bot still receives its answer', async t 
   const f = await fixture(t, { targets: [target, other, { ...target, botId: 'bot-c' }, { ...target, targetId: 'second' }] });
   for (const event of [start(), user(), answer(), end()]) f.emit(event);
   await f.drain();
-  assert.deepEqual(f.texts.filter(r => r[3].startsWith('[DSH 助手]')).map(r => r.slice(0, 2)),
+  assert.deepEqual(f.texts.filter(r => r[3].startsWith('[Muse 助手]')).map(r => r.slice(0, 2)),
     [['bot-b', 'owner'], ['bot-c', 'owner'], ['bot-a', 'second']]);
 });
 
@@ -472,7 +472,7 @@ for (const phase of ['running', 'finish']) {
     f.emit(start()); f.emit(user()); await f.drain();
     f.emit(answer()); await f.drain();
     f.emit(end()); await f.drain();
-    assert.equal(f.texts.filter(row => row[3] === '[DSH 助手]\n\ncomplete answer').length, 1);
+    assert.equal(f.texts.filter(row => row[3] === '[Muse 助手]\n\ncomplete answer').length, 1);
     assert.equal(f.mirrors.size, 0);
     const count = f.patches.length;
     t.mock.timers.tick(90_000); await f.drain();

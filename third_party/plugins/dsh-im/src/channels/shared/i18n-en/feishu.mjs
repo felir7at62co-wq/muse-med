@@ -9,8 +9,8 @@ export default {
   '⏹ 提问已结束{progress}': '⏹ Questions closed{progress}',
   '内容已合并至后续消息。': 'Content has been consolidated into the following messages.',
   // feishu/bridge.mjs — welcome / help
-  '北汇星河 AIOS 已连接 DeepSeek Harness。':
-    'BeiHui XingHe AIOS is connected to DeepSeek Harness.',
+  '北汇星河 AIOS 已连接 Muse。':
+    'BeiHui XingHe AIOS is connected to Muse.',
   '/repair  补全飞书权限与卡片回调': '/repair  Complete Feishu permissions and the card callback',
   '/m（或 /menu）  打开交互卡片菜单': '/m (or /menu)  Open the interactive card menu',
   '/watch [Session ID 或序号]  关注会话，任务完成自动推送':
@@ -36,11 +36,11 @@ export default {
     'The result file "{name}" was temporarily rate-limited by Feishu and could not be sent. Please try again later.',
   '结果文件「{name}」已生成，但暂时未能发送，请稍后重试。':
     'The result file "{name}" was generated but could not be sent right now. Please try again later.',
-  '处理失败，请稍后重试。如果问题持续，请在 DeepSeek Harness 的「IM机器人」设置页检查飞书连接状态。':
-    'Message processing failed. Please try again later. If the problem persists, check the Feishu connection status on the IM Bot settings page in DeepSeek Harness.',
-  '已开启全新 Harness 会话。': 'A brand-new Harness session has started.',
-  '飞书机器人与 DeepSeek Harness 连接正常。':
-    'The Feishu bot is connected to DeepSeek Harness and working normally.',
+  '处理失败，请稍后重试。如果问题持续，请在 Muse 的「IM机器人」设置页检查飞书连接状态。':
+    'Message processing failed. Please try again later. If the problem persists, check the Feishu connection status on the IM Bot settings page in Muse.',
+  '已开启全新会话。': 'A brand-new session has started.',
+  '飞书机器人与 Muse 连接正常。':
+    'The Feishu bot is connected to Muse and working normally.',
   '用法：/archived on（包含归档会话）或 /archived off（隐藏归档会话）':
     'Usage: /archived on (include archived sessions) or /archived off (hide archived sessions)',
   '已开启：会话列表包含归档会话。': 'On: the session list includes archived sessions.',
@@ -396,7 +396,7 @@ export default {
   '后台任务已结束（{reason}），没有可推送的最终结果。':
     'The background task has finished ({reason}); there is no final result to deliver.',
   '已请求停止后台任务。': 'Requested to stop the background task.',
-  '无法安全停止后台任务，请在 Harness 中查看并停止对应任务。': 'Unable to safely stop the background task. Please inspect and stop the matching task in Harness.',
+  '无法安全停止后台任务，请在 Muse 中查看并停止对应任务。': 'Unable to safely stop the background task. Please inspect and stop the matching task in Muse.',
   '任务失败': 'Failed',
   // feishu/bridge.mjs — step push context injection
   '📎 已注入会话上下文': '📎 Context injected',

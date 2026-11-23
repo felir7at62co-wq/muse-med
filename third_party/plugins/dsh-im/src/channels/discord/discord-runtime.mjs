@@ -78,7 +78,7 @@ function stripBotMention(text, botId) {
 
 function cleanThreadName(message, botId) {
   const name = stripBotMention(message?.content ?? '', botId).replace(/\s+/g, ' ').trim()
-    || 'DeepSeek Harness';
+    || 'Muse';
   return [...name].slice(0, 100).join('');
 }
 

@@ -93,7 +93,7 @@ function historyErrorMessage(error) {
   if (code === 'session-not-found') return t('当前聊天绑定的会话已不存在，请重新绑定会话。');
   if (code === WORKSPACE_SESSION_STALE || code === 'workspace-bot-not-found'
     || code === 'session-binding-changed') return t('会话、工作区或机器人状态已发生变化，请重新执行 /history。');
-  if (code === 'harness-api-not-found') return t('当前 Harness 暂不支持读取会话历史。');
+  if (code === 'harness-api-not-found') return t('当前 Muse 版本暂不支持读取会话历史。');
   if (error?.name === 'AbortError') return t('历史读取已取消。');
   if (error?.name === 'TimeoutError' || code === 'harness-timeout') return t('读取历史超时，请稍后重试。');
   return t('暂时无法读取会话历史，请稍后重试。');
@@ -126,7 +126,7 @@ export async function runHistoryCommand(text, harness, state, key, {
   try {
     const session = harness?.workspaceSession?.(sessionId, key);
     if (typeof session?.readHistory !== 'function') {
-      return commandResult(t('当前 Harness 暂不支持读取会话历史。'));
+      return commandResult(t('当前 Muse 版本暂不支持读取会话历史。'));
     }
     const timeout = AbortSignal.timeout(READ_TIMEOUT_MS);
     const signal = callerSignal ? AbortSignal.any([callerSignal, timeout]) : timeout;

@@ -33,7 +33,7 @@ for (const [channel, label, Bridge] of [
         content: '/help', replyTarget: {},
       });
       assert.equal(help, [
-        translate('{label}机器人已连接 DeepSeek Harness。', { label }),
+        translate('{label}机器人已连接 Muse。', { label }),
         '',
         translate('直接发送文字、图片或文件即可继续当前会话。'),
         ...legacyHelp[language],

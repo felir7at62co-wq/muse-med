@@ -1338,7 +1338,7 @@ test('Weixin stops typing while a Harness question is visible', async () => {
 
   assert.equal(events[0], 'typing:1');
   assert.equal(events[1], 'typing:2');
-  assert.match(events[2], /^text:DeepSeek Harness 需要你补充信息/);
+  assert.match(events[2], /^text:Muse 需要你补充信息/);
   assert.equal(events.filter((event) => event === 'typing:1').length, 1);
   assert.equal(events.at(-1), 'text:任务结束');
 });

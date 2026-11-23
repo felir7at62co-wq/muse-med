@@ -71,7 +71,7 @@ function Heading({ totals, adding, busy, onAdd, onCredential, credentialOpen, ad
     h('div', { className: 'ddt-headingCopy' },
       h('div', { className: 'ddt-eyebrow' }, 'Channel'),
       h('h2', null, '钉钉机器人'),
-      h('p', null, '通过扫码把钉钉机器人接入 DeepSeek Harness')),
+      h('p', null, '通过扫码把钉钉机器人接入 Muse')),
     h('div', { className: 'ddt-tools' },
       h('div', { className: 'dim-bindActions' },
         h(Button, {
@@ -134,7 +134,7 @@ function QrPanel({ provision, now, busy, onRefresh, onCancel }) {
           source && !imageFailed
             ? h('img', {
                 src: source,
-                alt: '用于把钉钉机器人接入 DeepSeek Harness 的一次性二维码',
+                alt: '用于把钉钉机器人接入 Muse 的一次性二维码',
                 onError: () => setImageFailed(true),
               })
             : h('div', { className: 'ddt-qrFallback dim-qrFallback' }, '二维码图片未就绪，请重新生成。'),
@@ -221,7 +221,7 @@ function RemoveConfirmation({ account, busy, onConfirm, onCancel }) {
       if (event.key === 'Escape' && !busy) onCancel();
     },
   },
-  h('strong', null, `从 DeepSeek Harness 移除“${account.bot.name}”？`),
+  h('strong', null, `从 Muse 移除“${account.bot.name}”？`),
   h('p', null, '这会停止消息连接，并删除本机保存的应用凭据、机器人配置及会话映射。钉钉开放平台中的机器人不会被自动删除。'),
   h('div', { className: 'ddt-actions dim-viewActions' },
     h(Button, { ref: cancelRef, onClick: onCancel, disabled: busy }, '保留机器人'),

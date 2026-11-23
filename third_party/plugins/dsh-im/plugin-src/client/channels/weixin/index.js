@@ -108,7 +108,7 @@ function QrPanel({ provision, now, busy, onRefresh, onCancel }) {
           source && !imageFailed
             ? h('img', {
                 src: source,
-                alt: '用于把微信机器人绑定到 DeepSeek Harness 的一次性二维码',
+                alt: '用于把微信机器人绑定到 Muse 的一次性二维码',
                 onError: () => setImageFailed(true),
               })
             : h('div', { className: 'dxw-qrFallback dim-qrFallback' }, '二维码图片未就绪，请使用备用链接。'),

@@ -277,7 +277,7 @@ function QrPane({ provision, now, onRefresh, onCancel, busy }) {
                   ? `用于为${botName}补全权限与回调的一次性授权二维码`
                   : grantingGroupMessages
                     ? `用于为${botName}开通群消息权限的一次性授权二维码`
-                    : "用于新增 DeepSeek Harness 飞书机器人的一次性授权二维码",
+                    : "用于新增 Muse 飞书机器人的一次性授权二维码",
                 onError: () => setImageFailed(true),
               })
             : h("div", { className: "bxf-qrFallback dim-qrFallback" },
@@ -458,7 +458,7 @@ function RemoveConfirmation({ bot, busy, onConfirm, onCancel }) {
       }
     },
   },
-    h("h4", { id: titleId }, `从 DeepSeek Harness 移除“${bot.bot.name}”？`),
+    h("h4", { id: titleId }, `从 Muse 移除“${bot.bot.name}”？`),
     h("p", { id: descriptionId },
       "此操作会停止这个机器人的连接，并删除保存在本机的接入配置和凭据。飞书开放平台中的应用不会被自动删除，其他机器人也不受影响。"),
     h("div", { className: "bxf-actions dim-viewActions" },
@@ -719,7 +719,7 @@ export function BotCard({
             managed ? null : h(Button, {
               className: "dim-cardAction", kind: "danger", onClick: onRequestRemove,
               disabled: Boolean(busy), ref: removeButtonRef,
-              "aria-label": `从 DeepSeek Harness 移除${bot.name}`,
+              "aria-label": `从 Muse 移除${bot.name}`,
             }, "移除接入")),
           summary ? h("div", { className: "bxf-healthSummary dim-cardSummary", "data-error": actionError || connection.error ? "true" : undefined },
             summary) : null,
@@ -1425,7 +1425,7 @@ export function FeishuSettingsTab({ rpcCall, onlyBotId }) {
       if (mountedRef.current && workspaceFence.canCommitMutation(snapshotVersion)) {
         mergeSnapshot(snapshot);
       }
-      announce(`${bot.name}已从此 DeepSeek Harness 移除；飞书开放平台中的应用未被删除。`);
+      announce(`${bot.name}已从 Muse 移除；飞书开放平台中的应用未被删除。`);
       scheduleAnimationFrame(() => addButtonRef.current?.focus(), "focus");
     } catch (error) {
       setBotError(botId, error);

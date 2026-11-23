@@ -2,9 +2,9 @@
 export default {
   // Bot chat replies and card text (dingtalk-bridge.mjs, dingtalk-card-stream.mjs,
   // dingtalk-api.mjs)
-  '已连接 DeepSeek Harness，正在思考…': 'Connected to DeepSeek Harness, thinking…',
+  'Muse 正在思考…': 'Muse is thinking…',
 
-  '钉钉机器人已连接 DeepSeek Harness。': 'The DingTalk bot is connected to DeepSeek Harness.',
+  '钉钉机器人已连接 Muse。': 'The DingTalk bot is connected to Muse.',
   '/m 或 /menu  打开下拉操作菜单': '/m or /menu  Open the dropdown action menu',
   '会话或工作区已变化，请重新发送 /m。': 'The session or workspace changed. Send /m again.',
   '会话或工作区已变化，菜单已刷新，请重新选择。': 'The session or workspace changed. The menu was refreshed; please select again.',
@@ -26,7 +26,7 @@ export default {
 
   '结果文件「{name}」已生成，但暂时未能通过钉钉发送，请稍后重试。': 'Result file "{name}" was generated but could not be sent via DingTalk right now. Please try again later.',
   '结果文件已生成。': 'The result file has been generated.',
-  '钉钉机器人与 DeepSeek Harness 连接正常。': 'The DingTalk bot is connected to DeepSeek Harness normally.',
+  '钉钉机器人与 Muse 连接正常。': 'The DingTalk bot is connected to Muse normally.',
 
 
 

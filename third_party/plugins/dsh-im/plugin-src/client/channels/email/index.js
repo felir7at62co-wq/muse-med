@@ -251,7 +251,7 @@ function MailboxPanel({ busy, error, onSubmit, onCancel, rpcCall, endpoints }) {
 
   return h('section', { className: 'ddt-card dim-surfaceCard dim-emailPanel' },
     h('h3', null, '接入邮箱'),
-    h('p', null, 'DeepSeek Harness 会读取该邮箱的新邮件作为指令，并在同一邮件线程内回复处理结果。'),
+    h('p', null, 'Muse 会读取该邮箱的新邮件作为指令，并在同一邮件线程内回复处理结果。'),
     h('div', { className: 'dim-emailFields' },
       field('接入方式', h('select', {
         value: transportKey,

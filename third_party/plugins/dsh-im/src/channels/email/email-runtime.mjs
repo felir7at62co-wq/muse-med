@@ -221,7 +221,7 @@ export function normalizeEmail(parsed, { address, state } = {}) {
       transportMessageId: parsed?.uid ?? null,
       references: [...references, ...inReplyTo, messageId].slice(-10),
     },
-    connectionTestTarget: { to: from, subject: 'DSH 连接测试' },
+    connectionTestTarget: { to: from, subject: 'Muse 连接测试' },
   };
 }
 
@@ -385,7 +385,7 @@ export class EmailRuntime {
       channelLabel: 'Email',
       send: (target, value) => this.#api.sendReply({
         to: target.to,
-        subject: target.subject ?? 'DSH 连接测试',
+        subject: target.subject ?? 'Muse 连接测试',
         text: value,
       }),
     });
@@ -403,7 +403,7 @@ export class EmailRuntime {
       error.code = 'invalid-target';
       throw error;
     }
-    await this.#api.sendText({ to, subject: target?.route?.subject ?? 'DSH 消息', text });
+    await this.#api.sendText({ to, subject: target?.route?.subject ?? 'Muse 消息', text });
     return { sent: true };
   }
 

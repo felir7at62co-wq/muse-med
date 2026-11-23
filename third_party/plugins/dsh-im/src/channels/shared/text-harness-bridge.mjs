@@ -1103,7 +1103,7 @@ export class TextHarnessBridge {
       const command = text.toLowerCase();
       if (!hasImages && !hasFiles && command === '/help') {
         await this.#bot.sendText(target, [
-          t('{label}机器人已连接 DeepSeek Harness。', { label: this.#descriptor.label }),
+          t('{label}机器人已连接 Muse。', { label: this.#descriptor.label }),
           '',
           t('直接发送文字、图片或文件即可继续当前会话。'),
           ...commandHelpLines(this.#descriptor.key),
@@ -1112,7 +1112,7 @@ export class TextHarnessBridge {
       }
       if (!hasImages && !hasFiles && command === '/status') {
         await this.#harness.ensureRunning({ signal: this.#signal });
-        await this.#bot.sendText(target, t('{label}机器人与 DeepSeek Harness 连接正常。', { label: this.#descriptor.label }));
+        await this.#bot.sendText(target, t('{label}机器人与 Muse 连接正常。', { label: this.#descriptor.label }));
         return;
       }
       const workspaceCommand = !hasImages && !hasFiles

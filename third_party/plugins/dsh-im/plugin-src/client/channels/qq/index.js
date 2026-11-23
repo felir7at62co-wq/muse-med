@@ -100,7 +100,7 @@ function EmptyView({ busy, onStart }) {
         h('div', { className: 'ddt-stateLabel dim-stateLabel' },
           h('span', { className: 'ddt-dot dim-stateDot' }), h('span', null, '尚未绑定 QQ 机器人')),
         h('h3', null, '使用手机 QQ 扫码创建并绑定机器人'),
-        h('p', null, '扫码由腾讯官方页面完成，不需要手动填写 AppID 或 AppSecret。扫码成功后，机器人会自动连接 DeepSeek Harness。'),
+        h('p', null, '扫码由腾讯官方页面完成，不需要手动填写 AppID 或 AppSecret。扫码成功后，机器人会自动连接 Muse。'),
         h('div', { className: 'ddt-actions dim-viewActions' },
           h(Button, { kind: 'primary', onClick: onStart, disabled: busy },
             busy ? '正在生成二维码…' : '生成 QQ 二维码'))),
@@ -161,7 +161,7 @@ function ProvisionView({ provision, busy, onRetry, onClose }) {
 
 function RemoveConfirmation({ account, busy, onConfirm, onCancel }) {
   return h('div', { className: 'ddt-confirm dim-confirm', role: 'alertdialog' },
-    h('strong', null, `从 DeepSeek Harness 移除“${account.bot.name}”？`),
+    h('strong', null, `从 Muse 移除“${account.bot.name}”？`),
     h('p', null, '这会停止消息连接，并删除本机保存的应用凭据、机器人配置及会话映射。腾讯平台中的机器人不会被自动删除。'),
     h('div', { className: 'ddt-actions dim-viewActions' },
       h(Button, { onClick: onCancel, disabled: busy }, '保留机器人'),

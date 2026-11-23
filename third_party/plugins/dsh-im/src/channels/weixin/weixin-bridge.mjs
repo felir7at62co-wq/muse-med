@@ -88,7 +88,7 @@ const WEIXIN_REPLY_HISTORY_TIMEOUT_MS = 5_000;
 const WEIXIN_REPLY_HISTORY_MATCH_TOLERANCE_MS = 15_000;
 
 const HELP_TEXT = () => [
-  t('微信已连接 DeepSeek Harness。'),
+  t('微信已连接 Muse。'),
   '',
   t('直接发送文字、图片、文件或带文字识别结果的语音即可继续当前会话。'),
   t('/new  开启一个全新会话'),
@@ -814,7 +814,7 @@ export class WeixinHarnessBridge {
       }
       if (!hasImages && !hasFiles && command === '/status') {
         await this.#harness.ensureRunning({ signal: this.#signal });
-        await this.#send(sender, t('微信与 DeepSeek Harness 连接正常。'), contextToken, runId);
+        await this.#send(sender, t('微信与 Muse 连接正常。'), contextToken, runId);
         await this.#state.markSeen(messageId);
         return;
       }

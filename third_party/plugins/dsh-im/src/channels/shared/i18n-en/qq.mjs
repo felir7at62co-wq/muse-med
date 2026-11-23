@@ -44,8 +44,8 @@ export default {
   '菜单命令无效，请发送 /m 重新打开。': 'Invalid menu command. Send /m to reopen the menu.',
   '当前任务仍在运行，请先停止任务或等待任务完成后再执行此操作。': 'A task is still running. Stop it or wait for it to finish before performing this action.',
 
-  'QQ 机器人已连接 DeepSeek Harness。':
-    'The QQ bot is connected to DeepSeek Harness.',
+  'QQ 机器人已连接 Muse。':
+    'The QQ bot is connected to Muse.',
   '回答较长，后续内容未能通过 QQ 完整发送，请回复“继续”。':
     'The answer is long and the rest could not be sent fully through QQ. Reply “继续” (continue) to receive it.',
 
@@ -68,8 +68,8 @@ export default {
     'The result file "{name}" was generated, but QQ rejected the file or file message.',
   '结果文件「{name}」已生成，但暂时未能通过 QQ 发送，请稍后重试。':
     'The result file "{name}" was generated but could not be sent via QQ right now. Please try again later.',
-  'QQ 机器人与 DeepSeek Harness 连接正常。':
-    'The QQ bot is connected to DeepSeek Harness normally.',
+  'QQ 机器人与 Muse 连接正常。':
+    'The QQ bot is connected to Muse normally.',
   'QQ 交互问题发送失败。': 'Failed to send the QQ interaction question.',
 
 

@@ -160,7 +160,7 @@ export function ProvisionView({ provision, busy, onRetry, onClose }) {
     h('h3', null, starting ? '正在生成 WhatsApp 二维码' : '已扫码，正在连接 WhatsApp'),
     h('p', null, starting
       ? '正在建立安全的关联设备会话。'
-      : '关联设备正在接入 DeepSeek Harness。'));
+      : '关联设备正在接入 Muse。'));
   }
   const error = provision.error ?? {
     code: 'WHATSAPP_PROVISION_FAILED',
@@ -178,7 +178,7 @@ export function ProvisionView({ provision, busy, onRetry, onClose }) {
 
 function RemoveConfirmation({ account, busy, onConfirm, onCancel }) {
   return h('div', { className: 'ddt-confirm dim-confirm', role: 'alertdialog' },
-    h('strong', null, `从 DeepSeek Harness 移除“${account.bot.name}”？`),
+    h('strong', null, `从 Muse 移除“${account.bot.name}”？`),
     h('p', null, '这会停止消息连接，并删除本机保存的 WhatsApp 关联设备和会话映射。'),
     h('div', { className: 'ddt-actions dim-viewActions' },
       h(Button, { onClick: onCancel, disabled: busy }, '保留机器人'),

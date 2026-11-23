@@ -22,16 +22,16 @@ function clean(value, max = 8_000) {
 
 function safeFailure(error) {
   if (error?.code === 'office-job-alias-invalid') return error.message;
-  if (error?.code === 'turn-stopped') return t('本机 Harness 已停止这次执行。');
+  if (error?.code === 'turn-stopped') return t('本机 Muse 已停止这次执行。');
   if (error?.code === 'office-job-conflict') return t('Office Job 已被领取、取消或结束。');
-  return t('本机 Harness 未能完成任务；请检查 Harness 会话后重试。');
+  return t('本机 Muse 未能完成任务；请检查 Muse 会话后重试。');
 }
 
 function renderPrompt(job, preset) {
   return [
     '# AI Office Handoff',
     '',
-    t('你正在本机 DeepSeek Harness 中继续一个来自 AI Office 的任务。'),
+    t('你正在本机 Muse 中继续一个来自 AI Office 的任务。'),
     t('只在当前 Workspace 内行动。完成后必须返回：结果摘要、改动文件、验证证据、未解决风险。'),
     '',
     t('## 本机 Instruction Preset'),
@@ -55,7 +55,7 @@ function approvalRequest(interaction) {
     return {
       id,
       kind: 'approval',
-      title: t('批准 {tool}', { tool: clean(interaction.payload?.toolName, 120) || t('Harness 工具') }),
+      title: t('批准 {tool}', { tool: clean(interaction.payload?.toolName, 120) || t('Muse 工具') }),
       prompt,
       toolName: clean(interaction.payload?.toolName, 120),
     };
@@ -67,7 +67,7 @@ function approvalRequest(interaction) {
   return {
     id,
     kind: 'question',
-    title: questions.length > 1 ? t('Harness 需要 {count} 项补充信息', { count: questions.length }) : clean(questions[0].header || questions[0].question, 160),
+    title: questions.length > 1 ? t('Muse 需要 {count} 项补充信息', { count: questions.length }) : clean(questions[0].header || questions[0].question, 160),
     prompt: questions.map((question, index) => harnessQuestionText(question, index, questions.length)).join('\n\n---\n\n'),
     questions,
   };
@@ -224,7 +224,7 @@ export class OfficeJobExecutor {
       entry.harness = this.#createHarness({ workspace });
       await this.#progress(jobId, entry, { kind: 'status', message: t('已领取 Job，准备 Workspace alias：{alias}', { alias: job.workspaceAlias }) }, true);
       entry.sessionId = await entry.harness.createSession({ signal, workspace });
-      await this.#progress(jobId, entry, { kind: 'status', message: t('Harness Session 已创建。'), sessionId: entry.sessionId }, true);
+      await this.#progress(jobId, entry, { kind: 'status', message: t('Muse 会话已创建。'), sessionId: entry.sessionId }, true);
       const answer = await entry.harness.ask(entry.sessionId, renderPrompt(job, preset), {
         timeoutMs: 30 * 60_000,
         signal,
@@ -301,7 +301,7 @@ export class OfficeJobExecutor {
   }
 
   async #handleUpdate(jobId, entry, update) {
-    const message = update?.type === 'tool' ? t('正在使用 {tool}…', { tool: clean(update.name, 160) || t('Harness 工具') })
+    const message = update?.type === 'tool' ? t('正在使用 {tool}…', { tool: clean(update.name, 160) || t('Muse 工具') })
       : clean(update?.text, 4_000);
     if (!message) return;
     const key = `${update.type}:${message}`;

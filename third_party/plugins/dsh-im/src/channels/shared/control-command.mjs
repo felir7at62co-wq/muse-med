@@ -86,7 +86,7 @@ export async function runControlCommand(text, harness, state, key, {
       const background = await deferredDelivery.stop(key);
       if (background === 'stopped') return commandResult(t('已请求停止后台任务。'), { stopped: true });
       if (background === 'unavailable') {
-        return commandResult(t('无法安全停止后台任务，请在 Harness 中查看并停止对应任务。'));
+        return commandResult(t('无法安全停止后台任务，请在 Muse 中查看并停止对应任务。'));
       }
     }
     return stopped

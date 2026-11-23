@@ -144,7 +144,7 @@ export async function performMatrixPasswordLogin(
       identifier: { type: 'm.id.user', user: userId },
       password,
       ...(cleanString(deviceId) ? { device_id: deviceId } : {}),
-      initial_device_display_name: 'DeepSeek Harness',
+      initial_device_display_name: 'Muse',
     }),
     signal,
   }).catch((cause) => {
@@ -274,7 +274,7 @@ export class MatrixApi {
       identifier: { type: 'm.id.user', user: identifier },
       password: String(password ?? ''),
       ...(cleanString(deviceId) ? { device_id: deviceId } : {}),
-      initial_device_display_name: cleanString(displayName) ?? 'DeepSeek Harness',
+      initial_device_display_name: cleanString(displayName) ?? 'Muse',
     };
     return await this.#request('login', {
       path: '/login', method: 'POST', body, signal: options.signal,
@@ -700,7 +700,7 @@ export async function inspectMatrixCredentials(
         type: 'm.login.password',
         identifier: { type: 'm.id.user', user: identifier },
         password: secret,
-        initial_device_display_name: 'DeepSeek Harness',
+        initial_device_display_name: 'Muse',
       }),
     }).catch(() => null);
     if (!response?.ok) {

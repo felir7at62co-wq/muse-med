@@ -13,16 +13,16 @@ export default Object.freeze({
   '打开前关闭': 'Closed before opening',
   '打开前失败': 'Failed before opening',
   '通道连接失败': 'Stream connection failed',
-  '与 DSH 的交互通道在 30 秒内未就绪，本条消息尚未提交执行。请稍后重试。':
-    'The DSH interaction channel was not ready within 30 seconds. This message has not been submitted for execution. Please try again later.',
+  '与 Muse 的交互通道在 30 秒内未就绪，本条消息尚未提交执行。请稍后重试。':
+    'The Muse interaction channel was not ready within 30 seconds. This message has not been submitted for execution. Please try again later.',
   '消息提交前的操作超时，本条消息尚未提交执行。请稍后重试。':
     'An operation timed out before submission. This message has not been submitted for execution. Please try again later.',
   '消息提交前的网络请求失败，本条消息尚未提交执行。请检查连接后重试。':
     'A network request failed before submission. This message has not been submitted for execution. Check the connection and try again.',
   '消息在提交前处理失败，尚未提交执行。请重试；若持续发生，请将参考号提供给管理员。':
     'Message preparation failed before submission. It has not been submitted for execution. Try again; if this persists, share the reference with your administrator.',
-  '消息已尝试提交，但任务结果尚未确认。请先到 DSH 查看状态，不要立即重复提交；若持续发生，请将参考号提供给管理员。':
-    'Message submission was attempted, but the task outcome is unconfirmed. Check its status in DSH before resubmitting; if this persists, share the reference with your administrator.',
+  '消息已尝试提交，但任务结果尚未确认。请先到 Muse 查看状态，不要立即重复提交；若持续发生，请将参考号提供给管理员。':
+    'Message submission was attempted, but the task outcome is unconfirmed. Check its status in Muse before resubmitting; if this persists, share the reference with your administrator.',
   "DSH 版本": "DSH version",
   "依赖版本": "Dependency versions",
   "代理已配置": "Proxy configured",

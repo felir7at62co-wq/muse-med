@@ -7,8 +7,8 @@ export default {
     'Matrix bot credentials are missing. Enter the credentials again.',
   'Matrix 连接未就绪，插件会自动重试。':
     'The Matrix connection is not ready yet. The plugin will retry automatically.',
-  'Matrix 长轮询接收和 Harness 回复全部正常。':
-    'Matrix long polling and Harness replies are all working.',
+  'Matrix 长轮询接收和 Muse 回复全部正常。':
+    'Matrix long polling and Muse replies are all working.',
   'Matrix 连接当前离线。':
     'The Matrix connection is currently offline.',
   '【群聊背景】以下各条是群里其他成员之间的发言，均未指向你。':

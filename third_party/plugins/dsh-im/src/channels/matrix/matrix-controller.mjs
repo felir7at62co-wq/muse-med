@@ -283,7 +283,7 @@ export class MatrixController {
         health: {
           status: connected ? 'healthy' : botState === 'error' ? 'error' : 'offline',
           summary: connected
-            ? t('Matrix 长轮询接收和 Harness 回复全部正常。')
+            ? t('Matrix 长轮询接收和 Muse 回复全部正常。')
             : hasError || botState === 'error'
               ? t('Matrix 连接未就绪，插件会自动重试。')
               : t('Matrix 连接当前离线。'),
@@ -311,7 +311,7 @@ export class MatrixController {
       },
       summary: {
         healthy: this.#runtimes.size > 0 && ready === this.#runtimes.size
-          ? t('Matrix 长轮询接收和 Harness 回复全部正常。')
+          ? t('Matrix 长轮询接收和 Muse 回复全部正常。')
           : ready === 0 && bots.length > 0
             ? t('Matrix 长轮询尚未建立，请检查 homeserver 与凭据。')
             : t('Matrix 正在处理消息；当前存在未恢复的连接。'),

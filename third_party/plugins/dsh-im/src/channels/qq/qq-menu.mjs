@@ -109,7 +109,7 @@ export async function qqMenuView(name, harness, state, key, { signal, busy = fal
     const model = catalog?.groups?.find((group) => group.id === catalog.current?.provider)
       ?.models?.find((item) => item.id === catalog.current?.model);
     const detail = [
-      name === 'status' ? t('QQ 机器人与 DeepSeek Harness 连接正常。') : '',
+      name === 'status' ? t('QQ 机器人与 Muse 连接正常。') : '',
       t('工作区：{workspace}', { workspace: clean(workspace) || t('未设置') }),
       t('当前会话：{session}', { session: clean(bound?.title || sessionId) || t('新会话') }),
       t('模式／预设：{preset}', { preset: clean(preset?.label || presetId) || t('跟随 Host 默认') }),

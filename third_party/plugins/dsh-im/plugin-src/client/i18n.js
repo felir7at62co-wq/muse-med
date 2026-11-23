@@ -42,16 +42,16 @@ const EN = Object.freeze({
   '配置 macOS Messages 权限': 'Configure macOS Messages permissions',
   '配置本机权限': 'Configure local permissions',
   '启用 macOS 原生 iMessage': 'Enable native macOS iMessage',
-  '支持同账号自聊：在 iPhone 或 Mac 上给自己已登录的 iMessage 邮箱或号码发指令。AI 回复以 🤖 DSH 开头，不会再次触发机器人。': 'Self-chat is supported: send instructions from your iPhone or Mac to your signed-in iMessage email or phone number. AI replies start with 🤖 DSH and do not trigger the bot again.',
+  '支持同账号自聊：在 iPhone 或 Mac 上给自己已登录的 iMessage 邮箱或号码发指令。AI 回复以 🤖 Muse 开头，不会再次触发机器人。': 'Self-chat is supported: send instructions from your iPhone or Mac to your signed-in iMessage email or phone number. AI replies start with 🤖 DSH and do not trigger the bot again.',
   '检查权限并启用': 'Check permissions and enable',
-  'DeepSeek Harness 通过 macOS Messages.app 收发文本消息。首次使用需要授予以下权限：': 'DeepSeek Harness sends and receives messages through macOS Messages.app. The following permissions are required the first time:',
+  'Muse 通过 macOS Messages.app 收发文本消息。首次使用需要授予以下权限：': 'Muse sends and receives messages through macOS Messages.app. The following permissions are required the first time:',
   '✓ 完全磁盘访问权限已授予': '✓ Full Disk Access granted',
   '1. 授予完全磁盘访问权限': '1. Grant Full Disk Access',
-  '在“系统设置 → 隐私与安全性 → 完全磁盘访问权限”中，打开运行 DeepSeek Harness 的终端或应用。': 'In System Settings → Privacy & Security → Full Disk Access, enable the terminal or app running DeepSeek Harness.',
+  '在“系统设置 → 隐私与安全性 → 完全磁盘访问权限”中，打开运行 Muse 的终端或应用。': 'In System Settings → Privacy & Security → Full Disk Access, enable the terminal or app running Muse.',
   '打开完全磁盘访问权限设置': 'Open Full Disk Access settings',
   '✓ Messages 自动化权限已授予': '✓ Messages automation granted',
   '2. 允许自动化控制 Messages': '2. Allow automation control of Messages',
-  '在“系统设置 → 隐私与安全性 → 自动化”中，允许运行 DeepSeek Harness 的应用控制 Messages。': 'In System Settings → Privacy & Security → Automation, allow the app running DeepSeek Harness to control Messages.',
+  '在“系统设置 → 隐私与安全性 → 自动化”中，允许运行 Muse 的应用控制 Messages。': 'In System Settings → Privacy & Security → Automation, allow the app running Muse to control Messages.',
   '打开自动化设置': 'Open Automation settings',
   '正在检查…': 'Checking…',
   '接入 macOS 原生 iMessage': 'Connect native macOS iMessage',
@@ -129,7 +129,7 @@ const EN = Object.freeze({
   '群成员电话号码或 JID': 'Group member phone number or JID',
   '8613800000000 或完整 JID': '8613800000000 or a full JID',
   'IM 渠道': 'IM channels',
-  '让 DeepSeek Harness 触手可及': 'Connecting DeepSeek Harness',
+  '让 Muse 触手可及': 'Connecting Muse',
   '当前版本': 'Current version',
   'DSH-IM 更新': 'DSH-IM update',
   '检查更新': 'Check for updates',
@@ -727,7 +727,7 @@ const EN = Object.freeze({
   '等待 WhatsApp 扫码': 'Waiting for WhatsApp scan',
   '已扫码，正在连接 WhatsApp': 'Scanned. Connecting WhatsApp',
   '正在建立安全的关联设备会话。': 'Creating a secure linked-device session.',
-  '关联设备正在接入 DeepSeek Harness。': 'Linking the device to DeepSeek Harness.',
+  '关联设备正在接入 Muse。': 'Linking the device to Muse.',
   'WhatsApp Web 关联设备运行正常': 'WhatsApp linked device is healthy',
   '查看 WhatsApp 访问模式说明': 'View WhatsApp access mode details',
   'WhatsApp 访问模式': 'WhatsApp access mode',
@@ -850,8 +850,8 @@ const EN = Object.freeze({
   '扫码账号必须已加入企业/组织。如果钉钉提示尚未加入组织，请在提示页创建组织，或换用已加入组织的账号。': 'The DingTalk account must belong to an organization. If prompted, create an organization or use an account that already belongs to one.',
   '请在手机上核对并确认授权。部分账号会额外显示一个配对数字，页面会在需要时提示输入。': 'Review and confirm authorization on your phone. Some accounts may also require a pairing number.',
   '授权由钉钉官方页面完成。扫码账号必须已加入一个企业/组织并有权创建机器人；创建成功后，应用凭据会直接写入 Harness Host。': 'Authorization is completed on DingTalk’s official page. The account must belong to an organization and be allowed to create bots. Credentials are written directly to the Harness Host.',
-  '扫码由腾讯官方页面完成，不需要手动填写 AppID 或 AppSecret。扫码成功后，机器人会自动连接 DeepSeek Harness。': 'Scanning is completed on Tencent’s official page. No AppID or AppSecret is required, and the bot connects automatically.',
-  '扫码由腾讯官方页面完成，不需要手动填写 Bot ID 或 Secret。创建成功后，机器人会自动连接 DeepSeek Harness。': 'Scanning is completed on Tencent’s official page. No Bot ID or Secret is required, and the bot connects automatically.',
+  '扫码由腾讯官方页面完成，不需要手动填写 AppID 或 AppSecret。扫码成功后，机器人会自动连接 Muse。': 'Scanning is completed on Tencent’s official page. No AppID or AppSecret is required, and the bot connects automatically.',
+  '扫码由腾讯官方页面完成，不需要手动填写 Bot ID 或 Secret。创建成功后，机器人会自动连接 Muse。': 'Scanning is completed on Tencent’s official page. No Bot ID or Secret is required, and the bot connects automatically.',
   '腾讯页面会创建或绑定一个 QQ 机器人，并把连接凭据安全交给本机 Harness Host。': 'Tencent will create or connect a QQ bot and securely deliver its credentials to the local Harness Host.',
   '企业微信官方页面会创建一个智能机器人，并把连接凭据安全交给本机 Harness Host。': 'WeCom will create an AI bot and securely deliver its credentials to the local Harness Host.',
   '从此 Harness 移除这个微信账号？': 'Remove this WeChat account from Harness?',
@@ -865,13 +865,13 @@ const EN = Object.freeze({
   '正在读取飞书连接状态…': 'Loading Feishu connection status…',
   '正在读取微信连接状态…': 'Loading WeChat connection status…',
   '正在读取钉钉连接状态…': 'Loading DingTalk connection status…',
-  '通过扫码把钉钉机器人接入 DeepSeek Harness': 'Connect a DingTalk bot to DeepSeek Harness by QR code',
+  '通过扫码把钉钉机器人接入 Muse': 'Connect a DingTalk bot to Muse by QR code',
   '钉钉服务没有返回扫码绑定进度': 'DingTalk did not return QR setup progress',
   '钉钉扫码服务没有返回有效的绑定任务': 'DingTalk did not return a valid setup attempt',
   '钉钉 Stream 长连接运行正常': 'DingTalk Stream connection is healthy',
   '钉钉服务没有返回有效的机器人列表': 'DingTalk did not return a valid bot list',
   '${totals.connected} / ${totals.configured} 在线': '${totals.connected} / ${totals.configured} online',
-  '用于把钉钉机器人接入 DeepSeek Harness 的一次性二维码': 'One-time QR code for connecting a DingTalk bot to DeepSeek Harness',
+  '用于把钉钉机器人接入 Muse 的一次性二维码': 'One-time QR code for connecting a DingTalk bot to Muse',
   '二维码已过期\\n请重新生成': 'QR code expired\\nGenerate a new one',
   '机器人已创建，正在建立消息连接': 'Bot created. Starting the message connection',
   '钉钉扫码服务没有返回安全的二维码': 'DingTalk did not return a secure QR code',
@@ -888,7 +888,7 @@ const EN = Object.freeze({
   '飞书服务返回了未知的创建状态': 'Feishu returned an unknown creation status',
   '已接入 ${totals.configured} 个机器人，其中 ${totals.connected} 个在线': '${totals.connected} of ${totals.configured} bots online',
   '尚未接入机器人': 'No bot connected yet',
-  '用于新增 DeepSeek Harness 飞书机器人的一次性授权二维码': 'One-time authorization QR code for adding a Feishu bot to DeepSeek Harness',
+  '用于新增 Muse 飞书机器人的一次性授权二维码': 'One-time authorization QR code for adding a Feishu bot to Muse',
   '请刷新后重新扫码': 'Refresh and scan again',
   '${connected ? "检查连接" : "重试连接"}${bot.name}': '${connected ? "Check connection" : "Reconnect"} ${bot.name}',
   '无法读取飞书机器人': 'Could not load Feishu bots',
@@ -898,7 +898,7 @@ const EN = Object.freeze({
   '已取消添加机器人。': 'Adding the bot was cancelled.',
   '${newBot.bot.name}已连接，可以在飞书中开始聊天。': '${newBot.bot.name} is connected and ready to chat in Feishu.',
   '${bot.name}操作失败，请查看机器人状态。': '${bot.name} operation failed. Check the bot status.',
-  '${bot.name}已从此 DeepSeek Harness 移除；飞书开放平台中的应用未被删除。': '${bot.name} was removed from this DeepSeek Harness. The app in Feishu Open Platform was not deleted.',
+  '${bot.name}已从 Muse 移除；飞书开放平台中的应用未被删除。': '${bot.name} was removed from Muse. The app in Feishu Open Platform was not deleted.',
   '无法读取连接状态': 'Could not load connection status',
   'QQ 服务没有返回扫码绑定进度': 'QQ did not return QR setup progress',
   'QQ 扫码服务没有返回有效的绑定任务': 'QQ did not return a valid setup attempt',
@@ -940,7 +940,7 @@ const EN = Object.freeze({
   '消息处理失败，请稍后重试。': 'Message processing failed. Try again later.',
   '微信服务没有返回有效的账号列表': 'WeChat did not return a valid account list',
   '尚未绑定微信': 'No WeChat account connected yet',
-  '用于把微信机器人绑定到 DeepSeek Harness 的一次性二维码': 'One-time QR code for connecting a WeChat bot to DeepSeek Harness',
+  '用于把微信机器人绑定到 Muse 的一次性二维码': 'One-time QR code for connecting a WeChat bot to Muse',
   '保持本页打开，等待消息长轮询变为在线': 'Keep this page open until long polling is online',
   '微信二维码已生成，请使用手机微信扫描。': 'WeChat QR code generated. Scan it with WeChat on your phone.',
   '移除失败：${presentError(error).message}': 'Removal failed: ${presentError(error).message}',
@@ -1143,7 +1143,7 @@ const EN = Object.freeze({
   '需要先开启两步验证，再生成「应用专用密码」。': 'Enable two-step verification first, then generate an app-specific password.',
   '请填写邮箱服务商提供的 IMAP 与 SMTP 服务器地址及端口。': 'Enter the IMAP and SMTP host and port provided by your mail provider.',
   '接入邮箱': 'Connect a mailbox',
-  'DeepSeek Harness 会读取该邮箱的新邮件作为指令，并在同一邮件线程内回复处理结果。': 'DeepSeek Harness reads new mail in this mailbox as instructions and replies with the result inside the same mail thread.',
+  'Muse 会读取该邮箱的新邮件作为指令，并在同一邮件线程内回复处理结果。': 'Muse reads new mail in this mailbox as instructions and replies with the result inside the same mail thread.',
   '邮箱服务商': 'Mail provider',
   '邮箱地址': 'Email address',
   '应用密码 / 授权码': 'App password / authorization code',
@@ -1240,10 +1240,10 @@ function translateDynamic(text) {
   if (match) return `Connect ${channelName(match[1])} bot manually`;
   match = /^(.+) 设置$/.exec(text);
   if (match) return `${channelName(match[1])} settings`;
-  match = /^从 DeepSeek Harness 移除“(.+)”？$/.exec(text);
-  if (match) return `Remove “${match[1]}” from DeepSeek Harness?`;
-  match = /^从 DeepSeek Harness 移除(.+)$/.exec(text);
-  if (match) return `Remove ${match[1]} from DeepSeek Harness`;
+  match = /^从 Muse 移除“(.+)”？$/.exec(text);
+  if (match) return `Remove “${match[1]}” from Muse?`;
+  match = /^从 Muse 移除(.+)$/.exec(text);
+  if (match) return `Remove ${match[1]} from Muse`;
   match = /^(.+)的飞书授权流程$/.exec(text);
   if (match) return `Feishu authorization flow for ${match[1]}`;
   match = /^用于为(.+)补全权限与回调的一次性授权二维码$/.exec(text);
@@ -1294,7 +1294,7 @@ function translateDynamic(text) {
   if (match) return `Removal failed: ${match[1]}`;
 
   const phrases = [
-    ['企业微信', 'WeCom'], ['DeepSeek Harness', 'DeepSeek Harness'],
+    ['企业微信', 'WeCom'], ['Muse', 'Muse'],
     ['WhatsApp', 'WhatsApp'], ['iMessage', 'iMessage'], ['macOS Messages', 'macOS Messages'],
     ['Telegram', 'Telegram'], ['Discord', 'Discord'],
     ['Slack', 'Slack'], ['飞书', 'Feishu'], ['钉钉', 'DingTalk'], ['微信', 'WeChat'],

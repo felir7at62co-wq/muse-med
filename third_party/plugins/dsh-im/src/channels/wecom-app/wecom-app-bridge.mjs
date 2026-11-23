@@ -72,7 +72,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const UNSUPPORTED_INBOUND_TEXT = () => t('企业微信应用目前支持文字和图片消息。');
 
 const HELP_TEXT = () => [
-  t('企业微信应用已连接 DeepSeek Harness，可在微信中直接使用。'),
+  t('企业微信应用已连接 Muse，可在微信中直接使用。'),
   '',
   t('直接发送文字或图片即可继续当前会话。'),
   t('/new  开启一个全新会话'),
@@ -104,7 +104,7 @@ const HELP_TEXT = () => [
   t('/help  显示本帮助'),
 ].join('\n');
 
-const WELCOME_TEXT = () => t('企业微信应用已连接 DeepSeek Harness。直接发送文字或图片即可开始，发送 /help 查看可用命令。');
+const WELCOME_TEXT = () => t('企业微信应用已连接 Muse。直接发送文字或图片即可开始，发送 /help 查看可用命令。');
 
 function conversationKey(userId) {
   return `p2p:${userId}`;
@@ -584,7 +584,7 @@ export class WecomAppBridge {
       }
       if (!hasImages && !hasFiles && command === '/status') {
         await this.#harness.ensureRunning({ signal: this.#signal });
-        await this.#send(sender, t('企业微信应用与 DeepSeek Harness 连接正常。'));
+        await this.#send(sender, t('企业微信应用与 Muse 连接正常。'));
         await this.#state.markSeen(messageId);
         return;
       }

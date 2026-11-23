@@ -60,7 +60,7 @@ function compactErrorMessage(error) {
     return t('工作区或机器人状态已发生变化，请重试。');
   }
   if (code === 'commands-unavailable') {
-    return t('当前 Harness 暂不支持从机器人执行上下文压缩。');
+    return t('当前 Muse 版本暂不支持从机器人执行上下文压缩。');
   }
   return t('上下文压缩失败，请稍后重试。');
 }
@@ -96,7 +96,7 @@ export async function runCompactCommand(text, harness, state, conversationKey, o
       execution = await harness.executeCommand(sessionId, '/compact', options);
     }
     if (execution === undefined) {
-      return commandResult(t('当前 Harness 未注册 /compact 命令，请确认上下文压缩组件已启用。'));
+      return commandResult(t('当前 Muse 未注册 /compact 命令，请确认上下文压缩组件已启用。'));
     }
     return commandResult(compactResultText(execution?.result));
   } catch (error) {

@@ -79,11 +79,11 @@ import {
 } from '../shared/inbound-access.mjs';
 import { t } from '../shared/i18n.mjs';
 
-const CARD_INITIAL_TEXT = '已连接 DeepSeek Harness，正在思考…';
+const CARD_INITIAL_TEXT = 'Muse 正在思考…';
 const INTERACTION_RESOLVED_TEXT = '这个问题已在其他客户端处理，无需再次回答。';
 
 const HELP_TEXT_LINES = [
-  '钉钉机器人已连接 DeepSeek Harness。',
+  '钉钉机器人已连接 Muse。',
   '',
   '直接发送文字、图片或文件即可继续当前会话。',
   '/m 或 /menu  打开下拉操作菜单',
@@ -954,7 +954,7 @@ export class DingtalkHarnessBridge {
       result = { message: t('已开启新会话。请发送你的问题。') };
     } else if (command === '/status') {
       await this.#harness.ensureRunning({ signal: this.#signal });
-      result = { message: t('钉钉机器人与 DeepSeek Harness 连接正常。') };
+      result = { message: t('钉钉机器人与 Muse 连接正常。') };
     } else if (command === '/help') {
       result = { message: helpText() };
     } else {
@@ -1332,7 +1332,7 @@ export class DingtalkHarnessBridge {
       }
       if (isPlainText && !hasImages && !hasFiles && command === '/status') {
         await this.#harness.ensureRunning({ signal: this.#signal });
-        await this.#send(sessionWebhook, t('钉钉机器人与 DeepSeek Harness 连接正常。'), this.#atUsersFor(message));
+        await this.#send(sessionWebhook, t('钉钉机器人与 Muse 连接正常。'), this.#atUsersFor(message));
         return;
       }
       if (isPlainText && !hasImages && !hasFiles && command === '/new') {

@@ -2,7 +2,7 @@ import { registerManagementRpc } from '../management-rpc.mjs';
 import { resolveRpcAuthority } from './rpc-authority.mjs';
 
 export const DELIVERY_RPC_CHANNEL = '/dsh-im-delivery';
-export const DELIVERY_TEST_MESSAGE = 'DSH-IM 主动投递测试成功。';
+export const DELIVERY_TEST_MESSAGE = 'Muse 主动投递测试成功。';
 export const DELIVERY_ENDPOINTS = Object.freeze({
   send: 'message.send',
   listTargets: 'target.list',

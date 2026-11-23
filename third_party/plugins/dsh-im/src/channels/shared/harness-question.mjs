@@ -25,7 +25,7 @@ export function harnessQuestionText(question, index, total, {
 } = {}) {
   const lines = [];
   const progress = total > 1 ? `（${index + 1}/${total}）` : '';
-  lines.push(t('DeepSeek Harness 需要你补充信息{progress}：', { progress }));
+  lines.push(t('Muse 需要你补充信息{progress}：', { progress }));
   if (nonEmptyString(question.header)) lines.push('', question.header.trim());
   lines.push('', nonEmptyString(question.question) ?? t('请输入你的回答。'));
   if (nonEmptyString(question.detail)) lines.push('', question.detail.trim());

@@ -2045,7 +2045,7 @@ test('a DingTalk reply answers a pending Harness question before the original tu
   releaseTurn.resolve();
   await first;
   assert.equal(sent.length, 2);
-  assert.match(sent[0].text, /DeepSeek Harness 需要你补充信息/);
+  assert.match(sent[0].text, /Muse 需要你补充信息/);
   assert.equal(sent[1].text, '已按测试环境继续。');
   assert.equal(bridge.status.messagesReceived, 2);
   assert.equal(bridge.status.messagesReplied, 1);
@@ -3052,7 +3052,7 @@ test('DingTalk mentions the sender in every group text chunk but not in private 
       }));
 
       assert.ok(sent.length > 1);
-      assert.equal(sent.map(({ text }) => text).join(''), '钉钉机器人与 DeepSeek Harness 连接正常。');
+      assert.equal(sent.map(({ text }) => text).join(''), '钉钉机器人与 Muse 连接正常。');
       for (const request of sent) {
         assert.deepEqual(request.at, String(conversationType) === '2'
           ? { atUserIds: ['staff-approved'] }

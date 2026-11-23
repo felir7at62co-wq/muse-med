@@ -80,7 +80,7 @@ const DEFAULT_FILE_UPLOAD_TIMEOUT_MS = 120_000;
 // Built lazily: t() must run after setImHostLanguage, not at import time.
 function helpText() {
   return [
-    t('企业微信机器人已连接 DeepSeek Harness。'),
+    t('企业微信机器人已连接 Muse。'),
     '',
     t('直接发送文字、图片或文件即可继续当前会话。'),
     t('/menu 或 /m  打开可点击的功能菜单'),
@@ -885,7 +885,7 @@ export class WecomHarnessBridge {
     if (command === '/help') return { message: helpText() };
     if (command === '/status') {
       await this.#harness.ensureRunning(options);
-      return { message: t('企业微信机器人与 DeepSeek Harness 连接正常。') };
+      return { message: t('企业微信机器人与 Muse 连接正常。') };
     }
     if (this.#queues.has(key) || this.#pendingInteractions.has(key) || this.#approvals.hasPending(key)
       || this.#batchInputs.status(key).phase !== 'idle') {
@@ -1377,7 +1377,7 @@ export class WecomHarnessBridge {
       }
       if (!hasImages && !hasFiles && command === '/status') {
         await this.#harness.ensureRunning({ signal: this.#signal });
-        await this.#sendImmediate(frame, chatId, t('企业微信机器人与 DeepSeek Harness 连接正常。'));
+        await this.#sendImmediate(frame, chatId, t('企业微信机器人与 Muse 连接正常。'));
         await this.#state.markSeen(messageId);
         return;
       }

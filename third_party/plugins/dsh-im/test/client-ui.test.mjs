@@ -214,7 +214,7 @@ test('IM settings renders twelve IM channels plus the AI Office connector', asyn
   }));
 
   assert.match(markup, /IM机器人/);
-  assert.match(markup, /让 DeepSeek Harness 触手可及/);
+  assert.match(markup, /让 Muse 触手可及/);
   assert.match(markup, /class="dim-brand"/);
   assert.equal(IM_PLUGIN_VERSION, packageVersion);
   assert.match(markup, new RegExp(
@@ -1371,7 +1371,7 @@ test('client registers one top-level bilingual IM settings section with a direct
     disposeMirror();
     assert.equal(localeListeners.size, 0);
 
-    assert.match(markup, /Connecting DeepSeek Harness/);
+    assert.match(markup, /Connecting Muse/);
     assert.match(markup, new RegExp(
       `class="dim-brandVersion">v${IM_PLUGIN_VERSION.replaceAll('.', '\\.')}<\\/span>`,
     ));

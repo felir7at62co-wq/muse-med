@@ -5749,7 +5749,7 @@ test('numeric new-session clears an idle binding without starting a turn', async
   assert.equal(fixture.state.sessionFor('p2p:ou_user'), null);
   assert.equal(askCalls, 0);
   const replies = sent.filter(({ msgType }) => msgType === 'text').map(({ content }) => JSON.parse(content).text);
-  assert.ok(replies.includes('已开启全新 Harness 会话。'));
+  assert.ok(replies.includes('已开启全新会话。'));
   assert.equal(replies.some((text) => text.includes('当前任务仍在运行')), false);
 });
 
@@ -5807,7 +5807,7 @@ for (const withFollowingMessage of [false, true]) {
       : ['ask:session-existing', 'finished', 'clear']);
     assert.equal(fixture.state.sessionFor('p2p:ou_user'), withFollowingMessage ? 'session-new' : null);
     const replies = sent.filter(({ msgType }) => msgType === 'text').map(({ content }) => JSON.parse(content).text);
-    assert.ok(replies.includes('已开启全新 Harness 会话。'));
+    assert.ok(replies.includes('已开启全新会话。'));
     assert.equal(replies.some((text) => text.includes('当前任务仍在运行')), false);
   });
 }
@@ -5859,7 +5859,7 @@ test('numeric question reply takes precedence over the new-session menu choice',
     value: { sessionId: 'session-question', answer: { answers: [{ id: 'language', selected: ['English'] }] } },
   });
   assert.equal(fixture.state.sessionFor('p2p:ou_user'), 'session-question');
-  assert.equal(sent.some(({ content }) => JSON.stringify(content).includes('已开启全新 Harness 会话')), false);
+  assert.equal(sent.some(({ content }) => JSON.stringify(content).includes('已开启全新会话')), false);
 });
 
 test('/new menu shows processing and success on the original card and consumes duplicate clicks', async () => {

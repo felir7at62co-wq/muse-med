@@ -774,7 +774,7 @@ test('Slack controller stores two protected credential references and exposes ne
   assert.doesNotMatch(stored, new RegExp(BOT_TOKEN));
   assert.doesNotMatch(stored, new RegExp(APP_TOKEN));
   await controller.sendConnectionTest(identity.botId);
-  assert.match(connectionTests[0], /DeepSeek Harness/);
+  assert.match(connectionTests[0], /Muse 连接测试成功/);
   assert.match(connectionTests[0], /T1234••• · U1234•••/);
   const target = { kind: 'conversation', route: { channelId: 'C12345678' } };
   assert.deepEqual(await controller.sendProactiveText(identity.botId, target, 'proactive-test'), {

@@ -97,7 +97,7 @@ test('/history English errors preserve safe messages and hide raw details', asyn
     [{ code: 'workspace-session-stale' }, 'The Session, workspace, or bot state has changed. Please run /history again.'],
     [{ code: 'workspace-bot-not-found' }, 'The Session, workspace, or bot state has changed. Please run /history again.'],
     [{ code: 'session-binding-changed' }, 'The Session, workspace, or bot state has changed. Please run /history again.'],
-    [{ code: 'harness-api-not-found' }, 'This Harness does not support reading Session history.'],
+    [{ code: 'harness-api-not-found' }, 'This Muse version does not support reading Session history.'],
     [{ name: 'AbortError' }, 'History reading was cancelled.'],
     [{ name: 'TimeoutError' }, 'Reading history timed out. Please try again later.'],
     [{ code: 'harness-timeout' }, 'Reading history timed out. Please try again later.'],

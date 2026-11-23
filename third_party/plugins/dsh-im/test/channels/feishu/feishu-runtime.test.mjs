@@ -543,7 +543,7 @@ for (const phase of ['user echo', 'final fallback']) {
     const create = client.im.v1.message.create;
     client.im.v1.message.create = async request => {
       const text = JSON.parse(request.data.content).text;
-      if (!held && text.startsWith(phase === 'user echo' ? '[来自 DSH]' : '[DSH 助手]')) {
+      if (!held && text.startsWith(phase === 'user echo' ? '[来自 Muse]' : '[Muse 助手]')) {
         held = true;
         return pending.promise;
       }
@@ -576,9 +576,9 @@ for (const phase of ['user echo', 'final fallback']) {
     emitTurn(2);
     t.mock.timers.tick(15_000);
     await coordinator.whenIdle();
-    assert.ok(delivered.includes('[DSH 助手]\n\nanswer 1'));
-    assert.ok(delivered.includes('[DSH 助手]\n\nanswer 2'));
-    assert.ok(FakeClient.sent.some(request => JSON.parse(request.data.content).text === '[DSH 助手]\n\nanswer 2'));
+    assert.ok(delivered.includes('[Muse 助手]\n\nanswer 1'));
+    assert.ok(delivered.includes('[Muse 助手]\n\nanswer 2'));
+    assert.ok(FakeClient.sent.some(request => JSON.parse(request.data.content).text === '[Muse 助手]\n\nanswer 2'));
     const sent = FakeClient.sent.length;
     pending.resolve({ code: 0 });
     await new Promise(resolve => setImmediate(resolve));

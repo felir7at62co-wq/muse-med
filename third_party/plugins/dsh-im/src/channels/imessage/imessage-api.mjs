@@ -6,7 +6,9 @@ const DEFAULT_DB_PATH = `${process.env.HOME ?? ''}/Library/Messages/chat.db`;
 const DEFAULT_TIMEOUT_MS = 15_000;
 // Self-chat has no separate bot sender. Keep the reply marker in Messages itself
 // so echoes are still recognizable after a Host restart or iCloud resync.
-export const IMESSAGE_BOT_REPLY_PREFIX = '🤖 DSH\n';
+export const IMESSAGE_BOT_REPLY_PREFIX = '🤖 Muse\n';
+// Replies sent before the rename carry this marker; they must not trigger the Bot either.
+const LEGACY_IMESSAGE_BOT_REPLY_PREFIX = '🤖 DSH\n';
 
 function cleanString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -65,7 +67,7 @@ export function normalizeIMessage(value, { botId } = {}) {
   const text = cleanString(value.text);
   const sender = cleanString(value.sender ?? value.handle_id);
   if (!guid || !chatGuid || !text || !sender) return null;
-  if (text.startsWith(IMESSAGE_BOT_REPLY_PREFIX)) return null;
+  if (text.startsWith(IMESSAGE_BOT_REPLY_PREFIX) || text.startsWith(LEGACY_IMESSAGE_BOT_REPLY_PREFIX)) return null;
   if (value.isFromMe === 1 || value.isFromMe === true) return null;
   if (botId && sender === botId) return null;
   return Object.freeze({
@@ -144,7 +146,7 @@ export class MacOSMessagesApi {
       return decodeRows(stdout);
     } catch (error) {
       if (/authorization denied|not authorized|unable to open database/i.test(String(error?.stderr ?? error))) {
-        throw permissionError('messages-database-permission-required', '请在系统设置中授予 DeepSeek Harness 完全磁盘访问权限。', error);
+        throw permissionError('messages-database-permission-required', '请在系统设置中授予 Muse 完全磁盘访问权限。', error);
       }
       throw error;
     }
@@ -184,7 +186,7 @@ export class MacOSMessagesApi {
       return { sent: true };
     } catch (error) {
       if (/not authorized|(-1743)|assistive/i.test(String(error?.stderr ?? error))) {
-        throw permissionError('messages-automation-permission-required', '请在系统设置中允许 DeepSeek Harness 自动化控制 Messages。', error);
+        throw permissionError('messages-automation-permission-required', '请在系统设置中允许 Muse 自动化控制 Messages。', error);
       }
       throw error;
     }

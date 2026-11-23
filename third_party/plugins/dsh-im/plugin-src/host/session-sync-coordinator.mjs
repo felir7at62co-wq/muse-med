@@ -5,8 +5,8 @@ import {
 } from '../../src/channels/shared/harness-client.mjs';
 import { deliverSessionSyncMirror } from '../../src/channels/shared/session-sync-registry.mjs';
 
-const DSH_USER_PREFIX = '[来自 DSH]\n';
-const DSH_ASSISTANT_PREFIX = '[DSH 助手]\n\n';
+const DSH_USER_PREFIX = '[来自 Muse]\n';
+const DSH_ASSISTANT_PREFIX = '[Muse 助手]\n\n';
 
 function completedTurn(reason) {
   return (typeof reason === 'string' ? reason : reason?.kind) === 'completed';

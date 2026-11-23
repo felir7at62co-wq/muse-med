@@ -142,7 +142,7 @@ test('confirmed QR login stores bot_token only in credentials and starts a redac
 
   await controller.sendConnectionTest(completed.botId);
   assert.equal(runtimes.connectionTests[0].botId, completed.botId);
-  assert.match(runtimes.connectionTests[0].text, /DeepSeek Harness 连接测试成功/);
+  assert.match(runtimes.connectionTests[0].text, /Muse 连接测试成功/);
   assert.match(runtimes.connectionTests[0].text, /微信机器人（accoun••••\.bot）/);
   const target = { kind: 'user', route: { toUserId: 'target-user' } };
   assert.deepEqual(await controller.sendProactiveText(completed.botId, target, '主动投递'), {

@@ -323,7 +323,7 @@ export function IMSettingsTab({
         h('div', { className: 'dim-brandHeading' },
           h('strong', { className: 'dim-brandName' }, 'DSH-IM'),
           h('span', { className: 'dim-brandVersion' }, `v${runningVersion}`)),
-        h('p', null, '让 DeepSeek Harness 触手可及')),
+        h('p', null, '让 Muse 触手可及')),
       h('div', { className: 'dim-titleActions' },
         h(UpdatePanel, {
           rpcCall: rpcCalls.updateRpcCall,

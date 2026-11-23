@@ -158,7 +158,7 @@ test('successful QR poll stores secret then config then starts runtime without p
   assert.equal(controller.status().totals.connected, 1);
   await controller.sendConnectionTest(completed.botId);
   assert.equal(runtimes.connectionTests[0].botId, completed.botId);
-  assert.match(runtimes.connectionTests[0].text, /DeepSeek Harness 连接测试成功/);
+  assert.match(runtimes.connectionTests[0].text, /Muse 连接测试成功/);
   assert.match(runtimes.connectionTests[0].text, /钉钉机器人（ding••••vate）/);
   const target = { kind: 'user', route: { userId: 'staff-one' } };
   assert.deepEqual(await controller.sendProactiveText(completed.botId, target, '主动投递'), {

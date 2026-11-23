@@ -105,7 +105,7 @@ const PENDING_RESTART_NOTICE = '排队中的消息在服务重启时被中断。
 
 function helpText() {
   return [
-    t('QQ 机器人已连接 DeepSeek Harness。'),
+    t('QQ 机器人已连接 Muse。'),
     '',
     t('直接发送文字、图片或文件即可继续当前会话。'),
     t('/menu 或 /m  打开可点击的功能菜单'),
@@ -1195,7 +1195,7 @@ export class QqHarnessBridge {
       }
       if (!hasImages && !hasFiles && command === '/status') {
         await this.#harness.ensureRunning({ signal: this.#signal });
-        await this.#bot.sendText(target, t('QQ 机器人与 DeepSeek Harness 连接正常。'));
+        await this.#bot.sendText(target, t('QQ 机器人与 Muse 连接正常。'));
         await markMessageSeen();
         return;
       }

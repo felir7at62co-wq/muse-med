@@ -265,7 +265,7 @@ export class MultiBotDshFeishuController {
       createOnly: true,
       appPreset: {
         name: '{user} 的北汇星河 AI 助手',
-        desc: '连接飞书与 DeepSeek Harness，在聊天中使用企业 AI 助手。',
+        desc: '连接飞书与 Muse，在聊天中使用企业 AI 助手。',
       },
       addons: {
         preset: false,

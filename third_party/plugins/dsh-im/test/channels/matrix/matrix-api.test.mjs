@@ -198,7 +198,7 @@ test('password logins keep the server-assigned device identity and fail with typ
   const body = JSON.parse(calls[0].body);
   deepStrictEqual(body.type, 'm.login.password');
   deepStrictEqual(body.identifier, { type: 'm.id.user', user: '@bot:example.org' });
-  deepStrictEqual(body.initial_device_display_name, 'DeepSeek Harness');
+  deepStrictEqual(body.initial_device_display_name, 'Muse');
   ok(!('medium' in body));
   await rejects(() => performMatrixPasswordLogin(
     { homeserver: HOME, userId: 'bad', password: 'x', fetchImpl }), TypeError);

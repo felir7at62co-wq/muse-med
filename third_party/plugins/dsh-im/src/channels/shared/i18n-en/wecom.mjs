@@ -25,7 +25,7 @@ export default {
   '部分模型暂不可用，可稍后重试。': 'Some models are unavailable. Try again later.',
   '工作区已变化，请发送 /m 重新打开菜单后选择。': 'The workspace changed. Send /m to reopen the menu and select again.',
   // Help text (wecom-bridge.mjs)
-  '企业微信机器人已连接 DeepSeek Harness。': 'The Enterprise WeChat bot is connected to DeepSeek Harness.',
+  '企业微信机器人已连接 Muse。': 'The Enterprise WeChat bot is connected to Muse.',
 
   // Bot replies and status text (wecom-bridge.mjs)
 
@@ -42,7 +42,7 @@ export default {
   '结果文件「{name}」已生成，但暂时未能通过企业微信发送，请稍后重试。': 'The result file "{name}" was generated but could not be sent via Enterprise WeChat right now. Please try again later.',
   '任务已完成，但没有生成可显示的文本。': 'The task completed, but no displayable text was generated.',
   '目前支持文字、图片和语音转写消息。': 'Currently only text, images, and voice transcription messages are supported.',
-  '企业微信机器人与 DeepSeek Harness 连接正常。': 'The connection between the Enterprise WeChat bot and DeepSeek Harness is working.',
+  '企业微信机器人与 Muse 连接正常。': 'The connection between the Enterprise WeChat bot and Muse is working.',
   '正在思考中…': 'Thinking…',
   '企业微信交互问题发送失败。': 'Failed to send the Enterprise WeChat interaction question.',
 

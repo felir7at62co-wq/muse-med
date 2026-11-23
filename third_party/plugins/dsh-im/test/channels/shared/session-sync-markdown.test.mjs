@@ -34,7 +34,7 @@ test('proactive Telegram Markdown uses rich delivery; plain, malformed and unkno
   const sender = bridge(bot);
   const target = { chatId: 42 };
   await sender.sendProactiveText(target, '**user input**');
-  await sender.sendProactiveText(target, '[DSH 助手]\n\n# Heading\n**bold**', { format: 'markdown' });
+  await sender.sendProactiveText(target, '[Muse 助手]\n\n# Heading\n**bold**', { format: 'markdown' });
   assert.deepEqual(calls.map(call => call.method), ['plain', 'rich']);
   assert.match(calls[1].richMessage.markdown, /\*\*bold\*\*/);
   assert.equal(calls[1].chatId, 42);

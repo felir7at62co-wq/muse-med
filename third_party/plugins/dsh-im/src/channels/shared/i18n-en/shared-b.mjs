@@ -12,10 +12,10 @@ export default {
   '工作区路径必须指向一个目录。\n{usage}': 'The Workspace path must point to a directory.\n{usage}',
   '用法：/workspacelist': 'Usage: /workspacelist',
   '当前机器人暂不支持列出工作区。': 'This bot does not support listing Workspaces yet.',
-  '当前 Harness Host 上没有仍然存在的已登记工作区。':
-    'No registered Workspaces still exist on the current Harness Host.',
-  '当前 Harness Host 上存在的工作区（{count}）：':
-    'Workspaces on the current Harness Host ({count}):',
+  '当前 Muse 主机上没有仍然存在的已登记工作区。':
+    'No registered Workspaces still exist on this Muse host.',
+  '当前 Muse 主机上存在的工作区（{count}）：':
+    'Workspaces on this Muse host ({count}):',
   '（当前）': '(current)',
   '切换用法：/workspace 工作区序号或绝对路径':
     'To switch: /workspace Workspace index or absolute path',
@@ -234,15 +234,15 @@ export default {
     'The Session bound to this chat no longer exists; please send a new message to start a Session.',
   '当前会话正在生成回复，请稍后重试。':
     'The current Session is generating a reply; please try again later.',
-  '当前 Harness 暂不支持从机器人执行上下文压缩。':
-    'The current Harness does not support running context compaction from a bot yet.',
+  '当前 Muse 版本暂不支持从机器人执行上下文压缩。':
+    'This Muse version does not support running context compaction from a bot yet.',
   '上下文压缩失败，请稍后重试。': 'Context compaction failed; please try again later.',
   '当前机器人没有可用的会话状态。': 'This bot has no available Session state.',
   '当前聊天还没有可压缩的会话，请先发送一条消息。':
     'This chat has no Session to compact yet; please send a message first.',
   '当前机器人暂不支持上下文压缩。': 'This bot does not support context compaction yet.',
-  '当前 Harness 未注册 /compact 命令，请确认上下文压缩组件已启用。':
-    'The current Harness has not registered the /compact command; please make sure the context compaction component is enabled.',
+  '当前 Muse 未注册 /compact 命令，请确认上下文压缩组件已启用。':
+    'Muse has not registered the /compact command; please make sure the context compaction component is enabled.',
 
   // clear-command.mjs
   '/clear  清空当前会话上下文（保留 Session 绑定和历史记录）':

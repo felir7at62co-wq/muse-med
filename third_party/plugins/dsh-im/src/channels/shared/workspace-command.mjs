@@ -163,10 +163,10 @@ async function runWorkspaceListCommand(match, harness) {
   try {
     const { current, paths } = await workspacePathSnapshot(harness);
     if (paths.length === 0) {
-      return commandResult(t('当前 Harness Host 上没有仍然存在的已登记工作区。'));
+      return commandResult(t('当前 Muse 主机上没有仍然存在的已登记工作区。'));
     }
     const lines = [
-      t('当前 Harness Host 上存在的工作区（{count}）：', { count: paths.length }),
+      t('当前 Muse 主机上存在的工作区（{count}）：', { count: paths.length }),
       ...paths.map((workspace, index) => (
         `${index + 1}. ${workspace}${workspace === current ? t('（当前）') : ''}`
       )),

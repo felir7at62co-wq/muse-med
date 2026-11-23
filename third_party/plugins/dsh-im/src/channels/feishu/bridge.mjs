@@ -1851,7 +1851,7 @@ export class FeishuHarnessBridge {
         return;
       }
       await this.#state.clearSession(key);
-      await this.#send(event.message.chat_id, t('已开启全新 Harness 会话。'), { replyTo: event.message.message_id });
+      await this.#send(event.message.chat_id, t('已开启全新会话。'), { replyTo: event.message.message_id });
       await this.#sendMenuCard(key, event.message.chat_id, { replyTo: event.message.message_id });
       return;
     }
@@ -2840,7 +2840,7 @@ export class FeishuHarnessBridge {
         return;
       }
       await this.#state.clearSession(key);
-      await reply(t('已开启全新 Harness 会话。'));
+      await reply(t('已开启全新会话。'));
       await this.#sendMenuCard(key, chatId, { updateMessageId: messageId, replyTo: messageId });
       return;
     }
@@ -3023,7 +3023,7 @@ export class FeishuHarnessBridge {
     }
     await finish('success');
     // A receipt delivery failure must not turn a completed reset into a retry.
-    await this.#send(chatId, t('已开启全新 Harness 会话。'), { replyTo: messageId })
+    await this.#send(chatId, t('已开启全新会话。'), { replyTo: messageId })
       .catch((error) => this.#logger.warn?.('[dsh-feishu] new session receipt failed:', error?.message));
   }
 

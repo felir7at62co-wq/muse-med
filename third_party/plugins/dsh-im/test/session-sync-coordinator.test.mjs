@@ -67,15 +67,15 @@ test('Session sync mirrors direct DSH text and one ordered multi-step assistant 
   await coordinator.whenIdle();
 
   assert.deepEqual(sends, [
-    { botId: 'bot-a', targetId: 'alice', sessionId: 'session-one', text: '[来自 DSH]\n先检查构建' },
-    { botId: 'bot-b', targetId: 'bob', sessionId: 'session-one', text: '[来自 DSH]\n先检查构建' },
-    { botId: 'bot-a', targetId: 'alice', sessionId: 'session-one', text: '[来自 DSH]\n再检查测试' },
-    { botId: 'bot-c', targetId: 'carol', sessionId: 'session-one', text: '[来自 DSH]\n再检查测试' },
+    { botId: 'bot-a', targetId: 'alice', sessionId: 'session-one', text: '[来自 Muse]\n先检查构建' },
+    { botId: 'bot-b', targetId: 'bob', sessionId: 'session-one', text: '[来自 Muse]\n先检查构建' },
+    { botId: 'bot-a', targetId: 'alice', sessionId: 'session-one', text: '[来自 Muse]\n再检查测试' },
+    { botId: 'bot-c', targetId: 'carol', sessionId: 'session-one', text: '[来自 Muse]\n再检查测试' },
     {
       botId: 'bot-a',
       targetId: 'alice',
       sessionId: 'session-one',
-      text: '[DSH 助手]\n\n第一步结果\n\n第二步结果',
+      text: '[Muse 助手]\n\n第一步结果\n\n第二步结果',
     },
   ]);
 });
@@ -108,7 +108,7 @@ test('Session sync suppresses IM, unknown, non-append, and unsuccessful Turn out
   await coordinator.whenIdle();
 
   assert.deepEqual(sends, [[
-    'bot-a', 'alice', 'session-failed', '[来自 DSH]\n输入', { format: 'plain' },
+    'bot-a', 'alice', 'session-failed', '[来自 Muse]\n输入', { format: 'plain' },
   ]]);
 });
 
@@ -166,8 +166,8 @@ test('installed Session sync classifies an unregistered Host user rpcId as direc
   await installed.whenIdle();
 
   assert.deepEqual(sends.map((entry) => entry[3]), [
-    '[来自 DSH]\nDesktop 输入',
-    '[DSH 助手]\n\nDesktop 回答',
+    '[来自 Muse]\nDesktop 输入',
+    '[Muse 助手]\n\nDesktop 回答',
   ]);
   effects[0]();
   installed.close();
@@ -198,7 +198,7 @@ test('installed Session sync sends one scheduled answer without echoing its inte
   listener(session, turnEnd());
   await installed.whenIdle();
   assert.deepEqual(sends, [[
-    'bot-weixin', 'owner', 'scheduled-session', '[DSH 助手]\n\nfirst step\n\nsecond step', { format: 'markdown' },
+    'bot-weixin', 'owner', 'scheduled-session', '[Muse 助手]\n\nfirst step\n\nsecond step', { format: 'markdown' },
   ]]);
   installed.close();
 });
@@ -217,8 +217,8 @@ test('all eleven sync channels request Markdown for answers while Feishu retains
   await coordinator.enqueue('session', turnEnd());
   for (const channel of channels) {
     const [question, answer] = sends.filter(args => args[0] === channel);
-    assert.deepEqual(question.slice(3), ['[来自 DSH]\n**literal question**', { format: 'plain' }]);
-    assert.deepEqual(answer.slice(3), ['[DSH 助手]\n\n# Heading\n\n**answer**', {
+    assert.deepEqual(question.slice(3), ['[来自 Muse]\n**literal question**', { format: 'plain' }]);
+    assert.deepEqual(answer.slice(3), ['[Muse 助手]\n\n# Heading\n\n**answer**', {
       format: channel === 'feishu' ? 'plain' : 'markdown',
     }]);
   }

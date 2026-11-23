@@ -364,7 +364,7 @@ export class FeishuRuntime {
       this.#client = client;
       const channel = new VerifiedFeishuChannel({
         client,
-        initialText: t('已连接 DeepSeek Harness，正在思考…'),
+        initialText: t('Muse 正在思考…'),
       });
       const bridge = this.#consumerMode === 'external-consumer' ? null : new FeishuHarnessBridge({
         client,

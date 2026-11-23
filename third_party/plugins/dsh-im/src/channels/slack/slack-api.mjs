@@ -587,7 +587,7 @@ export async function inspectSlackCredentials({ botToken, appToken }, options = 
   }
   return {
     platformId: `${identity.team_id}:${identity.user_id}`,
-    name: cleanString(identity.user) ?? 'DeepSeek Harness',
+    name: cleanString(identity.user) ?? 'Muse',
     username: cleanString(identity.user),
     teamId: String(identity.team_id),
     teamName: cleanString(identity.team),
