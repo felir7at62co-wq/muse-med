@@ -1,12 +1,20 @@
 /** Script Workshop connection for the signed-in Muse account, and the session core shared with Jingliu. @module */
 import type { Context } from '@deepseek-ai/cordis'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { HarnessError } from '@deepseek-ai/dsh-error'
+import { principalOf, Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import z from '@deepseek-ai/schemastery'
+import { editorCandidate, editorDraft, editorDraftList, editorDraftPath, editorEpisode, editorEpisodePath, editorListPath } from './editor.ts'
 import { workbenchOrigin } from './http.ts'
+import type { WorkbenchRequest } from './http.ts'
 import { WorkbenchSessions } from './sessions.ts'
 import type { WorkbenchDefinition, WorkbenchSession } from './sessions.ts'
 import { scriptDetail, scriptList, scriptOf } from './scripts.ts'
 import type { ScriptDetail, ScriptList, ScriptListRequest, ScriptPickRequest, ScriptProductionRequest, ScriptReadRequest, ScriptSummary } from './types.ts'
+import type {
+  ScriptDraft, ScriptDraftCandidate, ScriptDraftCandidateRequest, ScriptDraftEpisode, ScriptDraftEpisodeRequest,
+  ScriptDraftFinalizeRequest, ScriptDraftList, ScriptDraftListRequest, ScriptDraftRequest, ScriptDraftSaveRequest,
+  ScriptDraftStageRequest,
+} from './editor-types.ts'
 
 export { boundedBytes, isRecord, requestJson, workbenchOrigin, WorkbenchHttpError } from './http.ts'
 export type { TransportRequest, WorkbenchLabel, WorkbenchRequest } from './http.ts'
@@ -40,7 +48,7 @@ export interface Config {
 }
 
 /**
- * Opens Script Workshop sessions as the signed-in Muse user and serves the Client's 剧本 tab from the finalized-script
+ * Opens Script Workshop sessions as the signed-in Muse user and serves the Client's draft editor and finalized-script
  * library; native tokens never reach model input or output.
  */
 export class WorkshopConnection extends TypertRemoteService {
@@ -112,6 +120,95 @@ export class WorkshopConnection extends TypertRemoteService {
   async scriptProduction(request: ScriptProductionRequest): Promise<ScriptSummary> {
     return scriptOf(await (await this.connection()).request('/script-library/' + String(request.id) + '/production', {
       method: 'POST', body: { project_id: request.projectId, project_title: request.projectTitle } }))
+  }
+
+  private async editorRequest(path: string, options?: WorkbenchRequest): Promise<unknown> {
+    if (principalOf(this.ctx.invocation) !== undefined) {
+      throw new HarnessError('只有当前 Muse 账号的所有者可以编辑剧本草稿。', 'WORKSHOP_EDITOR_OWNER_REQUIRED')
+    }
+    return await (await this.connection()).request(path, options)
+  }
+
+  /** List accessible draft cards for the signed-in editor.
+   * @param request - Search and page.
+   * @returns Drafts and the next offset.
+   */
+  @Remote
+  async scriptDrafts(request: ScriptDraftListRequest): Promise<ScriptDraftList> {
+    return editorDraftList(await this.editorRequest(editorListPath(request)))
+  }
+
+  /** Read a draft's editable episodes and context.
+   * @param request - Draft to open.
+   * @returns Episode directory, context, and publication revision.
+   */
+  @Remote
+  async scriptDraft(request: ScriptDraftRequest): Promise<ScriptDraft> {
+    return editorDraft(await this.editorRequest(editorDraftPath(request.draftId)))
+  }
+
+  /** Read the saved text of one episode and the editor's pending candidate.
+   * @param request - Draft and episode to open.
+   * @returns The saved text, revision and candidate if present.
+   */
+  @Remote
+  async scriptDraftEpisode(request: ScriptDraftEpisodeRequest): Promise<ScriptDraftEpisode> {
+    return editorEpisode(await this.editorRequest(editorEpisodePath(request)), request)
+  }
+
+  /** Stage one chat-generated candidate for human review.
+   * @param request - Exact base revision, proposed episode text and summary.
+   * @param signal - Cancellation of the tool call.
+   * @returns The pending candidate.
+   */
+  async stageScriptDraftCandidate(request: ScriptDraftStageRequest, signal?: AbortSignal): Promise<ScriptDraftCandidate> {
+    const { baseRevision, content, summary } = request
+    return editorCandidate(await this.editorRequest(editorEpisodePath(request) + '/candidates', {
+      method: 'POST', body: { baseRevision, content, summary }, ...(signal === undefined ? {} : { signal }),
+    }))
+  }
+
+  /** Apply the exact candidate reviewed in the editor.
+   * @param request - Episode and candidate ID.
+   * @returns The newly saved episode.
+   */
+  @Remote
+  async applyScriptDraftCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode> {
+    return editorEpisode(await this.editorRequest(editorEpisodePath(request) + '/apply', {
+      method: 'POST', body: { candidateId: request.candidateId },
+    }), request)
+  }
+
+  /** Discard the exact pending candidate without editing the saved episode.
+   * @param request - Episode and candidate ID.
+   * @returns The saved episode.
+   */
+  @Remote
+  async discardScriptDraftCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode> {
+    return editorEpisode(await this.editorRequest(editorEpisodePath(request) + '/discard', {
+      method: 'POST', body: { candidateId: request.candidateId },
+    }), request)
+  }
+
+  /** Save a manual edit to one episode.
+   * @param request - Episode, displayed revision, and updated text.
+   * @returns The saved episode.
+   */
+  @Remote
+  async saveScriptDraftEpisode(request: ScriptDraftSaveRequest): Promise<ScriptDraftEpisode> {
+    return editorEpisode(await this.editorRequest(editorEpisodePath(request), {
+      method: 'PATCH', body: { baseRevision: request.baseRevision, content: request.content },
+    }), request)
+  }
+
+  /** Publish a reviewed draft revision to the finalized library.
+   * @param request - Draft, revision, and publication metadata reviewed by the user.
+   * @returns The finalized library card.
+   */
+  @Remote
+  async finalizeScriptDraft(request: ScriptDraftFinalizeRequest): Promise<ScriptSummary> {
+    const { draftId, ...body } = request
+    return scriptOf(await this.editorRequest(editorDraftPath(draftId) + '/finalize', { method: 'POST', body }))
   }
 }
 

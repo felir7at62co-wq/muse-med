@@ -2,7 +2,8 @@
  * The model-facing Script Workshop tools, as the signed-in Muse user: `workshop_video_transcribe` reports, starts, stops
  * and resumes the 视频转剧本 factory job with the parameters of the Workshop pipeline card; `script_finalize` uploads a
  * finished script to the finalized-script library after the user agreed; `script_library` reads a library script into
- * the workspace and records the Jingliu project a picked script became.
+ * the workspace and records the Jingliu project a picked script became. `workshop_script_editor` reads cloud drafts
+ * and stages a single-episode candidate for human review.
  * @module @deepseek-ai/dsh-tool-workshop
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -15,6 +16,7 @@ import { WorkbenchHttpError, type WorkbenchSession } from '@deepseek-ai/dsh-work
 import { detail, isActive, isTranscribeEntry, JOB_TYPE, service, summary, transcribeJob, type Fields, type TranscribeJob } from './jobs.ts'
 import { applyFinalize } from './finalize.ts'
 import { applyLibrary } from './library.ts'
+import { applyScriptEditor } from './editor.ts'
 
 export { checkEpisodes, finalizeTool, KINDS, LIMITS, RIGHTS, splitEpisodes, STYLES } from './finalize.ts'
 export type { FinalizeArgs, FinalizeDependencies, FinalizeReport, ReadFile, UploadEpisode } from './finalize.ts'
@@ -356,14 +358,15 @@ export function transcribeTool(deps: Dependencies, options: TranscribeOptions = 
 }
 
 /**
- * Register `workshop_video_transcribe` while the Host provides the Script Workshop connection, and `script_finalize` and
- * `script_library` while it also provides workspace files.
+ * Register `workshop_video_transcribe` and `workshop_script_editor` while the Host provides the Script Workshop connection.
+ * Register `script_finalize` and `script_library` when it also provides workspace files.
  * @param ctx - Agent or Host context with the tool registry.
  * @param config - Whether jobs that name their dramas start without asking.
  */
 export function apply(ctx: Context, config?: Config): void {
   applyFinalize(ctx)
   applyLibrary(ctx)
+  applyScriptEditor(ctx)
   ctx.inject(['workshopConnection'], (scope) => {
     const tool = transcribeTool({
       connect: () => scope.workshopConnection.connection(),

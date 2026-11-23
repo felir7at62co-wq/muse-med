@@ -178,43 +178,47 @@ def _require_pick(user: User) -> None:
         raise HTTPException(403, "只有组长可以选用剧本")
 
 
-@router.post("")
-async def finalize(body: FinalizeBody, user: User = Depends(get_current_user)):
-    """定稿上传: a new script, or a new version of the caller's script; identical text adds no version."""
+async def finalize_in_session(session, body: FinalizeBody, user: User):
+    """Save a library version in the caller’s transaction and return its summary."""
     digest = _digest(body.episodes)
     words = _words(body.episodes)
+    if body.entry_id is None:
+        now = datetime.utcnow()
+        entry = ScriptEntry(owner_id=user.id, status="waiting", latest_version=0, episodes=0, words=0, created_at=now, updated_at=now,
+                            title=body.title, rights=body.rights, kind=body.kind, style=body.style)
+        session.add(entry)
+        await session.flush()
+        latest = None
+    else:
+        entry = await _entry(session, body.entry_id, lock=True)
+        if entry.owner_id != user.id and user.role not in ("admin", "superadmin"):
+            raise HTTPException(403, "只能给自己的剧本上传新版本")
+        latest = (await session.execute(select(ScriptVersion).where(
+            ScriptVersion.entry_id == entry.id, ScriptVersion.number == entry.latest_version))).scalar_one_or_none()
+    created = latest is None or latest.sha256 != digest
+    if created:
+        number = entry.latest_version + 1
+        session.add(ScriptVersion(entry_id=entry.id, number=number, words=words, sha256=digest, created_by=user.id, created_at=datetime.utcnow(),
+                                  session_ref=body.session_ref, content=[episode.model_dump() for episode in body.episodes]))
+        entry.latest_version = number
+        entry.episodes = len(body.episodes)
+        entry.words = words
+    entry.title = body.title
+    entry.rights = body.rights
+    entry.origin_work_id = body.origin_work_id
+    entry.origin_title = body.origin_title if body.origin_work_id is not None else None
+    entry.kind = body.kind
+    entry.style = body.style
+    entry.updated_at = datetime.utcnow()
+    names = await _names(session, [entry.owner_id, entry.picked_by])
+    return {"created": created, "version": entry.latest_version, "script": _summary(entry, names)}
+
+
+@router.post("")
+async def finalize(body: FinalizeBody, user: User = Depends(get_current_user)):
+    """Publish a new library entry or a new version of the caller’s script."""
     async with session_scope() as session:
-        if body.entry_id is None:
-            now = datetime.utcnow()
-            entry = ScriptEntry(owner_id=user.id, status="waiting", latest_version=0, episodes=0, words=0, created_at=now, updated_at=now,
-                                title=body.title, rights=body.rights, kind=body.kind, style=body.style)
-            session.add(entry)
-            await session.flush()
-            latest = None
-        else:
-            entry = await _entry(session, body.entry_id, lock=True)
-            if entry.owner_id != user.id and user.role not in ("admin", "superadmin"):
-                raise HTTPException(403, "只能给自己的剧本上传新版本")
-            latest = (await session.execute(select(ScriptVersion).where(
-                ScriptVersion.entry_id == entry.id, ScriptVersion.number == entry.latest_version))).scalar_one_or_none()
-        created = latest is None or latest.sha256 != digest
-        if created:
-            number = entry.latest_version + 1
-            session.add(ScriptVersion(entry_id=entry.id, number=number, words=words, sha256=digest, created_by=user.id, created_at=datetime.utcnow(),
-                                      session_ref=body.session_ref, content=[episode.model_dump() for episode in body.episodes]))
-            entry.latest_version = number
-            entry.episodes = len(body.episodes)
-            entry.words = words
-        entry.title = body.title
-        entry.rights = body.rights
-        entry.origin_work_id = body.origin_work_id
-        entry.origin_title = body.origin_title if body.origin_work_id is not None else None
-        entry.kind = body.kind
-        entry.style = body.style
-        entry.updated_at = datetime.utcnow()
-        await session.commit()
-        names = await _names(session, [entry.owner_id, entry.picked_by])
-        return {"created": created, "version": entry.latest_version, "script": _summary(entry, names)}
+        return await finalize_in_session(session, body, user)
 
 
 @router.get("")

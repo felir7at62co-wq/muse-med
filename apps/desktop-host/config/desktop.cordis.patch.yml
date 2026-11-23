@@ -324,6 +324,7 @@
           jubian_catalog: [剧变模型, 剧变报价, 剧变分集列表]
           jubian_media: [剧变超分, 剧变擦字幕]
           workshop_video_transcribe: [剧本工坊, 视频转剧本, 批量转写, 爆款转写, 转写任务, 停止转写, 转写进度, 工坊流水线]
+          workshop_script_editor: [剧本草稿, 打开草稿, 精修剧本, 改剧本, 按集改稿, 剧本候选稿]
           script_finalize: [定稿, 剧本定稿, 上传定稿, 定稿上传, 定稿库, 交稿给组长]
           script_library: [剧本库, 定稿剧本, 取出剧本, 选用剧本, 投产, 登记投产, 剧本建镜流项目]
           drama_project: [项目圣经, 本地项目圣经, 人物关系, 修改画幅]

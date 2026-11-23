@@ -5834,8 +5834,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'workshopConnection',
-    summary: 'Opens Script Workshop sessions as the signed-in Muse user and serves the Client\'s 剧本 tab from the finalized-script library; native tokens never reach model input or output.',
-    description: 'Opens Script Workshop sessions as the signed-in Muse user and serves the Client\'s 剧本 tab from the finalized-script library; native tokens never reach model input or output.',
+    summary: 'Opens Script Workshop sessions as the signed-in Muse user and serves the Client\'s draft editor and finalized-script library; native tokens never reach model input or output.',
+    description: 'Opens Script Workshop sessions as the signed-in Muse user and serves the Client\'s draft editor and finalized-script library; native tokens never reach model input or output.',
     methods: [
       {
         signature: 'async connection(): Promise<WorkbenchSession>',
@@ -5866,6 +5866,54 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Record the Jingliu project a picked script became.',
         parameters: [{ name: 'request', description: 'Script and the project\'s ID and title.' }],
         returns: 'The script\'s card, now in production.',
+      },
+      {
+        signature: '@Remote async scriptDrafts(request: ScriptDraftListRequest): Promise<ScriptDraftList>',
+        description: 'List accessible draft cards for the signed-in editor.',
+        parameters: [{ name: 'request', description: 'Search and page.' }],
+        returns: 'Drafts and the next offset.',
+      },
+      {
+        signature: '@Remote async scriptDraft(request: ScriptDraftRequest): Promise<ScriptDraft>',
+        description: 'Read a draft\'s editable episodes and context.',
+        parameters: [{ name: 'request', description: 'Draft to open.' }],
+        returns: 'Episode directory, context, and publication revision.',
+      },
+      {
+        signature: '@Remote async scriptDraftEpisode(request: ScriptDraftEpisodeRequest): Promise<ScriptDraftEpisode>',
+        description: 'Read the saved text of one episode and the editor\'s pending candidate.',
+        parameters: [{ name: 'request', description: 'Draft and episode to open.' }],
+        returns: 'The saved text, revision and candidate if present.',
+      },
+      {
+        signature: 'async stageScriptDraftCandidate(request: ScriptDraftStageRequest, signal?: AbortSignal): Promise<ScriptDraftCandidate>',
+        description: 'Stage one chat-generated candidate for human review.',
+        parameters: [{ name: 'request', description: 'Exact base revision, proposed episode text and summary.' }, { name: 'signal', description: 'Cancellation of the tool call.' }],
+        returns: 'The pending candidate.',
+      },
+      {
+        signature: '@Remote async applyScriptDraftCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode>',
+        description: 'Apply the exact candidate reviewed in the editor.',
+        parameters: [{ name: 'request', description: 'Episode and candidate ID.' }],
+        returns: 'The newly saved episode.',
+      },
+      {
+        signature: '@Remote async discardScriptDraftCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode>',
+        description: 'Discard the exact pending candidate without editing the saved episode.',
+        parameters: [{ name: 'request', description: 'Episode and candidate ID.' }],
+        returns: 'The saved episode.',
+      },
+      {
+        signature: '@Remote async saveScriptDraftEpisode(request: ScriptDraftSaveRequest): Promise<ScriptDraftEpisode>',
+        description: 'Save a manual edit to one episode.',
+        parameters: [{ name: 'request', description: 'Episode, displayed revision, and updated text.' }],
+        returns: 'The saved episode.',
+      },
+      {
+        signature: '@Remote async finalizeScriptDraft(request: ScriptDraftFinalizeRequest): Promise<ScriptSummary>',
+        description: 'Publish a reviewed draft revision to the finalized library.',
+        parameters: [{ name: 'request', description: 'Draft, revision, and publication metadata reviewed by the user.' }],
+        returns: 'The finalized library card.',
       },
     ],
   },
@@ -10588,6 +10636,54 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ScriptDetail',
     declaration: 'export interface ScriptDetail {\n    readonly script: ScriptSummary;\n    readonly canPick: boolean;\n    readonly versions: readonly ScriptVersion[];\n    readonly content: {\n        readonly version: number;\n        readonly episodes: readonly ScriptEpisode[];\n    };\n}',
+  },
+  {
+    name: 'ScriptDraft',
+    declaration: 'export interface ScriptDraft extends ScriptDraftSummary {\n    readonly episodes: readonly {\n        readonly episode: number;\n        readonly title: string;\n    }[];\n    readonly context: {\n        readonly outline: string | null;\n        readonly storyBible: string | null;\n    };\n    readonly revision: string;\n    readonly canFinalize: boolean;\n}',
+  },
+  {
+    name: 'ScriptDraftCandidate',
+    declaration: 'export interface ScriptDraftCandidate {\n    readonly id: string;\n    readonly baseRevision: string;\n    readonly content: string;\n    readonly summary: string;\n    readonly createdAt: string;\n}',
+  },
+  {
+    name: 'ScriptDraftCandidateRequest',
+    declaration: 'export interface ScriptDraftCandidateRequest extends ScriptDraftEpisodeRequest {\n    readonly candidateId: string;\n}',
+  },
+  {
+    name: 'ScriptDraftEpisode',
+    declaration: 'export interface ScriptDraftEpisode extends ScriptDraftEpisodeRequest {\n    readonly title: string;\n    readonly revision: string;\n    readonly version: number;\n    readonly content: string;\n    readonly candidate: ScriptDraftCandidate | null;\n}',
+  },
+  {
+    name: 'ScriptDraftEpisodeRequest',
+    declaration: 'export interface ScriptDraftEpisodeRequest extends ScriptDraftRequest {\n    readonly episode: number;\n}',
+  },
+  {
+    name: 'ScriptDraftFinalizeRequest',
+    declaration: 'export interface ScriptDraftFinalizeRequest extends ScriptDraftRequest {\n    readonly baseRevision: string;\n    readonly rights: ScriptRights;\n    readonly kind: ScriptKind;\n    readonly style: ScriptStyle;\n    readonly originWorkId?: string;\n    readonly originTitle?: string;\n}',
+  },
+  {
+    name: 'ScriptDraftList',
+    declaration: 'export interface ScriptDraftList {\n    readonly items: readonly ScriptDraftSummary[];\n    readonly nextOffset: number | null;\n}',
+  },
+  {
+    name: 'ScriptDraftListRequest',
+    declaration: 'export interface ScriptDraftListRequest {\n    readonly query?: string;\n    readonly offset: number;\n    readonly limit: number;\n}',
+  },
+  {
+    name: 'ScriptDraftRequest',
+    declaration: 'export interface ScriptDraftRequest {\n    readonly draftId: number;\n}',
+  },
+  {
+    name: 'ScriptDraftSaveRequest',
+    declaration: 'export interface ScriptDraftSaveRequest extends ScriptDraftEpisodeRequest {\n    readonly baseRevision: string;\n    readonly content: string;\n}',
+  },
+  {
+    name: 'ScriptDraftStageRequest',
+    declaration: 'export interface ScriptDraftStageRequest extends ScriptDraftSaveRequest {\n    readonly summary: string;\n}',
+  },
+  {
+    name: 'ScriptDraftSummary',
+    declaration: 'export interface ScriptDraftSummary {\n    readonly id: number;\n    readonly title: string;\n    readonly status: string;\n    readonly episodeCount: number;\n    readonly updatedAt: string | null;\n}',
   },
   {
     name: 'ScriptEpisode',

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-workshop-script-editor
+profile: headless
+composition: muse-workshop-script-editor
+recording: authored
+writerOutput: true
+header:
+  class: muse-workshop-script-editor
+  pin: true
+  systemPromptSource: muse-workshop-transcribe-status
+  toolSchemasSource: muse-workshop-transcribe-status

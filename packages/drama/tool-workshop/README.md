@@ -16,6 +16,7 @@ English | [中文](README.zh.md)
 - [Use this package](#use-this-package)
 - [Actions](#actions)
 - [Finalized scripts](#finalized-scripts)
+- [Cloud draft editing](#cloud-draft-editing)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
@@ -51,6 +52,13 @@ The pending card title names the action and job, and a `start` card shows the pa
 `script_library` `read` writes one version, the newest by default, to `剧本库/<title>-v<version>/第NNN集.md` in the workspace, each file headed with its 第N集 line so `script_finalize` reads it back as the same episodes, and returns the paths. `link` records the Jingliu project ID and title of a picked script with `POST /script-library/{id}/production`, which moves it to 已投产. Picking a version is a lead's action in the Client's 剧本 tab, not a tool action.
 
 -----
+
+<a id="cloud-draft-editing"></a>
+## Cloud draft editing
+
+`workshop_script_editor` loads on demand under the Script Workshop capability. It searches drafts visible to the signed-in member, reads a draft's episode list, outline and story bible, and retrieves the saved text and revision of one episode at a time.
+
+A proposal stages the full revised text of one episode and a short change summary against the saved revision. The proposal is visible for review in the script panel. Only the editor's action in that panel can apply the candidate to the saved draft. After a stale-revision response, read the updated episode before preparing another candidate.
 
 <a id="further-exploration"></a>
 ## Further Exploration

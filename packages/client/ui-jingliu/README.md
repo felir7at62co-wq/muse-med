@@ -30,7 +30,9 @@ In the Bot team's panel, for a Bot's chat and for a group chat alike, the **Jing
 
 The **数据** (Data) tab lists the data station's platforms — 红果, 抖音, 绿泡泡, 番茄 and 七猫 — with each one's ranking count or collector state. Picking one opens it in a panel tab of its own, like a Jingliu project, on its 全收录 view: every work the station collected on that platform, newest first, with a search box over title, author, ID, description and tags. Next to it are its rankings by level (for example 男频 · 阅读榜 · category) for a day, week or month, with the platform's own two metrics and a button that quotes a work into the conversation. 红果 adds 转写 on each ranking row and a 储备 page with the transcription stock's filters, search, episode progress and 立即转写. Reads and 立即转写 go through the `museAccount` data-station methods as the signed-in member, so the station records that member as the requester.
 
-The **Scripts** tab, before **Jingliu**, lists Script Workshop's finalized scripts, which every member can read: search by title, filter by stage (waiting, picked, in production) or to one's own, each card with its author, episodes, length and form. A script opens in a panel tab of its own: its parameters (title, author, rights, source work, form, episodes, length, version, stage) beside the text, one episode at a time, with scene, action and dialogue lines set apart. The source work opens a card with its data-station record: platform, ranking and rank, metrics, tags and collection date. A member with the pick permission picks the version shown, then links an existing Jingliu project or puts a prepared **New Jingliu project** request in the message box, which Muse carries out with `script_library`. **Quote in the message box** puts a reference to the script or the episode there.
+The **Scripts** tab, before **Jingliu**, opens **Drafts** for the signed-in Workshop account. Find a draft by title, choose an episode and quote it into chat. Muse can submit changes for one episode. Use **Refresh** to fetch the latest proposal while the draft stays open. The editor shows the difference against the saved episode and lets the user apply or discard the proposal. Users can edit and save an episode directly. If the cloud version changed, refresh and review it before saving. **Finalize script** asks for rights, form and production style before saving a version to the finalized library.
+
+Every member can read **Finalized scripts**. Search by title and filter by stage or ownership. A script opens in its own panel tab with its version, rights, source work and episode text. A member with pick permission chooses the displayed version, then links an existing Jingliu project or puts a **New Jingliu project** request in the message box. The source-work card displays the data-station record.
 
 ## Model Experience
 
@@ -51,7 +53,7 @@ Viewing the studio leaves the model prefix unchanged.
 ## Known Limitations and Deferred Work
 
 - Embedded deployments must allow Muse to display their pages. The [workbench login adapters](../../../services/muse-workbenches/README.md) connect both sign-in pages to the Muse account gateway.
-- Each application manages its own account session, drafts and projects. Selecting a page or switching tabs does not transfer a draft to Jingliu or select a target for chat tools.
+- Selecting a draft or switching episodes does not change the chat target. Use **Quote in the message box** to include the draft ID and the selected episode in a message.
 
 ### Dev Note
 

@@ -27,7 +27,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-episode-subtitles` | `episode_subtitles` | `ctx.tools`, `ctx.systemPrompt`, `ctx.museAccount`, `ctx.subprocess`, `FFmpeg and FFprobe on PATH (or configured)`, `Python with pypinyin 0.55.0 (source or pythonPath)`, `ctx.jingliuConnection with local media for Jingliu projects (optional)` | `tool/call`, `tool/result`, `transcript/packs, transcript/jobs and transcript/shots`, `editing/<episode>-shots.json`, `editing/<episode>.srt and its version 2 .clock.json`, `subtitles/<episode>.state.json, .review.json and .decisions.json`, `Jingliu projects: media, transcripts and subtitles/ep<episode>.* under jingliu/<project>, and Jingliu auto_subtitles segments jobs` | - | `build` packs the shots that miss the transcript cache into a few cloud uploads, splits the words back per shot, corrects them toward the locked script with the rules shared with Jingliu, and lays out the clock from measured durations; repeat the same call until it is not `waiting`. `review` pages pending items and applies `heard`, `script` or `drop` decisions without new recognition. |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`, `TOS access key credential references`, `network access to Volcengine TOS` | `tool/call`, `tool/result`, `public TOS objects below download-video-date/{platform}/{date}/{work_id}/`, `local file deletion only when remove_local is true` | - | Optional package: only the cloud transcription deployment composes it, with its credential references. |
 | `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`, `jingliu_media`, `jingliu_narration`, `jingliu_projects`, `jingliu_run`, `jingliu_studio`, `jingliu_workflows` | `ctx.tools`, `ctx.jingliuConnection`, `ctx.approval for changes and paid workflows` | `tool/call`, `tool/result`, `project updates and jobs on the configured Jingliu service`, `conversation project selections, image and narration job receipts, local Jianying drafts, downloaded studio media under the workspace, and uploads to the Jingliu media store` | - | - |
-| `@deepseek-ai/dsh-tool-workshop` | `script_finalize`, `script_library`, `workshop_video_transcribe` | `ctx.tools`, `ctx.workshopConnection`, `ctx.approval to start a job`, `ctx.fs and ctx.sandboxPolicy for script files` | `tool/call`, `tool/result`, `video_transcribe factory jobs on the configured Script Workshop`, `finalized-script versions and production links in the Workshop library`, `script files under 剧本库/ in the workspace` | - | - |
+| `@deepseek-ai/dsh-tool-workshop` | `script_finalize`, `script_library`, `workshop_script_editor`, `workshop_video_transcribe` | `ctx.tools`, `ctx.workshopConnection`, `ctx.approval to start a job`, `ctx.fs and ctx.sandboxPolicy for script files` | `tool/call`, `tool/result`, `video_transcribe factory jobs on the configured Script Workshop`, `finalized-script versions and production links in the Workshop library`, `script files under 剧本库/ in the workspace`, `single-episode candidates for review in the Muse script panel` | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`, `data station service token credential reference`, `network access to the data station service API` | `tool/call`, `tool/result`, `data station transcription job state` | - | Optional package: only the cloud transcription deployment composes it. Each dispatched worker claims its own work; the Main Session router does not call it. |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | `video_source_review` | The default video_inspect retains metadata and sample operations. Creation enables sourceReviewCompanion to add video_source_review with complete scan/next/observe operations without replacing legacy sampling or trusted receipts. Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`, `ctx.tools`, `ctx.ptcRuntime`, `ctx.systemPrompt` | `tool/call`, `one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`, `tool/result` | - | The PTC executor exposes only run_code to the model and declares other visible capabilities in a generated SDK in the runtime’s language. Program bindings enter the shared guarded tool pipeline in submission order; concurrency-safe bodies overlap up to maxParallelSubCalls, and nested results remain linked to the outer program. The resolved timeout and maxSubCallsPerMinute set the total call allowance; exceeding it terminates the program. |
@@ -2418,6 +2418,65 @@ Source: [`packages/drama/tool-workshop/src/finalize.ts`](../packages/drama/tool-
 ```
 
 Source: [`packages/drama/tool-workshop/src/library.ts`](../packages/drama/tool-workshop/src/library.ts)
+
+### `workshop_script_editor`
+
+在 Muse 中查找、阅读和精修云端剧本草稿。先打开目标草稿取得分集和项目设定，再读取本轮涉及的集。只为用户指定的一集提交候选稿，由编辑在「剧本」面板审核采纳。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "list 按名称查找；open 看分集和设定；read 读一集；propose 提交候选稿。",
+      "enum": [
+        "list",
+        "open",
+        "read",
+        "propose"
+      ]
+    },
+    "query": {
+      "type": "string",
+      "description": "list 按草稿标题搜索，可省略。"
+    },
+    "offset": {
+      "type": "integer",
+      "description": "list 分页，用上次返回的 next_offset。"
+    },
+    "draft_id": {
+      "type": "integer",
+      "description": "open、read 和 propose 使用 list 返回的草稿编号。"
+    },
+    "episode": {
+      "type": "integer",
+      "description": "read 和 propose 使用实际集号。阅读相关前后集做承接核对，提交时只写用户指定的一集。"
+    },
+    "read_candidate": {
+      "type": "boolean",
+      "description": "read 时，用户要求继续改待审候选稿才设为 true。"
+    },
+    "base_revision": {
+      "type": "string",
+      "description": "propose 必填。原样使用目标集刚读取的 revision。"
+    },
+    "content": {
+      "type": "string",
+      "description": "propose 必填。该集完整正文，沿用当前稿件格式并保留用户指定的人物、情节和对白。"
+    },
+    "summary": {
+      "type": "string",
+      "description": "propose 必填。简要说明改动，供编辑审阅。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+Source: [`packages/drama/tool-workshop/src/editor.ts`](../packages/drama/tool-workshop/src/editor.ts)
 
 ### `workshop_video_transcribe`
 

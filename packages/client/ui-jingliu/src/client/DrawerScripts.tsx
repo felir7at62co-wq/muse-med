@@ -1,9 +1,10 @@
-/** The 剧本 tab of the Bot team's details drawer: Script Workshop's finalized scripts, and one script opened in a tab of its own. */
-import { useState } from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+/** The 剧本 tab of the Bot team's details drawer opens drafts and finalized scripts. */
+import { useId, useState } from 'react'
+import { Button, Input, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MuseDataPlatform, MuseDataWorkDetail } from '@deepseek-ai/dsh-muse-account/types'
 import type { ScriptDetail, ScriptPerson, ScriptPickRequest, ScriptProductionRequest, ScriptStatus, ScriptSummary } from '@deepseek-ai/dsh-workbench-connection/types'
 import { address, useAction, type Read, type Text } from './Production.tsx'
+import { DraftLibrary, DraftView, type DraftActions } from './DrawerScriptDraft.tsx'
 import data from './DrawerData.module.css'
 import css from './DrawerScripts.module.css'
 
@@ -46,19 +47,44 @@ export interface DrawerScriptsProps {
   pick: (request: ScriptPickRequest) => Promise<void>
   /** Record the Jingliu project a picked script became. */
   link: (request: ScriptProductionRequest) => Promise<void>
+  /** Draft edits and finalization use the current account's server permissions. */
+  draftActions: DraftActions
 }
 
 /**
- * Browse the finalized-script library inside the Bot team's details drawer.
+ * Browse draft and finalized scripts inside the Bot team's details drawer.
  * @param props - Library resources for the current login, the open script and the conversation's message box.
- * @returns The script list, or the open script.
+ * @returns The script list, an open draft, or an open finalized script.
  */
 export function DrawerScripts(props: DrawerScriptsProps) {
   const epoch = props.useAccountEpoch(n => n)
+  const draftKey = /^draft:([1-9]\d*)$/u.exec(props.script?.id ?? '')?.[1]
+  const draftId = Number(draftKey)
+  if (Number.isSafeInteger(draftId) && draftId > 0) return <DraftView key={`${epoch}:draft:${draftId}`}
+    {...props} epoch={epoch} draftId={draftId} />
   const id = props.script === null ? Number.NaN : Number(props.script.id)
   return Number.isSafeInteger(id) && id > 0
     ? <ScriptView key={`${epoch}:${id}`} {...props} epoch={epoch} id={id} />
-    : <Library key={epoch} {...props} epoch={epoch} />
+    : <ScriptLibraries key={epoch} {...props} epoch={epoch} />
+}
+
+type LibraryView = 'finalized' | 'drafts'
+
+function ScriptLibraries(props: DrawerScriptsProps & { epoch: number }) {
+  const [view, choose] = useState<LibraryView>('drafts')
+  const group = useId()
+  const tabs = [
+    { value: 'drafts', label: props.t('scriptDrafts'), id: `${group}-drafts`, panelId: `${group}-drafts-panel` },
+    { value: 'finalized', label: props.t('scriptLibrary'), id: `${group}-finalized`, panelId: `${group}-finalized-panel` },
+  ] as const
+  return <div className={css.libraries}>
+    <SegmentedTabs items={tabs} value={view} onChange={choose} label={props.t('scriptCollections')}
+      size="sm" className={css.libraryTabs} />
+    {tabs.map(tab => <div key={tab.value} role="tabpanel" className={css.libraryPanel} id={tab.panelId}
+      aria-labelledby={tab.id} hidden={tab.value !== view}>
+      {tab.value === view && (view === 'drafts' ? <DraftLibrary {...props} /> : <Library {...props} />)}
+    </div>)}
+  </div>
 }
 
 function compact(value: number, t: Text): string {

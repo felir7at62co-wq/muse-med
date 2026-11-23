@@ -16,6 +16,7 @@ kind: "package-reference"
 - [使用本包](#use-this-package)
 - [操作](#actions)
 - [定稿剧本](#finalized-scripts)
+- [云端草稿编辑](#cloud-draft-editing)
 - [进一步探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与后续工作](#known-limitations-and-deferred-work)
@@ -51,6 +52,13 @@ kind: "package-reference"
 `script_library` 的 `read` 把一版剧本（默认最新版）写到工作区的 `剧本库/<剧名>-v<版本>/第NNN集.md`，每个文件以「第N集」标题开头，`script_finalize` 读回时仍是同样的分集，并返回路径。`link` 用 `POST /script-library/{id}/production` 登记被选用剧本的镜流项目 ID 和项目名，剧本随之变为已投产。选用版本是组长在客户端「剧本」标签里的操作，不是工具操作。
 
 -----
+
+<a id="cloud-draft-editing"></a>
+## 云端草稿编辑
+
+`workshop_script_editor` 在「剧本工坊」能力下按需加载，可搜索当前成员可见的草稿，查看分集目录、大纲和故事设定，并逐集读取已保存的正文和版本。
+
+提交候选时带上本集保存版本、改后的完整正文和简短说明。编辑在「剧本」面板查看候选，只有在该面板采纳才会写入草稿。如果保存版本已变更，先读取最新正文，再根据需要准备候选稿。
 
 <a id="further-exploration"></a>
 ## 进一步探索

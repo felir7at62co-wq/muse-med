@@ -262,6 +262,30 @@ class ScriptEpisodeHistory(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class ScriptEditorCandidate(Base):
+    """One unapplied Muse revision per editor and draft episode."""
+
+    __tablename__ = "script_editor_candidates"
+
+    draft_id = Column(ForeignKey("script_drafts.id", ondelete="CASCADE"), primary_key=True)
+    episode = Column(Integer, primary_key=True)
+    actor_id = Column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    id = Column(String(36), nullable=False, unique=True)
+    base_revision = Column(String(64), nullable=False)
+    content = Column(Text, nullable=False)
+    summary = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ScriptEditorPublication(Base):
+    """The finalized library entry belonging to a Muse-edited source draft."""
+
+    __tablename__ = "script_editor_publications"
+
+    draft_id = Column(ForeignKey("script_drafts.id", ondelete="CASCADE"), primary_key=True)
+    entry_id = Column(Integer, nullable=False, unique=True)
+
+
 
 class GenerationLog(Base):
     """生成过程日志,用于持久化展示+审计"""

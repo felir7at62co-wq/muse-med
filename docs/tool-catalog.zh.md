@@ -31,7 +31,7 @@
 | `@deepseek-ai/dsh-tool-episode-subtitles` | `episode_subtitles` | `ctx.tools`、`ctx.systemPrompt`、`ctx.museAccount`、`ctx.subprocess`、PATH 中（或已配置）的 FFmpeg 与 FFprobe、带 pypinyin 0.55.0 的 Python（source 或 pythonPath）、镜流项目需能存本机素材的 `ctx.jingliuConnection`（可选） | `tool/call`、`tool/result`，`transcript/packs`、`transcript/jobs` 与 `transcript/shots`，`editing/<集>-shots.json`，`editing/<集>.srt` 及其第 2 版 `.clock.json`，`subtitles/<集>.state.json`、`.review.json` 与 `.decisions.json`，镜流项目在 `jingliu/<项目>` 下的素材、转写与 `subtitles/ep<集>.*`，以及镜流的 `auto_subtitles` segments 任务 | - | `build` 把没有转写缓存的镜头拼成少量云端上传，再把字词按镜头拆回，用与镜流共用的规则对照锁定剧本纠正，并按实测时长排布时钟；用相同参数重复调用，直到不再是 `waiting`。`review` 分页列出待核处，并在不新转写的情况下应用 `heard`、`script` 或 `drop` 选择。 |
 | `@deepseek-ai/dsh-tool-drama-tos-upload` | `drama_tos_upload` | `ctx.tools`、TOS 访问密钥的凭据引用、可访问火山引擎 TOS 的网络 | `tool/call`、`tool/result`，`download-video-date/{platform}/{date}/{work_id}/` 下的公开 TOS 对象，`remove_local` 为 true 时删除本地文件 | - | 可选包：只由云端转写部署组合，并由它提供凭据引用。 |
 | `@deepseek-ai/dsh-tool-jingliu` | `jingliu_image`、`jingliu_media`、`jingliu_narration`、`jingliu_projects`、`jingliu_run`、`jingliu_studio`、`jingliu_workflows` | `ctx.tools`、`ctx.jingliuConnection`，更改和计费操作需 `ctx.approval` | `tool/call`、`tool/result`、镜流服务的项目更新和任务、会话项目关联、生图与解说剧任务回执、本地剪映草稿 | - | - |
-| `@deepseek-ai/dsh-tool-workshop` | `script_finalize`、`script_library`、`workshop_video_transcribe` | `ctx.tools`、`ctx.workshopConnection`，开始任务需 `ctx.approval`，剧本文件需 `ctx.fs` 与 `ctx.sandboxPolicy` | `tool/call`、`tool/result`，所配置剧本工坊上的 `video_transcribe` 工厂任务、定稿库版本与投产登记，工作区 `剧本库/` 下的剧本文件 | - | - |
+| `@deepseek-ai/dsh-tool-workshop` | `script_finalize`、`script_library`、`workshop_script_editor`、`workshop_video_transcribe` | `ctx.tools`、`ctx.workshopConnection`，开始任务需 `ctx.approval`，剧本文件需 `ctx.fs` 与 `ctx.sandboxPolicy` | `tool/call`、`tool/result`，所配置剧本工坊上的 `video_transcribe` 工厂任务、定稿库版本与投产登记，工作区 `剧本库/` 下的剧本文件，Muse 剧本面板中的待审单集候选稿 | - | - |
 | `@deepseek-ai/dsh-tool-hit-queue` | `drama_hit_queue` | `ctx.tools`、数据站服务令牌的凭据引用、可访问数据站服务接口的网络 | `tool/call`、`tool/result`，数据站转写任务状态 | - | 可选包：只由云端转写部署组合。每个被派出的工人自己领取作品，主会话路由器不调用它。 |
 | `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
 | `@deepseek-ai/dsh-tool-executor-ptc` | `run_code` | `ctx.workingDirectory (Agent executions)`、`ctx.tools`、`ctx.ptcRuntime`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | PTC 执行器只向模型公开 run_code，并在运行时语言生成的 SDK 中声明其他可见能力。程序绑定按提交顺序进入共享的受守卫工具流水线；并行安全的函数体最多重叠 maxParallelSubCalls 个，嵌套结果保持与外层程序关联。最终超时时间与 maxSubCallsPerMinute 决定调用总额度；超限会终止程序。 |
@@ -2422,6 +2422,65 @@ Source: [`packages/drama/tool-jingliu/src/index.ts`](../packages/drama/tool-jing
 ```
 
 来源：[`packages/drama/tool-workshop/src/library.ts`](../packages/drama/tool-workshop/src/library.ts)
+
+### `workshop_script_editor`
+
+在 Muse 中查找、阅读和精修云端剧本草稿。先打开目标草稿取得分集和项目设定，再读取本轮涉及的集。只为用户指定的一集提交候选稿，由编辑在「剧本」面板审核采纳。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "list 按名称查找；open 看分集和设定；read 读一集；propose 提交候选稿。",
+      "enum": [
+        "list",
+        "open",
+        "read",
+        "propose"
+      ]
+    },
+    "query": {
+      "type": "string",
+      "description": "list 按草稿标题搜索，可省略。"
+    },
+    "offset": {
+      "type": "integer",
+      "description": "list 分页，用上次返回的 next_offset。"
+    },
+    "draft_id": {
+      "type": "integer",
+      "description": "open、read 和 propose 使用 list 返回的草稿编号。"
+    },
+    "episode": {
+      "type": "integer",
+      "description": "read 和 propose 使用实际集号。阅读相关前后集做承接核对，提交时只写用户指定的一集。"
+    },
+    "read_candidate": {
+      "type": "boolean",
+      "description": "read 时，用户要求继续改待审候选稿才设为 true。"
+    },
+    "base_revision": {
+      "type": "string",
+      "description": "propose 必填。原样使用目标集刚读取的 revision。"
+    },
+    "content": {
+      "type": "string",
+      "description": "propose 必填。该集完整正文，沿用当前稿件格式并保留用户指定的人物、情节和对白。"
+    },
+    "summary": {
+      "type": "string",
+      "description": "propose 必填。简要说明改动，供编辑审阅。"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}
+```
+
+源码：[`packages/drama/tool-workshop/src/editor.ts`](../packages/drama/tool-workshop/src/editor.ts)
 
 ### `workshop_video_transcribe`
 

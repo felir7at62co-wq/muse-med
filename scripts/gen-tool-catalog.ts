@@ -452,12 +452,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
     source: {
       script_finalize: 'packages/drama/tool-workshop/src/finalize.ts',
       script_library: 'packages/drama/tool-workshop/src/library.ts',
+      workshop_script_editor: 'packages/drama/tool-workshop/src/editor.ts',
       workshop_video_transcribe: 'packages/drama/tool-workshop/src/index.ts',
     },
     requires: ['ctx.tools', 'ctx.workshopConnection', 'ctx.approval to start a job', 'ctx.fs and ctx.sandboxPolicy for script files'],
     writes: [
       'tool/call', 'tool/result', 'video_transcribe factory jobs on the configured Script Workshop',
       'finalized-script versions and production links in the Workshop library', 'script files under 剧本库/ in the workspace',
+      'single-episode candidates for review in the Muse script panel',
     ],
     async mount(ctx) {
       await ctx.plugin(SandboxPolicy)

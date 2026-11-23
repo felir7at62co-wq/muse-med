@@ -1,5 +1,7 @@
 /** Script Workshop's finalized-script library as Muse reads it: scripts, versions, picks and production links. @module */
 
+export type * from './editor-types.ts'
+
 /** Library stage: waiting for a lead, picked by a lead, or made into a Jingliu project. */
 export type ScriptStatus = 'waiting' | 'picked' | 'in_production'
 /** Rights: an original script owned by the company, or a licensed adaptation. */

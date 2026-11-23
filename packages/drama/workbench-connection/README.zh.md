@@ -48,6 +48,8 @@ Desktop Host 用 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 挂载本服务；该变量未设
 
 `workshopConnection` 同时是供客户端「剧本」标签使用的 Typert Remote 服务：`scripts` 读取定稿库的一页及各阶段计数，`script` 读取一个剧本的版本列表和某一版的各集正文，`pickScript` 选用一版投产，`scriptProduction` 登记被选用剧本投产成的镜流项目。所有成员都能读定稿库；没有 `script_pick` 权限时工坊拒绝 `pickScript` 和 `scriptProduction`。`scriptList`、`scriptDetail` 和 `scriptOf` 校验响应，不符合时以 `WORKSHOP_INVALID_RESULT` 失败。
 
+草稿编辑器以同一登录账号搜索草稿、读取分集、处理候选和定稿。只有 Muse 连接的所有者能远程调用这些草稿方法。保存针对一个分集版本，定稿针对用户审阅过的整份草稿版本。
+
 <a id="model-experience"></a>
 ## 模型体验
 
