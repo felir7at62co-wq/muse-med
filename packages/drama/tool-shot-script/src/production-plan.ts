@@ -5,9 +5,11 @@ import { ToolArgsError } from '@deepseek-ai/dsh-tools'
 import { materialFieldLabel } from './assets.ts'
 import { MIN_CONTENT_SECONDS, packEpisode } from './episode.ts'
 import { DEFAULT_SPEECH_CHARS_PER_SECOND, parseShotScript } from './script.ts'
-import type { CompiledShot, ShotIssue } from './types.ts'
+import type { CompiledShot, ParsedShot, ShotIssue } from './types.ts'
 import type { ProductionAsset, ProductionChoice, ProductionKind, ProductionMatch, ProductionPlan,
   ProductionRequirement, ProductionWarning } from './production-types.ts'
+
+const SPOKEN_LINE = /^(台词|OS|VO|旁白|画外音|心声)[：:]/u
 
 /** Hash exact UTF-8 source bytes or a serialized local value.
  * @param text - Text whose version is being retained.
@@ -64,10 +66,56 @@ function names(field: string): string[] {
   return [...new Set(entries.map(productionName).filter(name => name && name !== '无'))]
 }
 
+function offscreenProp(shot: ParsedShot): string | undefined {
+  const directions = /^画面[：:]([^\r\n]+)/mu.exec(shot.visual)?.[1]
+  if (directions === undefined) return undefined
+  const clauses = directions.trim().replace(/[.!?]+$/u, '').split(/[；;。！？、，,]/u).map(text => text.trim()).filter(Boolean)
+  if (clauses.some(clause => /^(?:开场|开头|开始时|起初|先|前半|后半|随后|接着|之后|最后|暂时)/u.test(clause))) return undefined
+  if (/^(?:同样)?不开口$/u.test(clauses.at(-1) ?? '')) clauses.pop()
+  // Require a whole-shot direction, not a speaker label, a quoted mention or a brief occlusion.
+  const declared = /^(.+?)(?:不在画面[内中]|不入画|不出镜)$/u.exec(clauses.at(-1) ?? '')?.[1]
+  if (declared === undefined) return undefined
+  const props = names(shot.propsField)
+  if (declared === '器物' || declared === '道具') return props.length === 1 ? props[0] : undefined
+  return props.find(name => name === declared)
+}
+
+/** Find saved packages that still bind an explicitly off-screen prop in the actual shot prompt.
+ * @param plan - Verified local production plan.
+ * @param options - Parser controls used when building new plans.
+ * @returns Affected package indexes and their shot numbers.
+ */
+export function outdatedOffscreenPropPackages(plan: ProductionPlan, options: Parameters<typeof parseShotScript>[1]): Map<number, number[]> {
+  const affected = new Map<number, number[]>()
+  const boundProps = plan.matches.filter(match => match.kind === 'prop' && match.selected_asset_id !== null)
+  if (boundProps.length === 0) return affected
+  const offscreen = new Map(parseShotScript(plan.source, options).shots.map(shot => [shot.shot, offscreenProp(shot)]))
+  const conflicts = boundProps.filter(match => matchesOffscreenProp(match, offscreen.get(match.shot),
+    plan.assets.find(asset => asset.asset_id === match.selected_asset_id)))
+  for (const pack of plan.packages) {
+    const claimed = conflicts.flatMap((match) => {
+      const image = pack.images.find(row => row.asset_id === match.selected_asset_id)
+      return image === undefined || !pack.shots.includes(match.shot) ? [] : [{ shot: match.shot, key: image.material_key }]
+    })
+    if (claimed.length === 0) continue
+    const prompts = parseShotScript(pack.prompt, { ...options, sourceScope: 'prepared_package' }).shots
+    const shots = claimed.filter(claim => prompts.some(shot => shot.shot === claim.shot
+      && shot.visual.split('\n').some(line => !SPOKEN_LINE.test(line.trim()) && line.includes(`](${claim.key})`))))
+      .map(claim => claim.shot)
+    if (shots.length > 0) affected.set(pack.index, [...new Set(shots)])
+  }
+  return affected
+}
+
 function sameName(asset: ProductionAsset, req: ProductionRequirement): boolean {
   return asset.name === req.name || asset.name.split(/[｜|]/u).some(part => productionName(part) === productionName(req.name))
     || asset.aliases?.some(name => productionName(name) === productionName(req.name)) === true
     || req.character_id !== undefined && asset.character_id === req.character_id
+}
+
+function matchesOffscreenProp(req: ProductionRequirement, excluded: string | undefined, selected?: ProductionAsset): boolean {
+  return req.kind === 'prop' && excluded !== undefined && (productionName(req.name) === excluded
+    || (selected !== undefined && sameName(selected, { shot: req.shot, kind: 'prop', name: excluded })))
 }
 
 function comparison(asset: ProductionAsset, req: ProductionRequirement): string[] {
@@ -89,30 +137,34 @@ function comparison(asset: ProductionAsset, req: ProductionRequirement): string[
 }
 
 function match(req: ProductionRequirement, assets: ProductionAsset[], choices: ProductionChoice[],
-  candidateLimit: number, warnings: ProductionWarning[]): ProductionMatch {
+  candidateLimit: number, warnings: ProductionWarning[], excludedProp?: string): ProductionMatch {
   const candidates = assets.filter(asset => asset.kind === req.kind && sameName(asset, req)).map((asset) => {
     const reasons = comparison(asset, req)
     return { ...asset, reasons, compatible: reasons.length === 0 }
   }).sort((a, b) => Number(b.compatible) - Number(a.compatible) || a.reasons.length - b.reasons.length || a.asset_id - b.asset_id)
   const choice = choices.find(item => requirementKey(item) === requirementKey(req))
   const eligible = candidates.filter(item => item.compatible)
-  const selected = choice?.asset_id === null ? undefined : choice
+  const chosen = choice?.asset_id === null ? undefined : choice
     ? assets.find(asset => asset.kind === req.kind && asset.asset_id === choice.asset_id) : eligible.length === 1 ? eligible[0] : undefined
-  if (choice?.asset_id !== undefined && choice.asset_id !== null && selected === undefined) {
+  if (choice?.asset_id !== undefined && choice.asset_id !== null && chosen === undefined) {
     throw new Error(`镜头${req.shot}选择的资产${choice.asset_id}不在当前项目的${req.kind}库存中；重新读取候选。`)
   }
+  const offscreen = matchesOffscreenProp(req, excludedProp, chosen)
+  const selected = offscreen ? undefined : chosen
+  if (offscreen) warnings.push({ code: 'offscreen_prop_omitted', shot: req.shot, name: req.name,
+    message: `镜头${req.shot}的画面明确要求「${excludedProp}」留在画外。本镜省略它的图片引用，保留台词和其他镜头的选材。` })
   if (selected && (!sameName(selected, req) || comparison(selected, req).length)) warnings.push({
     code: 'selected_asset_needs_review', shot: req.shot, name: req.name,
     message: `所选${selected.asset_id}「${selected.name}」与本镜要求「${req.name}；${req.state ?? ''}」存在未核条件；请实际看图或听音核对。保留你的选择。`,
   })
-  if (!selected && choice?.asset_id !== null) warnings.push({ code: candidates.length ? 'asset_candidates_ambiguous' : 'asset_missing',
+  if (!selected && !offscreen && choice?.asset_id !== null) warnings.push({ code: candidates.length ? 'asset_candidates_ambiguous' : 'asset_missing',
     shot: req.shot, name: req.name, message: `${req.name}：${candidates.length ? '存在未唯一核实的候选，按本镜剧情选择版本。' : '没有同项目候选；普通细节可保留文字，关键参考由Muse判断是否需要补充。'}` })
   const shown = candidates.slice(0, candidateLimit)
   if (selected && !shown.some(item => item.asset_id === selected.asset_id)) shown.push({ ...selected,
     reasons: comparison(selected, req), compatible: sameName(selected, req) && comparison(selected, req).length === 0 })
   return { ...req, candidates: shown, candidate_count: candidates.length,
     candidates_truncated: candidates.length > candidateLimit, selected_asset_id: selected?.asset_id ?? null,
-    selection_basis: choice ? choice.asset_id === null ? 'omitted' : 'explicit' : selected ? 'unique_metadata' : 'unresolved',
+    selection_basis: offscreen || choice?.asset_id === null ? 'omitted' : choice ? 'explicit' : selected ? 'unique_metadata' : 'unresolved',
     review_required: true }
 }
 
@@ -130,6 +182,7 @@ export function buildProductionPlan(input: Omit<ProductionPlan, 'version' | 'ope
   assertDistinctProductionShotNumbers(parsed.shots.map(({ shot }) => shot))
   const warnings: ProductionWarning[] = parsed.issues.map(issue => ({ code: issue.code, shot: issue.shot || null, message: issue.message }))
   const requirements = new Map<string, ProductionRequirement>()
+  const offscreen = new Map(parsed.shots.map(shot => [shot.shot, offscreenProp(shot)]))
   for (const shot of parsed.shots) {
     const add = (kind: ProductionKind, name: string, state?: string): void => {
       const req = { shot: shot.shot, kind, name, ...(state ? { state } : {}) }
@@ -155,7 +208,8 @@ export function buildProductionPlan(input: Omit<ProductionPlan, 'version' | 'ope
     requirements.set(requirementKey(req), req)
   }
   for (const choice of input.choices) if (!requirements.has(requirementKey(choice))) throw new Error(`素材选择没有对应镜头要求：${requirementKey(choice)}`)
-  const matches = [...requirements.values()].map(req => match(req, input.assets, input.choices, candidateLimit, warnings))
+  const matches = [...requirements.values()].map(req =>
+    match(req, input.assets, input.choices, candidateLimit, warnings, offscreen.get(req.shot)))
   let cursor = 0
   const compiled: CompiledShot[] = parsed.shots.map((shot) => {
     const selected = matches.filter(item => item.shot === shot.shot && item.kind !== 'voice' && item.selected_asset_id !== null)
@@ -165,8 +219,14 @@ export function buildProductionPlan(input: Omit<ProductionPlan, 'version' | 'ope
       })
     let visual = shot.visual
     // Existing markers are references, never dialogue text. Their resolved identities replace them only outside speech lines.
-    visual = visual.split('\n').map(line => /^(台词|OS|VO|旁白|画外音|心声)[：:]/u.test(line.trim()) ? line
+    const excludedProp = offscreen.get(shot.shot)
+    if (excludedProp !== undefined) {
+      const label = names(shot.propsField).length === 1 ? '画外道具（本镜不入画）' : `道具（「${excludedProp}」不入画）`
+      visual = visual.replace(/^关键道具(?:[：:].*|【.+】)[ \t]*$/mu, () => `${label}：${shot.propsField}`)
+    }
+    visual = visual.split('\n').map(line => SPOKEN_LINE.test(line.trim()) ? line
       : line.replace(/@\[([^\]]+)\]\([^)]*\)/gu, (_marker, label: string) => {
+        if (excludedProp === productionName(label)) return label
         const matching = selected.filter(asset => productionName(asset.name) === productionName(label)
           || asset.aliases?.some(name => productionName(name) === productionName(label)))
         const asset = matching[0]

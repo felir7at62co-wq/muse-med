@@ -81,6 +81,60 @@ it('records the empty-subject diagnostic without ledger or HTTP side effects', a
   }
 })
 
+it('reports cross-page task duplication before a selection PUT through the Loader', async () => {
+  const url = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
+  const rows = Array.from({ length: 100 }, (_, index) => ({ id: index + 1, scriptId: 2708, taskType: 3 }))
+  const pages: string[] = []
+  const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const address = new URL(input instanceof Request ? input.url : input.toString())
+    const answer = (data: unknown) => new Response(JSON.stringify({ code: 200, data }))
+    if (init?.method !== 'GET') throw new Error('Selection must stop before a write')
+    if (address.pathname.endsWith('/aigc/storyboard/1')) return answer({ id: 1, scriptId: 2708,
+      modelConfig: JSON.stringify({ prompt: '@[Lead](lead)', materialList: [] }), storyboardMaterialList: [] })
+    if (address.pathname.endsWith('/aigc/asset/81285')) return answer({ id: 81285, scriptId: 2708, assetUrl: url, name: 'Lead' })
+    if (address.pathname.endsWith('/aigc/material/list')) return answer({ total: 1, rows: [
+      { id: 1, assetId: 81285, scriptId: 2708, hsAssetId: 'lead-id', assetUrl: url,
+        assetName: 'Lead', hsAssetStatus: 'Active', isUsed: 1 },
+    ] })
+    if (address.pathname.endsWith('/admin/aigc/video/task/list')) {
+      const page = address.searchParams.get('pageNum') ?? ''
+      pages.push(page)
+      return answer({ total: 101, rows: page === '1' ? rows : [rows[0]] })
+    }
+    throw new Error(`Unexpected selection request ${address.pathname}`)
+  })
+  onTestFinished(() => { transport.mockRestore() })
+  const { ctx, home, ledgerRoot } = await mountedNativeTools({ baseUrl: 'https://selection-diagnostic.invalid/prod-api' })
+  try {
+    const adapter = new MockAdapter([
+      toolCallResponse('select-with-duplicate-tasks', 'jubian_storyboard', { method: 'select_assets',
+        storyboard_id: 1, idempotency_key: 'select-with-duplicate-tasks',
+        selections: [{ material_key: 'lead', asset_id: 81285 }] }),
+      textResponse('The binding was blocked before saving. Check the project task inventory.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('selection-diagnostic-owner'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Bind the selected project reference.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+    expect(results).toHaveLength(1)
+    const result = results[0]?.data
+    expect(result?.message.isError).toBe(true)
+    const content = result?.message.content[0]
+    if (content?.type !== 'text') throw new Error('Expected image selection diagnostic')
+    expect(content.text).toMatchInlineSnapshot('"Error: Jubian response did not match the expected envelope: select_assets stage=before_save_task_audit. No selection PUT was sent by this call. Duplicate video task ID on inventory page 2."')
+    expect(adapter.requests[1]?.messages.filter(message => message.role === 'tool').map(message => message.content))
+      .toEqual([result?.message.content])
+    expect(pages).toEqual(['1', '2'])
+    expect(transport.mock.calls.map(([, init]) => init?.method)).toEqual(['GET', 'GET', 'GET', 'GET', 'GET'])
+    expect(await new JubianLedger({ root: ledgerRoot }).records()).toEqual([])
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 it.each([
   { label: 'prepares the authored multiline video prompt', brokenBinding: false },
   { label: 'reports malformed local project JSON', brokenBinding: true },

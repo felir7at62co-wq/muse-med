@@ -14,7 +14,10 @@ import { configurationFixture } from '../../../settings/settings/tests/configura
 import { DRAMA_SETTINGS_NAMESPACE } from '../src/budget-settings.ts'
 import * as Jubian from '../src/index.ts'
 
-it('applies the live drama budget before a paid image request without an authorization file', async () => {
+it.each([
+  { name: 'a flat image price over the cap', unitPrice: 0.5, unit: '张', budget: 0, reason: '授权上限 0.00 CNY' },
+  { name: 'a token rate without an estimate', unitPrice: 135, unit: '元/百万 tokens', budget: 20_000, reason: '按张人民币价格' },
+])('refuses $name through the live drama budget', async ({ unitPrice, unit, budget, reason }) => {
   const root = await mkdtemp(join(tmpdir(), 'jubian-settings-budget-'))
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
     const path = url instanceof Request ? url.url : url.toString()
@@ -22,7 +25,7 @@ it('applies the live drama budget before a paid image request without an authori
       throw new Error(`Unexpected provider request: ${path}`)
     }
     return new Response(JSON.stringify({ code: 200, data: [{ id: 42, standardId: 42, modelId: 'gpt-image-2',
-      platformId: 'YU_DIAN', unitPrice: 0.5, unit: '张', genTypes: [{ id: 7, type: 3 }],
+      platformId: 'YU_DIAN', unitPrice, unit, genTypes: [{ id: 7, type: 3 }],
       videoStandards: [{ id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] }] }),
     { status: 200 })
   })
@@ -36,12 +39,12 @@ it('applies the live drama budget before a paid image request without an authori
       { id: 'jubian', name: 'cordis:jubian', config: { ledgerRoot: root, workspaceSecrets: false,
         baseUrl: 'https://jubian.example.test' } },
     ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, drama: DramaSettings, jubian: Jubian } })
-    await ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: 0 })
+    await ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: budget })
     const result = await executeModelToolFixture(ctx, { callId: ToolCallId('budget-zero'), name: 'jubian_video',
       arguments: { method: 'image_generate', script_id: 2708, asset_name: 'x', asset_type: 1,
         prompt: 'p', image_style: 'live_action', idempotency_key: 'new-paid-image' }, signal: new AbortController().signal })
     expect(result.isError).toBe(true)
-    if (result.isError) expect(result.error.message).toContain('授权上限 0.00 CNY')
+    if (result.isError) expect(result.error.message).toContain(reason)
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(await new JubianLedger({ root }).records()).toEqual([])
   } finally {

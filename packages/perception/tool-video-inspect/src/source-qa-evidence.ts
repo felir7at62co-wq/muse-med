@@ -1,5 +1,6 @@
 /** Read-only binding of video observations and OCR to real current-Session tool evidence. */
 import { createHash } from 'node:crypto'
+import { basename } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
@@ -151,4 +152,14 @@ async function verifyVideoEvidence(ctx: Context, session: Session | undefined,
   }
   if ((await ctx.fs.stat(source, signal))?.version !== review.source_version
     || JSON.stringify(reviewsOf(readReviews, session)[review.path]) !== captured) throw Error('SOURCE_QA_CHANGED: 核验期间源片或观察记录变化。')
+  if (ocrBinding !== undefined) {
+    for (const frame of review.frames) {
+      const check = frame.observation?.character_checks?.find(item => item.status !== 'match')
+      if (check !== undefined) {
+        const time = (frame.decoded_time ?? frame.time).toFixed(2)
+        const reference = check.reference_asset_id === undefined ? '' : `参考资产 ID ${check.reference_asset_id}。`
+        throw Error(`SOURCE_QA_CHARACTER_IDENTITY: ${review.episode} 源片 ${time} 秒，${check.character} ${check.status === 'mismatch' ? '与正式角色参考不一致' : '需要补看角色证据'}。${check.reason} 视频文件 ${basename(binding.mediaPath)}。${reference} 先复核该分包或复看对应帧，再用当前证据重新选源。`)
+      }
+    }
+  }
 }

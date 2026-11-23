@@ -114,6 +114,90 @@ function imageDeps(
   } }
 }
 
+describe('image request pricing', () => {
+  const tokenRate = { ...IMAGE_CATALOGUE[0]!, unitPrice: 135, unit: '元/百万 tokens' }
+  const image = { asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'image-budget' }
+  const project = { id: 2708, scriptStyle: 3 }
+
+  it('refuses a catalogue token rate without a per-request estimate for an inherited 3D style', async () => {
+    const { client, calls } = imageProvider([tokenRate], undefined, project)
+    await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+      '2708': { limit: '200', unit: 'CNY' },
+    } }))
+    const request = videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, imageDeps())
+    await expect(request).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+    await expect(request).rejects.toThrow('按张人民币价格')
+    expect(calls.map(call => [call.method, new URL(call.path).pathname])).toEqual([
+      ['GET', '/prod-api/aigc/script/2708'], ['GET', '/prod-api/model/charge/getSelectList'],
+    ])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('inherits the 3D style, uses an authorized estimate and replays the same paid request', async () => {
+    const { client, calls } = imageProvider([tokenRate], undefined, project)
+    const args = { method: 'image_generate' as const, script_id: 2708, ...image }
+    await videoMethod(client, ledger, args, imageDeps())
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]?.body?.modelConfig))).toMatchObject({ standardId: 42, style: 3 })
+    expect(await ledger.find(image.idempotency_key)).toMatchObject({ quoted_amount: '1.00', quote_unit: 'CNY' })
+    const beforeReplay = await ledger.records()
+    await expect(videoMethod(client, ledger, args, imageDeps())).resolves.toMatchObject({ replayed: true, outcome: 'accepted' })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+    expect(await ledger.records()).toEqual(beforeReplay)
+  })
+
+  it('submits only the item with an admissible price in a mixed image batch', async () => {
+    const flat = { ...IMAGE_CATALOGUE[0]!, id: 76, standardId: 76, platformId: 'DUO_YUAN_TAN_SUO', unit: ' 元/张 ' }
+    const { client, calls } = imageProvider([tokenRate, flat], undefined, project)
+    await writeFile(join(root, 'authorization.json'), JSON.stringify({ version: 1, projects: {
+      '2708': { limit: '200', unit: 'CNY' },
+    } }))
+    const result = await videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [
+        { ...image, image_platform_id: tokenRate.platformId },
+        { ...image, idempotency_key: 'flat-image', asset_name: 'other', image_platform_id: flat.platformId },
+      ] }, imageDeps())
+    expect(result.results).toMatchObject([
+      { idempotency_key: image.idempotency_key, outcome: 'not_sent', generation_status: 'not_submitted' },
+      { idempotency_key: 'flat-image', outcome: 'accepted' },
+    ])
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes.map(call => call.body?.assetName)).toEqual(['other'])
+    expect(JSON.parse(String(writes[0]?.body?.modelConfig))).toMatchObject({ standardId: 76, style: 3 })
+    expect(await ledger.find(image.idempotency_key)).toBeUndefined()
+    expect(await ledger.find('flat-image')).toMatchObject({ quoted_amount: '0.5', quote_unit: 'CNY' })
+  })
+
+  it('quotes the admitted row selected from a filtered catalogue', async () => {
+    const flat = { ...IMAGE_CATALOGUE[0]!, id: 76, standardId: 76, platformId: 'DUO_YUAN_TAN_SUO', unit: '元/条' }
+    const { client, calls } = imageProvider([tokenRate, flat])
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, allowedStandardIds: [76] }
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, deps)
+    const sent = calls.filter(call => call.method === 'POST')
+    expect(sent).toHaveLength(1)
+    expect(JSON.parse(String(sent[0]?.body?.modelConfig))).toMatchObject({ standardId: 76 })
+    expect(await ledger.find(image.idempotency_key)).toMatchObject({ quoted_amount: '0.5', quote_unit: 'CNY' })
+  })
+
+  it('replays an accepted legacy token-priced image without changing its reservation', async () => {
+    const { client, calls } = imageProvider([tokenRate])
+    const payload = buildImageRequest({ scriptId: 2708, assetName: image.asset_name, assetType: image.asset_type,
+      prompt: image.prompt, references: [] }, [tokenRate])
+    await ledger.begin({ idempotencyKey: image.idempotency_key, method: 'image_generate', scriptId: 2708,
+      requestSha256: bodyHash(payload), quotedAmount: '135', quoteUnit: 'CNY' })
+    await ledger.settle(image.idempotency_key, { outcome: 'accepted', httpStatus: 200, applicationCode: 200,
+      responseSha256: bodyHash({ code: 200, data: 83749 }) })
+    const before = await ledger.records()
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image }, imageDeps()))
+      .resolves.toMatchObject({ replayed: true, outcome: 'accepted',
+        budget: { this_submission: { reservation: { amount: '135', unit: 'CNY' } } } })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'GET'])
+    expect(await ledger.records()).toEqual(before)
+  })
+})
+
 describe('explicit image catalogue selection', () => {
   const catalogue = [...IMAGE_CATALOGUE, { ...IMAGE_CATALOGUE[0]!, id: 71,
     modelId: 'doubao-seedream-5-0-260128', platformId: 'FANG_ZHOU', videoStandards: [
@@ -479,6 +563,35 @@ describe('jubian_catalog reads', () => {
     await expect(catalogMethod(client, { method: 'get' })).rejects.toThrow()
     expect(calls).toHaveLength(1)
   })
+  it.each([
+    { args: {}, page: 1, size: 20 },
+    { args: { page_num: 2, page_size: 10 }, page: 2, size: 10 },
+  ])('reports an empty episode page $page within the provider total', async ({ args, page, size }) => {
+    const { client, calls } = stubClient(() => ({ total: 13, rows: [] }))
+    const result = catalogMethod(client, { method: 'episodes', script_id: 2708, ...args })
+    await expect(result).rejects.toHaveProperty('code', 'CONTRACT_CHANGED')
+    await expect(result).rejects.toThrow(`第 ${page} 页为空（page_size=${size}，total=13）`)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.method).toBe('GET')
+    expect(calls[0]?.path).toBe(`https://web.jubianai.net/prod-api/aigc/episode/list?scriptId=2708&pageNum=${page}&pageSize=${size}`)
+  })
+
+  it.each([
+    { page: 1, total: 0 },
+    { page: 3, total: 10 },
+    { page: 4, total: 13 },
+  ])('keeps a valid empty episode page $page out of $total records', async ({ page, total }) => {
+    const { client } = stubClient(() => ({ total, rows: [] }))
+    await expect(catalogMethod(client, { method: 'episodes', script_id: 2708, page_num: page, page_size: 5 }))
+      .resolves.toEqual({ episodes: { total, rows: [] } })
+  })
+
+  it('keeps episode IDs from a nonempty partial page', async () => {
+    const { client } = stubClient(() => ({ total: 13, rows: [{ id: 215, episodeCount: 11, episodeName: '第11集' }] }))
+    await expect(catalogMethod(client, { method: 'episodes', script_id: 2708, page_num: 2, page_size: 10 }))
+      .resolves.toEqual({ episodes: { total: 13, rows: [{ episode_id: 215, episode_count: 11, name: '第11集' }] } })
+  })
+
   it('addresses each catalogue endpoint exactly once', async () => {
     const cases: [MethodArgs, string, string, unknown][] = [
       [{ method: 'models', task_type: 2 }, 'GET', '/model/charge/getSelectList?taskType=2', []],
@@ -1789,6 +1902,64 @@ describe('jubian_storyboard', () => {
   const createBody = { scriptId: 2708, episodeId: 9, storyboardName: 'P1', sortOrder: 0,
     modelConfig: { prompt: 'ready' } }
 
+  it.each(['explicit directory', 'session directory'])('rejects stale batch creation project IDs against the %s', async (source) => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2709 }))
+    const { calls, client } = stubClient(() => 25)
+    const explicit = source === 'explicit directory'
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      ...(explicit ? { project_dir: root } : {}),
+      storyboards: [
+        { idempotency_key: 'old-p1', body: createBody },
+        { idempotency_key: 'old-p2', body: { ...createBody, storyboardName: 'P2', sortOrder: 1 } },
+      ] }, explicit ? {} : { creationWorkspaceDir: root })).rejects.toThrow('与目标剧变项目不符')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('rejects single creation when the explicit project ID differs from the body', async () => {
+    const { calls, client } = stubClient(() => 25)
+    await expect(storyboardMethod(client, ledger, { method: 'create', script_id: 2709,
+      idempotency_key: 'wrong-single', body: createBody })).rejects.toThrow('belongs to another project')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('checks the project path before single creation and accepts a matching explicit target', async () => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2709 }))
+    const project = await mkdtemp(join(root, 'other-project-'))
+    await writeFile(join(project, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+    const { calls, client } = stubClient(() => 25)
+    const create = { method: 'create', idempotency_key: 'scoped-single', body: createBody }
+    await expect(storyboardMethod(client, ledger, { ...create, project_dir: root }))
+      .rejects.toThrow('与目标剧变项目不符')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+    await expect(storyboardMethod(client, ledger, { ...create, project_dir: project, script_id: 2708 },
+      { creationWorkspaceDir: root })).resolves.toMatchObject({ outcome: 'accepted', data: 25 })
+    expect(calls.map(call => [call.method, call.body?.scriptId, call.body?.isGenerate])).toEqual([['POST', 2708, 0]])
+  })
+
+  it('keeps the remote-only creation path when the session directory has no project configuration', async () => {
+    const { calls, client } = stubClient(() => 25)
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ idempotency_key: 'remote-batch', body: createBody }] },
+    { creationWorkspaceDir: root })).resolves.toMatchObject({ returned: 1, errors: 0 })
+    await expect(storyboardMethod(client, ledger, { method: 'create', script_id: 2708,
+      idempotency_key: 'remote-single', body: createBody },
+    { creationWorkspaceDir: root })).resolves.toMatchObject({ outcome: 'accepted', data: 25 })
+    expect(calls.map(call => [call.method, call.body?.scriptId, call.body?.isGenerate]))
+      .toEqual([['POST', 2708, 0], ['POST', 2708, 0]])
+  })
+
+  it('refuses the full creation batch when the workspace binding cannot be inspected', async () => {
+    const { calls, client } = stubClient(() => 25)
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ idempotency_key: 'invalid-workspace-batch', body: createBody }] },
+    { creationWorkspaceDir: `${root}\u0000` })).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('refuses absent native previews and unreadable preparation inputs before any paid request', async () => {
     const { client, calls } = stubClient(() => 1)
     await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
@@ -1862,11 +2033,12 @@ describe('jubian_storyboard', () => {
   })
 
   it('prepares batch bodies from files and isolates ledger conflicts per item', async () => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
     const bodyPath = join(root, 'batch-body.json')
     await writeFile(bodyPath, JSON.stringify(createBody))
     await ledger.begin({ idempotencyKey: 'conflict', method: 'asset_register', requestSha256: 'sha256:other' })
     const { client, calls } = stubClient(() => 1)
-    const result = await storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+    const result = await storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708, project_dir: root,
       storyboards: [{ idempotency_key: 'file-create', body_path: bodyPath },
         { idempotency_key: 'conflict', body: { ...createBody, storyboardName: 'P2' } }] })
     expect(result).toMatchObject({ total: 2, returned: 1, errors: 1,

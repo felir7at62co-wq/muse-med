@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 模型目录支持 task_type 1（视频）、2（生图）、10（去字幕）和20（转高清）。单张及批量生图可用目录中的 `image_model_id`、`image_platform_id`、`image_resolution` 与可选的精确规格 `image_spec_id`，显式模型选择不继承其他模型的部署固定行。转高清接受 model_id、platform_id 与 resolution；省略模型时以 1080p 使用 MediaKit，SeedVR2 或其他实时模型须显式指定。新增去字幕模型接受实时 model_id 及显式 erase_mode（automatic 或 region）。这些选择保留预算、身份与幂等检查；目录可用及请求准备成功不代表实际付费生成成功。
 
-每次新转高清都读取 task_type 20 实时目录，请求与预算预留绑定同一模型、平台和计价行。单位为 `元/条` 的正数 `unitPrice` 生成向上取整到分的人民币预留。MediaKit 所列的 `元/分钟(1系数)` 以价格乘以所选规格的系数，再乘以源片开始计费的每一分钟。缺少价格、单位不受支持或系数无法读取时，仍须有既有的操作者批准估算。无效价格或无法读取目录时停止提交。已有记录的键不会重复读取目录或发送付费请求。
+每次新转高清都读取 task_type 20 实时目录，请求与预算预留绑定同一模型、平台和计价行。单位为 `元/条` 的正数 `unitPrice` 生成向上取整到分的人民币预留。MediaKit 所列的 `元/分钟(1系数)` 以价格乘以所选规格的系数，再乘以源片开始计费的每一分钟。`AI_MEDIA_KIT / enhance-video-generative` 的 720p 或 1080p 子规格可直接提供 30 fps 每分钟单价。Muse 根据实时基准价和[官方分辨率系数](https://docs.volcengine.com/docs/intelligent-processing/video-tool-billing?lang=zh)核对此价格。由于提交请求未指定输出帧率，预算按最高支持帧率档预留。缺少价格、单位不受支持或系数无法读取时，仍须有既有的操作者批准估算。无效价格或无法读取目录时停止提交。已有记录的键不会重复读取目录或发送付费请求。
 
 Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary`、`productionCard` 和 `publishProductionCard` 复用原生免费写入；模型入口由[镜头脚本工具](../../drama/tool-shot-script/README.zh.md#muse-batch-production)负责。可读的旧卡片可以缺少集号或排序元数据，版本摘要保留其未设置状态，不修改原卡。仅当提示词已无图片标记时，图片选择才可显式为空；这只清除卡片引用，保留音频，不删除父资产。
 
@@ -82,6 +82,8 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到已提交选择的同一条已记录上下文消息。返回的释放函数用于注销检查器。检查器出错时追加重试警告，不拒绝模型选择，也不另发模型请求。Muse 的[镜头脚本检查](../../drama/tool-shot-script/README.zh.md#session-video-settings)通过此扩展点比较最近已检查分包与新的时长上限，不修改系统提示词或平台视频卡。
 
 生成以会话选择为准。`prepare_video` 先通过免费的 `isGenerate=0` 保存，仅同步本次指定的已有视频卡，并核对回读的设置、提示词与素材，保留画幅和时长。选择不同模型后，旧的冻结预览不能发起新的付费请求。原来已记录的提交 key 仍可对账；已提交任务保留原设置。
+
+会话已选择视频模型时，`select_assets` 返回 `video_model_readback`。它把卡片回读的模型、通道、目录 ID 和分辨率逐项与会话选择比对，并在可读时报告卡片保存的视频子规格 ID。素材已经选好时也会报告差异。生成前用 `prepare_video` 核对并同步卡片。
 
 视频包超过已知时长上限时，模型对本批受影响视频包统一调用一次 `jubian_video_model duration_conflict`。用户选择保留模型并重新规划完整视频包，或选择能够容纳原最长视频包的模型。工具不会悄悄缩短时长。Seedance 2.0 上限为 15 秒，Seedance 2.5 上限为 30 秒；上限不代表推荐包长。其他模型在核实前保留未知上限。
 
@@ -165,6 +167,8 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 锁定行有两个去处，设置页优先：**设置 → 短剧 → 资产图生成通道**把选择存进 `drama` 设置段，并按实时目录列出每个候选及其价格；这两个 config 字段则留给没有那个页面的部署。锁定在每次计费调用发生时解析，因此页面上的改动不需要重启就能到达下一次调用；而页面锁定的那一行就是整个选择——旁边的 config 平台会被丢掉，而不是并进一个人并没有做出的锁定里。
 
 `jubian_video image_generate` 可为单次调用设置 `image_platform_id`，优先从实时目录选择该平台的一行，覆盖已保存或部署锁定。Muse 随包部署在用户尚未选定通道时锁定 `KU_AI`；获授权的备用通道可显式指定 `DUO_YUAN_TAN_SUO`。切换前核对实时价格及上一笔收费任务：超时或结果未知不等于扣费失败，必须先对账，才能使用新 key 或新通道。
+
+单张和批量生图都从构造请求所用的同一目录行读取单张人民币金额，用于预算预留。支持的按次单位为 `张`、`条`、`元/张` 和 `元/条`。按用量计价、单位不受支持或价格缺失时，需要已有的人工授权单次估算。两种金额均缺失时，工具在提交前拒绝该项。重放返回原预留金额并保留原账本。历史计价疑点需按对应任务的供应商回执核对。
 
 `jubian_asset generated_image` 对可用图片返回 `{image: {url, material_id}}`。多行记录无法根据显式提供的 `task_id` 唯一匹配时，返回 `image: null`、`requires_review: true` 及 `unverified_candidates`，逐行列出可用的身份、状态和 URL（可能为空）。此读取操作不会选择、绑定或确认候选；旧的 Active／已用材质不能证明本次生成成功。后续单独调用的 `confirm_casting` 不受 `requires_review` 硬性拦截，调用方须先人工核对身份。接口提供任务状态时，`generation` 保留原任务与结果 ID，区分生成中、成功、失败和未知状态。失败任务返回 `image: null`、分类后的 `error_code` 和已确认的参考图上限；供应商消息不会直接进入模型输入。KU_AI 最多接受五张参考图，单项与批量生成都会在付费写入前检查；批量会检查完所有项目再提交。生成失败不会抹掉账本中已受理的费用。
 
@@ -267,6 +271,8 @@ inherited process environment (read-only, highest)
 生成历史仅返回一条记录时仍按列表读取。历史响应为空或无法解析，并不证明没有任务：删除检查会读取完整项目任务清单和候选详情，并要求第二次完整清单保持一致。父记录没有明确分镜 ID 时，还须独立读取完整且不变的子结果清单，核验子结果、父任务、项目和分镜身份。完整批次的子结果可以属于多张卡；关联任务的全部子结果均保留在冻结证据中。父任务已完成不能覆盖子结果仍活动或状态未知的事实。仅排除明确的生图任务；归属缺失、分页不完整、总数或快照变化、扫描超限均拒绝预览，并指出卡号和核验失败原因。`storyboardDeleteTaskPageSize` 默认 100，`storyboardDeleteTaskPageLimit` 默认 20，均为 1–100 的整数，约束每次项目或子结果清单读取。子结果通过只读 POST 查询；这条补充核验路径不提交或删除任何内容。
 
 `create_batch` 接收一个项目的 `script_id` 和 `storyboards` 数组，每项独立 key，并提供 `body` 或 `body_path`。工具先读取并检查所有项，再以 `isGenerate=0` 并发 POST；`storyboardBatchConcurrency` 默认 4，范围 1–8；`storyboardBatchMaxItems` 默认 1000，范围 1–1000。结果逐项保留序号、名称、key 与账本结果。部分失败或结果不明时沿用原 key 对账，已成功项不重建。每条创建后回读，再选材和准备整批视频。
+
+`create` 和 `create_batch` 在记账或发送前核对目标项目。优先读取显式 `project_dir` 的 `project_config.json`，否则在当前会话目录存在该文件时读取。每个请求体的项目 ID 须和传入的 `script_id` 一致。发现矛盾时整次操作不写入。会话没有本地绑定时，可直接指定远端项目 ID。
 
 写镜头脚本或视频包提示词时，先按剧情、对白、表演与节奏确定内容分包，再映射到当前分集已有视频卡。列出并读取卡片后默认原位填写，已有卡数量不决定包数，多余空卡保留不用。本地新建视频包不代表远端需要新建卡。单卡用 `edit_preview` 提供一个 `storyboard_id`，或用 `edit_batch_preview` 提供含明确 ID 与 `changes` 的 `edits` 数组；两者都要求绑定的 `script_id` 与 `project_dir`。Changes 接受提示词、已存模型设置、`name`、`episode_id` 与 `sort_order`。提示词写入 `modelConfig`；旧卡片缺少配置时，预览和执行会按相同的请求字段顺序补齐。显式修复分集归属时，ID 必须属于当前项目的实时分集目录。两种预览都在 `next` 简短提醒按系统提示词的固定自检清单核对本次修改。Agent 自主检查后，用返回的 `preview_path` 与 `idempotency_key=fingerprint` 调用 `edit_apply`；提醒不增加审校批准、令牌或工具步骤。编辑拒绝过期卡片，保留身份、有序素材和其他服务端字段，并按创建批次上限只发免费 `isGenerate=0` PUT。回读核验已存值与保留素材。提示词标记变化返回 `needs_reselect`：保存批准的文本并保留素材。当前账号的本地账本会阻止准备和新提交，直到 `select_assets` 核验映射；同一 key 改名称也需要重新选源。这项记录只作用于当前账本，不跨设备同步。结果不明时用原 preview 和 key 对账；重放不发送请求。编辑应用先校验预览文件的固定路径并拒绝符号链接，再读取预览。仅已有视频卡不足或用户明确要求新增时才创建。
 
@@ -419,6 +425,8 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> submit_video (one PUT, paid)
 ```
 
+`select_assets` 区分保存前任务核对失败、保存响应无法读取和保存后任务核对失败。保存前任务核对失败表示本次调用没有发送绑定 PUT。保存响应无法读取或保存后任务核对失败时，保留原保存 key，先核对分镜和任务清单再继续。
+
 - `select_assets` 保存一次有序的主体设定选择。每个图片 `material_key` 必须按提示词里 `@[名称](key)` 的顺序出现，每个选择必须唯一对应同一项目里的一行有效主体设定与一个非音频父资产，而该行的可信 `hsAssetId` 就是提供方会翻译成子任务身份的那个值。已有音频会保留；音频标记和类别 4 父资产须使用 `audio_preview`/`audio_apply`。请求体永远强制 `isGenerate=0`。这一次 `PUT` 之后，该方法会回读分镜并重新拉取项目任务列表：各 key 对应的身份、名称、URL、类型或组内顺序变化会报错，仅改变数组物理顺序则允许；而一次"仅保存选择"却带来了新视频任务时，会返回 `billing_safety_violation`，让调用方停下来而不是继续往下走。提供方声明总数时，绑定校验会把同一页重复出现的本项目类型 3 任务按实际返回行数计入总数。生成任务 ID 重复，或任何 ID 跨页重复，仍会阻止绑定。
 - `prepare_video` 免费，启用会话选择时先应用上文的会话选择规则，再用实时 `scriptId` 校验 `project_dir` 里的 `project_config.json`，按素材 key 和数字父资产 ID，从实时分镜、主体设定与父资产补齐图片，保留上传音频、比例、提示词、素材身份与时长，从当前目录解析所选模型／通道／分辨率的精确选择器，要求 `genNum=1`。未启用会话选择时保留已存模型设置。Seedance 2.0（`doubao-seedance-2-0-260128`）接受 4–15 秒总时长；Seedance 2.5（`doubao-seedance-2-5-260628`）接受 4–30 秒。总时长包含至少一秒自然收束；不支持或不唯一的选择直接失败，不用默认值替换。它把一份 preview 通过临时文件加重命名写进 `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json`。模型同步只执行经回读验证的免费 `isGenerate=0` 保存；准备绝不发送生成 PUT、创建任务或收费。 已保存的十进制时长字符串会在模型校验前规范为数字秒；免费模型编辑允许提供方以等价的数字或字符串回读，冻结请求与重试校验保持不变。其他精确目录型号要求正整数秒，上限保持未知；仅缺少上限信息不会阻止准备或提交。 新的写入前，任务和主体素材清单必须提供稳定 ID，且 `total` 和布尔型 `hasMore` 必须一致。仅 `select_assets` 接受上文说明的同页类型 3 任务重复。响应缺少 `total` 时，分页读取直到空页；达到页数上限会使清单无法核实。接口不遵守页码时需要排查，不能把首页直接当作完整清单。
 
@@ -512,6 +520,8 @@ pin the gpt-image-2 row (short-drama settings page, else imagePlatformId / image
 ### 错误
 
 失败使用稳定码，且永不携带提供方的响应文本或 token。
+
+`jubian_catalog episodes` 的分集页在总数范围内却为空时返回 `CONTRACT_CHANGED`，并注明页码、页大小和总数。
 
 | 码 | 触发 |
 |---|---|
@@ -760,7 +770,7 @@ Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的
 - **生图回读超时是一个结论，不是一次失败** —— `image_generate` 报 `asset_status: timeout` 而不抛错，因为计费写已被受理、账本也已记账。只有受理响应给出明确身份的新建父资产才进入轮询；缺少身份，或现有父资产的旧图，仍是未验证。调用方仍需自己回读；到底是提供方慢还是生成失败，本包无法从截止时间上看出来。
 - **`upload_reference` 处理不合规图片时需要本地 `ffmpeg`** —— 提供方图片流水线要求两条边都是 16 的倍数，Node 没有内置图像编解码器，而本包不增加运行时依赖，所以已经合规的文件按原字节上传，其余文件交给外部 `ffmpeg` 重编码；该二进制按 `DSH_JUBIAN_FFMPEG`、`FFMPEG_PATH`、`MUSE_FFMPEG_EXECUTABLE`、`PATH` 的顺序解析。找不到 `ffmpeg` 时该调用返回 `alignment_required` 并给出应有的尺寸，一个字节都不会上传；它永远不会把不合规的文件送上去。
 - **prepared preview 绑定在本包的序列化器上** —— fingerprint 哈希的是本插件的规范化 JSON，因此流水线 Python 客户端写出的 preview 与这里写出的 preview 不能互换，任一方都会把另一方的产物判为过期而拒绝。
-- **MediaKit 系数读自未标注的目录字段** —— 实时目录以 `元/分钟(1系数)` 为 MediaKit 定价，没有给出系数字段。其规格中 1080p 的 `height` 为 4、720p 为 2，`width` 为 0，预留把该值当作系数。尚未拿已结算的 MediaKit 费用与之核对；规格的 `width` 不为 0 或缺少正整数 `height` 时，该次转高清没有报价。
+- **MediaKit 系数读自未标注的目录字段** —— 实时目录以 `元/分钟(1系数)` 为 MediaKit 定价，没有给出系数字段。其规格中 1080p 的 `height` 为 4、720p 为 2，`width` 为 0，预留把该值当作系数。尚未拿已结算的 MediaKit 费用与之核对；普通 MediaKit 规格的 `width` 不为 0 或缺少正整数 `height` 时，该次转高清没有报价。大模型版按目录预留预算，实际费用以提供方结算回执为准。
 - **`retry` 有前置门禁，但看不到尚未写回的费用** —— 它在发送任何请求前先读父任务与子结果，并在任务已有结果文件、有活动或成功的子结果、或已记录真实费用时拒绝。它看不到提供方还没写到任务上的扣费，所以刚失败后的重试仍然是调用方的判断。
 - **端点集合是从抓包转写的** —— 每个路径、查询参数与请求形状都以抓到的证据存在于 `dsh-jubian-api`，而不是已发布的契约。提供方一变，表现出来就是 `CONTRACT_CHANGED` 或某个字段读回 `null`；验证一条新路径需要重新抓包，所以这里没有哪个方法可以当作有 schema 版本。对象存储签名是唯一的例外：它照实时 bundle 里的 SDK 复刻，并对真实 bucket 做过验证。
 - **结果未知要靠账本而不是靠本包来判定** —— 超时后这一行记录 `outcome: unknown` 并抛错。只有调用方能决定要不要用同一个 key 回读，也没有任何东西会自动对账"只有 intent 没有 settle"的那条。`submit_video` 是最严格的一例：它记录这次不明确的 `PUT`、返回对账指引，并且在任何情况下都不会用同一个 key 发出第二次 `PUT`。

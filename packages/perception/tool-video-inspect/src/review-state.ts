@@ -19,11 +19,22 @@ import type { ReviewTranscriptReference } from './review-speech.ts'
 const imageSchema = z.object({ attachmentId: z.string(), mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
   bytes: z.number(), width: z.number(), height: z.number(), name: z.string().optional() })
 const followUpSchema = z.object({ status: z.enum(['active', 'closed']), reason: z.string().optional() })
+/** A model's comparison of a depicted character to a project reference on one viewed frame. */
+export const characterChecksSchema = z.array(z.object({
+  character: z.string().trim().min(1).max(120),
+  reference_asset_id: z.string().trim().min(1).max(120).optional(),
+  status: z.enum(['match', 'mismatch', 'needs_review']),
+  reason: z.string().trim().min(1).max(1000),
+}).refine(check => check.status === 'needs_review' || check.reference_asset_id !== undefined,
+  'A character match or mismatch requires the compared reference asset ID'))
+  .min(1).refine(checks => new Set(checks.map(check => check.character)).size === checks.length,
+    'Each character may be checked only once per observation')
 /** Persisted frame, encoded image reference and optional grounded observation. */
 export const reviewFrameSchema = z.object({ id: z.string(), time: z.number(), reasons: z.array(z.string()),
   decode: z.object({ start_seconds: z.number().nonnegative(), frame_index: z.number().int().nonnegative() }).optional(),
   image: imageSchema.optional(), decoded_time: z.number().optional(), exposed: z.boolean().default(false),
-  observation: z.object({ visible: z.string().min(8), change: z.string().min(2), uncertainty: z.string() }).optional() })
+  observation: z.object({ visible: z.string().min(8), change: z.string().min(2), uncertainty: z.string(),
+    character_checks: characterChecksSchema.optional() }).optional() })
 const reviewSchema = z.object({ id: z.string().transform(VideoReviewId), episode: z.string(), path: z.string(), source_version: z.string(),
   duration: z.number(), scanned_until: z.number(), scan_complete: z.boolean(), frames: z.array(reviewFrameSchema),
   follow_up: followUpSchema.optional(),

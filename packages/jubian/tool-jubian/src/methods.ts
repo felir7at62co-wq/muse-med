@@ -13,10 +13,10 @@
  * `generate` routes to native preparation or submission; its historical keys
  * return only the original ledger record without querying the provider.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { downloadedMediaPath, resumeMediaDownload } from './media-download.ts'
-import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
+import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
   MODEL_TASK_TYPES as TASKS, FAILED_STATUSES, SUCCESS_STATUSES, buildImageRequest, buildSubtitleEraseRequest,
@@ -30,7 +30,7 @@ import {
 import { AUTOMATIC_ERASE_MODEL, MEDIAKIT_UPSCALE_MODEL, resolvePostProcessModel, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
+import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod, validateProjectBinding } from './native.ts'
 import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
@@ -53,6 +53,7 @@ import { registerImageAsset, resolveAssetRegistrationScanOptions, type AssetRegi
 import { readUpscaleQuote } from './upscale-price.ts'
 import { readSubtitleEraseQuote } from './subtitle-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
+import type { SelectedVideoOption } from './native.ts'
 import { readVideoSources, resolveVideoSourceOptions } from './video-sources.ts'
 import type { VideoSourceOptions } from './video-sources.ts'
 import { createImageReferenceResolver, resolveImageReferenceScanOptions, unknownIdentityReference } from './image-continuity.ts'
@@ -261,9 +262,6 @@ export function resolveStoryboardBatchOptions(config: {
   return { concurrency, maxItems }
 }
 
-/** One provider response, as the transport returns it. */
-type ClientResponse = JubianResponse
-
 /**
  * Everything the paid image path takes from outside the transport.
  *
@@ -299,6 +297,8 @@ function imageSelection(args: { image_model_id?: string; image_platform_id?: str
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
 export interface MethodDeps {
+  /** Effective Session directory used for creation when it contains a project binding. */
+  creationWorkspaceDir?: string | undefined
   /** Bounded read-only discovery of existing sources on an original card. */
   videoSources?: VideoSourceOptions
   /** Foreground cancellation for image-reference reads and reservation. */
@@ -313,6 +313,8 @@ export interface MethodDeps {
   promptRiskReview?: PromptRiskReviewOptions
   /** Check the current conversation choice immediately before reserving new video charges. */
   assertVideoModel?: (model: Record<string, unknown>) => void
+  /** Model chosen by the calling Session for selection readback. */
+  selectionVideoModel?: SelectedVideoOption | undefined
   /** Host watch fence before a native paid video PUT. */
   beforeVideoSend?: (key: string) => Promise<void>
   /** Current Muse account's exclusive shared voice-registration provider. */
@@ -791,9 +793,15 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs,
     }
     case 'episodes': {
       const scriptId = need(args.script_id)
+      const { num, size } = pageSelection(args)
       const result = await client.request({
-        method: 'GET', path: `/aigc/episode/list?scriptId=${scriptId}&${page(args)}` })
-      return { episodes: readEpisodes(result.data) }
+        method: 'GET', path: `/aigc/episode/list?scriptId=${scriptId}&pageNum=${num}&pageSize=${size}` })
+      const episodes = readEpisodes(result.data)
+      if (episodes.rows.length === 0 && (num - 1) * size < episodes.total) {
+        throw new JubianError('CONTRACT_CHANGED',
+          `剧变分集列表第 ${num} 页为空（page_size=${size}，total=${episodes.total}），该页仍在总数范围内。请重读或核对该项目的分集列表。`)
+      }
+      return { episodes }
     }
     default:
       throw new JubianError('CONTRACT_CHANGED')
@@ -1234,35 +1242,35 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }),
         ...(args.references === undefined ? {} : { references: args.references }),
       }))
-      // A batch supplies its preflight catalogue and style so each worker uses
-      // the same inputs as the whole-batch idempotency check.
-      let cached: ClientResponse | undefined
-      const catalogue = async (): Promise<unknown> => {
-        if (deps.imageCatalogue !== undefined) return imageCatalogue(deps.imageCatalogue, deps.image?.allowedStandardIds)
-        cached = await client.request({
-          method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })
-        return imageCatalogue(cached.data, deps.image?.allowedStandardIds)
-      }
+      // Use the same permitted catalogue rows to build the request and reserve its cost.
+      let catalogueRows: unknown
       let selectors: ImageModelSelectors | undefined
       let result: Awaited<ReturnType<typeof writeUnderLedger>>
       try {
         result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
           async () => {
             const style = imageStyle ??= await readProjectImageStyle(client, scriptId, deps.signal)
-            const rows = await catalogue()
-            selectors = resolveImageModel(imageCatalogue(rows, deps.image?.allowedStandardIds), selection, args.image_aspect_ratio)
+            const rows = deps.imageCatalogue !== undefined ? deps.imageCatalogue : (await client.request({
+              method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data
+            catalogueRows = imageCatalogue(rows, deps.image?.allowedStandardIds)
+            selectors = resolveImageModel(catalogueRows, selection, args.image_aspect_ratio)
             return buildImageRequest({ scriptId, assetName,
               assetType, prompt, imageStyle: style,
               references: managedReference === undefined ? (await reference()).references : [managedReference.materialUri],
               ...(args.image_aspect_ratio === undefined ? {} : { aspectRatio: args.image_aspect_ratio }),
-              ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, rows, selection)
+              ...(args.parent_asset_id === undefined ? {} : { parentAssetId: args.parent_asset_id }) }, catalogueRows, selection)
           },
           body => client.request({ method: args.parent_asset_id === undefined ? 'POST' : 'PUT',
             path: '/aigc/asset', body: need(body) }),
           () => {
-            const price = readImageDisplayPrice(deps.imageCatalogue ?? (cached as ClientResponse).data, selection)
-            return { ...(price.status === 'available' ? { amount: String(price.unit_price) } : {}),
-              observedAt: new Date().toISOString() }
+            const price = readImageDisplayPrice(catalogueRows, selection)
+            const observedAt = new Date().toISOString()
+            const pricingUnit = typeof price.unit === 'string' ? price.unit.trim() : undefined
+            if (price.status === 'available'
+              && (pricingUnit === '张' || pricingUnit === '条' || pricingUnit === '元/张' || pricingUnit === '元/条')) {
+              return { amount: String(price.unit_price), unit: 'CNY', observedAt }
+            }
+            return { observedAt }
           }, { scriptId, verifyReplayBody: true,
             beforeReserve: async () => {
               deps.signal?.throwIfAborted()
@@ -1445,6 +1453,18 @@ function assertNewStoryboard(body: Record<string, unknown>): void {
   }
 }
 
+/** Prefer an explicit target. A generic session directory may have no project binding. */
+async function storyboardCreationDirectory(explicit: string | undefined, workspace: string | undefined): Promise<string | undefined> {
+  if (explicit !== undefined || workspace === undefined) return explicit
+  try {
+    await lstat(resolve(workspace, 'project_config.json'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return undefined
+  }
+  return workspace
+}
+
 /**
  * `jubian_storyboard` — storyboard reads, the free saves, the paid generation,
  * the erasure and the storyboard-native video channel.
@@ -1479,6 +1499,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     case 'create_batch': {
       const limits = deps.storyboardBatch ?? resolveStoryboardBatchOptions()
       const scriptId = positiveInteger(need(args.script_id, 'script_id'))
+      const projectDir = await storyboardCreationDirectory(args.project_dir, deps.creationWorkspaceDir)
+      if (projectDir !== undefined) await validateProjectBinding(projectDir, scriptId)
       const items = need(args.storyboards, 'storyboards')
       if (!items.length || items.length > limits.maxItems) {
         throw new JubianError('INVALID_ARGUMENT', `storyboards must contain 1..${limits.maxItems} items`)
@@ -1565,8 +1587,17 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new JubianError('INVALID_ARGUMENT')
         body = parsed as Record<string, unknown>
       }
-      assertNewStoryboard(need(body))
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_create', () => ({ ...need(body), isGenerate: 0 }),
+      const request = need(body)
+      assertNewStoryboard(request)
+      const projectDir = await storyboardCreationDirectory(args.project_dir, deps.creationWorkspaceDir)
+      if (args.script_id !== undefined || projectDir !== undefined) {
+        const scriptId = positiveInteger(need(request.scriptId, 'body.scriptId'))
+        if (args.script_id !== undefined && positiveInteger(args.script_id) !== scriptId) {
+          throw new JubianError('INVALID_ARGUMENT', 'Storyboard belongs to another project')
+        }
+        if (projectDir !== undefined) await validateProjectBinding(projectDir, scriptId)
+      }
+      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_create', () => ({ ...request, isGenerate: 0 }),
         sent => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(sent) }))
       return { ...result }
     }
@@ -1609,7 +1640,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     case 'select_assets': {
       requireKey(args.idempotency_key)
       return await selectAssetsMethod(client, ledger, { storyboard_id: args.storyboard_id,
-        selections: args.selections, idempotency_key: args.idempotency_key })
+        selections: args.selections, idempotency_key: args.idempotency_key }, deps.selectionVideoModel)
     }
     case 'prepare_video':
       // Free and read-only on the provider: the only write is the local preview.

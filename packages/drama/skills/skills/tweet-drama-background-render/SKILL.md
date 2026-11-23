@@ -66,6 +66,8 @@ description: Use when 剧变生成视频需要转高清（默认 MediaKit），�
 
 严格制作的 `source_qa` 绑定实际选片及原片哈希、完整OCR文件与摘要、同会话完整审看报告的路径、摘要和身份。按 `drama_render` 当前说明填写来源审核，不能用自写JSON、假抽帧或一句“已检查”代替工具执行。先 `video_inspect scan`，再按 `next` 实际查看图片并 `observe`；OCR文字时段或去字幕处理区间缺图时，用 `scan.timestamps_seconds` 免费补采，再完成新增帧的查看和观察。合法场景字逐OCR时段登记判定、理由与已观察帧；处理片同时保留原片及各处理区间的前后观察，检查残字、人物和纹理。缺证据时自动补齐这些免费步骤后重试，费用和范围仍沿用既有授权；无需再次询问用户是否继续。工具不可用则记录具体缺口并推进独立工作，不伪造通过。换片、换包或证据变化后重新核验，旧回执不能沿用。
 
+真人写实剧先用已有源片核对每个入画主角首个能看清脸的画面。并排看当前项目正式角色图，在完整审看工具的每帧 `observe.character_checks` 记录角色标识、参考资产 ID、可见依据，以及 `match`、`mismatch` 或 `needs_review`。缺正式参考或始终看不清时保留 `needs_review`。复看后更新原帧同一角色的结论。出现 `SOURCE_QA_CHARACTER_IDENTITY` 时先核对该分包的正式素材版本、原始任务回执及实际源片，按已有授权局部修复并复验。其他分包继续各自复验。
+
 ## 媒介与交付策略
 
 项目用 `project_config.json` 的 `project_bible.visual_medium` 明确选择 `animation_3d` 或 `photorealistic`，原有自由文本 `style` 保留。`prepare` 将所选媒介与 `width`、`height`、`fps` 写入时间线的 `delivery`。`animation_3d` 的草稿与成片只交付正文，不添加 AI 水印、2 秒末帧、片尾音或特效，不读取或生成片尾素材；正常字幕、正文声音与 BGM 保留。`photorealistic` 的两份交付都保留右下 AI 标识与 2 秒片尾。此策略不移除源文件中已有的标记。

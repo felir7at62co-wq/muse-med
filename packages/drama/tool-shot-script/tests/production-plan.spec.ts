@@ -1,6 +1,6 @@
 /** Per-shot appearance choices and advisory packaging preserve authored speech. */
 import { expect, it } from 'vitest'
-import { buildProductionPlan, productionHash } from '../src/production-plan.ts'
+import { buildProductionPlan, outdatedOffscreenPropPackages, productionHash } from '../src/production-plan.ts'
 import type { ProductionAsset, ProductionPlan, ProductionRequirement } from '../src/production-types.ts'
 import { speakingShot } from './harness.ts'
 
@@ -155,6 +155,68 @@ it('retains deliberate omissions and surfaces unrelated explicit identities and 
   expect(plan.matches).toContainEqual(expect.objectContaining({ shot: 2, kind: 'character', selection_basis: 'omitted' }))
   expect(plan.warnings).toContainEqual(expect.objectContaining({ code: 'selected_asset_needs_review', shot: 1 }))
   expect(plan.packages.flatMap(row => row.images).some(row => row.asset_id === 902)).toBe(false)
+})
+
+it('omits a clearly off-screen prop only from the affected shot, including an earlier explicit choice', () => {
+  const authored = [
+    speakingShot(1, '苏晚：我看见奶瓶了', ['核心场景：后厨', '关键道具：奶瓶', '画面：奶瓶在桌上']),
+    speakingShot(2, '奶瓶：我还在这儿', ['核心场景：后厨', '关键道具：@[奶瓶](old-bottle)',
+      '画面：苏晚低头听，器物不在画面内、不开口。', '发声类型：心声']),
+  ].join('\n\n')
+  const plan = buildProductionPlan({ ...base, source: authored, source_sha256: productionHash(authored),
+    assets: [...assets.slice(0, 3), { ...assets[3]!, aliases: ['奶壶'] }],
+    requirements: [{ shot: 2, kind: 'prop', name: '奶瓶' }, { shot: 2, kind: 'prop', name: '奶壶' }],
+    choices: [{ shot: 2, kind: 'prop', name: '奶瓶', asset_id: 301 },
+      { shot: 2, kind: 'prop', name: '奶壶', asset_id: 301 }] }, 8, 2)
+  expect(plan.packages).toHaveLength(1)
+  const [before, after] = plan.packages[0]!.prompt.split('【镜头2】')
+  expect(before).toContain('@[奶瓶](asset_301)')
+  expect(after).not.toContain('(asset_301)')
+  expect(after).not.toContain('(old-bottle)')
+  expect(after).toContain('画外道具（本镜不入画）：奶瓶')
+  expect(after).toContain('台词：奶瓶：我还在这儿')
+  expect(after).toContain('@[后厨](asset_201)')
+  expect(plan.packages[0]?.images.filter(row => row.asset_id === 301)).toHaveLength(1)
+  expect(plan.matches).toContainEqual(expect.objectContaining({ shot: 2, kind: 'prop', name: '奶瓶',
+    selected_asset_id: null, selection_basis: 'omitted' }))
+  expect(plan.matches).toContainEqual(expect.objectContaining({ shot: 2, kind: 'prop', name: '奶壶',
+    selected_asset_id: null, selection_basis: 'omitted' }))
+  expect(plan.warnings).toContainEqual(expect.objectContaining({ code: 'offscreen_prop_omitted', shot: 2, name: '奶瓶' }))
+  expect(plan.source).toBe(authored)
+})
+
+it('preserves other props, visible mind-voice props, and props entering later in the shot', () => {
+  const cup: ProductionAsset = { ...assets[3]!, asset_id: 302, name: '杯子', material_id: 'image-cup' }
+  const authored = [
+    speakingShot(1, '苏晚：奶瓶不出镜', ['核心场景：后厨', '关键道具：奶瓶、杯子', '画面：杯子在桌上；奶瓶不出镜。']),
+    speakingShot(2, '奶瓶：器物不在画面内', ['核心场景：后厨', '关键道具：奶瓶', '发声类型：心声', '画面：奶瓶留在桌上。']),
+    speakingShot(3, '苏晚：现在看', ['核心场景：后厨', '关键道具：奶瓶', '画面：器物不在画面内，随后手把奶瓶拿入画。']),
+    speakingShot(4, '苏晚：快看', ['核心场景：后厨', '关键道具：奶瓶、杯子', '画面：器物不出镜。']),
+    speakingShot(5, '苏晚：看这里', ['核心场景：后厨', '关键道具：奶瓶', '画面：。']),
+  ].join('\n\n')
+  const plan = buildProductionPlan({ ...base, source: authored, source_sha256: productionHash(authored),
+    assets: [...assets, cup] }, 8, 2)
+  const matches = plan.matches.filter(row => row.kind === 'prop')
+  expect(matches.map(row => [row.shot, row.name, row.selected_asset_id])).toEqual([
+    [1, '奶瓶', null], [1, '杯子', 302], [2, '奶瓶', 301], [3, '奶瓶', 301], [4, '奶瓶', 301], [4, '杯子', 302], [5, '奶瓶', 301],
+  ])
+  const [first] = plan.packages[0]!.prompt.split('【镜头2】')
+  expect(first).toContain('道具（「奶瓶」不入画）：奶瓶、杯子')
+  expect(first).toContain('@[杯子](asset_302)')
+  expect(first).not.toContain('(asset_301)')
+  expect(first).toContain('台词：苏晚：奶瓶不出镜')
+})
+
+it('does not reject a legacy package when only another shot uses the shared picture', () => {
+  const legacy = buildProductionPlan({ ...base, requirements }, 8, 2)
+  const marker = '@[奶瓶](asset_301)'
+  const [first, ...rest] = legacy.packages[0]!.prompt.split(/(?=【镜头[2-4]】)/u)
+  const authored = '【镜头1】\n核心场景：后厨\n关键道具：奶瓶\n画面：器物不在画面内。'
+  const withoutImage = first!.replaceAll(marker, '奶瓶') + `\n台词：苏晚：${marker}\n`
+  const previous = { ...legacy, source: authored,
+    packages: [{ ...legacy.packages[0]!, prompt: withoutImage + rest.join('') }] }
+  expect(previous.packages[0]?.images.find(item => item.asset_id === 301)).toBeDefined()
+  expect(outdatedOffscreenPropPackages(previous, { actionShotSeconds: 2 }).size).toBe(0)
 })
 
 it('compares explicit character identities, scene conditions and known voice periods independently', () => {

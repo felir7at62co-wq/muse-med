@@ -10,7 +10,7 @@ import { writeFileAtomic, withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { z } from 'zod'
-import { buildProductionPlan, productionHash, requirementKey } from './production-plan.ts'
+import { buildProductionPlan, outdatedOffscreenPropPackages, productionHash, requirementKey } from './production-plan.ts'
 import { productionMetadata } from './production-metadata.ts'
 import { reviewPresentationMeta } from './session-video.ts'
 import { DEFAULT_SPEECH_CHARS_PER_SECOND, parseShotScript } from './script.ts'
@@ -297,6 +297,7 @@ export async function registerProductionTool(ctx: Context, input: ProductionConf
         plan_path: path, next: '当前会话模型已切换；update按最新模型自动重新分包，再审阅方案。' }
       if (productionHash(await readFile(plan.source_path)) !== plan.source_sha256) return { status: 'source_changed', paid_requests: 0,
         plan_path: path, next: '用户原稿已变化；update读取最新全文，不用旧方案覆盖用户返稿。' }
+      const outdatedProps = outdatedOffscreenPropPackages(plan, { actionShotSeconds, speechCharsPerSecond })
       const receiptPath = path.replace(/\.json$/u, '.receipts.json')
       const episodeLock = join(plan.project_dir, '.muse', 'production', `episode-${plan.episode}.apply`)
       const checkInputs = async (): Promise<string | undefined> => {
@@ -321,6 +322,12 @@ export async function registerProductionTool(ctx: Context, input: ProductionConf
           const results: Record<string, unknown>[] = []
           for (const pack of plan.packages) {
             exec.signal.throwIfAborted()
+            const affectedShots = outdatedProps.get(pack.index)
+            if (affectedShots !== undefined) {
+              results.push({ index: pack.index, name: pack.name, status: 'offscreen_prop_plan_needs_update', shots: affectedShots,
+                paid_requests: 0, next: '旧方案仍绑定明确留在画外的道具。用update按原稿重建提示词后，再用原卡ID保存这一包。' })
+              continue
+            }
             if (pack.target_candidates.length > 1) {
               results.push({ index: pack.index, name: pack.name, status: 'target_ambiguous', target_candidates: pack.target_candidates,
                 paid_requests: 0, next: '当前存在多个同集同名原卡；update用targets选择实际卡ID，其他独立视频包继续。' })
@@ -366,7 +373,8 @@ export async function registerProductionTool(ctx: Context, input: ProductionConf
             source_manifest: manifest,
             next: manifest.status === 'published' || manifest.status === 'unchanged'
               ? '逐卡核对真实回读与本镜要求；保存不等于艺术质量通过，也未生成。缺声线沿预览voice_follow_up处理，再按原授权prepare_video。'
-              : '制作来源清单尚未发布；不要正式合成或提交生成。沿原方案与key回读对账，保留已保存卡的回执，再恢复apply。' }
+              : outdatedProps.size > 0 ? '先用update重建画外道具冲突包的计划，再沿用原卡保存；制作来源清单待全部包回读一致后发布。'
+                : '制作来源清单尚未发布；不要正式合成或提交生成。沿原方案与key回读对账，保留已保存卡的回执，再恢复apply。' }
         }, { signal: exec.signal, ...(config.timeoutMs === undefined ? {} : { waitMs: config.timeoutMs }) })
       },
       { signal: exec.signal, ...(config.timeoutMs === undefined ? {} : { waitMs: config.timeoutMs }) }) as Record<string, JsonValue>

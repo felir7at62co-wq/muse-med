@@ -40,6 +40,7 @@ import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeSc
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { acceptedWriteResponse, bodyHash, checkedWriteBudget, estimatedCostReservation, need, recordedWriteBudget, requireKey, writeUnderLedger } from './write.ts'
 import type { CostEstimate, WriteBudgetReceipt } from './write.ts'
+import type { VideoModelOption } from './video-session-types.ts'
 import { atomicWriteJson } from './json-file.ts'
 import { assertSelectionReady, clearReselection } from './reselection.ts'
 export { atomicWriteJson } from './json-file.ts'
@@ -89,6 +90,28 @@ export function positiveInteger(value: unknown): number {
     throw new JubianError('CONTRACT_CHANGED')
   }
   return candidate
+}
+
+/** The axes that identify the video option chosen in the Session. */
+export type SelectedVideoOption = Pick<VideoModelOption, 'modelId' | 'platformId' | 'standardId' | 'resolution'>
+
+function selectedModelReadback(storyboard: Record<string, unknown>, selection: SelectedVideoOption | undefined) {
+  if (selection === undefined) return undefined
+  const modelConfig = object(typeof storyboard.modelConfig === 'string'
+    ? JSON.parse(storyboard.modelConfig) : storyboard.modelConfig)
+  const expected = { modelId: selection.modelId, platformId: selection.platformId,
+    standardId: String(selection.standardId), resolution: selection.resolution }
+  const actual = {
+    modelId: wireText(modelConfig.modelId),
+    platformId: wireText(modelConfig.platformId),
+    standardId: wireText(modelConfig.standardId),
+    resolution: wireText(modelConfig.resolution),
+    videoStandardId: wireText(modelConfig.videoStandardId) || wireText(modelConfig.modelVideoStandardId),
+  }
+  const fields = ['modelId', 'platformId', 'standardId', 'resolution'] as const
+  const differingFields = fields.filter(field => expected[field] !== actual[field])
+  return { status: differingFields.length === 0 ? 'matches_session' : 'differs_from_session',
+    expected, actual, differing_fields: differingFields }
 }
 
 /**
@@ -207,7 +230,8 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number,
         && wireText(record.taskType) === '3' && wireText(record.scriptId) === String(scriptId) ? pageNum : null
       const previousPage = taskPages.get(taskId)
       if (previousPage !== undefined && (historyPage === null || previousPage !== historyPage)) {
-        throw new JubianError('CONTRACT_CHANGED')
+        throw new JubianError('CONTRACT_CHANGED', selectionAudit
+          ? `Duplicate video task ID on inventory page ${String(pageNum)}.` : undefined)
       }
       taskPages.set(taskId, historyPage)
       collected.push(record)
@@ -822,19 +846,33 @@ signal?: AbortSignal): Promise<Record<string, unknown>> {
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。预算和预览指纹不代表提交授权。` }
 }
 
+async function selectionStage<T>(stage: string, recovery: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    if (!(error instanceof JubianError)) throw error
+    const detail = [`select_assets stage=${stage}.`, recovery]
+    if (error.responseEvidence !== undefined) detail.push(`HTTP ${String(error.responseEvidence.httpStatus)}.`)
+    if (error.detail !== undefined) detail.push(error.detail)
+    throw new JubianError(error.code, detail.join(' '), error.responseEvidence)
+  }
+}
+
 /**
  * Select the storyboard's subject assets and save them with generation disabled.
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger.
  * @param args - `storyboard_id`, ordered `selections` and the caller's `idempotency_key`.
+ * @param expectedModel - The invoking conversation's selected video model, if present.
  * @returns The before/after state, the read-back verification and the task audit.
- * @throws {JubianError} `CONTRACT_CHANGED` when any identity, order or read-back rule fails.
+ * @throws {JubianError} `CONTRACT_CHANGED` when an identity, order or readback rule fails. Diagnostics
+ * distinguish a task audit before any save from an unverified save response or a failed audit after the write.
  */
 export async function selectAssetsMethod(client: JubianClient, ledger: JubianLedger, args: {
   storyboard_id?: number | undefined
   selections?: SubjectSelectionRequest[] | undefined
   idempotency_key?: string | undefined
-}): Promise<Record<string, unknown>> {
+}, expectedModel?: SelectedVideoOption): Promise<Record<string, unknown>> {
   const key = requireKey(args.idempotency_key)
   const storyboardId = positiveInteger(need(args.storyboard_id))
   const storyboard = await storyboardSnapshot(client, storyboardId)
@@ -847,15 +885,20 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
     parents.push(await parentAsset(client, assetId))
   }
   const plan = buildSubjectSelection({ storyboard, selections, subjectRows, parentAssets: parents })
+  const modelMismatch = '卡片回读的模型设置与本次会话选择不一致。查看 video_model_readback，先准备并核对模型设置，再决定是否生成。'
   if (plan.status === 'already_applied') {
     await clearReselection(ledger, scriptId, storyboardId, (typeof storyboard.modelConfig === 'string'
       ? JSON.parse(storyboard.modelConfig) as Record<string, unknown> : object(storyboard.modelConfig)).prompt)
+    const modelReadback = selectedModelReadback(storyboard, expectedModel)
     return { operation: plan.operation, status: 'already_applied', applied: false,
       scriptId: plan.scriptId, storyboardId: plan.storyboardId, before: plan.before, after: plan.after,
       verified_readback: verifySubjectSelection(storyboard, plan.after).verified_readback,
-      next: '分镜已经保存的就是这个选择：没有发送 PUT，也没有收费。' }
+      ...(modelReadback === undefined ? {} : { video_model_readback: modelReadback }),
+      next: '分镜已经保存的就是这个选择：没有发送 PUT，也没有收费。'
+        + (modelReadback?.status === 'differs_from_session' ? modelMismatch : '') }
   }
-  const beforeRecords = await listAllVideoTasks(client, scriptId, { selectionAudit: true })
+  const beforeRecords = await selectionStage('before_save_task_audit', 'No selection PUT was sent by this call.',
+    () => listAllVideoTasks(client, scriptId, { selectionAudit: true }))
   const beforeIds = new Set<string>()
   for (const record of beforeRecords) {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) continue
@@ -864,8 +907,12 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   }
   const result = await writeUnderLedger(ledger, key, 'storyboard_select_assets',
     () => plan.payload,
-    payload => client.request({ method: 'PUT', path: '/aigc/storyboard', body: payload as Record<string, unknown> }))
-  const afterRecords = await listAllVideoTasks(client, scriptId, { selectionAudit: true })
+    payload => selectionStage('save_response',
+      'Read back the storyboard and check for new video tasks before continuing. Keep the original key.',
+      () => client.request({ method: 'PUT', path: '/aigc/storyboard', body: payload as Record<string, unknown> })))
+  const afterRecords = await selectionStage('after_save_task_audit',
+    'The selection write was recorded. Keep the original key and verify the storyboard and task inventory before continuing.',
+    () => listAllVideoTasks(client, scriptId, { selectionAudit: true }))
   const newRelated: string[] = []
   for (const record of afterRecords) {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) continue
@@ -880,14 +927,18 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
     `POST_PUT_VERIFY_MISMATCH: selection PUT accepted; expected=${JSON.stringify(plan.after.orderedMaterials)}, actual=${JSON.stringify(verification.verified_readback)}; referenceSources=${JSON.stringify(verification.source_matches)}; materialHashChanged=${plan.after.orderedMaterialsSha256 !== verification.state.orderedMaterialsSha256}; promptChanged=${plan.after.promptSha256 !== verification.state.promptSha256}. Read the storyboard to reconcile; do not submit video or assume the write failed.`)
   if (newRelated.length === 0) await clearReselection(ledger, scriptId, storyboardId, (typeof verified.modelConfig === 'string'
     ? JSON.parse(verified.modelConfig) as Record<string, unknown> : object(verified.modelConfig)).prompt)
+  const modelReadback = selectedModelReadback(verified, expectedModel)
   return { ...result, operation: plan.operation, scriptId, storyboardId,
     before: plan.before, after: plan.after, verification, verified_readback: verification.verified_readback,
+    ...(modelReadback === undefined ? {} : { video_model_readback: modelReadback }),
     status: newRelated.length > 0 ? 'billing_safety_violation' : 'applied',
     applied: true, paid_requests: 0,
     next: newRelated.length > 0
       ? `选择保存（isGenerate=0）不应创建任务，但出现了新任务 ${newRelated.join(', ')}：立即停机人工核对，`
         + '不要再调用 prepare_video/submit_video。'
-      : '选择已保存并回读一致（isGenerate=0，未收费）。下一步是 prepare_video。' }
+      : modelReadback?.status === 'differs_from_session'
+        ? '素材已保存并回读一致（isGenerate=0，未收费）。' + modelMismatch
+        : '选择已保存并回读一致（isGenerate=0，未收费）。下一步是 prepare_video。' }
 }
 
 /**
