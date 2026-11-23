@@ -687,6 +687,42 @@ const pairedConn = async (s) => {
   return { conn, one }
 }
 
+// User-role context the harness and DS Bot add to an IM turn, as their producers write it.
+// Memory snapshots and a compaction checkpoint can land before the chat's own message.
+const CONTEXT_BEFORE_IM = [
+  { kind: 'ds-bot-memory-update', form: 'snapshot', sections: [{ name: 'ds-bot-memory-update', text: 'memory' }] },
+  { kind: 'ds-bot-memory-recall', form: 'snapshot', ids: ['m1'], sections: [{ name: 'ds-bot-memory-recall', text: 'recalled' }] },
+  { kind: 'ds-bot-group-memory', form: 'snapshot', sections: [{ name: 'ds-bot-group-memory', text: 'group memory' }] },
+  { kind: 'compact-checkpoint', compactionId: 'c1' },
+]
+const CONTEXT_AFTER_IM = [
+  { kind: 'runtime-context', form: 'snapshot', sections: [] },
+  { kind: 'skill-catalog', form: 'catalog' },
+  { kind: 'time-context', form: 'snapshot', sections: [{ name: 'time-context', text: 'now' }] },
+  { kind: 'ds-bot-time-context', form: 'snapshot', sections: [{ name: 'ds-bot-time-context', text: 'now' }] },
+  { kind: 'repeat-tool-reminder', form: 'notice', summary: 'bash × 3' },
+  { kind: 'model-selection', form: 'notice', summary: 'flash → pro' },
+  { kind: 'muse-manuscript', form: 'notice', summary: '剧本文件尚无有效交付回执' },
+  { kind: 'tool-jobs', form: 'notice', summary: 'job 1 done' },
+  { kind: 'tool-goal', form: 'notice', summary: 'complete: ship it' },
+  { kind: 'jingliu-project', form: 'notice', summary: '已关联镜流制片项目' },
+  { kind: 'jubian-generation-watch', form: 'notice', summary: '剧变视频生成结果已核对' },
+  { kind: 'skill-invocation', form: 'instructions', name: 'short-drama' },
+  { kind: 'agent-instructions', form: 'instructions', changes: [] },
+  { kind: 'output-continuation' },
+  { kind: 'ptc-mode' },
+  { kind: 'working-directory' },
+  { kind: 'screenplay-project-read' },
+  { kind: 'jubian-video-selection' },
+]
+// Speakers: a peer Bot's relay, another agent's relay, and an approval answered elsewhere.
+const SPEAKERS_JOINING = [
+  { kind: 'bot', form: 'relay', role: 'request', exchangeId: 'x1', senderName: 'Writer', senderSessionId: 'b' },
+  { kind: 'agent-message', form: 'relay', senderSessionId: 'b' },
+  { kind: 'user-approval' },
+]
+const context = source => ({ source, content: [{ type: 'text', text: `context from ${source.kind}` }] })
+
 test('reply origin: an IM turn answers its own chat, and only that chat', async (t) => {
   const s = await start()
   t.after(s.stop)
@@ -768,10 +804,10 @@ test('dsh-im Feishu keeps an existing Bot, deduplicates delivery, and replies on
   assert.equal(s.prompts[0].sessionId, 'b')
   assert.equal(s.prompts[0].content[0].text, 'Make a preview')
   assert.equal(s.rt.botOf('b').name, 'Studio group')
-  s.imTurn('b')
-  for (const kind of ['runtime-context', 'skill-catalog', 'time-context']) {
-    s.emitEvent('b', 'user/message', { source: { kind } })
-  }
+  s.emitEvent('b', 'turn/start', { turn: s.prompts.length })
+  for (const source of CONTEXT_BEFORE_IM) s.emitEvent('b', 'user/message', context(source))
+  s.emitEvent('b', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId }, content: [{ type: 'text', text: 'Make a preview' }] })
+  for (const source of CONTEXT_AFTER_IM) s.emitEvent('b', 'user/message', context(source))
   s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Preview done' }] } })
   await s.flush()
   assert.deepEqual(replies, [{ route: event('om_first', 'omt_a').reply, text: 'Preview done' }])
@@ -787,6 +823,15 @@ test('dsh-im Feishu keeps an existing Bot, deduplicates delivery, and replies on
   s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Only in Muse' }] } })
   await s.flush()
   assert.equal(replies.length, 2)
+  for (const [index, source] of SPEAKERS_JOINING.entries()) {
+    await onEvent(event(`om_joined_${index}`, `omt_joined_${index}`), inbound)
+    s.imTurn('b')
+    s.emitEvent('b', 'user/message', context(source))
+    s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: `Joined by ${source.kind}` }] } })
+    await s.flush()
+    assert.equal(replies.length, 2, `${source.kind} withdraws the topic's claim`)
+    s.emitEvent('b', 'turn/end', {})
+  }
   await onEvent(event('om_third', 'omt_c'), inbound)
   s.imTurn('b')
   s.emitEvent('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Unconfirmed answer' }] } })
@@ -842,6 +887,37 @@ test('reply origin: another source in the same turn withdraws the IM origin', as
   s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
   await s.flush()
   assert.equal(s.fake.sent.length, 0, 'a mixed turn sends nothing')
+})
+
+test('reply origin: model context before and after the IM message keeps the turn its chat\'s to answer', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  await dm(s, 'u1', 'hi')
+  s.emitEvent('a', 'turn/start', { turn: s.prompts.length })
+  for (const source of CONTEXT_BEFORE_IM) s.emitEvent('a', 'user/message', context(source))
+  s.emitEvent('a', 'user/message', { source: { kind: 'user', rpcId: s.prompts.at(-1).requestId }, content: [{ type: 'text', text: 'from the chat' }] })
+  for (const source of CONTEXT_AFTER_IM) s.emitEvent('a', 'user/message', context(source))
+  s.fake.sent.length = 0
+  s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'the answer' }] } })
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => entry.chat.key), ['dm-u1'])
+})
+
+test('reply origin: a peer Bot, another agent or an approval joining the turn still withdraws it', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await pairedConn(s)
+  for (const source of SPEAKERS_JOINING) {
+    await dm(s, 'u1', 'hi')
+    s.imTurn('a')
+    s.fake.sent.length = 0
+    s.emitEvent('a', 'user/message', context(source))
+    s.emitEvent('a', 'assistant/message', { message: { content: [{ type: 'text', text: 'reply' }] } })
+    await s.flush()
+    assert.equal(s.fake.sent.length, 0, `${source.kind} makes a mixed turn`)
+    s.emitEvent('a', 'turn/end', {})
+  }
 })
 
 test('reply origin: the turn ending stops later output from going out', async (t) => {

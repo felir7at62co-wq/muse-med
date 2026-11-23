@@ -16,7 +16,10 @@ import { nameProblem } from '../../shared/mentions.js'
 
 const RECONCILE_MS = 15_000
 const RUNTIME_SAVE_MS = 400
-const MODEL_CONTEXT_SOURCES = new Set(['runtime-context', 'skill-catalog', 'time-context', 'ds-bot-time-context'])
+const FORMLESS_CONTEXT_KINDS = new Set(['compact-checkpoint', 'output-continuation', 'ptc-mode', 'working-directory', 'screenplay-project-read', 'jubian-video-selection'])
+// A user-role source is model context when its producer declared a form other than `relay`
+// (speakers declare none, or `relay`) or it is a known form-less producer; it never touches a chat's claim.
+const isModelContext = source => (typeof source?.form === 'string' && source.form !== 'relay') || FORMLESS_CONTEXT_KINDS.has(source?.kind)
 const RETRY_MS = 5_000
 // A send that keeps failing is given up on, with a bounded backoff, so one broken
 // message cannot hold every later message in the same chat forever (#1417).
@@ -1761,7 +1764,7 @@ export function install(rt) {
       const imOrigin = source?.imOrigin
       const rpcId = source?.rpcId
       // Model context uses user-role events without creating a new request.
-      if (imOrigin === undefined && rpcId === undefined && MODEL_CONTEXT_SOURCES.has(source?.kind)) return
+      if (imOrigin === undefined && rpcId === undefined && isModelContext(source)) return
       // A late member result or part-switch handoff continues the work the chat asked for;
       // any other first message starts a fresh turn, which clears the previous turn's origin.
       if (pendingReset.delete(session.id) && !(typeof imOrigin === 'string' || (source?.kind === SOURCE_KIND && source.role === 'post'))) resetOrigin(session.id)
