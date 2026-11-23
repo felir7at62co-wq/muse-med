@@ -2558,10 +2558,11 @@ describe('select_assets', () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks, subtasks: {},
       taskPage: page => ({ ...(noTotal ? {} : { total: tasks.length }), rows: tasks.slice((page - 1) * 100, page * 100) }),
     }
+    const detail: unknown = expect.stringContaining(
+      `stage=before_save_task_audit. No selection PUT was sent by this call. Duplicate video task ID on inventory page ${crossPage ? '2' : '1'}.`)
     await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
       selections, idempotency_key: 'select-reject-duplicate' })).rejects.toMatchObject({
-      code: 'CONTRACT_CHANGED',
-      detail: expect.stringContaining(`stage=before_save_task_audit. No selection PUT was sent by this call. Duplicate video task ID on inventory page ${crossPage ? '2' : '1'}.`),
+      code: 'CONTRACT_CHANGED', detail,
     })
     expect(putCalls(provider)).toEqual([])
     expect(await ledger.records()).toEqual([])
@@ -2572,9 +2573,9 @@ describe('select_assets', () => {
       putResponse: () => new Response(null, { status: 200 }) }
     const client = clientFor(provider)
     const args = { storyboard_id: 916953, selections, idempotency_key: 'select-empty-write-response' }
+    const detail: unknown = expect.stringMatching(/stage=save_response.*Read back the storyboard.*HTTP 200.*0 bytes/)
     await expect(selectAssetsMethod(client, ledger, args)).rejects.toMatchObject({
-      code: 'CONTRACT_CHANGED',
-      detail: expect.stringMatching(/stage=save_response.*Read back the storyboard.*HTTP 200.*0 bytes/),
+      code: 'CONTRACT_CHANGED', detail,
       responseEvidence: { httpStatus: 200, applicationCode: null },
     })
     expect(putCalls(provider)).toHaveLength(1)
@@ -2589,9 +2590,9 @@ describe('select_assets', () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {},
       onPut: () => { provider.tasks = [duplicate, duplicate] } }
     const args = { storyboard_id: 916953, selections, idempotency_key: 'select-after-save-task-audit' }
+    const detail: unknown = expect.stringMatching(/stage=after_save_task_audit.*Keep the original key.*Duplicate video task ID/)
     await expect(selectAssetsMethod(clientFor(provider), ledger, args)).rejects.toMatchObject({
-      code: 'CONTRACT_CHANGED',
-      detail: expect.stringMatching(/stage=after_save_task_audit.*Keep the original key.*Duplicate video task ID/),
+      code: 'CONTRACT_CHANGED', detail,
     })
     expect(putCalls(provider)).toHaveLength(1)
     expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
