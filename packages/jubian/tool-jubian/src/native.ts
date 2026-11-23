@@ -207,7 +207,8 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number,
         && wireText(record.taskType) === '3' && wireText(record.scriptId) === String(scriptId) ? pageNum : null
       const previousPage = taskPages.get(taskId)
       if (previousPage !== undefined && (historyPage === null || previousPage !== historyPage)) {
-        throw new JubianError('CONTRACT_CHANGED')
+        throw new JubianError('CONTRACT_CHANGED', selectionAudit
+          ? `Duplicate video task ID on inventory page ${String(pageNum)}.` : undefined)
       }
       taskPages.set(taskId, historyPage)
       collected.push(record)
@@ -822,13 +823,26 @@ signal?: AbortSignal): Promise<Record<string, unknown>> {
       + `并把它自己的 idempotency_key（${preview.idempotencyKey}）原样传入。预算和预览指纹不代表提交授权。` }
 }
 
+async function selectionStage<T>(stage: string, recovery: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    if (!(error instanceof JubianError)) throw error
+    const detail = [`select_assets stage=${stage}.`, recovery]
+    if (error.responseEvidence !== undefined) detail.push(`HTTP ${String(error.responseEvidence.httpStatus)}.`)
+    if (error.detail !== undefined) detail.push(error.detail)
+    throw new JubianError(error.code, detail.join(' '), error.responseEvidence)
+  }
+}
+
 /**
  * Select the storyboard's subject assets and save them with generation disabled.
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger.
  * @param args - `storyboard_id`, ordered `selections` and the caller's `idempotency_key`.
  * @returns The before/after state, the read-back verification and the task audit.
- * @throws {JubianError} `CONTRACT_CHANGED` when any identity, order or read-back rule fails.
+ * @throws {JubianError} `CONTRACT_CHANGED` when an identity, order or readback rule fails. Diagnostics
+ * distinguish a task audit before any save from an unverified save response or a failed audit after the write.
  */
 export async function selectAssetsMethod(client: JubianClient, ledger: JubianLedger, args: {
   storyboard_id?: number | undefined
@@ -855,7 +869,8 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
       verified_readback: verifySubjectSelection(storyboard, plan.after).verified_readback,
       next: '分镜已经保存的就是这个选择：没有发送 PUT，也没有收费。' }
   }
-  const beforeRecords = await listAllVideoTasks(client, scriptId, { selectionAudit: true })
+  const beforeRecords = await selectionStage('before_save_task_audit', 'No selection PUT was sent by this call.',
+    () => listAllVideoTasks(client, scriptId, { selectionAudit: true }))
   const beforeIds = new Set<string>()
   for (const record of beforeRecords) {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) continue
@@ -864,8 +879,12 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
   }
   const result = await writeUnderLedger(ledger, key, 'storyboard_select_assets',
     () => plan.payload,
-    payload => client.request({ method: 'PUT', path: '/aigc/storyboard', body: payload as Record<string, unknown> }))
-  const afterRecords = await listAllVideoTasks(client, scriptId, { selectionAudit: true })
+    payload => selectionStage('save_response',
+      'Read back the storyboard and check for new video tasks before continuing. Keep the original key.',
+      () => client.request({ method: 'PUT', path: '/aigc/storyboard', body: payload as Record<string, unknown> })))
+  const afterRecords = await selectionStage('after_save_task_audit',
+    'The selection write was recorded. Keep the original key and verify the storyboard and task inventory before continuing.',
+    () => listAllVideoTasks(client, scriptId, { selectionAudit: true }))
   const newRelated: string[] = []
   for (const record of afterRecords) {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) continue

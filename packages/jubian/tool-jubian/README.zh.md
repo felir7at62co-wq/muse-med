@@ -421,6 +421,8 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 select_assets  (isGenerate=0, free)  -> prepare_video (free, local preview) -> submit_video (one PUT, paid)
 ```
 
+`select_assets` 区分保存前任务核对失败、保存响应无法读取和保存后任务核对失败。保存前任务核对失败表示本次调用没有发送绑定 PUT。保存响应无法读取或保存后任务核对失败时，保留原保存 key，先核对分镜和任务清单再继续。
+
 - `select_assets` 保存一次有序的主体设定选择。每个图片 `material_key` 必须按提示词里 `@[名称](key)` 的顺序出现，每个选择必须唯一对应同一项目里的一行有效主体设定与一个非音频父资产，而该行的可信 `hsAssetId` 就是提供方会翻译成子任务身份的那个值。已有音频会保留；音频标记和类别 4 父资产须使用 `audio_preview`/`audio_apply`。请求体永远强制 `isGenerate=0`。这一次 `PUT` 之后，该方法会回读分镜并重新拉取项目任务列表：各 key 对应的身份、名称、URL、类型或组内顺序变化会报错，仅改变数组物理顺序则允许；而一次"仅保存选择"却带来了新视频任务时，会返回 `billing_safety_violation`，让调用方停下来而不是继续往下走。提供方声明总数时，绑定校验会把同一页重复出现的本项目类型 3 任务按实际返回行数计入总数。生成任务 ID 重复，或任何 ID 跨页重复，仍会阻止绑定。
 - `prepare_video` 免费，启用会话选择时先应用上文的会话选择规则，再用实时 `scriptId` 校验 `project_dir` 里的 `project_config.json`，按素材 key 和数字父资产 ID，从实时分镜、主体设定与父资产补齐图片，保留上传音频、比例、提示词、素材身份与时长，从当前目录解析所选模型／通道／分辨率的精确选择器，要求 `genNum=1`。未启用会话选择时保留已存模型设置。Seedance 2.0（`doubao-seedance-2-0-260128`）接受 4–15 秒总时长；Seedance 2.5（`doubao-seedance-2-5-260628`）接受 4–30 秒。总时长包含至少一秒自然收束；不支持或不唯一的选择直接失败，不用默认值替换。它把一份 preview 通过临时文件加重命名写进 `<project_dir>/video_tasks/storyboard-<id>-<key12>.storyboard-native.prepared.json`。模型同步只执行经回读验证的免费 `isGenerate=0` 保存；准备绝不发送生成 PUT、创建任务或收费。 已保存的十进制时长字符串会在模型校验前规范为数字秒；免费模型编辑允许提供方以等价的数字或字符串回读，冻结请求与重试校验保持不变。其他精确目录型号要求正整数秒，上限保持未知；仅缺少上限信息不会阻止准备或提交。 新的写入前，任务和主体素材清单必须提供稳定 ID，且 `total` 和布尔型 `hasMore` 必须一致。仅 `select_assets` 接受上文说明的同页类型 3 任务重复。响应缺少 `total` 时，分页读取直到空页；达到页数上限会使清单无法核实。接口不遵守页码时需要排查，不能把首页直接当作完整清单。
 

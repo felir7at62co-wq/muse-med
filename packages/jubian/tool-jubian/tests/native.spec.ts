@@ -2558,8 +2558,57 @@ describe('select_assets', () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks, subtasks: {},
       taskPage: page => ({ ...(noTotal ? {} : { total: tasks.length }), rows: tasks.slice((page - 1) * 100, page * 100) }),
     }
+    const detail: unknown = expect.stringContaining(
+      `stage=before_save_task_audit. No selection PUT was sent by this call. Duplicate video task ID on inventory page ${crossPage ? '2' : '1'}.`)
     await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
-      selections, idempotency_key: 'select-reject-duplicate' })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+      selections, idempotency_key: 'select-reject-duplicate' })).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+    })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('reports an empty selection save response as unresolved and keeps the original write identity', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {},
+      putResponse: () => new Response(null, { status: 200 }) }
+    const client = clientFor(provider)
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-empty-write-response' }
+    const detail: unknown = expect.stringMatching(/stage=save_response.*Read back the storyboard.*HTTP 200.*0 bytes/)
+    await expect(selectAssetsMethod(client, ledger, args)).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+      responseEvidence: { httpStatus: 200, applicationCode: null },
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
+    expect(await ledger.find(args.idempotency_key)).toMatchObject({ outcome: 'unknown', http_status: 200 })
+    expect(await selectAssetsMethod(client, ledger, args)).toMatchObject({ status: 'already_applied', applied: false })
+    expect(putCalls(provider)).toHaveLength(1)
+  })
+
+  it('reports an incomplete task audit after a recorded selection save', async () => {
+    const duplicate = { id: 1, scriptId: 2708, taskType: 1 }
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {},
+      onPut: () => { provider.tasks = [duplicate, duplicate] } }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-after-save-task-audit' }
+    const detail: unknown = expect.stringMatching(/stage=after_save_task_audit.*Keep the original key.*Duplicate video task ID/)
+    await expect(selectAssetsMethod(clientFor(provider), ledger, args)).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
+    expect(await ledger.find(args.idempotency_key)).toMatchObject({ outcome: 'accepted' })
+  })
+
+  it('preserves an unexpected local task audit error before a selection write', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {} }
+    const client = clientFor(provider)
+    const request = client.request.bind(client)
+    const failure = new Error('Unexpected task audit failure')
+    vi.spyOn(client, 'request').mockImplementation(args => args.path.startsWith('/admin/aigc/video/task/list')
+      ? Promise.reject(failure) : request(args))
+    await expect(selectAssetsMethod(client, ledger, {
+      storyboard_id: 916953, selections, idempotency_key: 'select-unexpected-task-audit-error',
+    })).rejects.toBe(failure)
     expect(putCalls(provider)).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
