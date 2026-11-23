@@ -11,7 +11,7 @@ import { probeVideo, runMedia } from './media.ts'
 import { scanReviewFrames } from './review-scan.ts'
 import { installFrameImageState, offloadFrameImages } from './frame-images.ts'
 import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, hasReviewUncertainty, reviewEvidenceJson,
-  reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
+  characterChecksSchema, reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
 import type { Config } from './index.ts'
 import { compareReviewDraft } from './review-compare.ts'
 import { bindReviewEvents, reviewEventCurrent, reviewEventEvidence, reviewEventNoteSchema } from './review-events.ts'
@@ -29,7 +29,8 @@ const parameters = z.object({ method: z.enum(['scan', 'next', 'revisit', 'observ
   frame_ids: z.array(z.string().min(1)).optional(),
   timestamps_seconds: z.array(z.number().nonnegative()).min(1).max(256).optional(),
   observations: z.array(z.object({ frame_id: z.string(), visible: z.string().trim().min(8).max(2000),
-    change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000).default('') })).optional() })
+    change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000).default(''),
+    character_checks: characterChecksSchema.optional() })).optional() })
 
 function taskResult(review: VideoReview, limit: number, batch = false) {
   const pending = review.frames.filter(frame => frame.observation === undefined)
@@ -261,6 +262,14 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           frame_id: { type: 'string', required: true }, visible: { type: 'string', required: true, description: '具体可见人物、位置、动作、神态或道具；至少8个字符。' },
           change: { type: 'string', required: true, description: '与邻近画面的变化；无变化也需据实说明。' },
           uncertainty: { type: 'string', description: '需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。' },
+          character_checks: { type: 'array', description: '短剧源片角色核对。实际并排看正式参考和本帧，记录角色、正式参考资产ID、结果和可见理由。证据不足填needs_review，缺参考时可省略其ID。同一帧角色用同一标识；复看后更新该角色，其余旧记录保留。mismatch与needs_review会停住该源片的正式选源。', items: {
+            type: 'object', additionalProperties: false, properties: {
+              character: { type: 'string', required: true },
+              reference_asset_id: { type: 'string' },
+              status: { type: 'string', required: true, enum: ['match', 'mismatch', 'needs_review'] },
+              reason: { type: 'string', required: true },
+            },
+          } },
         } } },
     }, output: { schema: { type: 'string' }, preserveBodyMeta: true, render: (_args, value) => content(value, config.offloadObservedFrames ? FRAME_IMAGE_NOTE : undefined),
       presentationMeta: (_args, serialized) => {
@@ -581,8 +590,12 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           }
           review = { ...review, frames: review.frames.map((frame) => {
             const note = notes.get(frame.id)
-            return note === undefined ? frame : { ...frame, observation: {
+            if (note === undefined) return frame
+            const characterChecks = new Map(frame.observation?.character_checks?.map(check => [check.character, check]))
+            for (const check of note.character_checks ?? []) characterChecks.set(check.character, check)
+            return { ...frame, observation: {
               visible: note.visible, change: note.change, uncertainty: note.uncertainty,
+              ...(characterChecks.size === 0 ? {} : { character_checks: [...characterChecks.values()] }),
             } }
           }) }
           const contextual = review.frames.filter(frame => notes.has(frame.id) && frame.observation !== undefined
