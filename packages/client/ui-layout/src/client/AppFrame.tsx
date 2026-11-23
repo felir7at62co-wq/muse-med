@@ -183,9 +183,11 @@ export function AppFrame({
     : layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : layoutInfo.sidebar
   const rightbarPreference = layoutInfo.rightbar ?? viewport * RIGHTBAR_DEFAULT_RATIO
   // Native desktop hides a closed sidebar unless its navigation shell retains the rail.
+  // A navigation shell that draws its own column hides it on every platform.
   const darwin = document.documentElement.dataset.platform === 'darwin'
-  const collapsedWidth = drawer ? 0 : layoutInfo.sidebarRailRetained ? SIDEBAR_COLLAPSED
-    : darwin || windowsTitlebar ? 0 : SIDEBAR_COLLAPSED
+  const collapsedWidth = drawer || layoutInfo.sidebarRailHidden ? 0
+    : layoutInfo.sidebarRailRetained ? SIDEBAR_COLLAPSED
+      : darwin || windowsTitlebar ? 0 : SIDEBAR_COLLAPSED
   // Opening on a narrow frame collapses the left sidebar. Eligibility must
   // include that space before the occupant's first shown report arrives.
   const normal = computeColumns(

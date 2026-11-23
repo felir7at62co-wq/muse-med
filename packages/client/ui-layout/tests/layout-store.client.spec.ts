@@ -15,6 +15,7 @@ describe('createLayoutStore', () => {
       layoutInfo: {
         sidebar: 280,
         sidebarRailRetained: false,
+        sidebarRailHidden: false,
         viewportWidth: 1920,
         narrowExpanded: false,
         rightbar: null,
@@ -64,6 +65,11 @@ describe('createLayoutStore', () => {
     expect(instance.getSnapshot().layoutInfo).toEqual({ ...before.layoutInfo, sidebarRailRetained: true })
     expect(instance.getSnapshot().panelInfo).toBe(before.panelInfo)
     instance.actions.setSidebarRailRetained(false)
+    expect(instance.getSnapshot().layoutInfo).toEqual(before.layoutInfo)
+    instance.actions.setSidebarRailHidden(true)
+    expect(instance.getSnapshot().layoutInfo).toEqual({ ...before.layoutInfo, sidebarRailHidden: true })
+    expect(instance.getSnapshot().panelInfo).toBe(before.panelInfo)
+    instance.actions.setSidebarRailHidden(false)
     expect(instance.getSnapshot().layoutInfo).toEqual(before.layoutInfo)
   })
 

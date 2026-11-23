@@ -48,6 +48,13 @@ export interface ILayout {
    */
   retainSidebarRail(): () => void
   /**
+   * Remove the compact icon rail on every platform while a navigation shell that draws its own column over it is mounted.
+   * The collapsed sidebar then keeps no grid track; a hidden rail takes precedence over a retained one.
+   * Multiple owners may hide it independently without changing the user's width or open state.
+   * @returns an idempotent disposer; the last release restores the platform's collapsed presentation.
+   */
+  hideSidebarRail(): () => void
+  /**
    * Report the right panel's presentation without changing its expanded state.
    * @param track - whether the normal panel width reserves a grid track,
    *   including beneath a fullscreen overlay.
@@ -63,6 +70,7 @@ export interface ILayout {
 export class LayoutController implements ILayout {
   private navigation = new AbortController()
   private readonly sidebarRailOwners = new Set<symbol>()
+  private readonly sidebarRailHiders = new Set<symbol>()
 
   /**
    * @param panels - actions of the instance shared with the root entry.
@@ -98,17 +106,20 @@ export class LayoutController implements ILayout {
       this.sidebarRailOwners.clear()
       this.panels.setSidebarRailRetained(false)
     }
+    if (this.sidebarRailHiders.size > 0) {
+      this.sidebarRailHiders.clear()
+      this.panels.setSidebarRailHidden(false)
+    }
   }
 
   /** Retain the compact rail until this owner or the layout is disposed. */
   retainSidebarRail(): () => void {
-    const owner = Symbol('sidebar rail')
-    this.sidebarRailOwners.add(owner)
-    if (this.sidebarRailOwners.size === 1) this.panels.setSidebarRailRetained(true)
-    return () => {
-      if (!this.sidebarRailOwners.delete(owner)) return
-      if (this.sidebarRailOwners.size === 0) this.panels.setSidebarRailRetained(false)
-    }
+    return holdRailRequest(this.sidebarRailOwners, (on) => { this.panels.setSidebarRailRetained(on) })
+  }
+
+  /** Hide the compact rail until this owner or the layout is disposed. */
+  hideSidebarRail(): () => void {
+    return holdRailRequest(this.sidebarRailHiders, (on) => { this.panels.setSidebarRailHidden(on) })
   }
 
   /** Toggle the sidebar panel (closed ⟷ contract default width). */
@@ -124,5 +135,21 @@ export class LayoutController implements ILayout {
   /** Report the right panel as hidden: no track, no handle. */
   closeRightbar(): void {
     this.panels.closeRightbar()
+  }
+}
+
+/**
+ * Add one owner to a rail request, raising the request for the first owner.
+ * @param owners - the request's live owners.
+ * @param write - stores whether the request is raised.
+ * @returns an idempotent release; the last owner's release lowers the request.
+ */
+function holdRailRequest(owners: Set<symbol>, write: (on: boolean) => void): () => void {
+  const owner = Symbol('sidebar rail')
+  owners.add(owner)
+  if (owners.size === 1) write(true)
+  return () => {
+    if (!owners.delete(owner)) return
+    if (owners.size === 0) write(false)
   }
 }

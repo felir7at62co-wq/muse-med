@@ -33,7 +33,7 @@ kind: "package-reference"
 
 抽屉遮罩使用与面板相同的时长和缓动，在打开与关闭时渐变透明度；减少动态效果时两者均不播放动画。从已收起的侧栏切换到抽屉布局时，抽屉立即隐藏；已展开的侧栏保留收起动画。抽屉边缘不绘制分隔线，外层框架不滚动。macOS 抽屉与 Web 使用相同的不透明背景，毛玻璃仅用于普通侧栏。框架铺满外壳的布局视口，在键盘抬起时保留原有高度。抽屉背景和遮罩覆盖外壳完整高度，包括 `shell.bottom`，并显示在全屏和浮动右侧面板之上。浏览器管理的状态栏和地址栏位于外壳之外；布局不添加模拟安全区边距。
 
-导航外壳挂载期间可调用 `ctx.layout.retainSidebarRail()`，使桌面端保留标准的 56px 图标控制栏。其幂等释放函数只撤销本调用方的请求；最后一个调用方释放后恢复平台默认行为。保留控制栏不改变用户的展开宽度或开合状态。在 macOS 上，可见控制栏保留栏间分隔线，不挂载 `shell.leading`，也不发布该座的横向避让量。
+导航外壳挂载期间可调用 `ctx.layout.retainSidebarRail()`，使桌面端保留标准的 56px 图标控制栏。其幂等释放函数只撤销本调用方的请求；最后一个调用方释放后恢复平台默认行为。保留控制栏不改变用户的展开宽度或开合状态。在 macOS 上，可见控制栏保留栏间分隔线，不挂载 `shell.leading`，也不发布该座的横向避让量。在收起的侧边栏上方绘制自有栏位的导航外壳，改为在挂载期间调用 `ctx.layout.hideSidebarRail()`：此时收起的侧边栏在所有平台上都不占据列宽，隐藏请求优先于保留请求。Web 端框架不会为此挂载 `shell.leading`，由该外壳提供自己的展开控件。其释放函数遵循与保留请求相同的规则。
 
 全局面板占据 root 作用域的 `main` keyed slot；`conversation` 是为会话界面保留的 key。`ctx.layout.selectPanel(id)` 选中已注册面板，`null` 则选中会话界面，但不改变当前会话。Plugins 页面是默认组合中的一个全局面板。
 
@@ -64,7 +64,7 @@ root 注册通过注入的可观察源提供横屏折叠状态，由渲染器负
 
 `selectPanel(id)` 在改变选中态前检查实时 `main` 注册表；缺失的 key 会抛错并保留当前面板。`beginNavigation()` 为异步 UI 导航返回 abort signal。后续调用、有效面板选择（包括重复选择）或布局释放会中止该 signal，但不取消底层会话创建。消费方在提交导航或搬移草稿前检查 signal。
 
-一次注册声明框架的子 slot，并绑定 `ctx.layout` 的 `selectPanel`、`toggleSidebar`、`retainSidebarRail`、`openRightbar(track, fullscreen)` 与 `closeRightbar`。同一个 root 存储把 `panelInfo` 选中态与 `layoutInfo` 测量、宽度偏好、呈现报告分开。`ctx.layout.panelInfo` 与标准 `usePanelInfo` hook 共用同一个选中态来源；AppFrame 订阅引用稳定的布局对象。`rightbar` owner 提供实际 `width`、`viewportWidth`，以及表示能否以普通模式呈现的 `canShow`；占用方在空间不足时执行确定性的收起，变宽不自行重新展开。全屏隐藏宽度手柄，但不自行释放占用方要求保留的轨道。AppFrame 保持各列容器挂载。右栏的 root 控制器仅在选中会话界面时，经 `SessionProvider` 渲染 `rightbar.session`；内容卸载时的报告释放轨道。独立的标题组件仅在会话界面可见时使用所选会话标题，以构建配置的产品标题或本地化 `common.brand.localBuild` 为回退值；语言变化会更新该回退值。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入——初始状态经 getter 读取一次，此后仅事件驱动，不经过 React。它先应用调色板、字号、字体列表与 token 变量，再把渲染出的背景测量为唯一的颜色依据。全屏呈现禁用网格和手柄过渡；占用方完全覆盖框架后才报告新的列布局。退出全屏时，框架先保持无过渡并安装目标布局：关闭移除右轨道，恢复保留右轨道。后续普通几何操作恢复正常过渡。
+一次注册声明框架的子 slot，并绑定 `ctx.layout` 的 `selectPanel`、`toggleSidebar`、`retainSidebarRail`、`hideSidebarRail`、`openRightbar(track, fullscreen)` 与 `closeRightbar`。同一个 root 存储把 `panelInfo` 选中态与 `layoutInfo` 测量、宽度偏好、呈现报告分开。`ctx.layout.panelInfo` 与标准 `usePanelInfo` hook 共用同一个选中态来源；AppFrame 订阅引用稳定的布局对象。`rightbar` owner 提供实际 `width`、`viewportWidth`，以及表示能否以普通模式呈现的 `canShow`；占用方在空间不足时执行确定性的收起，变宽不自行重新展开。全屏隐藏宽度手柄，但不自行释放占用方要求保留的轨道。AppFrame 保持各列容器挂载。右栏的 root 控制器仅在选中会话界面时，经 `SessionProvider` 渲染 `rightbar.session`；内容卸载时的报告释放轨道。独立的标题组件仅在会话界面可见时使用所选会话标题，以构建配置的产品标题或本地化 `common.brand.localBuild` 为回退值；语言变化会更新该回退值。主题呈现器是第二个 effect：从解析后的快照做纯 DOM 写入——初始状态经 getter 读取一次，此后仅事件驱动，不经过 React。它先应用调色板、字号、字体列表与 token 变量，再把渲染出的背景测量为唯一的颜色依据。全屏呈现禁用网格和手柄过渡；占用方完全覆盖框架后才报告新的列布局。退出全屏时，框架先保持无过渡并安装目标布局：关闭移除右轨道，恢复保留右轨道。后续普通几何操作恢复正常过渡。
 
 </details>
 

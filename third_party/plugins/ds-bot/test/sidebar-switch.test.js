@@ -396,34 +396,30 @@ test('what the team view replaces in the shell sidebar stays out of sight', () =
   }
 })
 
-function collapsedGridRules() {
+function frameGridRules() {
   const { document } = new JSDOM('<style></style>').window
   document.querySelector('style').textContent = `${SHELL_CSS}\n${SIDEBAR_CSS}`
-  const frames = []
-  const visit = (rules, media = []) => {
+  const grids = []
+  const visit = (rules) => {
     for (const rule of rules) {
-      if (rule.selectorText?.includes('[data-sidebar-collapsed][data-rightbar-collapsed]'))
-        frames.push({ grid: rule.style.getPropertyValue('grid-template-columns'), media })
-      if (rule.cssRules?.length)
-        visit(rule.cssRules, rule.media ? [...media, rule.media.mediaText] : media)
+      if (rule.selectorText?.includes('_frame') && rule.style?.getPropertyValue('grid-template-columns')) grids.push(rule.selectorText)
+      if (rule.cssRules?.length) visit(rule.cssRules)
     }
   }
   visit(document.styleSheets[0].cssRules)
-  return frames
+  return grids
 }
 
-test('the wide shell\'s collapsed sidebar keeps no track while its right column is closed', () => {
-  const frames = collapsedGridRules()
-  assert.equal(frames.length, 1)
-  assert.match(frames[0].grid, /^0px\s+minmax\(0,\s*1fr\)\s+0px$/)
-})
-
-// A narrow host may place the conversation in its first track instead of its second.
-test('the collapsed shell grid override leaves layouts below 1024px to the host', () => {
-  const frames = collapsedGridRules()
-  assert.equal(frames.length, 1)
-  assert.ok(frames[0].media.some(query => /^\(min-width:\s*1024px\)$/.test(query)),
-    'the zero-width first track must not override a narrow host layout')
+// Our own column takes the collapsed shell sidebar's place, so the Bot view asks the
+// shell for no rail at all, at every width and on every platform, and leaves the frame's
+// columns to the shell. A grid override only covered a wide window with the right column
+// closed; the web rail stayed beside an open right column and below 1024px.
+test('the Bot view hides the shell\'s collapsed rail instead of overriding the frame\'s grid', () => {
+  const source = readFileSync(new URL('../src/client/index.js', import.meta.url), 'utf8')
+  const shell = /const installShell = \(\) => \[([\s\S]*?)\n  \]\n/.exec(source)?.[1]
+  assert.ok(shell, 'the shell group is found')
+  assert.match(shell, /\(\) => ctx\.layout\.hideSidebarRail\(\),/)
+  assert.deepEqual(frameGridRules(), [])
 })
 
 test('the column\'s top row hides it, on the rail too, and its edge is a drag grip', () => {
@@ -754,6 +750,20 @@ test('installFrameWatch tracks data-sidebar-collapsed on DSH Desktop ancestor fr
       document.querySelector('.dshDesktopFrame').removeAttribute('data-sidebar-collapsed')
       await new Promise(resolve => setTimeout(resolve, 30))
       assert.equal(frame.getSnapshot().collapsed, false)
+    } finally { stop() }
+  })
+})
+
+// The Bot view hides the shell's rail on the web too: before the shell reports its sidebar
+// collapsed, the chat is not pulled 56px under a rail that is not there.
+test('installFrameWatch counts no collapsed track on the web before the shell sidebar collapses', async () => {
+  await withDom('<!doctype html><body><div class="x_frame"><div class="x_sidebarCol"></div><div class="x_centerCol"></div></div></body>', async () => {
+    viewport.innerWidth = 1280
+    const frame = createSource({ viewport: 1280, sidebarWidth: 280, collapsedWidth: 56, collapsed: false })
+    const stop = installFrameWatch(frame)
+    try {
+      const { viewport: width, collapsedWidth, collapsed } = frame.getSnapshot()
+      assert.deepEqual({ width, collapsedWidth, collapsed }, { width: 1280, collapsedWidth: 0, collapsed: false })
     } finally { stop() }
   })
 })
