@@ -36,6 +36,8 @@ OPERATIONS = ("reserve", "claim", "status", "publish", "release")
 RESUME_BOT = ("刚才你这一轮被中断了（云端服务重启或模型调用出错），不是你做错了。先看工作区和 drama_status，"
               "从缺的地方接着做这部剧；做完一批照常入库。用户不在线，不要等回复。")
 INTERRUPTED = ("aborted", "error", "unfinished")
+#: DS Bot capabilities a Bot needs to work a drama from the desk: these tools and the transcription skill.
+BOT_CAPABILITIES = ("transcription-desk", "drama-transcribing")
 USAGE_FIELDS = ("input", "cacheRead", "cacheWrite", "output", "calls")
 
 
@@ -151,6 +153,9 @@ class Desk:
             for other in self.dramas():
                 if other.get("bot") == name and other.get("state") in HOLDING:
                     raise WorkError("BOT_BUSY", f"{name} 手上还有《{other.get('title')}》，做完上架或退回后再派新剧")
+            for capability in BOT_CAPABILITIES:
+                if capability not in (bot.get("capabilities") or []):
+                    self.muse.bot("bot-capability", {"botId": bot["id"], "name": capability, "attached": True})
             claim = self.station.claim(self.worker, key)
             job = claim.get("job")
             if (not isinstance(job, dict) or job.get("workId") != "hongguo:" + key or job.get("state") not in ACTIVE or

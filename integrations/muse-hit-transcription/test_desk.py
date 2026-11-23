@@ -17,15 +17,19 @@ class FakeBots:
     messages are recorded."""
 
     def __init__(self):
-        self.updates, self.sent, self.running, self.turns = [], [], set(), {}
+        self.updates, self.sent, self.running, self.turns, self.attached = [], [], set(), {}, []
         self.chats = {"bot-1": "chat-1", "bot-2": "chat-2"}
         self.month = {"input": 1000, "cacheRead": 0, "cacheWrite": 0, "output": 100, "calls": 1}
         self.logs = {}
 
     def bot(self, endpoint, payload):
         if endpoint == "state":
-            return {"bots": [{"id": "bot-1", "name": "转写1", "sessionId": self.chats["bot-1"], "model": "m/flash"},
+            return {"bots": [{"id": "bot-1", "name": "转写1", "sessionId": self.chats["bot-1"], "model": "m/flash",
+                              "capabilities": ["transcription-desk", "drama-transcribing"]},
                              {"id": "bot-2", "name": "转写2", "sessionId": self.chats["bot-2"], "model": "m/flash"}]}
+        if endpoint == "bot-capability":
+            self.attached.append((payload["botId"], payload["name"], payload["attached"]))
+            return []
         if endpoint == "usage-summary":
             return {"botId": payload["botId"], "month": dict(self.month)}
         if endpoint == "update-bot":
@@ -131,6 +135,8 @@ class DeskTest(DeskCase):
             self.desk.claim({"work_id": SECOND, "bot": "转写1"})
         self.assertEqual(busy.exception.code, "BOT_BUSY")
         self.assertEqual(self.desk.claim({"work_id": SECOND, "bot": "转写2"})["bot"], "转写2")
+        # 转写2 was made without the desk tools and the skill; the claim gives them to it, 转写1 already had them.
+        self.assertEqual(self.bots.attached, [("bot-2", "transcription-desk", True), ("bot-2", "drama-transcribing", True)])
 
     def test_a_released_drama_goes_back_for_attention_and_keeps_its_work(self):
         self.desk.claim({"work_id": KEY, "bot": "转写1"})
