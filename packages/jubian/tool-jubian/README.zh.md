@@ -554,7 +554,9 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 新建资产时，`image_generate` 会在调用内部等待本次生成图，上限由 `imageActiveTimeoutMs` 决定，超时以 `asset_status: timeout` 报告而不是抛错。重生现有资产时，不把旧 Active 图当作本次结果；须精确回读新任务和新材质后才能核实。
 
-`image_generate` 用 `image_style: "anime"` 选择2D/3D动漫，`"live_action"` 选择真人；批量 `items` 逐项提供，顶层的批次 `image_style` 会被拒绝。旧调用从提示词开头的正向媒介声明解析，可带精确的 `项目风格:` 或 `项目风格：` 前缀，未标记的旧提示词保留真人。显式选择冲突在计费前失败。回执里的 `image_style` 是解析后的请求选择，不是视觉验收结论。完整提示词保留3D细分画风，实际图像仍需查看；未知提交按原 key 对账。
+`image_generate` 的 `image_style` 支持 `"live_action"`（真人写实）、`"anime"`（二维／三维动漫）和 `"realistic_3d"`（3D 写实）。`image_generate_batch` 中需要指定风格时，在对应的 `items` 项内填写。批次顶层传值会被拒绝。显式选择须与提示词开头已识别的风格声明一致。省略字段时，工具优先采用开头声明，其次采用剧变项目保存的风格。项目未保存风格时仍用真人写实。若项目保存的风格不受支持，须通过参数或开头声明指定受支持的风格，才可提交计费请求。
+
+回执回显已解析的请求风格。请查看生成图核对画风，并在提示词中保留完整风格和材质细节。用原 `idempotency_key` 核对结果不明的提交。请求体变化时，原记录无法被覆盖。
 
 -----
 

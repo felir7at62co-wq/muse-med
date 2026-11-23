@@ -42,7 +42,7 @@ it.each([
     await ctx.settings.update(DRAMA_SETTINGS_NAMESPACE, { seriesBudgetCents: budget })
     const result = await executeModelToolFixture(ctx, { callId: ToolCallId('budget-zero'), name: 'jubian_video',
       arguments: { method: 'image_generate', script_id: 2708, asset_name: 'x', asset_type: 1,
-        prompt: 'p', idempotency_key: 'new-paid-image' }, signal: new AbortController().signal })
+        prompt: 'p', image_style: 'live_action', idempotency_key: 'new-paid-image' }, signal: new AbortController().signal })
     expect(result.isError).toBe(true)
     if (result.isError) expect(result.error.message).toContain(reason)
     expect(fetch).toHaveBeenCalledTimes(1)

@@ -42,6 +42,7 @@ const baseArgs = {
   asset_name: CHARACTER_NAME,
   asset_type: 1,
   prompt: '真人写实人物设定图。',
+  image_style: 'live_action',
   character_reference: binding,
 } satisfies MethodArgs
 

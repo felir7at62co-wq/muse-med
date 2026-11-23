@@ -596,8 +596,8 @@ interface ToolArgsMap {
       episode?: string;
       /** 本项图片提示词。 */
       prompt: string;
-      /** 本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。 */
-      image_style?: "live_action" | "anime";
+      /** 本项风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时读提示词首行声明，再读项目设置。 */
+      image_style?: "live_action" | "anime" | "realistic_3d";
       /** 本项可选：模型 videoStandards 中的精确 id；同画幅/分辨率有多条规格时指定。 */
       image_spec_id?: number;
       /** 本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。 */
@@ -613,8 +613,8 @@ interface ToolArgsMap {
       /** 可选：重生成的父资产 ID；省略则新建。 */
       parent_asset_id?: number;
     })[];
-    /** image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。 */
-    image_style?: "live_action" | "anime";
+    /** image_generate 的风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时先识别提示词首行声明（可带“项目风格：”），再读取项目风格；项目未保存风格时默认真人。与首行冲突或无法继承项目风格时不提交收费请求。image_generate_batch 仅接受每项 items.image_style。 */
+    image_style?: "live_action" | "anime" | "realistic_3d";
     /** image_generate 可选或 image_generate_batch 默认：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。 */
     image_spec_id?: number;
     /** image_generate 可选或 image_generate_batch 默认：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。 */
