@@ -75,7 +75,7 @@ function useNow() {
   return now
 }
 
-function BackgroundRow({ row, action, onControl, actions }) {
+function BackgroundRow({ row, action, onControl, actions, compact }) {
   const [busy, setBusy] = useState(false)
   const change = async () => {
     setBusy(true)
@@ -91,10 +91,10 @@ function BackgroundRow({ row, action, onControl, actions }) {
   const tooltip = row.extra ? `${row.extra} · ${name}` : name
   const actionLabel = action === 'Pause' ? t('Pause {name}', { name }) : action === 'Resume' ? t('Resume {name}', { name }) : t('Stop {name}', { name })
   const status = row.stopping ? t('Stopping…') : row.note || t('Run in progress')
-  return h('div', { className: 'bt-bg-row', title: tooltip },
-    row.bot ? h(BotMark, { bot: row.bot, size: 18 }) : null,
+  return h('div', { className: 'bt-bg-row', 'data-compact': compact || undefined, title: compact ? undefined : tooltip },
+    row.bot && !compact ? h(BotMark, { bot: row.bot, size: 18 }) : null,
     h('div', { className: 'bt-bg-copy' },
-      h('span', { className: 'bt-bg-label', 'data-command': row.command || undefined }, row.label),
+      !compact || row.turn ? h('span', { className: 'bt-bg-label', 'data-command': row.command || undefined }, row.label) : null,
       h('span', { className: 'bt-bg-note' }, status)),
     !row.stopping && onControl
       ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: busy, 'aria-label': actionLabel, onClick: change }, t(action))
@@ -167,24 +167,26 @@ export function BackgroundAvatar({ avatar, children, sources, botId, room, bots,
       ? row.task.status === 'paused' ? 'paused' : 'scheduled'
       : 'running',
   })))
-  const renderRow = row => {
+  const renderRow = (row, compact) => {
     if (row.task === undefined) {
-      const props = { key: row.key, row, actions, action: 'Stop', onControl: stop(row) }
+      const props = { key: row.key, row, actions, compact, action: 'Stop', onControl: stop(row) }
       return row.turn ? h(BackgroundTurnRow, { ...props, useSessions }) : h(BackgroundRow, props)
     }
     const active = row.task.status === 'active'
     const canSetActive = active || row.task.status === 'paused'
     return h(BackgroundRow, {
-      key: row.key, row, actions, action: active ? 'Pause' : 'Resume',
+      key: row.key, row, actions, compact, action: active ? 'Pause' : 'Resume',
       onControl: !readOnly && canSetActive && schedules?.canSetActive && actions.scheduleSetActive
         ? async () => publishSchedules(await actions.scheduleSetActive(row.task, !active))
         : undefined,
     })
   }
-  const renderPanel = selectedKey => groups.map(group => {
-    const visible = selectedKey === null ? group.items : group.items.filter(row => row.key === selectedKey)
-    if (visible.length === 0) return null
-    return h('div', { key: group.title, className: 'bt-bg-group', role: 'group', 'aria-label': t(group.title) },
+  const renderPanel = selectedKey => {
+    if (selectedKey !== null) {
+      const row = groups.flatMap(group => group.items).find(item => item.key === selectedKey)
+      return row ? renderRow(row, true) : null
+    }
+    return groups.map(group => h('div', { key: group.title, className: 'bt-bg-group', role: 'group', 'aria-label': t(group.title) },
       h('div', { className: 'bt-bg-group-head' },
         h('div', { className: 'bt-bg-kind' }, t(group.title)),
         group.title === 'Scheduled tasks' && !readOnly && actions.openSettings
@@ -193,8 +195,8 @@ export function BackgroundAvatar({ avatar, children, sources, botId, room, bots,
               onClick: () => actions.openSettings('schedules', room?.id ?? botId),
             }, h(PlusIcon))
           : null),
-      visible.map(renderRow))
-  })
+      group.items.map(row => renderRow(row))))
+  }
   return h(BackgroundThoughtBubbles, { avatar, rows: summaries, renderPanel, group: room !== undefined }, children)
 }
 
@@ -209,4 +211,6 @@ export const BACKGROUND_CSS = BACKGROUND_THOUGHT_CSS + `
 .bt-bg-label[data-command]{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
 .bt-bg-note{color:var(--bt-ink-2);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .bt-bg-row .bt-soft-sm{flex:none;margin:0}
+.bt-bg-row[data-compact]{align-items:flex-start;flex-direction:column;gap:5px;min-height:0;padding:0}
+.bt-bg-row[data-compact] .bt-soft-sm{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 `

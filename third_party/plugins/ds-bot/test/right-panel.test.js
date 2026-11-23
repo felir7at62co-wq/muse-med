@@ -529,7 +529,7 @@ test('the avatar shows its conversation’s tasks and opens the exact stop contr
   const ended = []
   const jobs = jobsOf({ a: [
     { id: 'j1', owner: 'a', kind: 'workflow', label: 'render episode 3', status: 'running', progress: '3/8', startedAt: Date.now() },
-    { id: 'j2', owner: 'a', kind: 'bash', label: 'ffmpeg -i ep05.mp4', status: 'running', startedAt: Date.now() },
+    { id: 'j2', owner: 'a', kind: 'bash', label: 'ffmpeg -i ep05.mp4', status: 'running', progress: '15/30', startedAt: Date.now() },
     { id: 'j3', owner: 'a', kind: 'bash', label: 'finished', status: 'succeeded', startedAt: Date.now() },
     { id: 'j4', owner: 'a', kind: 'workflow', label: 'on its way out', status: 'stopping', startedAt: Date.now() },
   ] }, kills)
@@ -554,7 +554,7 @@ test('the avatar shows its conversation’s tasks and opens the exact stop contr
   assert.doesNotMatch(text, /finished/)
   const job = props.rows.find(row => row.label === 'ffmpeg -i ep05.mp4')
   const selected = props.renderPanel(job.key)
-  assert.doesNotMatch(textOf(selected), /render episode 3|Terminal/)
+  assert.equal(textOf(selected), '15/30Stop')
   const stops = buttonsOf(render).filter(entry => textOf(entry) === 'Stop')
   assert.deepEqual(stops.map(entry => entry.props['aria-label']), ['Stop render episode 3', 'Stop ffmpeg -i ep05.mp4', 'Stop Terminal'])
   await buttonsOf(selected).find(entry => entry.props['aria-label'] === 'Stop ffmpeg -i ep05.mp4').props.onClick()
@@ -605,7 +605,7 @@ test('a group’s avatar uses its own and current member conversations only', as
   assert.deepEqual(kills, [['g-a', 'j1']])
 })
 
-test('a completed thought bubble fades in its own slot and cannot reopen the task', async t => {
+test('a thought bubble opens in its own slot, closes back to its trigger, and fades there when work ends', async t => {
   const { outputFiles } = await build({
     entryPoints: [fileURLToPath(new URL('../src/client/background-thought-bubbles.js', import.meta.url))],
     bundle: true, format: 'cjs', platform: 'node', write: false, external: ['react'],
@@ -632,8 +632,12 @@ test('a completed thought bubble fades in its own slot and cannot reopen the tas
   const container = globals.document.querySelector('main')
   const root = createRoot(container)
   const paint = (rows, key = 'owner-a') => act(() => root.render(createElement(BackgroundThoughtBubbles, {
-    key, rows, avatar: 'Muse', renderPanel: () => 'Task details',
+    key, rows, avatar: 'Muse', renderPanel: () => createElement('button', { type: 'button' }, 'Pause task'),
   })))
+  const detailsOf = trigger => {
+    const details = globals.document.getElementById(trigger.getAttribute('aria-controls'))
+    return details?.hasAttribute('aria-hidden') ? null : details
+  }
   const chips = () => Array.from(container.querySelectorAll('.bt-thoughts-chip'))
   const first = { key: 'job:first', label: 'First task', state: 'running' }
   const second = { key: 'job:second', label: 'Second task', state: 'running' }
@@ -643,8 +647,41 @@ test('a completed thought bubble fades in its own slot and cannot reopen the tas
     paint([first, second])
     const [left, right] = chips()
     assert.deepEqual([left.dataset.side, right.dataset.side], ['left', 'right'])
+    const shell = left.closest('.bt-thoughts-slot')
+    const rightShell = right.closest('.bt-thoughts-slot')
+    assert.ok(shell && rightShell)
     act(() => left.click())
-    assert.ok(container.querySelector('.bt-thoughts-panel'))
+    assert.deepEqual(chips(), [left, right])
+    assert.equal(left.getAttribute('aria-expanded'), 'true')
+    assert.equal(shell.hasAttribute('data-open'), true)
+    const details = detailsOf(left)
+    assert.ok(details)
+    assert.equal(left.closest('.bt-thoughts-slot'), shell)
+    assert.equal(details.closest('.bt-thoughts-slot'), shell)
+    assert.deepEqual(Array.from(container.querySelectorAll('.bt-thoughts-panel:not([aria-hidden])')), [details])
+    assert.equal(globals.document.activeElement, details)
+    const control = details.querySelector('button')
+    assert.equal(control?.textContent, 'Pause task')
+
+    act(() => {
+      control.focus()
+      control.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    assert.equal(detailsOf(left), null)
+    assert.equal(left.getAttribute('aria-expanded'), 'false')
+    assert.equal(shell.hasAttribute('data-open'), false)
+    assert.equal(details.hasAttribute('inert'), true)
+    assert.equal(globals.document.activeElement, left)
+
+    act(() => right.click())
+    assert.equal(detailsOf(right)?.closest('.bt-thoughts-slot'), rightShell)
+    act(() => left.click())
+    assert.ok(detailsOf(left))
+    assert.equal(detailsOf(right), null)
+    act(() => left.click())
+    assert.equal(detailsOf(left), null)
+    assert.equal(globals.document.activeElement, left)
+    act(() => left.click())
 
     paint([second])
     const leaving = chips().find(chip => chip.hasAttribute('data-leaving'))
@@ -653,7 +690,8 @@ test('a completed thought bubble fades in its own slot and cannot reopen the tas
     assert.equal(leaving.disabled, true)
     assert.equal(leaving.getAttribute('aria-hidden'), 'true')
     assert.equal(leaving.hasAttribute('aria-controls'), false)
-    assert.equal(container.querySelector('.bt-thoughts-panel'), null)
+    assert.equal(detailsOf(left), null)
+    assert.equal(container.querySelector('.bt-thoughts-panel:not([aria-hidden])'), null)
     assert.deepEqual(chips().filter(chip => !chip.hasAttribute('data-leaving')), [right])
     assert.equal(right.dataset.side, 'right')
 
