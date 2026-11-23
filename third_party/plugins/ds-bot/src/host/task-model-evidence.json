@@ -1,0 +1,213 @@
+{
+  "notes": [
+    "Rates checked 2026-11-22 PT. Jubian peak charges matched test-account debits. Bailian prices are published rates.",
+    "Streaming measured 2026-11-22 PT from an isolated test host directly to suppliers with short text, thinking off, 64 output tokens maximum and no retries. P95 is the observed maximum. Use these timings for the sampled short requests.",
+    "Quality uses five paired synthetic Chinese Muse tasks with thinking off and up to 1024 output tokens. Predeclared checks contribute 80 points and one blinded editorial review contributes 20. Use the case scores as pilot evidence.",
+    "In a separate thinking-on continuity audit, 0/3 produced an answer at 1536 output tokens. At 4096, 0/2 produced an answer (one exhausted the cap and one timed out)."
+  ],
+  "models": {
+    "muse-cloud-deepseek-flash-auto/deepseek-v4.1-flash": {
+      "channels": [
+        {
+          "name": "Jubian",
+          "wireModel": "deepseek-v4.1-flash",
+          "price": {
+            "sources": [
+              "https://gw.jubianai.net/api/pricing"
+            ],
+            "schedule": "Off-peak daily 22:00–08:00 Beijing time.",
+            "windows": [
+              {
+                "period": "peak",
+                "input": 1.2,
+                "cachedInput": 0.024,
+                "output": 4.8
+              },
+              {
+                "period": "off-peak",
+                "input": 0.6,
+                "cachedInput": 0.012,
+                "output": 2.4
+              }
+            ],
+            "sampleDebit": {
+              "tier": "peak",
+              "attempts": 16,
+              "amountCny": 0.000992
+            }
+          },
+          "stream": {
+            "successful": 16,
+            "attempts": 16,
+            "firstTextMs": {
+              "p50": 533,
+              "p95": 1354
+            },
+            "completeMs": {
+              "p50": 581,
+              "p95": 1440
+            },
+            "reportedModel": "deepseek-v4.1-flash-1017",
+            "identityResponses": 16
+          },
+          "screenplay": {
+            "score": 81,
+            "scored": 5,
+            "tasks": 5,
+            "caseScores": {
+              "scoped rewrite": 100,
+              "continuity audit": 85,
+              "source-to-script fidelity": 80,
+              "episode hook": 65,
+              "continuation between locked episodes": 75
+            }
+          }
+        },
+        {
+          "name": "Bailian Beijing",
+          "wireModel": "deepseek-v4.1-flash-1017",
+          "price": {
+            "sources": [
+              "https://help.aliyun.com/zh/model-studio/model-pricing",
+              "https://help.aliyun.com/zh/model-studio/context-cache"
+            ],
+            "schedule": "Off-peak daily 22:00–08:00 Beijing time.",
+            "windows": [
+              {
+                "period": "peak",
+                "input": 2,
+                "cachedInput": 0.04,
+                "output": 8
+              },
+              {
+                "period": "off-peak",
+                "input": 1,
+                "cachedInput": 0.02,
+                "output": 4
+              }
+            ]
+          },
+          "stream": {
+            "successful": 16,
+            "attempts": 16,
+            "firstTextMs": {
+              "p50": 558,
+              "p95": 699
+            },
+            "completeMs": {
+              "p50": 648,
+              "p95": 773
+            },
+            "reportedModel": "deepseek-v4.1-flash-1017",
+            "identityResponses": 16
+          },
+          "screenplay": {
+            "score": 83,
+            "scored": 5,
+            "tasks": 5,
+            "caseScores": {
+              "scoped rewrite": 100,
+              "continuity audit": 95,
+              "source-to-script fidelity": 80,
+              "episode hook": 70,
+              "continuation between locked episodes": 70
+            }
+          }
+        }
+      ],
+      "finding": "In this pilot Flash tied for scoped rewriting and scored higher on continuity audit, source fidelity and the episode hook. The gateway selects Flash suppliers. Consider both routes for budget and timing."
+    },
+    "muse-cloud-jubian-pro/deepseek-v4-pro": {
+      "channels": [
+        {
+          "name": "Jubian",
+          "wireModel": "deepseek-v4-pro",
+          "price": {
+            "sources": [
+              "https://gw.jubianai.net/api/pricing"
+            ],
+            "schedule": "Peak weekdays 09:00–12:00 and 14:00–18:00 Beijing time.",
+            "windows": [
+              {
+                "period": "peak",
+                "input": 9,
+                "cachedInput": 0.3,
+                "output": 27
+              },
+              {
+                "period": "off-peak",
+                "input": 4.5,
+                "cachedInput": 0.15,
+                "output": 13.5
+              }
+            ],
+            "sampleDebit": {
+              "tier": "peak",
+              "attempts": 16,
+              "amountCny": 0.00576
+            }
+          },
+          "stream": {
+            "successful": 16,
+            "attempts": 16,
+            "firstTextMs": {
+              "p50": 897,
+              "p95": 1541
+            },
+            "completeMs": {
+              "p50": 995,
+              "p95": 1635
+            },
+            "reportedModel": "deepseek-v4-pro",
+            "identityResponses": 16
+          },
+          "screenplay": {
+            "score": 78,
+            "scored": 5,
+            "tasks": 5,
+            "caseScores": {
+              "scoped rewrite": 100,
+              "continuity audit": 80,
+              "source-to-script fidelity": 60,
+              "episode hook": 55,
+              "continuation between locked episodes": 95
+            }
+          }
+        }
+      ],
+      "finding": "In this pilot Pro was strongest for continuation between locked episodes (95 vs Flash 75/70). Prefer it when a draft must reconcile multiple fixed episodes and pass a precise state forward."
+    }
+  },
+  "pricingCheckedOn": "2026-11-22 PT",
+  "streamWindow": {
+    "startedAt": "2026-11-23T06:25:56+00:00",
+    "finishedAt": "2026-11-23T06:26:30+00:00"
+  },
+  "qualityProtocol": {
+    "caseCount": 5,
+    "thinking": "off",
+    "maxOutputTokens": 1024,
+    "reviewers": 1,
+    "objectivePoints": 80,
+    "editorPoints": 20
+  },
+  "thinkingCalibration": {
+    "case": "continuity audit",
+    "samples": [
+      {
+        "maxOutputTokens": 1536,
+        "answered": 0,
+        "attemptedWithReceipt": 3,
+        "length": 3,
+        "timedOut": 0
+      },
+      {
+        "maxOutputTokens": 4096,
+        "answered": 0,
+        "attemptedWithReceipt": 2,
+        "length": 1,
+        "timedOut": 1
+      }
+    ]
+  }
+}

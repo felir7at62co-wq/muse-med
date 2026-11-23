@@ -108,6 +108,24 @@ it('uses a different account supplier after a transient failure without duplicat
   expect(JSON.stringify(events)).not.toContain('private supplier diagnostic')
 })
 
+it.each([
+  ['deepseek-flash-auto', 'deepseek-v4.1-flash'], ['jubian-pro', 'deepseek-v4-pro'],
+])('keeps a task on %s when its gateway reports a supplier failure', async (id, model) => {
+  const routed = provider(id)
+  routed.models[0] = { ...routed.models[0]!, id: model }
+  const { ctx, agent, server } = await harness([{ status: 503, body: '{}' }], {
+    providers: [provider('alpha'), routed, provider('beta')],
+  })
+  const selection = { provider: `muse-cloud-${id}`, model }
+  agent.model.select(selection)
+  await send(ctx, agent)
+
+  expect(server.paths).toEqual([`/api/desktop-models/${id}/chat/completions`])
+  expect(agent.model.current()).toEqual(selection)
+  expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')?.data.reason)
+    .toMatchObject({ kind: 'error', error: { code: 'SERVER' } })
+})
+
 it('can fall back to a compatible model with a different name at another supplier', async () => {
   const { ctx, agent, server } = await harness([
     { status: 503, body: '{}' },

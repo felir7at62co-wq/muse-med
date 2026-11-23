@@ -623,6 +623,7 @@ export const FR = {
   "{provider} · not available": "{provider} · indisponible",
   "Model for {name}": "Modèle pour {name}",
   "No models are set up in DeepSeek Harness yet.": "Aucun modèle n’est encore configuré dans DeepSeek Harness.",
+  "Other models": "Autres modèles",
   "Models and providers…": "Modèles et fournisseurs…",
   "Models": "Modèles",
   "Harness default": "Par défaut de Harness",

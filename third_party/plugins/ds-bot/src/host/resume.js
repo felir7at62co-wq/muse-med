@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
 import { answerSender, cutOffText, failureLine, turnFailure } from './turns.js'
 import { textOf } from './text.js'
-import { threadCurrentOfPart } from './threads.js'
+import { taskModelOf, threadCurrentOfPart } from './threads.js'
 
 // Long enough for DSH to finish opening its workspaces after a start.
 export const RESUME_DELAY_MS = 3000
@@ -169,8 +169,9 @@ export function install(rt) {
 
   const deliver = rt.deliver
   rt.deliver = async (args) => {
-    const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
-    const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
+    const sessionId = args.sessionId ?? rt.chatOf(args.toId)
+    const taskThread = taskModelOf(rt.botOf(args.toId), sessionId) !== undefined
+    const noted = { ...args, ...(taskThread ? { sessionId, taskThread } : {}), exchangeId: args.exchangeId ?? randomUUID() }
     // Noted before it is sent: a turn may take it up before the send returns. Notes
     // are kept whole; nothing waits out a delivery silently.
     queued = { ...queued, [sessionId]: [...(queued[sessionId] ?? []), { at: Date.now(), args: noted }] }
@@ -218,7 +219,7 @@ export function install(rt) {
         const botId = owner?.botId ?? rt.chatOwners.get(id)
         // turns.js runs first and has already claimed or restored the trigger.
         const info = rt.live.get(id)?.info
-        update(id, () => ({ botId, ...(owner ? { roomId: owner.roomId } : {}), since: event.time ?? Date.now(), ...(info !== undefined ? { trigger: triggerOf(info) } : {}) }))
+        update(id, () => ({ botId, ...(owner ? { roomId: owner.roomId } : {}), ...(taskModelOf(rt.botOf(botId), id) !== undefined ? { taskThread: true } : {}), since: event.time ?? Date.now(), ...(info !== undefined ? { trigger: triggerOf(info) } : {}) }))
         break
       }
       case 'user/message': {
@@ -261,7 +262,10 @@ export function install(rt) {
     // The turn ran in a part that is still one of the Bot's: it goes on there, not in the
     // foreground chat when that part is a background one. A part gone since (archived and
     // dropped) falls back to the Bot's current chat.
-    const ownPart = rt.selfOf(sessionId) === bot.id && rt.isBotSession(sessionId) ? { sessionId } : {}
+    const currentTask = record.taskThread ? taskSession(sessionId, bot.id) : undefined
+    if (record.taskThread && currentTask === undefined) return
+    const ownPart = currentTask !== undefined ? { sessionId: currentTask, taskThread: true }
+      : rt.selfOf(sessionId) === bot.id && rt.isBotSession(sessionId) ? { sessionId } : {}
     const trigger = record.trigger
     if ((trigger?.role === 'request' || trigger?.role === 'stopped') && trigger.senderSessionId && trigger.audience !== 'user' && rt.botOf(trigger.senderSessionId)) {
       // The sender still waits for this turn's answer, so it goes on under the same exchange.
@@ -274,8 +278,14 @@ export function install(rt) {
 
   // Where a queued note goes now: its Session if it still is one, else the
   // current Session of its Bot, or of its group when the message went to one.
-  const sessionFor = (sessionId, args) => (rt.isBotSession(sessionId) ? sessionId
-    : args?.roomId === undefined ? rt.chatOf(args?.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId])
+  function taskSession(sessionId, botId) {
+    const bot = rt.botOf(botId)
+    const current = threadCurrentOfPart(bot, sessionId)
+    return taskModelOf(bot, current) === undefined ? undefined : current
+  }
+  const sessionFor = (sessionId, args) => (args?.taskThread ? taskSession(sessionId, args.toId)
+    : rt.isBotSession(sessionId) ? sessionId
+      : args?.roomId === undefined ? rt.chatOf(args?.toId) : rt.roomOf(args.roomId)?.sessions?.[args.toId])
 
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH
   // cancelled is sent again. The notes stay queued until a turn takes the messages

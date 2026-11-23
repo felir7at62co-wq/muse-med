@@ -18,6 +18,13 @@ export const threadSegments = (bot, sessionId) => threadOf(bot, sessionId)?.segm
 
 export const isOpenPart = (bot, sessionId) => threadOf(bot, sessionId)?.thread === 'open'
 
+/** The model selected for a delegated task thread, if it is a live task part. */
+export function taskModelOf(bot, sessionId) {
+  const thread = threadOf(bot, sessionId)
+  const model = thread?.thread === 'current' ? bot.taskModel : thread === undefined ? undefined : bot.openParts[thread.index].taskModel
+  return typeof model === 'string' && /^[^/\s]+\/[^\s]+$/.test(model) ? model : undefined
+}
+
 // A thread's current session: the part that a handoff or a kept input belongs to.
 export function threadCurrent(bot, sessionId) {
   const thread = threadOf(bot, sessionId)
@@ -66,9 +73,10 @@ export function pushThreadPart(bot, sessionId, freshId, segment) {
 // no earlier parts and no handoff note: the user asked for a new conversation.
 export function startOpenPart(bot, freshId, startedAt = Date.now()) {
   bot.openParts ??= []
-  bot.openParts.push({ sessionId: currentSession(bot), segments: bot.segments ?? [], startedAt })
+  bot.openParts.push({ sessionId: currentSession(bot), segments: bot.segments ?? [], startedAt, ...(bot.taskModel ? { taskModel: bot.taskModel } : {}) })
   bot.sessionId = freshId
   bot.segments = []
+  delete bot.taskModel
 }
 
 // Makes a live background part current. Each chain travels with its parts.
@@ -76,9 +84,11 @@ export function focusOpenPart(bot, sessionId) {
   const at = (bot.openParts ?? []).findIndex(part => part?.sessionId === sessionId)
   if (at === -1) return false
   const [target] = bot.openParts.splice(at, 1)
-  bot.openParts.push({ sessionId: currentSession(bot), segments: bot.segments ?? [] })
+  bot.openParts.push({ sessionId: currentSession(bot), segments: bot.segments ?? [], ...(bot.taskModel ? { taskModel: bot.taskModel } : {}) })
   bot.sessionId = target.sessionId
   bot.segments = target.segments ?? []
+  if (target.taskModel !== undefined) bot.taskModel = target.taskModel
+  else delete bot.taskModel
   return true
 }
 

@@ -122,7 +122,21 @@ export function createModelRequestMetadata({clientId,route=null,sink=defaultSink
    record.forward_bytes=count(bytes)?bytes:null;
    parser=metadataParser({stream:Boolean(stream),accept,done:()=>{record.done=true;},truncated:()=>{record.observation_truncated=true;}});
   },
-  upstream(code){record.upstream_status=status(code);},
+  supplier(name){
+   if(name!=='jubian'&&name!=='bailian')return;
+   record.model_supplier=name;
+   record.upstream_status=null;
+   record.supplier_attempts??=[];
+   if(record.supplier_attempts.length<2)record.supplier_attempts.push({supplier:name,upstream_status:null});
+  },
+  supplierFailover(kind){
+   if(kind==='upstream_http'||kind==='connect')record.supplier_attempts.at(-1).failover=kind;
+  },
+  upstream(code){
+   record.upstream_status=status(code);
+   const attempt=record.supplier_attempts?.at(-1);
+   if(attempt)attempt.upstream_status=record.upstream_status;
+  },
   client(code){record.client_status=status(code);},
   bytes(chunk){
    record.response_bytes+=typeof chunk==='string'?Buffer.byteLength(chunk):chunk.byteLength;

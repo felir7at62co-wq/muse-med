@@ -1,12 +1,16 @@
 /** Request-local Muse diagnostics contain routing and counters, never model content or credentials. */
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { GenerateOptions, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { PiAiRequestHeaderContext } from '@deepseek-ai/dsh-llm-pi-ai'
 import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
 
 const clientHeader = 'x-muse-client-request-id'
+const sessionHeader = 'x-muse-model-session'
+const desktopRelayPath = '/api/desktop-models/'
+/** Gateway provider slug for the single DeepSeek Flash entry. */
+export const deepSeekFlashRelay = 'deepseek-flash-auto'
 const responseSchema = z.object({ kind: z.literal('pi-ai'), version: z.literal(2),
   responseId: z.string().optional(), responseModel: z.string().optional(),
   stopReason: z.enum(['stop', 'length', 'toolUse', 'error', 'aborted']).optional() })
@@ -54,17 +58,20 @@ export class MuseModelRequestTrace {
   /** Enforce relay-only attribution after public contributors have prepared request-owned headers.
    * @param request - Exact prepared adapter route, including its final base URL.
    * @param headers - Request-owned contributed headers; no copy is retained.
-   * @returns Same headers with an attributable UUID only for this company's relay route.
+   * @returns Same headers with relay-only request attribution and a hashed Session ID on the Flash route.
    */
   headers(request: PiAiRequestHeaderContext, headers: Headers): Headers {
     headers.delete(clientHeader)
+    headers.delete(sessionHeader)
     if (this.closed) return headers
     const identity = this.context.getStore()?.identity
-    if (identity !== undefined && request.provider === identity.provider && request.model === identity.model
-      && (request.sessionId ?? null) === identity.session_id && (request.purpose ?? null) === identity.purpose
-      && new URL(request.baseURL).origin === this.origin
-      && new URL(request.baseURL).pathname.startsWith('/api/desktop-models/')) {
-      headers.set(clientHeader, identity.client_request_id)
+    if (identity === undefined || request.provider !== identity.provider || request.model !== identity.model
+      || (request.sessionId ?? null) !== identity.session_id || (request.purpose ?? null) !== identity.purpose) return headers
+    const url = new URL(request.baseURL)
+    if (url.origin !== this.origin || !url.pathname.startsWith(desktopRelayPath)) return headers
+    headers.set(clientHeader, identity.client_request_id)
+    if (url.pathname === `${desktopRelayPath}${deepSeekFlashRelay}` && identity.session_id !== null) {
+      headers.set(sessionHeader, createHash('sha256').update(identity.session_id).digest('hex'))
     }
     return headers
   }

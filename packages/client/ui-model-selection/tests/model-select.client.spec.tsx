@@ -1152,6 +1152,40 @@ it('retains a hidden historical selection without offering it in the model picke
   expect(directory.getSnapshot().current).toEqual(selected)
 })
 
+it('combines managed routes under maker headings and preserves custom provider labels and exact picks', async () => {
+  const groups = [
+    { id: 'muse-cloud-relay-a', name: 'Managed channel A', models: [
+      { id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' },
+      { id: 'unlisted-writer', name: 'Writing model' },
+    ] },
+    { id: 'muse-cloud-relay-b', name: 'Managed channel B', models: [
+      { id: 'upstream/DeepSeek-v4-pro', name: 'DeepSeek V4 Pro' },
+      { id: 'gemini-3-pro', name: 'Gemini 3 Pro' },
+    ] },
+    { id: 'custom', name: 'Personal gateway', models: [
+      { id: 'deepseek-private', name: 'Private DeepSeek' },
+    ] },
+  ]
+  const select = vi.fn(async () => ({ ok: true as const, value: undefined }))
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available
+    directory={createSnapshotStore(state({ current: null, groups }))}
+    load={vi.fn()} resolveText={resolveText} select={select} t={t} />)
+  fireEvent.click(screen.getByRole('button', { name: '请选择模型' }))
+  expect(screen.getAllByText('DeepSeek', { exact: true })).toHaveLength(1)
+  expect(screen.getByText('Google', { exact: true })).toBeTruthy()
+  expect(screen.getByText('其他模型', { exact: true })).toBeTruthy()
+  expect(screen.getByText('Personal gateway', { exact: true })).toBeTruthy()
+  expect(screen.queryByText(/Managed channel/u)).toBeNull()
+
+  expect(screen.getAllByRole('menuitemradio').map(row => row.textContent)).toEqual([
+    'DeepSeek V4.1 Flash', 'DeepSeek V4 Pro', 'Writing model', 'Gemini 3 Pro', 'Private DeepSeek',
+  ])
+  const search = screen.getByRole('searchbox')
+  fireEvent.change(search, { target: { value: 'v4 pro' } })
+  await act(async () => { fireEvent.keyDown(search, { key: 'Enter' }) })
+  expect(select).toHaveBeenCalledWith({ provider: 'muse-cloud-relay-b', model: 'upstream/DeepSeek-v4-pro' })
+})
+
 
 it('dismisses contributed options with focus on the trigger before opening another overlay', () => {
   const renderSlot = vi.fn((_name: string, _owner: object) => null)

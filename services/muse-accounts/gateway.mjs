@@ -24,6 +24,7 @@ import {loadPortfolioReaders} from './kb-portfolio-config.mjs';
 import {openModelConfig,createModelRelay} from './model-relay.mjs';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
 import {createDesktopModels} from './desktop-models.mjs';
+import {openDeepSeekFlashRouting} from './deepseek-flash-routing.mjs';
 import {resolveModelKeyPoolPolicy,createModelKeyPool} from './model-key-pool.mjs';
 import {createDesktopRelay} from './desktop-relay.mjs';
 import {desktopRoute,desktopPrefix} from './desktop-route.mjs';
@@ -62,7 +63,7 @@ function loginPage(register=false,desktopLogin,feishuEnabled=false,feishuAppType
  * @param {import('node:http').Server} [options.httpServer] Unhandled carrier, optionally already listening; the factory installs gateway handlers and owns their close cleanup.
  * @returns {import('node:http').Server} The supplied carrier or a new HTTP server.
  */
-export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},workbenchClients,modelConfig,globalModels,modelForward,modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,usageLedger,voiceSlots,market,httpServer,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},workbenchClients,modelConfig,globalModels,flashRouting,modelForward,modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,usageLedger,voiceSlots,market,httpServer,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  usageLedger??=createMemoryUsageLedger({now});
  if(httpServer&&(httpServer.listenerCount('request')!==0||httpServer.listenerCount('upgrade')!==0))throw Error('Account HTTP carrier must have no request or upgrade handlers');
  if(!Number.isSafeInteger(activityRequestRatePerMinute)||activityRequestRatePerMinute<1||activityRequestRatePerMinute>10000)throw Error('Invalid activity request rate');
@@ -75,7 +76,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   const kbEndpoint=kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,personalRoot:kb.personalRoot,accounts:store,secret:kb.secret,documentGrants:kb.documentGrants,portfolioReaders:kb.portfolioReaders,authorize:authorizeKbToken,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
  async function maintenance(){if(!maintenanceFile)return false;try{await access(maintenanceFile);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
  function workspaceMutation(path){return /^\/api\/workspace[./](create|delete|rename|update|change|insertBefore)(?:\/|$)/.test(decodeURIComponent(path));}
- const desktopModels=createDesktopModels({globalModels,modelConfig,forward:modelForward,now,keyPoolPolicy:modelKeyPoolPolicy,keyPool:modelKeyPool,usageLedger});
+ const desktopModels=createDesktopModels({globalModels,flashRouting,modelConfig,forward:modelForward,now,keyPoolPolicy:modelKeyPoolPolicy,keyPool:modelKeyPool,usageLedger});
  publicOrigin=new URL(publicOrigin).origin;const rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map(),kbAccessTokens=new Map(),activeTokens=new Map(),accountRevocations=new Map();
  let desktopRelay,admissionStopped=false;
  function disconnect(token){desktopRelay?.revoke(token);desktopModels.revoke(token);activeTokens.delete(token);for(const [key,grant] of kbAccessTokens)if(grant.sessionToken===token)kbAccessTokens.delete(key);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
@@ -372,7 +373,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  * @param options Listening gateway, provider service, and owned model resources.
  * @returns An idempotent close operation rejecting only after cleanup completes.
  */
-export function installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,usageLedger,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
+export function installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,usageLedger,flashRouting,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
  const sockets=new Set();let completion;
  const connection=socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));};
  accountServer.on('connection',connection);
@@ -387,6 +388,7 @@ export function installGatewayShutdown({accountServer,asr,market,modelRelay,mode
    for(const socket of sockets)socket.destroy();
    const closed=await Promise.allSettled([closeServer(accountServer),...modelRelay?[closeServer(modelRelay)]:[]]);
    try{await usageLedger?.flush();}catch(error){failure??=error;}
+   try{await flashRouting?.flush();}catch(error){failure??=error;}
    modelKeyPool?.close();accountServer.off('connection',connection);
    signals.off('SIGTERM',signal);signals.off('SIGINT',signal);
    if(failure)throw failure;for(const result of closed)if(result.status==='rejected')throw result.reason;
@@ -412,6 +414,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
  const modelConfig=process.env.MUSE_MODEL_CONFIG?await openModelConfig(process.env.MUSE_MODEL_CONFIG):undefined;
  let globalModels,modelRelay,modelSecret;
  if(modelConfig){const {Config,discoverModels}=await import('../node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js');globalModels=await openGlobalModels(process.env.MUSE_MODEL_CONFIG+'.native',{legacyConfig:modelConfig,schema:restrictModelSchema(Config.toJSON()),discover:discoverModels});modelSecret=(await readFile(process.env.MUSE_MODEL_SECRET,'utf8')).trim();if(modelSecret.length<32)throw Error('Invalid model relay secret');}
+ const flashRouting=await openDeepSeekFlashRouting({configFile:process.env.MUSE_DEEPSEEK_FLASH_ROUTING,
+  affinityFile:join(dirname(accountFile),'deepseek-flash-affinity.json'),globalModels});
  const modelKeyPoolPolicy=resolveModelKeyPoolPolicy(process.env);
  const modelKeyPool=createModelKeyPool({keys:()=>globalModels?.credentialPool?.('zhipu-official')??[],...modelKeyPoolPolicy});
  const feedback=await openFeedback(join(dirname(accountFile),'feedback'));
@@ -446,10 +450,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;asrRequestRatePerMinute=config.requestRatePerMinute;
  }
- const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},workbenchClients:await loadWorkbenchClients(process.env.MUSE_WORKBENCH_LOGIN_CONFIG),modelConfig,globalModels,modelKeyPoolPolicy,modelKeyPool,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,usageLedger,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
- if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,secret:modelSecret,accounts:store,usageLedger,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
+ const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},workbenchClients:await loadWorkbenchClients(process.env.MUSE_WORKBENCH_LOGIN_CONFIG),modelConfig,globalModels,flashRouting,modelKeyPoolPolicy,modelKeyPool,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,usageLedger,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,flashRouting,secret:modelSecret,accounts:store,usageLedger,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
  let sweepInterval;
- installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,usageLedger,stopSweep:()=>clearInterval(sweepInterval)});
+ installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,usageLedger,flashRouting,stopSweep:()=>clearInterval(sweepInterval)});
  accountServer.listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>{console.log('MUSE accounts gateway listening on loopback:'+accountServer.address().port);if(asr)void asr.start().catch(()=>console.error('MUSE ASR startup failed'));});
  if(asr){
   const sweep=()=>void asr.sweep().catch(()=>console.error('MUSE ASR retention cleanup failed'));

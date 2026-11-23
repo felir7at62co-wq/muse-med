@@ -11,6 +11,7 @@
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'provider.account': 'DeepSeek 账号',
+  'provider.otherModels': '其他模型',
   'command.label': '模型',
   'command.description': '选择本会话使用的模型',
   'option.loadError': '目录加载失败：{message}',
@@ -42,6 +43,7 @@ export type ModelKey = keyof typeof zh
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'provider.account': 'DeepSeek Account',
+  'provider.otherModels': 'Other models',
   'command.label': 'Model',
   'command.description': 'Select the model for this conversation',
   'option.loadError': 'Catalog failed to load: {message}',
@@ -71,6 +73,7 @@ export const en = {
 export const ja = {
   'warning.savedModelUnavailable': en['warning.savedModelUnavailable'],
   'provider.account': 'DeepSeek アカウント',
+  'provider.otherModels': 'その他のモデル',
   'command.label': 'モデル',
   'command.description': 'この会話で使用するモデルを選択',
   'option.loadError': 'カタログの読み込みに失敗しました: {message}',
@@ -99,6 +102,7 @@ export const ja = {
 export const es = {
   'warning.savedModelUnavailable': en['warning.savedModelUnavailable'],
   'provider.account': 'Cuenta DeepSeek',
+  'provider.otherModels': 'Otros modelos',
   'command.label': 'modelo',
   'command.description': 'Selecciona el modelo para esta conversación',
   'option.loadError': 'No se pudo cargar el catálogo: {message}',
@@ -127,6 +131,7 @@ export const es = {
 export const fr = {
   'warning.savedModelUnavailable': en['warning.savedModelUnavailable'],
   'provider.account': 'Compte DeepSeek',
+  'provider.otherModels': 'Autres modèles',
   'command.label': 'Modèle',
   'command.description': 'Sélectionnez le modèle pour cette conversation',
   'option.loadError': 'Échec du chargement du catalogue : {message}',
@@ -155,6 +160,7 @@ export const fr = {
 export const de = {
   'warning.savedModelUnavailable': en['warning.savedModelUnavailable'],
   'provider.account': 'DeepSeek-Konto',
+  'provider.otherModels': 'Andere Modelle',
   'command.label': 'Modell',
   'command.description': 'Wählen Sie das Modell für dieses Gespräch aus',
   'option.loadError': 'Katalog konnte nicht geladen werden: {message}',
@@ -183,6 +189,7 @@ export const de = {
 export const ru = {
   'warning.savedModelUnavailable': en['warning.savedModelUnavailable'],
   'provider.account': 'DeepSeek Аккаунт',
+  'provider.otherModels': 'Другие модели',
   'command.label': 'Модель',
   'command.description': 'Выберите модель для этого разговора',
   'option.loadError': 'Не удалось загрузить каталог: {message}.',
@@ -211,6 +218,7 @@ export const ru = {
 export const pt = {
   'warning.savedModelUnavailable': en['warning.savedModelUnavailable'],
   'provider.account': 'DeepSeek Conta',
+  'provider.otherModels': 'Outros modelos',
   'command.label': 'Modelo',
   'command.description': 'Selecione o modelo para esta conversa',
   'option.loadError': 'Falha ao carregar o catálogo: {message}',

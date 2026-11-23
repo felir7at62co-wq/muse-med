@@ -123,6 +123,32 @@ it('sends its header only to the company relay after deleting contributed spoofe
   expect(values.slice(1)).toEqual([null, null, null, null, null])
 })
 
+it('sends a stable opaque Session key only to the unified Flash relay', async () => {
+  const trace = new MuseModelRequestTrace('https://company.test', () => {})
+  const flashURL = 'https://company.test/api/desktop-models/deepseek-flash-auto'
+  const sessionHeader = 'x-muse-model-session'
+  const values: (string | null)[] = []
+  const capture = async (sessionId: string): Promise<void> => {
+    const request = { ...options(sessionId), provider: 'muse-cloud-deepseek-flash-auto', model: 'deepseek-v4.1-flash' }
+    for await (const _chunk of trace.stream(request, async function* () {
+      for (const url of [flashURL, baseURL, flashURL.replace('company.test', 'supplier.test')]) {
+        values.push(trace.headers({ ...request, baseURL: url }, new Headers({ [sessionHeader]: 'spoof' })).get(sessionHeader))
+      }
+      yield finish
+    })) { /* Consume the owned stream. */ }
+  }
+  await capture('flash-session-a')
+  await capture('flash-session-a')
+  await capture('flash-session-b')
+  expect(values[0]).toMatch(/^[0-9a-f]{64}$/u)
+  expect(values[3]).toBe(values[0])
+  expect(values[6]).toMatch(/^[0-9a-f]{64}$/u)
+  expect(values[6]).not.toBe(values[0])
+  expect(values.filter((_, index) => index % 3 !== 0)).toEqual(Array.from({ length: 6 }, () => null))
+  expect(trace.headers({ ...options('unowned'), baseURL: flashURL }, new Headers({ [sessionHeader]: 'spoof' }))
+    .has(sessionHeader)).toBe(false)
+})
+
 it('preserves authoritative usage and safe response identities without retaining other replay or request fields', async () => {
   const records: MuseModelRequestMetadata[] = []
   const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))

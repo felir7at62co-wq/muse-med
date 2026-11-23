@@ -40,7 +40,8 @@ export async function bundleClient() {
     '  id: \'ds-bot\',',
     '  factory: (require) => {',
     'const module = { exports: {} }',
-    result.outputFiles[0].text.trimEnd(),
+    // deep-view 0.1.2 leaves a space before a CSS descendant-selector line break.
+    result.outputFiles[0].text.trimEnd().replace(/^\.dv-menu +$/m, '.dv-menu'),
     // The loader gets a plain exports object tagged as a module, as the tsdown preset
     // emits, rather than esbuild's getter-based `__esModule` object.
     'return Object.defineProperty({ ...module.exports }, Symbol.toStringTag, { value: \'Module\' })',

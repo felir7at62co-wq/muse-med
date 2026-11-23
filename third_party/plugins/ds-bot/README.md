@@ -87,7 +87,19 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     updateCheck: true               # look for a newer DS Bot when a window opens; default true
     updateRegistry: https://registry.example/   # ask only this npm registry for updates
     github: false                   # hide the GitHub connector; default shown in Connectors
+    taskRouting:                    # optional Main Bot routing for independent tasks
+      enabled: true
+      flash: muse-cloud-deepseek-flash-auto/deepseek-v4.1-flash
+      pro: muse-cloud-jubian-pro/deepseek-v4-pro
 ```
+
+The chooser groups Muse account models by their maker. Personal model configurations keep their provider names in the chooser.
+
+**Task models**: When `taskRouting.enabled` is true, Main Bots can consult `list_bot_model_cards` before they delegate independent tasks from their own chats. The cards show catalog models the team can select, with available input and context metadata. `message_bot` accepts the selected card tier in `task_difficulty` (`routine` or `advanced`) or the exact `task_model` explicitly requested by the user, together with `when: queue`, `request_id`, and a short `routing_reason`. An unavailable difficulty card uses the Worker's normal dispatch and says so in the receipt. If the requested exact model is unavailable, the task is held for a different choice.
+
+For the two default routes, cards include dated supplier prices, first visible text and total stream latency, success sample counts, and Chinese screenplay task scores. Prices distinguish cached input and time of day. The live model catalog supplies the default output budget and supported thinking levels. Exact route matching keeps results from being attributed to replacement routes. The evidence is bundled with DS Bot and stays fixed between builds. Production availability and charges use the live gateway and account.
+
+A routed assignment opens a background thread for the Worker. The receipt includes the thread's Session, model, and reason. The thread keeps its task model across restarts and conversation handoffs. The same request ID and arguments return the previous receipt. The Worker's foreground chat, model setting, and other threads keep their existing models. Look in the Worker's conversation parts to find the delegated thread. Set `taskRouting.enabled: false` and restart the profile to stop routing new tasks.
 
 ### Use dsh-im for an existing Feishu connection
 

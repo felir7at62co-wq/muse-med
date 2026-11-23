@@ -648,6 +648,7 @@ export const KO = {
   '{provider} · not available': '{provider} · 사용 불가',
   'Model for {name}': '{name}의 모델',
   'No models are set up in DeepSeek Harness yet.': 'DeepSeek Harness에 아직 설정된 모델이 없습니다.',
+  'Other models': '기타 모델',
   'Models and providers…': '모델 및 제공자…',
   Models: '모델',
   'Harness default': 'Harness 기본값',

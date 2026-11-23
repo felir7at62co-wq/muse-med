@@ -1370,6 +1370,8 @@ it.each([
   ['volcengine-ark', 'deepseek-v4-1-flash-260910', 'deepseek'],
   ['volcengine-ark', 'vendor/deepseek-v4.1-flash-261017', 'deepseek'],
   ['alibaba-bailian', 'deepseek-v4.1-flash-1017', 'qwen'],
+  ['deepseek-flash-auto', 'deepseek-v4.1-flash', 'deepseek'],
+  ['jubian-pro', 'deepseek-v4-pro', 'deepseek'],
   ['volcengine-ark', 'deepseek-v4-1-flash-other', 'default'],
   ['alibaba-bailian', 'deepseek-v4.1-flash-other', 'default'],
 ] as const)('uses the exact %s %s reasoning dialect without changing neighboring models', async (provider, model, dialect) => {

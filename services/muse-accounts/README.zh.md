@@ -231,6 +231,22 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 有界响应观察器保持转发字节不变，记录是否看到了 `[DONE]`、普通 EOF、取消或传输错误。元数据过大或格式无效时保持不可用，不作为语义核对成功。诊断不包含请求和响应正文、凭据、Cookie、完整标头或异常原文，不保存原始请求或 SSE 正文，不证明稿件质量，也不改变准入、重试与计费。网关改动的部署与桌面构建分别进行。
 
+### DeepSeek Flash 供应商路由
+
+将 `MUSE_DEEPSEEK_FLASH_ROUTING` 指向私有 JSON 文件，即可提供一个 DeepSeek V4.1 Flash 入口。`jubian` 和 `bailian` 各包含私有模型目录中的 `provider` 和准确的 `model`。剧变使用 `https://gw.jubianai.net` 与 `deepseek-v4.1-flash`，百炼使用阿里云百炼工作空间端点或 `https://dashscope.aliyuncs.com`，路径为 `/compatible-mode/v1`，模型为 `deepseek-v4.1-flash-1017`。两条线路各自需要可用凭据。统一入口公布两条线路共同支持的能力。
+
+```json
+{
+  "jubian": { "provider": "jubian-flash-upstream", "model": "deepseek-v4.1-flash" },
+  "bailian": { "provider": "alibaba-bailian", "model": "deepseek-v4.1-flash-1017" },
+  "hide": []
+}
+```
+
+桌面模型目录隐藏两条源线路及可选 `hide` 中列出的模型。网关把 64 位小写十六进制 `x-muse-model-session` 限定在已验证的账号内。旧客户端按账号固定线路。开始向客户端发送数据前遇到可重试故障，网关可以尝试另一条线路一次，对方接受后该会话固定到新线路。已接受的切换保存到账号文件旁的 `deepseek-flash-affinity.json`。会话路由标识留在网关。已向客户端发送的流不会触发供应商切换。
+
+用独立网关、账号存储与模型目录测试。在测试目录的 `jubian-pro` 供应商下添加 `deepseek-v4-pro`，即可使用 DS Bot 的默认 Pro 档案。Flash 环境变量与 DS Bot `taskRouting` 配置分别启用对应功能。
+
 ### 模型 Key 资源池
 
 智谱数组凭据让桌面和云端工作间请求共用一个网关并发池，由 `MUSE_ZHIPU_KEY_CONCURRENCY`（默认 20）、`MUSE_ZHIPU_QUEUE_LIMIT`（1000）和 `MUSE_ZHIPU_QUEUE_TIMEOUT_MS`（120000）配置。队列满或等待超时会在调用供应商前失败；领取结果不明时不会自动重试。
