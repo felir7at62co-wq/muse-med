@@ -68,7 +68,7 @@ test('a signed batch becomes one message in the main Bot chat, and a repeat is a
     assert.equal(h.sent.length, 1)
     assert.equal(h.sent[0].sessionId, 'main-bot')
     assert.equal(h.sent[0].requestId, 'station:7-8')
-    assert.equal(h.sent[0].content[0].text, '【储备变化】数据站自动通知，不是用户发的消息；按技能 transcription-supervision 处理。\n- 新入储备：《好一个乖乖女》（新上榜作品入选）\n- 立即转写：《hongguo:2》，成员甲 发起')
+    assert.equal(h.sent[0].content[0].text, '【储备变化】数据站自动通知，不是用户发的消息；按技能 transcription-assigning 处理。\n- 新入储备：《好一个乖乖女》（新上榜作品入选）\n- 立即转写：《hongguo:2》，成员甲 发起')
     assert.deepEqual(await h.post(batch), { status: 200, body: { accepted: 0, repeated: true } })
     assert.equal(h.sent.length, 1)
   } finally { h.cleanup() }
