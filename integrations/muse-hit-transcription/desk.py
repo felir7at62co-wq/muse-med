@@ -59,15 +59,20 @@ def context_tokens(lines):
     return 0
 
 
+#: Session events that mean the Bot did something; cloud Muse writes bookkeeping events such as `session/end-seed`
+#: into every session when it starts, which say nothing about the Bot.
+ACTIVITY = ("turn/start", "turn/end", "tool/call", "tool/result", "assistant/message", "user/message")
+
+
 def last_event_ms(lines):
-    """Time (epoch ms) of the newest event in a session log, or 0."""
+    """Time (epoch ms) of the Bot's newest activity in a session log, or 0."""
     for line in reversed(lines):
         try:
-            value = json.loads(line).get("time")
+            event = json.loads(line)
         except ValueError:
             continue
-        if isinstance(value, (int, float)):
-            return value
+        if event.get("type") in ACTIVITY and isinstance(event.get("time"), (int, float)):
+            return event["time"]
     return 0
 
 

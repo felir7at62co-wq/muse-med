@@ -221,6 +221,8 @@ class RestartTest(DeskCase):
         self.desk.watch_once()
         self.assertEqual(self.bots.sent, [], "a completed turn with no restart is left alone")
         self.bots.started = 2_000.0
+        # Cloud Muse writes a bookkeeping event into every session when it starts; that is not the Bot working.
+        self.bots.logs["chat-1"].append(json.dumps({"type": "session/end-seed", "time": 2_100_000, "data": {}}))
         self.desk.watch_once()
         self.assertEqual(len(self.bots.sent), 1)
         self.desk.watch_once()
