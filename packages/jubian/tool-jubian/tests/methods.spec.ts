@@ -1778,6 +1778,64 @@ describe('jubian_storyboard', () => {
   const createBody = { scriptId: 2708, episodeId: 9, storyboardName: 'P1', sortOrder: 0,
     modelConfig: { prompt: 'ready' } }
 
+  it.each(['explicit directory', 'session directory'])('rejects stale batch creation project IDs against the %s', async (source) => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2709 }))
+    const { calls, client } = stubClient(() => 25)
+    const explicit = source === 'explicit directory'
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      ...(explicit ? { project_dir: root } : {}),
+      storyboards: [
+        { idempotency_key: 'old-p1', body: createBody },
+        { idempotency_key: 'old-p2', body: { ...createBody, storyboardName: 'P2', sortOrder: 1 } },
+      ] }, explicit ? {} : { creationWorkspaceDir: root })).rejects.toThrow('与目标剧变项目不符')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('rejects single creation when the explicit project ID differs from the body', async () => {
+    const { calls, client } = stubClient(() => 25)
+    await expect(storyboardMethod(client, ledger, { method: 'create', script_id: 2709,
+      idempotency_key: 'wrong-single', body: createBody })).rejects.toThrow('belongs to another project')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('checks the project path before single creation and accepts a matching explicit target', async () => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2709 }))
+    const project = await mkdtemp(join(root, 'other-project-'))
+    await writeFile(join(project, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+    const { calls, client } = stubClient(() => 25)
+    const create = { method: 'create', idempotency_key: 'scoped-single', body: createBody }
+    await expect(storyboardMethod(client, ledger, { ...create, project_dir: root }))
+      .rejects.toThrow('与目标剧变项目不符')
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+    await expect(storyboardMethod(client, ledger, { ...create, project_dir: project, script_id: 2708 },
+      { creationWorkspaceDir: root })).resolves.toMatchObject({ outcome: 'accepted', data: 25 })
+    expect(calls.map(call => [call.method, call.body?.scriptId, call.body?.isGenerate])).toEqual([['POST', 2708, 0]])
+  })
+
+  it('keeps the remote-only creation path when the session directory has no project configuration', async () => {
+    const { calls, client } = stubClient(() => 25)
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ idempotency_key: 'remote-batch', body: createBody }] },
+    { creationWorkspaceDir: root })).resolves.toMatchObject({ returned: 1, errors: 0 })
+    await expect(storyboardMethod(client, ledger, { method: 'create', script_id: 2708,
+      idempotency_key: 'remote-single', body: createBody },
+    { creationWorkspaceDir: root })).resolves.toMatchObject({ outcome: 'accepted', data: 25 })
+    expect(calls.map(call => [call.method, call.body?.scriptId, call.body?.isGenerate]))
+      .toEqual([['POST', 2708, 0], ['POST', 2708, 0]])
+  })
+
+  it('refuses the full creation batch when the workspace binding cannot be inspected', async () => {
+    const { calls, client } = stubClient(() => 25)
+    await expect(storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+      storyboards: [{ idempotency_key: 'invalid-workspace-batch', body: createBody }] },
+    { creationWorkspaceDir: `${root}\u0000` })).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('refuses absent native previews and unreadable preparation inputs before any paid request', async () => {
     const { client, calls } = stubClient(() => 1)
     await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
@@ -1851,11 +1909,12 @@ describe('jubian_storyboard', () => {
   })
 
   it('prepares batch bodies from files and isolates ledger conflicts per item', async () => {
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
     const bodyPath = join(root, 'batch-body.json')
     await writeFile(bodyPath, JSON.stringify(createBody))
     await ledger.begin({ idempotencyKey: 'conflict', method: 'asset_register', requestSha256: 'sha256:other' })
     const { client, calls } = stubClient(() => 1)
-    const result = await storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708,
+    const result = await storyboardMethod(client, ledger, { method: 'create_batch', script_id: 2708, project_dir: root,
       storyboards: [{ idempotency_key: 'file-create', body_path: bodyPath },
         { idempotency_key: 'conflict', body: { ...createBody, storyboardName: 'P2' } }] })
     expect(result).toMatchObject({ total: 2, returned: 1, errors: 1,

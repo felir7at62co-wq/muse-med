@@ -1304,9 +1304,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       const assertVideoModel = agent && service ? (model: Record<string, unknown>) =>{  service.assertCurrent(agent, model) } : undefined
       return await guarded('jubian_storyboard', async (input) => {
         let dispatchSignal = exec.signal
+        const creationWorkspaceDir = input.method === 'create' || input.method === 'create_batch'
+          ? agent && ctx.get('workingDirectory')?.get(agent.session)
+          : undefined
         const dispatch = async (beforeVideoSend?: (key: string) => Promise<void>) => {
           const result = await storyboardMethod(client, ledger, input, {
-            naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal,
+            naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal, creationWorkspaceDir,
             ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
             ...(promptRiskReview ? { promptRiskReview } : {}),
             ...(assertVideoModel ? { assertVideoModel } : {}),
