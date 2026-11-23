@@ -163,15 +163,6 @@ const REFUSED = {
   notBound: { ok: false, error: new RemoteError('forgePanel/not-bound', 'not bound', {}) },
 } satisfies Record<string, RemoteResult<never>>
 
-/**
- * Carry changes tab parameters in a navigation record. In the aggregate client
- * program, the navigation parameter union lacks the resource parameters that
- * packages declare through the Sidebar's entry point, so the parameters are asserted.
- */
-function navigationParams(params: ChangesParams | undefined): SidebarRightTabInfo['tab']['navigation']['params'] {
-  return params as SidebarRightTabInfo['tab']['navigation']['params']
-}
-
 /** A promise the test settles by hand. */
 function deferred<T>() {
   let settle: (value: T) => void = () => {}
@@ -214,7 +205,7 @@ function mount(options: MountOptions = {}) {
     disconnected: options.disconnected ?? false,
   })
   const navigation = createSnapshotStore<SidebarRightTabInfo['tab']['navigation']>({
-    address: contentId, params: navigationParams(options.params), revision: 1,
+    address: contentId, params: options.params, revision: 1,
   })
   const visibility = createSnapshotStore(true)
   const useVisible = bindSnapshotSelector(visibility)
@@ -984,10 +975,10 @@ describe('ChangesTab layout', () => {
     act(() => { m.panel.set({ state: { ...LOCAL_STATE }, disconnected: false }) })
     expect(scrolled).toHaveBeenCalledOnce()
 
-    act(() => { m.navigation.set({ address: m.navigation.getSnapshot().address, params: navigationParams({ path: 'missing.txt' }), revision: 2 }) })
+    act(() => { m.navigation.set({ address: m.navigation.getSnapshot().address, params: { path: 'missing.txt' }, revision: 2 }) })
     await settle()
     expect(m.faces.localDiff).toHaveBeenCalledTimes(2)
-    act(() => { m.navigation.set({ address: m.navigation.getSnapshot().address, params: navigationParams({}), revision: 3 }) })
+    act(() => { m.navigation.set({ address: m.navigation.getSnapshot().address, params: {}, revision: 3 }) })
     await settle()
     expect(scrolled).toHaveBeenCalledOnce()
     expect(m.store.getSnapshot().byTab[TAB]?.navigated).toBe(3)
@@ -1764,16 +1755,16 @@ describe('ChangesTab review layers', () => {
     expect(m.paths()).toEqual([])
     fireEvent.click(m.view.getByRole('switch', { name: en['tests.hide'] }))
 
-    act(() => { m.navigation.set({ ...m.navigation.getSnapshot(), params: navigationParams({ path: 'src/app.spec.ts' }), revision: 2 }) })
+    act(() => { m.navigation.set({ ...m.navigation.getSnapshot(), params: { path: 'src/app.spec.ts' }, revision: 2 }) })
     expect(m.store.getSnapshot().byTab[TAB]).toMatchObject({ lens: 'all', hideTests: false })
     expect(m.paths()).toEqual(['src/app.spec.ts', 'package.json'])
     expect(scrolled.mock.contexts.at(-1)).toBe(m.section('src/app.spec.ts'))
 
     fireEvent.click(m.view.getByRole('switch', { name: en['tests.hide'] }))
-    act(() => { m.navigation.set({ ...m.navigation.getSnapshot(), params: navigationParams({ path: 'src/app.spec.ts' }), revision: 3 }) })
+    act(() => { m.navigation.set({ ...m.navigation.getSnapshot(), params: { path: 'src/app.spec.ts' }, revision: 3 }) })
     expect(m.store.getSnapshot().byTab[TAB]).toMatchObject({ lens: 'all', hideTests: false })
     fireEvent.click(m.view.getByRole('radio', { name: /^Tests/ }))
-    act(() => { m.navigation.set({ ...m.navigation.getSnapshot(), params: navigationParams({ path: 'package.json' }), revision: 4 }) })
+    act(() => { m.navigation.set({ ...m.navigation.getSnapshot(), params: { path: 'package.json' }, revision: 4 }) })
     expect(m.store.getSnapshot().byTab[TAB]).toMatchObject({ lens: 'all', hideTests: false })
     expect(scrolled.mock.contexts.at(-1)).toBe(m.section('package.json'))
   })
