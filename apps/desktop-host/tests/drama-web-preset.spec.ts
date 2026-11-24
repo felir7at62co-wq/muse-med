@@ -1,7 +1,7 @@
 /** Drama resource tools activate only for an explicitly configured secure API. */
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, type Plugin } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -65,7 +65,7 @@ it('shares one secure opt-in between manual installation and the short-drama pre
 
 it('activates the bundled source and runs library search through the native tool registry', async () => {
   const modulePath = new URL('../../../third_party/plugins/muse-drama-web/src/index.js', import.meta.url).href
-  const plugin = await import(/* @vite-ignore */ modulePath)
+  const plugin = await import(/* @vite-ignore */ modulePath) as Plugin<{ baseUrl: string; tokenEnv: string }>
   const context = new Context()
   const fetch = vi.fn(async () => Response.json({ items: [{ id: 7, title: '示例短剧' }] }))
   vi.stubEnv('DRAMA_WEB_TEST_TOKEN', 'mock-token')
