@@ -8,7 +8,7 @@ import {pipeline} from 'node:stream/promises';
 import {Transform} from 'node:stream';
 import {setTimeout as delay} from 'node:timers/promises';
 import {resolveAsrResources,resourceForJob} from './asr-resources.mjs';
-import {AsrProviderError} from './asr-provider.mjs';
+import {AsrProviderError,isTerminalAsrQueryCode} from './asr-provider.mjs';
 
 function fail(status,message,code,retryAfter){return Object.assign(Error(message),{status,...code?{code}:{},...retryAfter?{retryAfter}:{}});}
 const validKey=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -229,7 +229,7 @@ export function createAsrService(options){
    await save(account,key,job);return publicJob(job);
   }
   delete job.queryRetry;
-  if(result.status==='failed'&&['45000006','45000092','55001010'].includes(result.providerCode)){
+  if(result.status==='failed'&&isTerminalAsrQueryCode(result.providerCode)){
    const count=job.terminalQuery?.code===result.providerCode?job.terminalQuery.count+1:1;
    job.terminalQuery={code:result.providerCode,count};job.failureCode='provider_rejected';
    job.providerFailure={code:job.failureCode,operation:'query',reason:'response',providerCode:result.providerCode};
@@ -266,7 +266,8 @@ export function createAsrService(options){
    job.status=job.status==='queued'?'failed':'uncertain';recordProviderFailure(job,error);await save(job.account,job.id,job);
   }
  }
- async function rateProvider(resource,operation){
+ // Measure the provider cadence after the durable receipt is ready.
+ async function rateProvider(resource,operation,prepare){
   const group=groups.get(resource.quotaGroup),key=group.id+'\0'+operation,prior=rateTails.get(key)??Promise.resolve();
   const pending=(async()=>{
    await prior;
@@ -277,6 +278,7 @@ export function createAsrService(options){
     await delay(wait,undefined,{signal:shutdown.signal});
    }
    if(closing)return false;
+   if(prepare)await prepare();
    nextRequestAt.set(key,performance.now()+1000/group[operation==='submit'?'submitQps':'queryQps']);
    return true;
   })();
@@ -292,8 +294,10 @@ export function createAsrService(options){
     await stat(file);await storage.assertPrivateBeforeUpload();step='upload';
     const object=storage.key(job.taskId,job.audioFormat);await storage.upload(file,object);step='storage-verification';
     const url=await storage.signedReadUrl(object);await storage.assertPrivateAndReadable(object,url);
-    await rateProvider(resource,'submit');if(closing)return;
-    job.status='submitting';job.submittedAtMs=now();await save(job.account,job.id,job);
+    const ready=await rateProvider(resource,'submit',async()=>{
+     job.status='submitting';job.submittedAtMs=now();await save(job.account,job.id,job);
+    });
+    if(!ready)return;
     try{await resource.provider.submit({id:job.taskId,url,language:job.language,format:job.audioFormat,purpose:job.purpose,durationSeconds:job.duration});job.status='processing';}
     catch(error){job.status='uncertain';recordProviderFailure(job,error);}
     await save(job.account,job.id,job);await rm(file,{force:true});
@@ -471,9 +475,9 @@ export function createAsrService(options){
    const tail=pending.then(()=>{},()=>{});accountTails.set(account,tail);
    try{return await pending;}finally{active.delete(activeKey);if(accountTails.get(account)===tail)accountTails.delete(account);}
   },
-  /** Read an account-owned receipt; background workers alone query charged tasks. */
-  async get(account,key){await initialized;if(!validKey(key))throw fail(400,'Invalid ASR job ID');const job=await read(account,key);if(!job)throw fail(404,'ASR job not found');
-   const owned=account+'\0'+key;
+  /** Read an account-owned receipt or active upload; background workers alone query charged tasks. */
+  async get(account,key){await initialized;if(!validKey(key))throw fail(400,'Invalid ASR job ID');const job=await read(account,key),owned=account+'\0'+key;
+   if(!job){if(active.has(owned))return {id:key,status:'preparing',recovery:{capability:'none',next_action:'wait',automatic_resubmit:false}};throw fail(404,'ASR job not found');}
    if(active.has(owned)||workers.has(owned))return publicJob(job);
    // The receipt just read is the answer unless it owes an expiry change or one is running; only that change queues behind admission.
    if(!expiring.has(owned)&&(closing||!expiryWanted(job,owned)))return publicJob(job);

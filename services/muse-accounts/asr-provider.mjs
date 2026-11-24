@@ -2,6 +2,7 @@
 import {readFile} from 'node:fs/promises';
 const endpoint='https://openspeech.bytedance.com/api/v3/auc/bigmodel';
 const resource='volc.bigasr.auc';
+const terminalQueryCodes=new Set(['45000006','45000092','55001010','55001011']);
 const quotaTypes=new Set(['qps','concurrency','audio_duration','audio_duration_saas','audio_duration_lifetime','text_words_lifetime','tokens_lifetime']);
 const failureMessages={
  submit:{response:'ASR submit outcome unknown; retain the task ID and query it'},
@@ -11,7 +12,7 @@ const failureMessages={
 
 /**
  * Safe provider diagnostics. A rejection records a response, never a known charge outcome.
- * Only fixed messages, validated status fields and allowlisted query retry diagnostics are retained.
+ * Only fixed messages, validated status fields and allowlisted quota diagnostics are retained.
  */
 export class AsrProviderError extends Error{
  /**
@@ -27,9 +28,13 @@ export class AsrProviderError extends Error{
   if(Number.isInteger(response?.status)&&response.status>=100&&response.status<=599)this.httpStatus=response.status;
   const providerCode=response?.headers.get('X-Api-Status-Code');
   if(typeof providerCode==='string'&&/^\d{5,10}$/.test(providerCode))this.providerCode=providerCode;
+  if(operation==='query'||this.httpStatus===429){
+   const message=response?.headers.get('X-Api-Message')??'';
+   const match=/^quota exceeded for types: ([a-z_]+)$/i.exec(message);
+   const quota=match?.[1]?.toLowerCase();
+   if(match?.[0]===message&&quotaTypes.has(quota))this.quotaType=quota;
+  }
   if(operation==='query'){
-   const quota=/^quota exceeded for types: ([a-z_]+)$/i.exec(response?.headers.get('X-Api-Message')??'')?.[1]?.toLowerCase();
-   if(quotaTypes.has(quota))this.quotaType=quota;
    const retry=response?.headers.get('Retry-After');
    if(typeof retry==='string'&&/^\d{1,5}$/.test(retry)&&Number(retry)>0&&Number(retry)<=86400)this.retryAfterSeconds=Number(retry);
   }
@@ -50,6 +55,9 @@ export async function submitAsr(config,{id,url,language,format='mp3',purpose,dur
  throw new AsrProviderError('submit','response',response);
 }
 
+/** Classify an explicit terminal status from a standard transcription query. */
+export function isTerminalAsrQueryCode(code){return terminalQueryCodes.has(code);}
+
 /** Query an existing task, including after an uncertain submit. */
 export async function queryAsr(config,id,fetcher=fetch){
  let response;
@@ -59,7 +67,7 @@ export async function queryAsr(config,id,fetcher=fetch){
  if(!response.ok)throw new AsrProviderError('query','http',response);
  if(['20000001','20000002'].includes(code))return {status:'processing',queued:code==='20000002'};
  if(code==='20000003')return {status:'silent'};
- if(['45000006','45000092','55001010'].includes(code))return {status:'failed',providerCode:code};
+ if(isTerminalAsrQueryCode(code))return {status:'failed',providerCode:code};
  if(code!=='20000000')throw new AsrProviderError('query','response',response);
  let body;try{body=await response.json();}catch(error){throw new AsrProviderError('query','json',response);}
  try{return normalizeResult(body);}catch(error){throw new AsrProviderError('query','result',response);}

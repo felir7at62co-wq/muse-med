@@ -33,11 +33,14 @@ test('shutdown reports a response persistence failure after its only provider re
 });
 
 test('shutdown reports an owned retention sweep failure after cleanup settles',async t=>{
- const root=await mkdtemp(join(tmpdir(),'muse-asr-close-sweep-'));
- const service=createAsrService({...limits,root,maxConcurrentJobs:1,provider:{recognize:async()=>({status:'silent'})}});
- t.after(async()=>{await service.close();await rm(root,{recursive:true,force:true});});
- await service.ready();await writeFile(join(root,'jobs','malformed.json'),'invalid json');
- const sweep=service.sweep(),stopped=service.close();
+ const root=await mkdtemp(join(tmpdir(),'muse-asr-close-sweep-'));let clock=Date.now();
+ const service=createAsrService({...limits,root,maxConcurrentJobs:1,now:()=>clock,provider:{recognize:async()=>{throw Error('synthetic lost response');}}});
+ t.after(async()=>{await Promise.allSettled([service.close()]);await rm(root,{recursive:true,force:true});});
+ await service.ready();await service.submit('alice',randomUUID(),hash,'zh',Readable.from(bytes));await service.idle();
+ // The sweep rereads the indexed receipts it selects, so an unknown receipt past retention fails on its damaged file.
+ const [saved]=await receipts(root);assert.equal(saved.job.status,'uncertain');clock+=limits.retentionSeconds*1000;await writeFile(join(root,'jobs',saved.name),'invalid json');
+ // A sweep owns its cleanup once it has started one; close() stops sweeps that have not reached a receipt.
+ const sweep=service.sweep();await new Promise(resolve=>setImmediate(resolve));const stopped=service.close();
  await assert.rejects(sweep,SyntaxError);await assert.rejects(stopped,SyntaxError);
 });
 
@@ -159,9 +162,10 @@ test('a submitted Flash receipt cannot become billable again by relabeling it qu
 
 test('shutdown awaits an already-running retention cleanup and stops new sweeps',async t=>{
  const entered=deferred(),release=deferred();let block=false,removals=0;
- const storage={key:id=>id,assertPrivateBeforeUpload:async()=>{},upload:async()=>{},signedReadUrl:async()=>'https://signed.invalid/audio',assertPrivateAndReadable:async()=>{},remove:async()=>{removals++;if(block){entered.resolve();await release.promise;}}};
+ // The first removal fails, so the service itself records the cleanup the sweep owes.
+ const storage={key:id=>id,assertPrivateBeforeUpload:async()=>{},upload:async()=>{},signedReadUrl:async()=>'https://signed.invalid/audio',assertPrivateAndReadable:async()=>{},remove:async()=>{removals++;if(removals===1)throw Error('synthetic storage outage');if(block){entered.resolve();await release.promise;}}};
  const resources=[{poolId:'first',appId:'app-first',serviceVersion:'standard-v2',quotaGroup:'first',maxConcurrentJobs:1,provider:{submit:async()=>{},query:async()=>({status:'silent'})}}];
- const env=await fixture(t,resources,[{id:'first',maxConcurrentJobs:1}],{providerKind:'standard',storage});await env.submit('alice');await env.service.idle();const [saved]=await receipts(env.root);saved.job.cleanupPending=true;await writeFile(join(env.root,'jobs',saved.name),JSON.stringify(saved.job));block=true;
+ const env=await fixture(t,resources,[{id:'first',maxConcurrentJobs:1}],{providerKind:'standard',storage});await env.submit('alice');await env.service.idle();const [saved]=await receipts(env.root);assert.equal(saved.job.cleanupPending,true);block=true;
  const sweeping=env.service.sweep();await entered.promise;let closed=false;const closing=env.service.close().then(()=>{closed=true;});
  try{await env.service.sweep();assert.equal(closed,false);assert.equal(removals,2);}finally{release.resolve();}
  await sweeping;await closing;assert.equal(closed,true);assert.equal((await receipts(env.root))[0].job.cleanupPending,false);
