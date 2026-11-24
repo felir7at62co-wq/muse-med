@@ -264,7 +264,7 @@ export function codexFilesystemPath(value) {
       writeFileSync(join(directory, 'BUNDLED_LICENSES.md'), `# Bundled dependency licenses\n\n## @heroicons/react ${tools.dependencies['@heroicons/react']}\n\n${readFileSync(join(toolchain, 'node_modules/@heroicons/react/LICENSE'), 'utf8')}`)
     }
     if (name === 'ds-bot') {
-      const licenses = ['deep-view', '@xmldom/xmldom'].map(dependency => `## ${dependency} ${tools.dependencies[dependency]}\n\n${readFileSync(join(toolchain, 'node_modules', dependency, 'LICENSE'), 'utf8')}`)
+      const licenses = ['deep-view', '@xmldom/xmldom', 'open-bot-avatar'].map(dependency => `## ${dependency} ${tools.dependencies[dependency]}\n\n${readFileSync(join(toolchain, 'node_modules', dependency, 'LICENSE'), 'utf8')}`)
       writeFileSync(join(directory, 'BUNDLED_LICENSES.md'), `# Bundled dependency licenses\n\n${licenses.join('\n\n')}`)
     }
     rmSync(join(directory, 'lib/tsconfig.tsbuildinfo'), { force: true })

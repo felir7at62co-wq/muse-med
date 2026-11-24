@@ -45,9 +45,13 @@ test('packs the Muse Bot Host, rebuilt Client and Apache notice without a standa
     assert.equal(member(archive, 'LICENSE'), readFileSync(join(source, 'LICENSE'), 'utf8'))
     assert.equal(member(archive, 'NOTICE'), readFileSync(join(source, 'NOTICE'), 'utf8'))
     const bundledLicenses = member(archive, 'BUNDLED_LICENSES.md')
-    for (const dependency of ['deep-view', '@xmldom/xmldom']) {
+    for (const dependency of ['deep-view', '@xmldom/xmldom', 'open-bot-avatar']) {
       assert.ok(bundledLicenses.includes(readFileSync(join(import.meta.dirname, 'toolchain/node_modules', dependency, 'LICENSE'), 'utf8')))
     }
+    // The animated avatars' package is bundled into client.js at the version the toolchain pins.
+    assert.match(bundledLicenses, /^## open-bot-avatar 0\.3\.1$/mu)
+    assert.equal(JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')).devDependencies['open-bot-avatar'], '0.3.1')
+    assert.match(member(archive, 'client.js'), /mountAvatar/u)
     assert.match(member(archive, 'client.js'), /window\.__ModuleLoader__\.load\(/u)
     for (const file of ['avatar-library', 'privacy', 'learning', 'office-skills']) {
       assert.ok(member(archive, `src/host/${file}.js`).trim())
