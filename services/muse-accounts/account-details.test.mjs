@@ -4,7 +4,10 @@ import {test} from 'node:test';
 import {randomUUID} from 'node:crypto';
 import {mkdtemp,readFile,readdir,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {tmpdir} from 'node:os';
+import {tmpdir as systemTmpdir} from 'node:os';
+import {realpathSync as realpathOfTmpdir} from 'node:fs';
+// Private-directory checks compare real paths; the system temp directory can be reached through a link (macOS /var).
+const tmpdir=()=>realpathOfTmpdir(systemTmpdir());
 import {once} from 'node:events';
 import {openUsageLedger} from './usage-ledger.mjs';
 import {accountGroups} from './account-groups.mjs';

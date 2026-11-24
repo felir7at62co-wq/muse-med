@@ -3,7 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile,access} from 'node:fs/promises';
 import {join,resolve,sep} from 'node:path';
-import {tmpdir} from 'node:os';
+import {tmpdir as systemTmpdir} from 'node:os';
+import {realpathSync as realpathOfTmpdir} from 'node:fs';
+// Private-directory checks compare real paths; the system temp directory can be reached through a link (macOS /var).
+const tmpdir=()=>realpathOfTmpdir(systemTmpdir());
 import {loadNativeJubianAdmission} from './native-jubian-config.mjs';
 
 async function fixture(t){

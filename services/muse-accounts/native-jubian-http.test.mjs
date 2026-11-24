@@ -4,7 +4,10 @@ import {createHash,generateKeyPairSync,sign} from 'node:crypto';
 import {once} from 'node:events';
 import {mkdtemp,rm} from 'node:fs/promises';
 import http from 'node:http';
-import {tmpdir} from 'node:os';
+import {tmpdir as systemTmpdir} from 'node:os';
+import {realpathSync as realpathOfTmpdir} from 'node:fs';
+// Private-directory checks compare real paths; the system temp directory can be reached through a link (macOS /var).
+const tmpdir=()=>realpathOfTmpdir(systemTmpdir());
 import {join} from 'node:path';
 import test from 'node:test';
 import {createAccountServer} from './gateway.mjs';

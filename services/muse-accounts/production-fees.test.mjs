@@ -3,7 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash,sign} from 'node:crypto';
 import {chmod,mkdtemp,rm,writeFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {tmpdir as systemTmpdir} from 'node:os';
+import {realpathSync as realpathOfTmpdir} from 'node:fs';
+// Private-directory checks compare real paths; the system temp directory can be reached through a link (macOS /var).
+const tmpdir=()=>realpathOfTmpdir(systemTmpdir());
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {openProductionFees,productionAuthority,resolveProductionFeeConfig} from './production-fees.mjs';

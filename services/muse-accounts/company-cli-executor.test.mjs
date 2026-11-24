@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,readFile,mkdir,rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {tmpdir as systemTmpdir} from 'node:os';
+import {realpathSync as realpathOfTmpdir} from 'node:fs';
+// Private-directory checks compare real paths; the system temp directory can be reached through a link (macOS /var).
+const tmpdir=()=>realpathOfTmpdir(systemTmpdir());
 import {join} from 'node:path';
 import {createServer} from 'node:http';
 import {once} from 'node:events';

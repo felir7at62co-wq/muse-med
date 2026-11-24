@@ -4,7 +4,10 @@ import http from 'node:http';
 import net from 'node:net';
 import {mkdtemp,writeFile,rm,symlink} from 'node:fs/promises';
 import {join} from 'node:path';
-import {tmpdir} from 'node:os';
+import {tmpdir as systemTmpdir} from 'node:os';
+import {realpathSync as realpathOfTmpdir} from 'node:fs';
+// Private-directory checks compare real paths; the system temp directory can be reached through a link (macOS /var).
+const tmpdir=()=>realpathOfTmpdir(systemTmpdir());
 import {openStore} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';

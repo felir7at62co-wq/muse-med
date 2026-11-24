@@ -5,7 +5,10 @@ import {randomUUID} from 'node:crypto';
 import {once} from 'node:events';
 import {cp,mkdtemp,rm,symlink,unlink,writeFile} from 'node:fs/promises';
 import http from 'node:http';
-import {tmpdir} from 'node:os';
+import {tmpdir as systemTmpdir} from 'node:os';
+import {realpathSync as realpathOfTmpdir} from 'node:fs';
+// Private-directory checks compare real paths; the system temp directory can be reached through a link (macOS /var).
+const tmpdir=()=>realpathOfTmpdir(systemTmpdir());
 import {join,dirname} from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath,pathToFileURL} from 'node:url';
