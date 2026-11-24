@@ -265,7 +265,7 @@ test('a positive balance is the main figure, with used and held below', async ()
 
 test('a used-up balance marks the button and says generation has stopped', async () => {
   for (const [available, figure] of [['0.00', '¥0.00'], ['-1.5', '-¥1.50']]) {
-    const side = client([ok({ unlimited: false, available, usedFen: 50000, heldFen: 0 })])
+    const side = client([ok({ unlimited: false, available, usedFen: 50000, heldFen: 0, enforced: true })])
     await side.mount()
     const [button] = byClass(side.render(), 'bt-account bt-quota')
     assert.equal(button.props['data-state'], 'exhausted')
@@ -275,6 +275,19 @@ test('a used-up balance marks the button and says generation has stopped', async
     const tree = side.open()
     assert.equal(textOf(byClass(tree, 'bt-quota-figure')), figure)
     assert.equal(textOf(byClass(tree, 'bt-quota-stop')), 'Quota used up. Generation has stopped; ask your team lead to grant more.')
+  }
+})
+
+test('a zero balance is not called used up where Jingliu does not stop generation, or does not say', async () => {
+  for (const enforced of [false, null, undefined]) {
+    const side = client([ok({ unlimited: false, available: '0.00', usedFen: 50000, heldFen: 0, ...(enforced === undefined ? {} : { enforced }) })])
+    await side.mount()
+    const [button] = byClass(side.render(), 'bt-account bt-quota')
+    assert.equal(button.props['data-state'], 'known')
+    assert.equal(byClass(button, 'bt-quota-dot').length, 0)
+    const tree = side.open()
+    assert.equal(textOf(byClass(tree, 'bt-quota-figure')), '¥0.00')
+    assert.equal(byClass(tree, 'bt-quota-stop').length, 0)
   }
 })
 

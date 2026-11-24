@@ -104,10 +104,12 @@ const money = yuan => `${yuan < 0 ? '-' : ''}¥${Math.abs(yuan).toFixed(2)}`
 export function quotaView(quota) {
   if (!quota || quota.state === 'absent') return null
   if (quota.state !== 'known') return { state: quota.state }
-  const { unlimited, available, usedFen, heldFen } = quota.value
+  const { unlimited, available, usedFen, heldFen, enforced } = quota.value
   const left = Number(available)
+  // Generation stops at zero only where Jingliu enforces the balance; a studio that does not say
+  // whether it does is not taken to.
   return {
-    state: unlimited ? 'unlimited' : left <= 0 ? 'exhausted' : 'known',
+    state: unlimited ? 'unlimited' : left <= 0 && enforced === true ? 'exhausted' : 'known',
     figure: unlimited ? t('Unlimited') : money(left),
     used: money(usedFen / 100),
     held: money(heldFen / 100),
