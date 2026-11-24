@@ -1,7 +1,7 @@
 /** The registered surface: tool names, argument guards and one end-to-end tool call. */
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -98,7 +98,7 @@ test('download tool writes under the initiating session workspace', async (t) =>
     res.writeHead(200, { 'content-type': 'application/octet-stream' })
     res.end(payload)
   })
-  const dir = await mkdtemp(join(tmpdir(), 'drama-web-tool-'))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'drama-web-tool-')))
   const { ctx, tools } = fakeContext(dir)
   process.env.TEST_DRAMA_TOKEN = 'tok'
   try {
