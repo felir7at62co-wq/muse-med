@@ -69,7 +69,7 @@ type AccountModel = z.infer<typeof metadata>['providers'][number]['models'][numb
 type FailoverRoute = { readonly provider: string; readonly model: AccountModel }
 
 /** Only known supplier failures are safe to repeat on another account route. */
-const failoverCodes = new Set(['QUOTA', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED', 'EMPTY_RESPONSE'])
+const failoverCodes = new Set(['UPSTREAM_CREDENTIAL_REJECTED', 'QUOTA', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED', 'EMPTY_RESPONSE'])
 
 function modelFamily(id: string): string {
   return modelName(id).toLowerCase().replace(/[-.].*$/su, '')
@@ -118,7 +118,7 @@ class MusePiAiAdapter extends PiAiAdapter {
       stream: options => this.trace.stream(options, () => safeMuseModelStream(() => {
         const signal = options.signal === undefined ? authorization : AbortSignal.any([authorization, options.signal])
         return direct ? direct(options, signal) : prepared.stream({ ...options, signal })
-      }), settled),
+      }, () => this.trace.authFailure()), settled),
     }
   }
 
@@ -176,6 +176,7 @@ export class MuseModels {
     const adapterOptions: PiAiAdapterOptions = {
       prepareHeaders: (request, headers) => trace.headers(request,
         ctx.waterfall('llm-pi-ai/request-headers', request, headers, () => headers)),
+      onProviderResponse: (request, response) => { trace.observeResponse(request, response) },
       profiles: () => this.profiles,
       resolveApiKey: async (_provider, profile) => {
         const session = await readMuseSession(options.sessionFile, options.baseUrl)
