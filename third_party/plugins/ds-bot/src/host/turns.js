@@ -1194,6 +1194,10 @@ export function install(rt) {
           }).catch(error => rt.warn('ds-bot: handing back a result failed: %s', error))
         }
         const reason = event.data?.reason
+        // DSH stopped the turn as it shut down, and the next start picks it up under the
+        // same trigger (resume.js): the answer it owes, and the work it is for, wait for that.
+        const pickedUpLater = reason?.kind === 'aborted' && reason.reason?.kind === 'disposed'
+          && info?.resumed !== true && rt.picksUpTurn?.(id) === true
         const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
         if (failure !== undefined) noteTurnFailure(id, failure)
         // A route that is not a model endpoint refuses every generation; the failed
@@ -1308,7 +1312,7 @@ export function install(rt) {
           const inRound = failure !== undefined && info === undefined && rt.failRoomTurn?.(id, failure) === true
           if (failure !== undefined) { if (!inRound) void rt.lateRoomFailure?.(id, info ?? {}, failure) }
           else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply(), { shown, toolCount })
-        } else if (!retry && info !== undefined) {
+        } else if (!retry && info !== undefined && !pickedUpLater) {
           finish(info, replyText())
         }
         for (const request of joined) {

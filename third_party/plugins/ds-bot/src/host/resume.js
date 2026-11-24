@@ -273,6 +273,13 @@ export function install(rt) {
   rt.noteApproval = (sessionId, approval) => update(sessionId, record => (record === undefined ? record
     : approval === undefined ? (({ approval: _, ...rest }) => rest)(record) : { ...record, approval }))
 
+  // Whether the next start picks up the turn of `sessionId` that DSH stopped as it shut
+  // down: it is noted, by a host that saves the team, and was not already a pick-up.
+  rt.picksUpTurn = (sessionId) => {
+    const record = turns[sessionId]
+    return record !== undefined && record.resumed !== true && rt.readOnly() === undefined
+  }
+
   // `notices`: what settleRuns settled, by work; the one for this turn's work goes along
   // with it and leaves the map.
   async function resumeTurn(sessionId, record, notices) {

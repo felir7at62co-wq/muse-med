@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { setTimeout as realDelay } from 'node:timers/promises'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
@@ -103,22 +104,23 @@ const stateOf = home => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'
 const notes = (home) => {
   try { return JSON.parse(readFileSync(join(home, 'inflight.json'), 'utf8')) } catch { return { turns: {}, queued: {} } }
 }
-// The team file is written in the background: the wait ticks the mocked clock.
+// The team file is written in the background: the wait ticks the mocked clock, and
+// gives the file writes real time.
 const settleState = async (t, check) => {
-  for (let count = 0; count < 300 && !check(); count += 1) {
+  const deadline = performance.now() + 10_000
+  while (!check() && performance.now() < deadline) {
     t.mock.timers.tick(100)
-    await new Promise(resolve => setImmediate(resolve))
+    await realDelay(5)
   }
   assert.ok(check(), 'condition not reached')
 }
 const settle = async (check) => {
-  const until = Date.now() + 3000
-  while (!check() && Date.now() < until) await new Promise(resolve => setImmediate(resolve))
+  const deadline = performance.now() + 10_000
+  while (!check() && performance.now() < deadline) await new Promise(resolve => setImmediate(resolve))
   assert.ok(check(), 'condition not reached')
 }
-const idle = async () => {
-  for (let count = 0; count < 50; count += 1) await new Promise(resolve => setImmediate(resolve))
-}
+// Long enough for anything the host would still send to arrive.
+const idle = () => realDelay(100)
 const text = message => message.content.map(block => block.text ?? '').join('\n')
 const said = (host, id, turn, words) => {
   host.emit(id, 'assistant/message', { message: { content: [{ type: 'text', text: words }] } })
@@ -298,6 +300,75 @@ test('a subagent run whose child is still resident is left to hand back by itsel
   assert.equal(second.agentOf('b').calls.length, 0)
   assert.notEqual(stateOf(home).works.r1, undefined)
   assert.match(second.rt.statusOf('b'), /waiting for subagent episode 3 to hand back work/)
+})
+
+// Writer takes Chief's request up and has said part of its answer when its turn stops.
+async function stoppedWriter(host, home, reason) {
+  await host.tool('message_bot', { to: 'Writer', message: 'Draft the plan' }, 'a')
+  const request = host.agentOf('b').calls[0]
+  run(host, 'b', 1, request)
+  host.emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: 'Half of the plan.' }] } })
+  host.emit('b', 'turn/end', { turn: 1, reason })
+  return request
+}
+
+test('a request turn stopped by a shutdown is answered once, by the turn the next start picks up', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const first = await start(home)
+  const request = await stoppedWriter(first, home, { kind: 'aborted', reason: { kind: 'disposed' } })
+  const workId = request.source.exchangeId
+  // Chief is not told now, and the work stays open for the pick-up.
+  await settleState(t, () => notes(home).turns?.b?.trigger?.exchangeId === workId && stateOf(home).works?.[workId] !== undefined)
+  await idle()
+  assert.equal(first.agentOf('a').calls.length, 0)
+  await first.stop()
+
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 1)
+  const resumed = second.agentOf('b').calls[0]
+  assert.deepEqual([resumed.source.role, resumed.source.exchangeId, resumed.source.resumed], ['request', workId, true])
+  assert.equal(second.agentOf('a').calls.length, 0)
+  run(second, 'b', 2, resumed)
+  said(second, 'b', 2, 'The plan is ready.')
+  await settle(() => second.agentOf('a').calls.length === 1)
+  await idle()
+  assert.equal(second.agentOf('a').calls.length, 1)
+  const answer = second.agentOf('a').calls[0]
+  assert.equal(answer.source.replyTo, workId)
+  assert.match(text(answer), /The plan is ready\./)
+  assert.doesNotMatch(text(answer), /stopped before it could answer/)
+})
+
+test('a picked-up request turn stopped by a shutdown again tells Chief, since it is not picked up twice', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const first = await start(home)
+  const request = await stoppedWriter(first, home, { kind: 'aborted', reason: { kind: 'disposed' } })
+  await settleState(t, () => notes(home).turns?.b?.trigger?.exchangeId === request.source.exchangeId)
+  await first.stop()
+
+  const second = await start(home)
+  t.mock.timers.tick(3000)
+  await settle(() => second.agentOf('b').calls.length === 1)
+  run(second, 'b', 2, second.agentOf('b').calls[0])
+  second.emit('b', 'turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'disposed' } } })
+  await settle(() => second.agentOf('a').calls.length === 1)
+  assert.equal(second.agentOf('a').calls[0].source.replyTo, request.source.exchangeId)
+  assert.match(text(second.agentOf('a').calls[0]), /^\[Reply from Writer\]\nWriter was stopped before it could answer your message\.$/)
+})
+
+test('a request turn the user stops is answered at once, and its work closes', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const home = freshHome(t)
+  const host = await start(home)
+  const request = await stoppedWriter(host, home, { kind: 'aborted', reason: { kind: 'user' } })
+  await settle(() => host.agentOf('a').calls.length === 1)
+  const answer = host.agentOf('a').calls[0]
+  assert.deepEqual([answer.source.role, answer.source.replyTo], ['reply', request.source.exchangeId])
+  assert.match(text(answer), /Half of the plan\./)
+  await settleState(t, () => stateOf(home).works?.[request.source.exchangeId] === undefined && notes(home).turns?.b === undefined)
 })
 
 test('a reply to a Bot whose Agent is closing still goes out', async (t) => {
