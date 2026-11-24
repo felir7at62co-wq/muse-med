@@ -1,6 +1,7 @@
 """Exercise the worker's real HTTP client against an isolated queue fixture."""
 
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -421,8 +422,9 @@ class MediaTests(unittest.TestCase):
             output = download / "downloads"
             output.mkdir(parents=True)
             save(download / "catalog.json", {"seriesId": FIRST, "title": TITLE, "episodeCount": 1})
-            task = {"id": "hgt-" + "0" * 32, "state": "partial", "cwd": str(download),
-                    "request": {"seriesIds": [FIRST], "outputDir": str(output), "quality": "720p"}}
+            task = {"id": "hgt-" + "0" * 32, "state": "interrupted", "cwd": str(download),
+                    "summary": {"code": "task_interrupted"},
+                    "request": {"seriesIds": [FIRST], "outputDir": str(output), "quality": "720p", "sourceMode": "legacy"}}
             responses = [
                 {"ok": True, "tasks": [task]}, {"ok": True},
                 {"ok": True, "tasks": [{**task, "state": "completed", "summary": {"complete": True, "path": str(output)}}]},
@@ -440,6 +442,144 @@ class MediaTests(unittest.TestCase):
                 result = acquire_media(cfg, root, FIRST, {"title": TITLE, "episodes": 1}, lambda: None)
                 self.assertEqual(cli.call_args_list[1].args[2], ["retry", task["id"]])
                 self.assertEqual(result["downloadTaskId"], task["id"])
+
+    def partial_download(self, root):
+        """Return a CLI failure and the bound checkpoint with episodes 1 and 3 already verified."""
+        download = root / "download"
+        output = download / "downloads"
+        request = {"mode": "legacy", "seriesIds": [FIRST], "episodes": None, "sourceIdentity": "jackotom:revision:720p"}
+        checkpoint_id = sha256(json.dumps(request, separators=(",", ":")).encode()).hexdigest()[:32]
+        checkpoint = output / ("hongguo-" + checkpoint_id)
+        checkpoint.mkdir(parents=True)
+        save(download / "catalog.json", {"seriesId": FIRST, "title": TITLE, "episodeCount": 4, "sourceMode": "legacy"})
+        episodes = [{"vid": str(index), "index": index} for index in range(1, 5)]
+        finished = []
+        for index in (1, 3):
+            video = checkpoint / f"{index:04d}.mp4"
+            video.write_bytes(b"video")
+            media = {"index": index, "path": str(video), "bytes": 5, "sha256": digest(video),
+                     "durationSeconds": 10, "fullDecodeChecked": True, "validationLevel": "ffprobe-full-decode-sha256"}
+            finished.append({"seriesId": FIRST, "vid": str(index), "episode": media})
+        save(checkpoint / "resume-state.json", {"version": 1, "request": request, "completed": finished,
+                                               "plans": [{"seriesId": FIRST, "title": TITLE, "episodeCount": 4,
+                                                          "episodes": episodes}]})
+        task = {"id": "hgt-" + "0" * 32, "runId": "hgr-" + "1" * 32, "state": "failed", "cwd": str(download),
+                "request": {"seriesIds": [FIRST], "outputDir": str(output), "quality": "720p", "sourceMode": "legacy"},
+                "summary": {"code": "source_unavailable", "path": str(checkpoint)}}
+        cfg = {"quality": "720p", "maxEpisodesPerSeries": 10, "downloadAttempts": 1, "downloadCooldownSeconds": 0}
+        work = {"title": TITLE, "episodes": 4}
+        return download, task, cfg, work
+
+    def test_reports_verified_missing_episodes_and_safe_diagnostics(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            download, task, cfg, work = self.partial_download(root)
+            result = {"ok": False, "taskId": task["id"], "runId": task["runId"], "code": "source_unavailable",
+                      "retryable": True, "sourceStage": "video_model", "upstreamCode": "SOURCE_UNAVAILABLE",
+                      "message": "https://cdn.example.invalid?secret=hidden",
+                      "sourceFailures": [
+                          {"source": "web", "code": "PREVIEW_ONLY", "message": "hidden"},
+                          {"source": "app", "code": "TIMEOUT", "registrationFailure": "TIMEOUT",
+                           "deviceId": "hidden"}, {"source": "live", "code": "NETWORK_ERROR"}]}
+            responses = [{"ok": True, "tasks": []}, result, {"ok": True, "tasks": [task]}]
+            with patch("native.hongguo", side_effect=responses) as cli, self.assertRaisesRegex(WorkError, "缺第 2、4 集"):
+                acquire_media(cfg, root, FIRST, work, lambda: None)
+            self.assertEqual(cli.call_count, 3)
+            progress = read(download / "progress.json")
+            self.assertEqual(progress, {"stage": "needs_attention", "totalEpisodes": 4, "verifiedEpisodes": 2,
+                                        "missingEpisodes": [2, 4], "error": {
+                                            "code": "source_unavailable", "retryable": True, "sourceStage": "video_model",
+                                            "upstreamCode": "SOURCE_UNAVAILABLE", "sourceFailures": [
+                                                {"source": "web", "code": "PREVIEW_ONLY"},
+                                                {"source": "app", "code": "TIMEOUT",
+                                                 "registrationFailure": "TIMEOUT"}]}})
+            self.assertFalse((root / "source.json").exists())
+            self.assertTrue((Path(task["summary"]["path"]) / "0003.mp4").is_file())
+
+    def test_spends_one_new_round_per_authenticated_requeue(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            download, task, cfg, work = self.partial_download(root)
+            attempts_path = download / "attempts.json"
+            save(attempts_path, {"attempts": 2, "retryAt": 0})
+            generation = "2026-11-24T21:05:32.486Z"
+            listing = {"ok": True, "tasks": [task]}
+            with patch("native.hongguo", return_value=listing) as cli, self.assertRaises(WorkError):
+                acquire_media(cfg, root, FIRST, work, lambda: None)
+            self.assertEqual(cli.call_count, 1)
+            result = {"ok": False, "taskId": task["id"], "runId": task["runId"], "code": "source_unavailable", "retryable": True}
+            with patch("native.hongguo", side_effect=[listing, result, listing]) as cli, self.assertRaises(WorkError):
+                acquire_media(cfg, root, FIRST, work, lambda: None, retry_generation=generation)
+            self.assertEqual(cli.call_args_list[1].args[2], ["retry", task["id"]])
+            record = read(attempts_path)
+            self.assertEqual(record["attempts"], 3)
+            self.assertEqual(record["retryGenerations"], [generation])
+            with patch("native.hongguo", return_value=listing) as cli, self.assertRaises(WorkError):
+                acquire_media(cfg, root, FIRST, work, lambda: None, retry_generation=generation)
+            self.assertEqual(cli.call_count, 1)
+            self.assertEqual(read(attempts_path), record)
+
+    def test_retries_a_confirmed_transient_failure_only_to_its_budget(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            download, task, cfg, work = self.partial_download(root)
+            cfg["downloadAttempts"] = 2
+            new_run = "hgr-" + "2" * 32
+            result = {"ok": False, "taskId": task["id"], "runId": task["runId"], "code": "source_unavailable",
+                      "retryable": True}
+            responses = [{"ok": True, "tasks": []}, result, {"ok": True, "tasks": [task]},
+                         {**result, "runId": new_run}, {"ok": True, "tasks": [{**task, "runId": new_run}]}]
+            with patch("native.hongguo", side_effect=responses) as cli, self.assertRaisesRegex(WorkError, "重试已用完"):
+                acquire_media(cfg, root, FIRST, work, lambda: None)
+            self.assertEqual(cli.call_count, 5)
+            self.assertEqual(cli.call_args_list[3].args[2], ["retry", task["id"]])
+            self.assertEqual(read(download / "attempts.json")["attempts"], 2)
+
+    def test_keeps_explicit_access_refusal_on_requeue(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            download, task, cfg, work = self.partial_download(root)
+            attempts_path = download / "attempts.json"
+            record = {"attempts": 1, "retryAt": 0, "taskId": task["id"], "lastResult": {
+                "taskId": task["id"], "runId": task["runId"], "code": "source_unavailable", "retryable": False,
+                "sourceFailures": [{"source": "app", "code": "HTTP_403",
+                                    "registrationFailure": "HTTP_403"}]}}
+            save(attempts_path, record)
+            with patch("native.hongguo", return_value={"ok": True, "tasks": [task]}) as cli, self.assertRaises(WorkError):
+                acquire_media(cfg, root, FIRST, work, lambda: None, retry_generation="2026-11-24T21:05:32Z")
+            self.assertEqual(cli.call_count, 1)
+            self.assertEqual(read(attempts_path), record)
+
+    def test_reads_only_the_original_legacy_foreground_failure(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            download, task, cfg, work = self.partial_download(root)
+            attempts_path = download / "attempts.json"
+            record = {"attempts": 1, "retryAt": 0}
+            save(attempts_path, record)
+            result = {"ok": False, "taskId": task["id"], "runId": task["runId"], "code": "source_unavailable",
+                      "retryable": False, "sourceFailures": [
+                          {"source": "app", "code": "HTTP_403", "registrationFailure": "HTTP_403"}]}
+            save(download / "retry-0123456789.json", result)
+            save(download / "retry-123456789a.json", {**result, "runId": "hgr-" + "2" * 32, "retryable": True})
+            save(download / "info-9876543210.json", {**result, "retryable": True})
+            with patch("native.hongguo", return_value={"ok": True, "tasks": [task]}) as cli, self.assertRaises(WorkError):
+                acquire_media(cfg, root, FIRST, work, lambda: None, retry_generation="2026-11-24T21:05:32Z")
+            self.assertEqual(cli.call_count, 1)
+            self.assertEqual(read(attempts_path), record)
+            self.assertEqual(read(download / "progress.json")["error"]["sourceFailures"], result["sourceFailures"])
+
+    def test_rejects_changed_media_in_partial_receipt(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            download, task, cfg, work = self.partial_download(root)
+            video = Path(task["summary"]["path"]) / "0003.mp4"
+            video.write_bytes(b"other")
+            with patch("native.hongguo", return_value={"ok": True, "tasks": [task]}) as cli, self.assertRaisesRegex(WorkError, "第 3 集"):
+                acquire_media(cfg, root, FIRST, work, lambda: None, retry_generation="2026-11-24T21:05:32Z")
+            self.assertEqual(cli.call_count, 1)
+            self.assertEqual(video.read_bytes(), b"other")
+            self.assertIsNone(read(download / "progress.json")["missingEpisodes"])
 
 
 if __name__ == "__main__":

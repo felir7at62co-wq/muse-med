@@ -46,7 +46,7 @@ export interface DownloadFailure {
   ok: false; complete: false; code: string; message: string; sourceBackend?: 'v2';
   safeReason?: string; freeUsed?: number; freeLimit?: number;
   upstreamCode?: number | string; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: boolean;
-  sourceFailures?: { source: 'web' | 'app' | 'api'; code: string }[];
+  sourceFailures?: { source: 'web' | 'app' | 'api'; code: string; registrationFailure?: string }[];
   httpStatus?: number; responseBytes?: number;
   path?: string; checkpoint?: string; cleanupPendingPath?: string; retainedEpisodeCount?: number; reusedEpisodeCount?: number;
   requestedQuality?: '1080p' | '720p' | 'auto';

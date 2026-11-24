@@ -70,6 +70,25 @@ test('reports enumerated failure codes without retrying an explicit App refusal'
   assert.equal(calls, 1);
 });
 
+test('reports the enumerated registration reason without disclosing source details', async () => {
+  const source = new JackotomSource(resolveConfig(), { fetchPlayUrlSingle: async () => ({
+    url: null, code: 'SOURCE_UNAVAILABLE',
+    sources: [
+      { source: 'app', code: 'DEVICE_REGISTRATION_FAILED', registrationFailure: 'INVALID_RESPONSE', message: 'private signed URL' },
+      { source: 'app', code: 'DEVICE_REGISTRATION_FAILED', registrationFailure: 'untrusted response body' },
+      { source: 'web', code: 'HTTP_404', registrationFailure: 'HTTP_429' },
+    ],
+  }) });
+  await assert.rejects(source.videoUrls([vid], signal(), id), {
+    code: 'source_unavailable', retryable: false,
+    sourceFailures: [
+      { source: 'app', code: 'DEVICE_REGISTRATION_FAILED', registrationFailure: 'INVALID_RESPONSE' },
+      { source: 'app', code: 'DEVICE_REGISTRATION_FAILED' },
+      { source: 'web', code: 'HTTP_404' },
+    ],
+  });
+});
+
 test('marks a transient failure retryable after the configured retries are spent', async () => {
   let calls = 0;
   const engine = { fetchPlayUrlSingle: async () => { calls++; return { url: null, code: 'SOURCE_UNAVAILABLE', sources: [{ source: 'app', code: 'NETWORK_ERROR' }] }; } };
