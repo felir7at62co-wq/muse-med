@@ -147,16 +147,24 @@ export async function connectDshIm(service, link, env, { onMessage, onStatus, ro
     return accept
   } })
 
-  // dsh-im keeps the platform connection; report whether it is up now and then.
+  // dsh-im keeps the platform connection; report whether it is up now and then, and
+  // only when that changes: a ready report starts work such as reading the chat list.
   let watcher
+  let last
+  const tell = (status) => {
+    const key = JSON.stringify(status)
+    if (key === last) return
+    last = key
+    onStatus(status)
+  }
   const report = async () => {
     try {
       const now = await service.describeBot(link.botId)
       if (signal.aborted) return
-      if (now?.account?.fingerprint !== fingerprint) onStatus({ state: 'error', error: 'The dsh-im account behind this connection changed' })
-      else onStatus({ state: now.connected === false ? 'connecting' : 'ready', account: { id: link.botId, name: now.account.name ?? link.botId } })
+      if (now?.account?.fingerprint !== fingerprint) tell({ state: 'error', error: 'The dsh-im account behind this connection changed' })
+      else tell({ state: now.connected === false ? 'connecting' : 'ready', account: { id: link.botId, name: now.account.name ?? link.botId } })
     } catch (error) {
-      if (!signal.aborted) onStatus({ state: 'error', error: String(error?.message ?? error).slice(0, 300) })
+      if (!signal.aborted) tell({ state: 'error', error: String(error?.message ?? error).slice(0, 300) })
     }
   }
   await report()

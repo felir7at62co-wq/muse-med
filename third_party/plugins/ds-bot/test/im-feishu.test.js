@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { test } from 'node:test'
+import { format } from 'node:util'
 import feishu, { decodeFrame, encodeFrame } from '../src/host/im/platforms/feishu.js'
 import { fakeWsServer } from './fake-ws.js'
 
@@ -14,10 +15,12 @@ async function fakeFeishu() {
   const frames = []
   const replies = {}
   const resources = {}
+  const held = new Map()
   const tokens = []
   let tokenValidUntil = 0
   let tokenReplyDelay = 0
   let failResources = false
+  let cardRefusal
   // The resource endpoint sends the file itself, not a JSON envelope.
   const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
   const json = (res, body) => {
@@ -58,12 +61,23 @@ async function fakeFeishu() {
       }
       if (req.url.startsWith('/open-apis/im/v1/messages/') && req.url.includes('/resources/')) {
         if (failResources || !authorized(req)) { res.writeHead(401); res.end(); return }
+        // A transfer that starts and never finishes.
+        if (held.has(req.url)) {
+          res.writeHead(200, { 'content-type': 'application/octet-stream', ...held.get(req.url) })
+          res.write('x')
+          return
+        }
         res.writeHead(200, { 'content-type': 'application/octet-stream' })
         res.end(resources[req.url] ?? imageBytes)
         return
       }
       if (req.url.startsWith('/open-apis/im/v1/messages')) {
         if (!authorized(req)) { refused(res); return }
+        if (cardRefusal !== undefined && params.msg_type === 'interactive') {
+          res.writeHead(cardRefusal.status, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(cardRefusal.body))
+          return
+        }
         json(res, { code: 0, data: { message_id: 'om_x' } })
         return
       }
@@ -86,6 +100,9 @@ async function fakeFeishu() {
     calls, replies, resources, frames, tokens, imageBytes,
     sockets: wss.sockets,
     failDownloads: () => { failResources = true },
+    holdDownload: (path, headers = {}) => { held.set(path, headers) },
+    // The service's answer to every card from now on; text messages still go through.
+    refuseCards: (status, body) => { cardRefusal = { status, body } },
     slowTokens: (ms) => { tokenReplyDelay = ms },
     push: (ws, frame) => ws.send(encodeFrame(frame)),
     dataFrame: (type, payload, extra = {}) => ({
@@ -122,6 +139,25 @@ const message = (body) => ({
     message: body,
   },
 })
+
+// Connects the adapter; returns its handle, the socket to push events on, the messages
+// and joined chats it hands on, and its warnings as the lines a log would show.
+const listen = async (t, fake) => {
+  const messages = []
+  const joined = []
+  const warnings = []
+  const log = { warn: (...args) => warnings.push(format(...args)) }
+  const handle = feishu.connect(FIELDS, { ...env(fake), log }, {
+    onMessage: async msg => { messages.push(msg) },
+    onChat: async chat => { joined.push(chat) },
+    onAction() {},
+    onStatus() {},
+  })
+  t.after(() => { handle.stop(); fake.close() })
+  return { handle, messages, joined, warnings, ws: await until(() => fake.sockets[0]) }
+}
+const sentMessages = fake => fake.calls.filter(call => call.method === 'POST' && call.path.startsWith('/open-apis/im/v1/messages?')).map(call => call.params)
+const resourceCalls = fake => fake.calls.filter(call => call.path.includes('/resources/')).map(call => call.path)
 
 test('check asks for a tenant token and names the bot with it', async () => {
   const fake = await fakeFeishu()
@@ -220,9 +256,199 @@ test('an unrecognized image is diagnosed instead of being declared as PNG', asyn
     chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_image',
     message_type: 'image', content: JSON.stringify({ image_key: 'img_1' }),
   })))
-  await until(() => warnings.length > 0 || messages.length > 0)
-  assert.equal(messages.length, 0)
+  await until(() => messages.length === 1)
   assert.match(warnings.join('\n'), /unsupported image format/i)
+  // The message still arrives, without a picture, so the person can be told.
+  assert.deepEqual(messages[0].images, [])
+  assert.equal(messages[0].unsupported, 'image')
+})
+
+test('a post flattens to its title, text, links and mentions, and its pictures and videos are downloaded', async (t) => {
+  const fake = await fakeFeishu()
+  const { messages, ws } = await listen(t, fake)
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'group', chat_id: 'oc_2', message_id: 'om_post', message_type: 'post',
+    mentions: [
+      { key: '@_user_1', id: { open_id: 'ou_bot' }, name: 'fakebot' },
+      { key: '@_user_2', id: { open_id: 'ou_u2' }, name: 'Lin' },
+    ],
+    content: JSON.stringify({
+      title: 'Episode 3',
+      content: [
+        [
+          { tag: 'at', user_id: '@_user_1', user_name: 'fakebot' },
+          { tag: 'text', text: ' see ' },
+          { tag: 'a', href: 'https://example.com/outline', text: 'the outline' },
+          { tag: 'text', text: ' with ' },
+          // Without a name of its own, a mention takes the one in `mentions`.
+          { tag: 'at', user_id: '@_user_2', user_name: '' },
+        ],
+        [{ tag: 'img', image_key: 'img_1' }],
+        [{ tag: 'media', file_key: 'file_1', image_key: 'img_cover' }],
+        [{ tag: 'text', text: 'done ' }, { tag: 'emotion', emoji_type: 'SMILE' }],
+        [{ tag: 'hr' }],
+        [{ tag: 'code_block', language: 'JSON', text: '{"a":1}\n' }],
+      ],
+    }),
+  })))
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].mentioned, true)
+  assert.equal(messages[0].text, [
+    'Episode 3',
+    'see [the outline](https://example.com/outline) with @Lin',
+    'done [SMILE]',
+    '---',
+    '```json',
+    '{"a":1}',
+    '```',
+  ].join('\n'))
+  assert.deepEqual(messages[0].images, [{ mediaType: 'image/png', data: fake.imageBytes.toString('base64') }])
+  assert.deepEqual(messages[0].files.map(file => file.name), ['video.mp4'])
+  assert.equal(messages[0].unsupported, undefined)
+  assert.deepEqual(resourceCalls(fake), [
+    '/open-apis/im/v1/messages/om_post/resources/img_1?type=image',
+    '/open-apis/im/v1/messages/om_post/resources/file_1?type=file',
+  ])
+})
+
+test('a post kept under a locale key is read the same', async (t) => {
+  const fake = await fakeFeishu()
+  const { messages, ws } = await listen(t, fake)
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_post', message_type: 'post',
+    content: JSON.stringify({ zh_cn: { title: '标题', content: [[{ tag: 'text', text: '第一段' }], [], [{ tag: 'text', text: '第二段' }]] } }),
+  })))
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, '标题\n第一段\n\n第二段')
+})
+
+test('a post whose only picture cannot be downloaded still delivers its text', async (t) => {
+  const fake = await fakeFeishu()
+  const { messages, ws } = await listen(t, fake)
+  fake.failDownloads()
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_post', message_type: 'post',
+    content: JSON.stringify({ title: '', content: [[{ tag: 'text', text: 'look at this' }], [{ tag: 'img', image_key: 'img_1' }]] }),
+  })))
+  await until(() => messages.length === 1)
+  assert.equal(messages[0].text, 'look at this')
+  assert.deepEqual(messages[0].images, [])
+  assert.equal(messages[0].unsupported, undefined)
+})
+
+for (const [type, content, name] of [
+  ['file', { file_key: 'file_1', file_name: 'plan.txt' }, 'plan.txt'],
+  ['audio', { file_key: 'file_1', duration: 2000 }, 'audio.opus'],
+  ['media', { file_key: 'file_1', image_key: 'img_1', file_name: 'cut.mp4', duration: 2000 }, 'cut.mp4'],
+]) {
+  test(`an inbound ${type} is downloaded and handed on as the file ${name}`, async (t) => {
+    const fake = await fakeFeishu()
+    const bytes = Buffer.from(`${type} bytes`)
+    fake.resources['/open-apis/im/v1/messages/om_file/resources/file_1?type=file'] = bytes
+    const { messages, ws } = await listen(t, fake)
+    fake.push(ws, fake.dataFrame('event', message({
+      chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_file', message_type: type, content: JSON.stringify(content),
+    })))
+    await until(() => messages.length === 1)
+    assert.equal(messages[0].files.length, 1)
+    assert.equal(messages[0].files[0].name, name)
+    assert.deepEqual(Buffer.from(messages[0].files[0].data), bytes)
+    assert.deepEqual(messages[0].images, [])
+    assert.equal(messages[0].unsupported, undefined)
+    assert.deepEqual(resourceCalls(fake), ['/open-apis/im/v1/messages/om_file/resources/file_1?type=file'])
+  })
+}
+
+for (const [type, content] of [
+  ['sticker', JSON.stringify({ file_key: 'file_1' })],
+  ['merge_forward', 'Merged and Forwarded Message'],
+  ['share_chat', JSON.stringify({ chat_id: 'oc_9' })],
+  ['share_user', JSON.stringify({ user_id: 'ou_9' })],
+  ['text', JSON.stringify({ text: '  ' })],
+]) {
+  test(`an inbound ${type} with nothing to read is handed on as unsupported, fetching nothing`, async (t) => {
+    const fake = await fakeFeishu()
+    const { messages, ws } = await listen(t, fake)
+    fake.push(ws, fake.dataFrame('event', message({
+      chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_1', message_type: type, content,
+    })))
+    await until(() => messages.length === 1)
+    assert.equal(messages[0].unsupported, type)
+    assert.equal(messages[0].text, '')
+    assert.deepEqual(messages[0].images, [])
+    assert.deepEqual(messages[0].files, [])
+    assert.deepEqual(resourceCalls(fake), [])
+  })
+}
+
+test('a file that cannot be downloaded is handed on as unsupported, and the warning names only the type and the chat kind', async (t) => {
+  const fake = await fakeFeishu()
+  const { messages, warnings, ws } = await listen(t, fake)
+  fake.failDownloads()
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_file', message_type: 'file',
+    content: JSON.stringify({ file_key: 'file_1', file_name: 'plan.txt' }),
+  })))
+  await until(() => messages.length === 1)
+  assert.deepEqual(messages[0].files, [])
+  assert.equal(messages[0].unsupported, 'file')
+  assert.equal(warnings[0], 'ds-bot im: feishu file download failed in a direct chat')
+})
+
+test('a file over the cap is abandoned and handed on as unsupported', async (t) => {
+  const fake = await fakeFeishu()
+  // The declared length is past the cap; no such body is ever sent.
+  fake.holdDownload('/open-apis/im/v1/messages/om_file/resources/file_1?type=file', { 'content-length': String(101 * 1024 * 1024) })
+  const { messages, warnings, ws } = await listen(t, fake)
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_file', message_type: 'media',
+    content: JSON.stringify({ file_key: 'file_1', file_name: 'cut.mp4' }),
+  })))
+  await until(() => messages.length === 1)
+  assert.deepEqual(messages[0].files, [])
+  assert.equal(messages[0].unsupported, 'media')
+  assert.equal(warnings[0], 'ds-bot im: feishu media in a direct chat is over the 104857600 byte cap, skipped')
+})
+
+test('a download that stalls is given up, and the messages after it still arrive', async (t) => {
+  const fake = await fakeFeishu()
+  fake.holdDownload('/open-apis/im/v1/messages/om_file/resources/file_1?type=file')
+  const realTimeout = AbortSignal.timeout
+  AbortSignal.timeout = () => realTimeout.call(AbortSignal, 100)
+  t.after(() => { AbortSignal.timeout = realTimeout })
+  const { messages, warnings, ws } = await listen(t, fake)
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_file', message_type: 'file',
+    content: JSON.stringify({ file_key: 'file_1', file_name: 'plan.txt' }),
+  }), { messageId: 'fm1' }))
+  fake.push(ws, fake.dataFrame('event', message({
+    chat_type: 'p2p', chat_id: 'oc_1', message_id: 'om_text', message_type: 'text', content: JSON.stringify({ text: 'still here' }),
+  }), { messageId: 'fm2' }))
+  await until(() => messages.length === 2)
+  assert.deepEqual(messages[0].files, [])
+  assert.equal(messages[0].unsupported, 'file')
+  assert.equal(warnings[0], 'ds-bot im: feishu file download failed in a direct chat')
+  assert.equal(messages[1].text, 'still here')
+})
+
+test('a group message that does not mention the bot fetches nothing and is not marked unsupported', async (t) => {
+  const fake = await fakeFeishu()
+  const { messages, warnings, ws } = await listen(t, fake)
+  const group = (id, type, content) => fake.dataFrame('event', message({
+    chat_type: 'group', chat_id: 'oc_2', message_id: id, message_type: type, content: JSON.stringify(content), mentions: [],
+  }), { messageId: id })
+  fake.push(ws, group('om_1', 'file', { file_key: 'file_1', file_name: 'plan.txt' }))
+  fake.push(ws, group('om_2', 'image', { image_key: 'img_1' }))
+  fake.push(ws, group('om_3', 'sticker', { file_key: 'file_2' }))
+  await until(() => messages.length === 3)
+  for (const msg of messages) {
+    assert.equal(msg.mentioned, false)
+    assert.equal(msg.unsupported, undefined)
+    assert.deepEqual(msg.images, [])
+    assert.deepEqual(msg.files, [])
+  }
+  assert.deepEqual(resourceCalls(fake), [])
+  assert.deepEqual(warnings.filter(line => !line.includes('names for')), [])
 })
 
 test('a card action reports the button data', async (t) => {
@@ -499,4 +725,103 @@ test('a Feishu progress card replies inside the original topic and edits its own
   assert.equal(edit.method, 'PATCH')
   assert.equal(edit.path, '/open-apis/im/v1/messages/om_x')
   assert.equal(JSON.parse(edit.params.content).body.elements[0].content, 'Muse finished')
+})
+
+test('chats lists the groups the bot is in, page after page', async (t) => {
+  const fake = await fakeFeishu()
+  fake.replies['/open-apis/im/v1/chats?page_size=100'] = { result: { code: 0, data: { items: [{ chat_id: 'oc_a', name: '编剧组' }, { chat_id: 'oc_b', name: '' }], has_more: true, page_token: 'p2' } } }
+  fake.replies['/open-apis/im/v1/chats?page_size=100&page_token=p2'] = { result: { code: 0, data: { items: [{ chat_id: 'oc_c', name: '剪辑组' }], has_more: false } } }
+  const { handle } = await listen(t, fake)
+  assert.deepEqual(await handle.chats(), [
+    { key: 'oc_a', kind: 'group', title: '编剧组' },
+    { key: 'oc_b', kind: 'group', title: '' },
+    { key: 'oc_c', kind: 'group', title: '剪辑组' },
+  ])
+  assert.equal(fake.calls.filter(call => call.path.startsWith('/open-apis/im/v1/chats?')).every(call => call.method === 'GET'), true)
+})
+
+test('chats fails when the app may not read its chat list', async (t) => {
+  const fake = await fakeFeishu()
+  fake.replies['/open-apis/im/v1/chats?page_size=100'] = { result: { code: 99991672, msg: 'Access denied' } }
+  const { handle } = await listen(t, fake)
+  await assert.rejects(handle.chats(), /Access denied/)
+})
+
+test('being added to a group reports the chat', async (t) => {
+  const fake = await fakeFeishu()
+  const { joined, messages, ws } = await listen(t, fake)
+  fake.push(ws, fake.dataFrame('event', {
+    header: { event_type: 'im.chat.member.bot.added_v1' },
+    event: { chat_id: 'oc_new', name: '新剧组', operator_id: { open_id: 'ou_u1' } },
+  }))
+  await until(() => joined.length === 1)
+  assert.deepEqual(joined, [{ key: 'oc_new', kind: 'group', title: '新剧组' }])
+  assert.equal(messages.length, 0)
+})
+
+test('a reply that uses Markdown goes out as a card; a plain reply stays a text message', async (t) => {
+  const fake = await fakeFeishu()
+  const { handle } = await listen(t, fake)
+  const chat = { key: 'oc_1', kind: 'direct' }
+  const table = '| 集 | 状态 |\n| --- | --- |\n| 1 | 完成 |'
+  const { messageId } = await handle.send(chat, { text: `## 结论\n\n**可以**，见 ![分镜](https://example.com/a.png)\n\n${table}` })
+  await handle.send(chat, { text: '好的，马上处理。\n第二行 2*3*4 和 snake_case_name' })
+  const [rich, plain] = sentMessages(fake)
+  assert.equal(messageId, 'om_x')
+  assert.equal(rich.receive_id, 'oc_1')
+  assert.equal(rich.msg_type, 'interactive')
+  // The Markdown goes into the card as written, but for the picture: a card cannot fetch one.
+  assert.deepEqual(JSON.parse(rich.content), {
+    schema: '2.0',
+    body: { elements: [{ tag: 'markdown', content: `## 结论\n\n**可以**，见 [分镜](https://example.com/a.png)\n\n${table}` }] },
+  })
+  assert.equal(plain.msg_type, 'text')
+  assert.equal(JSON.parse(plain.content).text, '好的，马上处理。\n第二行 2*3*4 和 snake_case_name')
+})
+
+test('a reply with more tables than a card accepts goes out as several cards', async (t) => {
+  const fake = await fakeFeishu()
+  const { handle } = await listen(t, fake)
+  const table = n => `表 ${n}\n\n| a | b |\n| - | - |\n| ${n} | ${n} |`
+  await handle.send({ key: 'oc_1', kind: 'direct' }, { text: [1, 2, 3, 4, 5, 6, 7].map(table).join('\n\n') })
+  const cards = sentMessages(fake).map(message => JSON.parse(message.content).body.elements[0].content)
+  assert.equal(cards.length, 2)
+  assert.equal(cards[0].match(/\| - \| - \|/g).length, 5)
+  assert.equal(cards[1].match(/\| - \| - \|/g).length, 2)
+  // The cut falls where the sixth table begins; its lead-in stays on the card before.
+  assert.ok(cards[0].endsWith('表 6'))
+  assert.ok(cards[1].startsWith('| a | b |'))
+})
+
+test('a card the service refuses for its content goes out as text instead', async (t) => {
+  const fake = await fakeFeishu()
+  const { handle, warnings } = await listen(t, fake)
+  fake.refuseCards(400, { code: 230099, msg: 'Failed to create card content' })
+  const { messageId } = await handle.send({ key: 'oc_1', kind: 'direct' }, { text: '**结论**：可以' })
+  const sent = sentMessages(fake)
+  assert.deepEqual(sent.map(message => message.msg_type), ['interactive', 'text'])
+  assert.equal(JSON.parse(sent[1].content).text, '**结论**：可以')
+  assert.equal(messageId, 'om_x')
+  assert.deepEqual(warnings.filter(line => line.includes('card')), ['ds-bot im: feishu refused a card (HTTP 400, code 230099), sent as text'])
+  // A card with buttons has no text form: its refusal stays an error.
+  await assert.rejects(handle.send({ key: 'oc_1', kind: 'direct' }, { text: 'pick one', buttons: [{ data: 'q:q1:0', label: 'yes' }] }), /Failed to create card content/)
+})
+
+test('a chunk whose card would pass the size cap goes out as text', async (t) => {
+  const fake = await fakeFeishu()
+  const { handle } = await listen(t, fake)
+  // A control character takes six bytes once the card is serialised.
+  const text = `**a** ${'\u0001'.repeat(3994)}`
+  await handle.send({ key: 'oc_1', kind: 'direct' }, { text })
+  const sent = sentMessages(fake)
+  assert.deepEqual(sent.map(message => message.msg_type), ['text'])
+  assert.equal(JSON.parse(sent[0].content).text, text)
+})
+
+test('a card refused for the app\'s access is not retried as text', async (t) => {
+  const fake = await fakeFeishu()
+  const { handle } = await listen(t, fake)
+  fake.refuseCards(403, { code: 99991672, msg: 'Access denied' })
+  await assert.rejects(handle.send({ key: 'oc_1', kind: 'direct' }, { text: '**结论**：可以' }), /Access denied/)
+  assert.deepEqual(sentMessages(fake).map(message => message.msg_type), ['interactive'])
 })

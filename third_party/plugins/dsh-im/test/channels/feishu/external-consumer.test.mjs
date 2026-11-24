@@ -150,3 +150,29 @@ test('voice controls are attached only for an authenticated audio event and shar
   release();
   assert.equal(signal.aborted, true);
 });
+
+test('rich consumers receive posts, files, videos and the type of what nothing can read; text consumers still receive text only', () => {
+  const identity = { botId: 'bot', appId: 'app', botOpenId: 'ou_bot', fingerprint: '0'.repeat(64) };
+  const rich = { ...identity, rich: true };
+  const inbound = (type, content) => ({ app_id: 'app', event_id: `evt_${type}`, sender: { sender_type: 'user', sender_id: { open_id: 'ou_member' } },
+    message: { chat_type: 'p2p', message_type: type, chat_id: 'oc_dm', message_id: `om_${type}`, create_time: '1700000000000', content } });
+  const postBody = { title: 'Episode 3', content: [[{ tag: 'text', text: 'see ' }, { tag: 'a', href: 'https://example.com', text: 'outline' }], [{ tag: 'img', image_key: 'img_1' }]] };
+  for (const content of [postBody, { zh_cn: postBody }]) {
+    const post = normalizeExternalText(inbound('post', JSON.stringify(content)), rich);
+    assert.equal(post.messageType, 'post');
+    assert.deepEqual(post.post, postBody);
+    assert.equal(post.text, '');
+    assert.equal(normalizeExternalText(inbound('post', JSON.stringify(content)), identity), null);
+  }
+  const file = normalizeExternalText(inbound('file', JSON.stringify({ file_key: 'file_1', file_name: ' plan.txt ' })), rich);
+  assert.deepEqual([file.messageType, file.fileKey, file.fileName], ['file', 'file_1', 'plan.txt']);
+  const media = normalizeExternalText(inbound('media', JSON.stringify({ file_key: 'file_2', image_key: 'img_cover' })), rich);
+  assert.deepEqual([media.messageType, media.fileKey, media.fileName, media.imageKey], ['media', 'file_2', undefined, undefined]);
+  const forwarded = normalizeExternalText(inbound('merge_forward', 'Merged and Forwarded Message'), rich);
+  assert.deepEqual([forwarded.messageType, forwarded.text, forwarded.fileKey], ['merge_forward', '', undefined]);
+  const sticker = normalizeExternalText(inbound('sticker', JSON.stringify({ file_key: 'file_3' })), rich);
+  assert.deepEqual([sticker.messageType, sticker.fileKey], ['sticker', undefined]);
+  assert.equal(normalizeExternalText(inbound('text', JSON.stringify({ text: 'hi' })), identity).messageType, undefined);
+  assert.throws(() => normalizeExternalText(inbound('text', JSON.stringify({ text: ' ' })), identity), { code: 'invalid-inbound' });
+  assert.throws(() => normalizeExternalText(inbound('text', 'not json'), rich), { code: 'invalid-inbound' });
+});

@@ -30,6 +30,9 @@ const RETRY_MS = 5_000
 const RETRY_MAX_MS = 30_000
 const SEND_ATTEMPTS = 4
 const TYPING_MS = 4_000
+// How often a connected platform's chat list is read again, so a group the bot joined
+// without an event still gets registered.
+const CHAT_SYNC_MS = 10 * 60_000
 const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
@@ -105,6 +108,7 @@ export function install(rt) {
         idle: 'Nothing is running.',
         stale: 'This card was already answered.',
         noFile: 'This file cannot be sent here; send it on the computer.',
+        unreadable: 'I cannot read this kind of message yet; send text, an image or a file.',
         greeting: `Hello, I am ${values.name}.`,
         question: `${values.bot} asks: `,
         approval: `${values.bot} asks for approval: `,
@@ -131,6 +135,7 @@ export function install(rt) {
         idle: '现在没有在做的活。',
         stale: '这张卡已经答过了。',
         noFile: '这个文件发不过去，请在电脑上发。',
+        unreadable: '这种消息我还读不了，请发文字、图片或文件。',
         greeting: `你好，我是 ${values.name}。`,
         question: `${values.bot} 问你：`,
         approval: `${values.bot} 请你审批：`,
@@ -157,6 +162,7 @@ export function install(rt) {
         idle: '現在沒有在做的活。',
         stale: '這張卡已經答過了。',
         noFile: '這個檔案傳不過去，請在電腦上傳。',
+        unreadable: '這種訊息我還讀不了，請傳文字、圖片或檔案。',
         greeting: `你好，我是 ${values.name}。`,
         question: `${values.bot} 問你：`,
         approval: `${values.bot} 請你審批：`,
@@ -183,6 +189,7 @@ export function install(rt) {
         idle: '実行中のタスクはありません。',
         stale: 'このカードは回答済みです。',
         noFile: 'このファイルはここでは送信できません。PC から送信してください。',
+        unreadable: 'この種類のメッセージはまだ読めません。テキスト、画像、ファイルのいずれかを送ってください。',
         greeting: `こんにちは、${values.name} です。`,
         question: `${values.bot} からの質問：`,
         approval: `${values.bot} からの承認リクエスト：`,
@@ -209,6 +216,7 @@ export function install(rt) {
         idle: '진행 중인 작업이 없습니다.',
         stale: '이미 응답한 카드입니다.',
         noFile: '이 파일은 여기서 보낼 수 없습니다. 컴퓨터에서 보내 주세요.',
+        unreadable: '이런 종류의 메시지는 아직 읽을 수 없습니다. 텍스트, 이미지 또는 파일을 보내 주세요.',
         greeting: `안녕하세요, ${values.name}입니다.`,
         question: `${values.bot}의 질문: `,
         approval: `${values.bot}의 승인 요청: `,
@@ -235,6 +243,7 @@ export function install(rt) {
         idle: 'No hay nada en curso.',
         stale: 'Esta tarjeta ya fue respondida.',
         noFile: 'Este archivo no se puede enviar por aquí; envíalo desde el ordenador.',
+        unreadable: 'Todavía no puedo leer este tipo de mensaje; envía texto, una imagen o un archivo.',
         greeting: `Hola, soy ${values.name}.`,
         question: `${values.bot} pregunta: `,
         approval: `${values.bot} pide aprobación: `,
@@ -261,6 +270,7 @@ export function install(rt) {
         idle: 'Rien n’est en cours.',
         stale: 'Cette carte a déjà reçu une réponse.',
         noFile: 'Ce fichier ne peut pas être envoyé ici ; envoyez-le depuis l’ordinateur.',
+        unreadable: 'Je ne peux pas encore lire ce type de message ; envoyez du texte, une image ou un fichier.',
         greeting: `Bonjour, je suis ${values.name}.`,
         question: `${values.bot} demande : `,
         approval: `${values.bot} demande une approbation : `,
@@ -287,6 +297,7 @@ export function install(rt) {
         idle: 'Aktuell läuft nichts.',
         stale: 'Diese Karte wurde bereits beantwortet.',
         noFile: 'Diese Datei kann hier nicht gesendet werden; sende sie am Computer.',
+        unreadable: 'Diese Art von Nachricht kann ich noch nicht lesen; sende Text, ein Bild oder eine Datei.',
         greeting: `Hallo, ich bin ${values.name}.`,
         question: `${values.bot} fragt: `,
         approval: `${values.bot} bittet um Freigabe: `,
@@ -883,6 +894,51 @@ export function install(rt) {
     }
   }
 
+  // Where the adapter can list the chats its bot is in (`chats()` on its handle), each
+  // is registered with a Bot of its own before anyone writes: when the connection turns
+  // ready, every CHAT_SYNC_MS while it stays ready, and when the platform reports a chat
+  // the bot joined (`onChat`). Only a chat not yet known gets a Bot here, so a chat
+  // whose Bot was deleted is left alone until it writes; a known chat only follows its
+  // name. Runs for one connection follow one another, and so do the Bots they make.
+  const registerChats = (id, list) => {
+    const runner = runners.get(id)
+    if (runner === undefined) return Promise.resolve()
+    runner.chatWork = (runner.chatWork ?? Promise.resolve()).then(async () => {
+      for (const item of await list(runner)) {
+        const conn = fresh(id)
+        if (conn === undefined || runners.get(id) !== runner) return
+        conn.chats ??= {}
+        const chat = conn.chats[item.key]
+        if (chat === undefined) {
+          const added = conn.chats[item.key] = { kind: item.kind, title: item.title, at: Date.now() }
+          await rt.save()
+          await ensureChatBot(conn, item.key, added)
+        } else if (item.title && chat.title !== item.title) {
+          chat.title = item.title
+          await followChatName(conn, item.key, chat)
+          await rt.save()
+        }
+      }
+    }).catch(error => rt.warn('ds-bot: im chats of %s not registered: %s', fresh(id)?.platform ?? id, error?.message ?? error))
+    return runner.chatWork
+  }
+  // The list is read a tick after it is asked for: an adapter that reports ready
+  // while it connects has its handle by then.
+  const syncChats = id => registerChats(id, async (runner) => {
+    if (typeof runner.handle?.chats !== 'function') return []
+    try {
+      return await runner.handle.chats()
+    } catch (error) {
+      // Said once per connect: an app that may not read its chat list fails the same way
+      // every time, and its chats are still registered as they write.
+      if (runner.chatListWarned !== true) {
+        runner.chatListWarned = true
+        rt.warn('ds-bot: im %s chat list could not be read: %s', fresh(id)?.platform ?? id, rt.redactSecrets(String(error?.message ?? error)).slice(0, 300))
+      }
+      return []
+    }
+  })
+
   // One card this chat was sent and has not answered yet. A button names its own
   // card, so it must never fall through to a newer card of the same kind.
   const openCard = (conn, chatKey, cardKey) => {
@@ -1109,7 +1165,15 @@ export function install(rt) {
         await sendText(conn, msg.chat, text('noFile'))
       }
     }
-    if (content.length === 0) return
+    if (content.length === 0) {
+      // An adapter names the kind of message it could not read, so the person is told
+      // once instead of getting no answer; a failed download or upload was answered above.
+      if (msg.unsupported !== undefined) {
+        rt.warn('ds-bot: im %s %s message not read: %s', conn.platform, msg.chat.kind, msg.unsupported)
+        await sendText(conn, msg.chat, text('unreadable'))
+      }
+      return
+    }
     const requestId = msg.requestId ?? `im:${conn.platform}:${randomUUID()}`
     // The turn this starts belongs to this chat: its replies go back here and nowhere else.
     msg.signal?.throwIfAborted()
@@ -1313,6 +1377,11 @@ export function install(rt) {
   const fresh = id => connections()[id]
   const onStatus = (id) => (next) => {
     setStatus(id, { state: next.state, error: next.error, at: Date.now() })
+    if (next.state === 'ready') {
+      const runner = runners.get(id)
+      if (runner !== undefined) runner.chatListWarned = false
+      void syncChats(id)
+    }
     const conn = fresh(id)
     if (conn !== undefined && next.account !== undefined && (conn.account?.id !== next.account.id || conn.account?.name !== next.account.name)) {
       conn.account = next.account
@@ -1353,6 +1422,7 @@ export function install(rt) {
           const current = fresh(conn.id)
           return current === undefined ? undefined : onAction(current)(action).catch(error => rt.warn('ds-bot: im action failed: %s', error))
         },
+        onChat: chat => registerChats(conn.id, () => [chat]),
         onStatus: onStatus(conn.id),
       }
       let handle
@@ -1406,6 +1476,12 @@ export function install(rt) {
         }, TYPING_MS)
         runner.typing.unref?.()
       }
+      if (typeof runner.handle?.chats === 'function') {
+        runner.chatTimer = setInterval(() => {
+          if (statuses.get(conn.id)?.state === 'ready') void syncChats(conn.id)
+        }, CHAT_SYNC_MS)
+        runner.chatTimer.unref?.()
+      }
       await diffCards()
     } catch (error) {
       if (runners.get(conn.id) === runner) {
@@ -1425,6 +1501,7 @@ export function install(rt) {
     runner.stopped = true
     runner.controller?.abort()
     if (runner.typing !== undefined) clearInterval(runner.typing)
+    if (runner.chatTimer !== undefined) clearInterval(runner.chatTimer)
     const dropOnly = stopped || connections()[id] === undefined
     if (dropOnly) {
       sendStatuses.delete(id)
@@ -2032,26 +2109,47 @@ export function install(rt) {
     return [id, { state: status.state, ...(status.error !== undefined ? { error: status.error } : {}), at: status.at }]
   }))
 
-  // The chats a Bot may write to: chats whose messages it answers (bound to it, or a
-  // private chat that falls back to the connection's Bot) and, for the connection's Bot,
-  // the owner's private chat even when that chat has a Bot of its own, so the main Bot
-  // can still report to the owner. Only connected ones can be written to.
-  const ownsChat = (conn, chat, botId) => resolveTarget(conn, chat)?.botId === botId
-    || (botId === conn.botId && chat.kind === 'direct' && chat.personId !== undefined && chat.personId === conn.paired?.[0]?.id)
+  // The chats a Bot can write to: those whose messages it answers (bound to it, or a
+  // private chat that falls back to the connection's Bot) and, for the Bot a connection
+  // belongs to, every chat registered on that connection, its groups and the owner's
+  // private chat included. Only connected ones can be written to. A chat goes by its
+  // title; the key stands in where there is no title and is added where two share one.
+  const ownsChat = (conn, chat, botId) => botId === conn.botId || resolveTarget(conn, chat)?.botId === botId
   const chatsOfBot = (botId) => {
     const out = []
     for (const conn of Object.values(connections())) {
       for (const [chatKey, chat] of Object.entries(conn.chats ?? {})) {
-        if (ownsChat(conn, chat, botId)) out.push({ conn, chatKey, chat, name: chat.title || chatKey })
+        if (!ownsChat(conn, chat, botId)) continue
+        // A Bot's own chats: those it answers and, for the connection's Bot, the owner's private chat.
+        const own = resolveTarget(conn, chat)?.botId === botId
+          || (botId === conn.botId && chat.kind === 'direct' && chat.personId !== undefined && chat.personId === conn.paired?.[0]?.id)
+        out.push({ conn, chatKey, chat, own })
       }
     }
+    const shared = title => out.filter(item => item.chat.title === title).length > 1
+    for (const item of out) {
+      const title = item.chat.title
+      item.name = !title ? item.chatKey : shared(title) ? `${title} (${item.chatKey})` : title
+    }
     return out
+  }
+  // One of a Bot's chats by its listed name, title or key. With none named, its one own
+  // chat (so the main Bot reaches the owner), or its only chat; the rest of a connection's
+  // chats are reached by name. A title two chats share picks neither: the listed names
+  // tell them apart.
+  const pickChat = (chats, chatName) => {
+    const unnamed = chatName === undefined || chatName === ''
+    const own = chats.filter(item => item.own)
+    const matches = !unnamed ? chats.filter(item => item.name === chatName || item.chatKey === chatName || item.chat.title === chatName)
+      : own.length > 0 ? own : chats
+    if (matches.length === 1) return { picked: matches[0] }
+    return { error: unnamed || matches.length > 1 ? 'which' : 'unknown' }
   }
   const imChatsOf = botId => chatsOfBot(botId).map(item => ({ name: item.name, platform: item.conn.platform, kind: item.chat.kind, connected: runners.has(item.conn.id) }))
   /**
    * Send a Bot's own message to one of its chats, unprompted.
    * @param {string} botId - The Bot that writes.
-   * @param {string | undefined} chatName - The chat's name; may be left out when the Bot has one chat.
+   * @param {string | undefined} chatName - The chat's name as listed, its title or its key; may be left out when the Bot has one chat.
    * @param {string} body - Message text.
    * @returns {Promise<{ sent: string } | { error: 'none' | 'which' | 'unknown' | 'offline' | 'reply-only', chats: string[] }>}
    */
@@ -2065,8 +2163,8 @@ export function install(rt) {
     const chats = chatsOfBot(botId)
     const names = chats.map(item => item.name)
     if (chats.length === 0) return { error: 'none', chats: names }
-    const picked = chatName === undefined || chatName === '' ? (chats.length === 1 ? chats[0] : undefined) : chats.find(item => item.name === chatName)
-    if (picked === undefined) return { error: chatName === undefined || chatName === '' ? 'which' : 'unknown', chats: names }
+    const { picked, error } = pickChat(chats, chatName)
+    if (picked === undefined) return { error, chats: names }
     if (!runners.has(picked.conn.id)) return { error: 'offline', chats: names }
     if (linkOf(picked.conn) !== undefined && !canWriteFirst(picked.conn, picked.chat)) return { error: 'reply-only', chats: names }
     await sendTo(picked.conn, picked.chatKey, { key: picked.chatKey, kind: picked.chat.kind, title: picked.chat.title }, body)
@@ -2078,7 +2176,7 @@ export function install(rt) {
   /**
    * Read one of a Bot's chats as its dsh-im connection saw it.
    * @param {string} botId - The Bot that reads.
-   * @param {string | undefined} chatName - The chat's name; may be left out when the Bot has one chat.
+   * @param {string | undefined} chatName - The chat's name as listed, its title or its key; may be left out when the Bot has one chat.
    * @param {number} limit - How many messages, 1 to 50.
    * @returns {Promise<{ chat: string, coverage?: string, messages: object[] } | { error: 'none' | 'which' | 'unknown' | 'offline' | 'unsupported', chats: string[] }>}
    */
@@ -2086,8 +2184,8 @@ export function install(rt) {
     const chats = chatsOfBot(botId)
     const names = chats.map(item => item.name)
     if (chats.length === 0) return { error: 'none', chats: names }
-    const picked = chatName === undefined || chatName === '' ? (chats.length === 1 ? chats[0] : undefined) : chats.find(item => item.name === chatName)
-    if (picked === undefined) return { error: chatName === undefined || chatName === '' ? 'which' : 'unknown', chats: names }
+    const { picked, error } = pickChat(chats, chatName)
+    if (picked === undefined) return { error, chats: names }
     if (!runners.has(picked.conn.id)) return { error: 'offline', chats: names }
     const handle = runners.get(picked.conn.id)?.handle
     if (typeof handle?.history !== 'function') return { error: 'unsupported', chats: names }

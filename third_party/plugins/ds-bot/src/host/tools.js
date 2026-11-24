@@ -504,7 +504,7 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'im_send',
-    description: 'Send a message to one of your chat app chats (Feishu, WeChat, …) without waiting for someone there to write first: a finished result, a scheduled report, or something a person must decide. You can reach the chats whose messages come to you and, when a chat app connection is yours, its owner\'s private chat. With a single such chat, leave chat out. Replies come back to the Bot that answers that chat.',
+    description: 'Send a message to one of your chat app chats (Feishu, WeChat, …) without waiting for someone there to write first: a finished result, a scheduled report, or something a person must decide. You can reach the chats whose messages come to you and, when a chat app connection is yours, every chat on it: its groups and its owner\'s private chat. Chats go by name; where two share one, use the name with its key as listed. Leave chat out to reach your one own chat: the chat whose messages come to you or, for a connection that is yours, its owner\'s private chat. Replies come back to the Bot that answers that chat.',
     parameters: {
       text: { type: 'string', required: true, description: `The message, plain text or Markdown, at most ${IM_SEND_MAX} characters` },
       chat: { type: 'string', description: 'Chat name, needed only when you have several; a refusal lists them' },
@@ -520,7 +520,7 @@ export function install(rt) {
       const result = await rt.imSend(sender.id, args.chat === undefined ? undefined : String(args.chat).trim(), body)
       if ('sent' in result) return `Sent to ${result.sent}.`
       if (result.error === 'none') refuse('No chat app chat comes to you, so there is nowhere to send this.')
-      if (result.error === 'reply-only') refuse('This Feishu connection handles replies to incoming messages. Tell the user in Muse instead.')
+      if (result.error === 'reply-only') refuse('This chat\'s connection can only answer messages that arrive there. Tell the user in Muse instead.')
       if (result.error === 'offline') refuse('That chat\'s connection is offline right now; try again later or tell the user in Muse.')
       refuse(`${result.error === 'which' ? 'You have several chats; name one' : 'No chat by that name'}. Your chats: ${result.chats.join(', ')}`)
     },

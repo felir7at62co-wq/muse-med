@@ -2,14 +2,32 @@
 // pings sent at the server's interval, data frames ACKed by sending the frame back with a
 // {"code":200} payload and a biz_rt header; split payloads reassemble by
 // sum/seq. p2p messages are direct; a group message counts when the bot's
-// open_id is in its mentions. Sends go through the OpenAPI with a tenant
-// access token: interactive cards with a markdown element and buttons, edited
-// by PATCH. The tiny protobuf codec below implements only this frame shape.
+// open_id is in its mentions. Text, rich text (post), images, files, audio and
+// video are read; any other message is handed on as `unsupported`, so the
+// person is told. Sends go through the OpenAPI with a tenant access token: a
+// reply that uses Markdown is a card with a markdown element, as is one with
+// buttons (edited by PATCH); a plain reply is a text message, and so is a card
+// the service refuses. `chats()` lists the groups the bot is in and `onChat`
+// reports one it was added to, so each can be registered before anyone writes.
+// The tiny protobuf codec below implements only this frame shape.
 // Protocol ported from @larksuiteoapi/node-sdk (MIT, see NOTICE).
+import { CARD_MAX_BYTES, cardChunks, hasMarkdown, toFeishuMarkdown } from '../feishu-markdown.js'
 import { chunkMarkdown } from '../format.js'
 import { retryDelay, retryWait } from './retry.js'
 
 const TEXT_LIMIT = 4000
+// An attachment is read fully into memory and handed on as one Buffer, so it is
+// capped, at the size WeCom attachments are.
+export const FILE_LIMIT = 100 * 1024 * 1024
+// Inbound events are handled one after another, so a download that stalls is given
+// up after this long instead of holding every later message back.
+const DOWNLOAD_TIMEOUT = 5 * 60_000
+// Message types that carry one downloadable file, with the name used when the
+// message gives none: a voice message is Opus audio and has no name.
+export const FILE_NAMES = { file: 'file', audio: 'audio.opus', media: 'video.mp4' }
+// Pages of 100 groups read when the bot's chats are listed; a bot in more groups than
+// that has the rest registered when they first write.
+const CHAT_LIST_PAGES = 10
 // Chat and member names are read again after this long, so renames show up.
 const NAME_TTL_MS = 10 * 60_000
 // Member pages of 100 read per chat for names; a larger group's later members keep their ids.
@@ -65,7 +83,7 @@ export function createFeishuHttp(fields, env) {
     return token.token
   }
   const rest = async (path, options) => api(env, apiBase(env, fields), await bearer(), path, options)
-  const delivery = feishuDelivery(rest)
+  const delivery = feishuDelivery(rest, env)
   return {
     ...delivery,
     async progress(route, caption, { messageId, mode } = {}) {
@@ -90,8 +108,15 @@ export function createFeishuHttp(fields, env) {
     names: namesByChat(path => rest(path, { method: 'GET' }), env),
     async image(messageId, key) {
       const bytes = await resource(env, apiBase(env, fields), await bearer(), messageId, key, 'image')
+      if (bytes === undefined) throw new Error('Feishu did not send the picture')
       const buffer = Buffer.from(bytes)
       return { mediaType: imageMediaType(buffer), data: buffer.toString('base64') }
+    },
+    // One file, audio or video of a message, up to FILE_LIMIT bytes.
+    async file(messageId, key) {
+      const bytes = await resource(env, apiBase(env, fields), await bearer(), messageId, key, 'file', FILE_LIMIT)
+      if (bytes === undefined) throw new Error('Feishu did not send the file')
+      return bytes
     },
   }
 }
@@ -267,29 +292,74 @@ export default {
         const event = payload.event ?? {}
         const message = event.message ?? {}
         const direct = message.chat_type === 'p2p'
+        const chatKind = direct ? 'direct' : 'group'
         const mentioned = !direct && (message.mentions ?? []).some(m => m.id?.open_id === botOpenId || m.key === `@_user_${1}`)
         const content = safeJson(message.content)
-        const text = String(content.text ?? '').replace(/@_user_\d+/g, '').trim()
+        const messageType = String(message.message_type ?? '')
+        let text = String(content.text ?? '').replace(/@_user_\d+/g, '').trim()
         const images = []
-        if (message.message_type === 'image' && content.image_key !== undefined) {
-          const bytes = await freshToken()
-            .then(bearer => resource(env, apiBase(env, fields), bearer, message.message_id, content.image_key, 'image'))
-            .catch(() => undefined)
-          if (bytes !== undefined) {
-            const buffer = Buffer.from(bytes)
+        const files = []
+        const download = (key, kind, limit) => freshToken()
+          .then(bearer => resource(env, apiBase(env, fields), bearer, message.message_id, key, kind, limit))
+        const addImage = async (key) => {
+          const bytes = await download(key, 'image').catch(() => undefined)
+          if (bytes === undefined) {
+            env.log?.warn?.('ds-bot im: feishu image download failed for %s', String(message.message_id ?? ''))
+            return
+          }
+          const buffer = Buffer.from(bytes)
+          try {
             images.push({ mediaType: imageMediaType(buffer), data: buffer.toString('base64') })
-          } else env.log?.warn?.('ds-bot im: feishu image download failed for %s', String(message.message_id ?? ''))
+          } catch (error) {
+            // A format the prompt cannot declare: the message goes on without the picture.
+            env.log?.warn?.('ds-bot im: feishu image not read: %s', error.message)
+          }
         }
+        const addFile = async (key, name) => {
+          const got = await download(key, 'file', FILE_LIMIT).catch(error => error)
+          if (got instanceof Uint8Array) files.push({ name, data: got })
+          else if (got?.overLimit === true) env.log?.warn?.('ds-bot im: feishu %s in a %s chat is over the %d byte cap, skipped', messageType, chatKind, FILE_LIMIT)
+          else env.log?.warn?.('ds-bot im: feishu %s download failed in a %s chat', messageType, chatKind)
+        }
+        // A group message that does not mention the bot is ignored, so nothing is fetched for it.
+        const read = direct || mentioned
+        if (messageType === 'post') {
+          // An `at` names its mention by key; the bot's own goes, like `@_user_N` in plain text.
+          const atName = (item) => {
+            const mention = (message.mentions ?? []).find(m => m.key === item.user_id)
+            if ((mention?.id?.open_id ?? item.user_id) === botOpenId) return ''
+            return String(item.user_name || mention?.name || '').trim()
+          }
+          const post = flattenPost(content, atName)
+          text = post.text
+          if (read) {
+            for (const key of post.images) await addImage(key)
+            for (const key of post.media) await addFile(key, FILE_NAMES.media)
+          }
+        }
+        if (read && messageType === 'image' && content.image_key !== undefined) await addImage(content.image_key)
+        if (read && Object.hasOwn(FILE_NAMES, messageType) && content.file_key !== undefined) {
+          await addFile(content.file_key, String(content.file_name || FILE_NAMES[messageType]))
+        }
+        // Nothing readable — a sticker, a forwarded bundle, a share card, a failed
+        // download, an empty message: the type goes on so the person can be told.
+        const unsupported = read && text === '' && images.length === 0 && files.length === 0 ? (messageType || 'unknown') : undefined
         const sender = String(event.sender?.sender_id?.open_id ?? event.sender?.user_id ?? '')
         const chatId = String(message.chat_id ?? '')
         const names = await namesOf(chatId, direct)
         const senderName = names.members.get(sender) ?? sender
         await handlers.onMessage({
-          chat: { key: chatId, kind: direct ? 'direct' : 'group', title: direct ? senderName : (names.title || chatId) },
+          chat: { key: chatId, kind: chatKind, title: direct ? senderName : (names.title || chatId) },
           sender: { id: sender, name: senderName },
-          text, images, files: [],
-          mentioned, messageId: String(message.message_id ?? ''),
+          text, images, files,
+          mentioned, unsupported, messageId: String(message.message_id ?? ''),
         })
+      }
+      // The bot was added to a group. Leaving or a disbanded group is not followed:
+      // the chat keeps its Bot.
+      if (type === 'event' && payload.header?.event_type === 'im.chat.member.bot.added_v1') {
+        const event = payload.event ?? {}
+        if (event.chat_id) await handlers.onChat?.({ key: String(event.chat_id), kind: 'group', title: String(event.name ?? '').trim() })
       }
       if (type === 'card' || payload.header?.event_type === 'card.action.trigger') {
         const event = payload.event ?? {}
@@ -467,7 +537,7 @@ export default {
     })()
 
     return {
-      ...feishuDelivery(rest),
+      ...feishuDelivery(rest, env),
       stop: () => {
         stopped = true
         generation += 1
@@ -488,7 +558,7 @@ const progressCard = text => JSON.stringify({
   body: { elements: [{ tag: 'markdown', content: text }] },
 })
 
-function feishuDelivery(rest) {
+function feishuDelivery(rest, env) {
     const card = (text, buttons) => JSON.stringify({
       schema: '2.0',
       body: {
@@ -506,34 +576,123 @@ function feishuDelivery(rest) {
       },
     })
 
+    // A card refused for what it holds (too many tables, a tag the service does not
+    // know) or past its size cap goes out as text, so the reply still arrives; auth,
+    // rate limits and the network stay with the caller's send queue.
+    const cardOrText = async (chunk, sendCard, sendText) => {
+      const content = card(chunk)
+      if (Buffer.byteLength(content, 'utf8') > CARD_MAX_BYTES) return sendText(chunk)
+      return sendCard(content).catch((error) => {
+        if (error?.permanent !== true || error.status === 401 || error.status === 403) throw error
+        env?.log?.warn?.('ds-bot im: feishu refused a card (HTTP %s, code %s), sent as text', error.status, error.code ?? 'none')
+        return sendText(chunk)
+      })
+    }
+
     return {
       send: async (chat, { text, buttons }) => {
-        const chunks = chunkMarkdown(String(text ?? ''), TEXT_LIMIT)
+        const body = String(text ?? '')
+        const markdown = hasMarkdown(body)
+        const chunks = markdown ? cardChunks(body, TEXT_LIMIT) : chunkMarkdown(body, TEXT_LIMIT)
+        const post = (msgType, content) => rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+          method: 'POST', body: { receive_id: chat.key, msg_type: msgType, content },
+        })
         let messageId
         for (const [index, chunk] of chunks.entries()) {
-          const interactive = buttons !== undefined && index === chunks.length - 1
-          const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
-            method: 'POST', body: {
-              receive_id: chat.key,
-              msg_type: interactive ? 'interactive' : 'text',
-              content: interactive ? card(chunk, buttons) : JSON.stringify({ text: chunk }),
-            },
-          })
+          const plain = () => post('text', JSON.stringify({ text: chunk }))
+          let sent
+          if (buttons !== undefined && index === chunks.length - 1) sent = await post('interactive', card(chunk, buttons))
+          else if (!markdown) sent = await plain()
+          else sent = await cardOrText(chunk, content => post('interactive', content), plain)
           messageId = String(sent?.data?.message_id ?? messageId ?? '')
+        }
+        return { messageId }
+      },
+      // A reply that uses Markdown, as cards answering one message (in its topic when it
+      // has one). `sendText` takes a chunk the service will not take as a card.
+      reply: async (route, text, sendText) => {
+        let messageId
+        for (const chunk of cardChunks(String(text ?? ''), TEXT_LIMIT)) {
+          const sent = await cardOrText(chunk, content => rest(`/open-apis/im/v1/messages/${encodeURIComponent(route.messageId)}/reply`, {
+            method: 'POST', body: { msg_type: 'interactive', content, reply_in_thread: Boolean(route.threadId) },
+          }).then(result => ({ messageId: result?.data?.message_id })), sendText)
+          messageId ??= sent?.messageId
         }
         return { messageId }
       },
       edit: async (chat, messageId, { text, buttons }) => {
         await rest(`/open-apis/im/v1/messages/${messageId}`, {
           method: 'PATCH',
-          body: { msg_type: 'interactive', content: card(String(text ?? '').slice(0, TEXT_LIMIT), buttons) },
+          body: { msg_type: 'interactive', content: card(toFeishuMarkdown(text).slice(0, TEXT_LIMIT), buttons) },
         })
+      },
+      // The groups the bot is in, up to CHAT_LIST_PAGES pages of 100.
+      chats: async () => {
+        const out = []
+        let pageToken
+        for (let page = 0; page < CHAT_LIST_PAGES; page += 1) {
+          const query = `page_size=100${pageToken === undefined ? '' : `&page_token=${encodeURIComponent(pageToken)}`}`
+          const data = (await rest(`/open-apis/im/v1/chats?${query}`, { method: 'GET' }))?.data ?? {}
+          for (const item of data.items ?? []) {
+            if (item.chat_id) out.push({ key: String(item.chat_id), kind: 'group', title: String(item.name ?? '').trim() })
+          }
+          if (data.has_more !== true || !data.page_token) break
+          pageToken = String(data.page_token)
+        }
+        return out
       },
     }
 }
 
 const safeJson = (text) => { try { return JSON.parse(text ?? '{}') } catch { return {} } }
-const toMarkdown = text => String(text ?? '')
+
+/**
+ * A rich-text post flattened to one line per paragraph, with its pictures and videos by key.
+ * A link keeps its text and address, a mention the name `atName` gives it, code its fence.
+ * @param {object} content - The post, as the receive event carries it or under a locale key.
+ * @param {(item: object) => string} atName - The name an `at` item shows; '' drops it.
+ * @returns {{ text: string, images: string[], media: string[] }}
+ */
+export function flattenPost(content, atName) {
+  const post = Array.isArray(content?.content) ? content : Object.values(content ?? {}).find(part => Array.isArray(part?.content)) ?? {}
+  const images = []
+  const media = []
+  const piece = (item) => {
+    switch (item?.tag) {
+      case 'a': {
+        const label = String(item.text ?? '').trim()
+        const href = String(item.href ?? '').trim()
+        return label === '' || label === href || href === '' ? label || href : `[${label}](${href})`
+      }
+      case 'at': {
+        const name = atName(item)
+        return name === '' ? '' : `@${name}`
+      }
+      case 'img':
+        if (item.image_key !== undefined) images.push(String(item.image_key))
+        return ''
+      case 'media':
+        if (item.file_key !== undefined) media.push(String(item.file_key))
+        return ''
+      case 'emotion':
+        return item.emoji_type === undefined ? '' : `[${item.emoji_type}]`
+      case 'code_block':
+        return `\`\`\`${String(item.language ?? '').toLowerCase()}\n${String(item.text ?? '').replace(/\n$/, '')}\n\`\`\``
+      case 'hr':
+        return '---'
+      default:
+        return String(item?.text ?? '')
+    }
+  }
+  const lines = []
+  for (const paragraph of post.content ?? []) {
+    const items = Array.isArray(paragraph) ? paragraph : []
+    const line = items.map(piece).join('').trim()
+    // A paragraph that held only a picture, a video or the bot's mention leaves no empty line.
+    if (line !== '' || items.every(item => item?.tag === 'text')) lines.push(line)
+  }
+  return { text: [String(post.title ?? '').trim(), ...lines].join('\n').trim(), images, media }
+}
 
 function imageMediaType(bytes) {
   if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
@@ -571,16 +730,46 @@ async function api(env, base, token, path, { method = 'GET', body } = {}) {
   if (!response.ok || (json.code !== undefined && json.code !== 0)) {
     const error = new Error(String(json.msg ?? `Feishu answered ${response.status}`))
     error.status = response.status
+    error.code = json.code
     error.permanent = response.status >= 400 && response.status < 500 && response.status !== 429
     throw error
   }
   return json
 }
 
-async function resource(env, base, token, messageId, key, type) {
+// One image (`type` image) or file, audio or video (`type` file) of a message.
+// With a `limit` the body is abandoned as soon as it passes it, by its declared
+// length or while it is read, and the error carries `overLimit`.
+async function resource(env, base, token, messageId, key, type, limit) {
   const response = await env.fetch(`${base}/open-apis/im/v1/messages/${messageId}/resources/${key}?type=${type}`, {
     headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT),
   })
   if (!response.ok) return undefined
-  return new Uint8Array(await response.arrayBuffer())
+  if (limit === undefined) return new Uint8Array(await response.arrayBuffer())
+  const overLimit = () => Object.assign(new Error('over the file cap'), { overLimit: true })
+  const reader = response.body?.getReader?.()
+  if (Number(response.headers?.get?.('content-length')) > limit) {
+    await reader?.cancel().catch(() => {})
+    throw overLimit()
+  }
+  // A response without a stream (a stubbed fetch) can only be taken whole.
+  if (reader === undefined) {
+    const whole = Buffer.from(await response.arrayBuffer())
+    if (whole.length > limit) throw overLimit()
+    return whole
+  }
+  const chunks = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.length
+    if (total > limit) {
+      await reader.cancel().catch(() => {})
+      throw overLimit()
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks, total)
 }

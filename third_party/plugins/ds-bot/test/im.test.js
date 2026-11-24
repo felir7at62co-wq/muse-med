@@ -5,13 +5,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test } from 'node:test'
+import { format } from 'node:util'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { adapters } from '../src/host/im/platforms/index.js'
 
 // A platform adapter that records sends/edits and lets the test feed inbound
 // messages, actions and statuses. `fail` makes send throw once per call queued.
-const fakeAdapter = ({ buttons = true } = {}) => {
+// `chats` gives the handle a chat list, as a platform that can list its groups has.
+const fakeAdapter = ({ buttons = true, chats } = {}) => {
   const sent = []
   const edited = []
   const typed = []
@@ -41,6 +43,7 @@ const fakeAdapter = ({ buttons = true } = {}) => {
         edit: async (chat, messageId, body) => { edited.push({ chat, messageId, ...body }) },
         typing: async (chat) => { typed.push(chat) },
         stop: () => { adapter.stopped = (adapter.stopped ?? 0) + 1 },
+        ...(chats === undefined ? {} : { chats: async () => chats() }),
       }
     },
   }
@@ -869,7 +872,7 @@ test('dsh-im Feishu keeps an existing Bot, deduplicates delivery, and replies on
   await s.flush()
   assert.deepEqual(replies.at(-1), { route: direct.reply, text: 'Private answer' })
   assert.deepEqual(await s.rt.imSend('b', 'Studio group', 'Unsolicited text'), { error: 'reply-only', chats: ['Studio group'] })
-  assert.deepEqual(await s.rt.imSend('a', undefined, 'Report'), { error: 'reply-only', chats: ['Mei'] }, 'the connection Bot still finds the owner\'s private chat')
+  assert.deepEqual(await s.rt.imSend('a', 'Mei', 'Report'), { error: 'reply-only', chats: ['Studio group', 'Mei'] }, 'the connection Bot reaches every chat on it, the owner\'s private chat included')
   await s.rt.imEndpoint('im-update', { id: connId, enabled: false })
   assert.equal(subscriptionSignal.aborted, true)
   assert.equal(disposals, 1)
@@ -2156,6 +2159,51 @@ test('a group attachment uploads under the group current Session, not the id it 
   assert.deepEqual(s.prompts[0].content.at(-1), { type: 'file', receiptId: 'receipt-plan.txt' })
 })
 
+test('a message the adapter could not read gets one reply saying so, and a log line with only the platform, chat kind and type', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const warnings = []
+  s.ctx.logger.warn = (...args) => warnings.push(format(...args))
+  const conn = await add(s)
+  // Someone not yet allowed to talk gets the pairing flow, not this reply.
+  await dm(s, 'u2', '', { unsupported: 'sticker' })
+  assert.equal(s.fake.sent.length, 1)
+  assert.match(s.fake.sent[0].text, /connection request/)
+  await pairAll(s, conn, 'u1')
+  await dm(s, 'u1', '', { unsupported: 'sticker' })
+  assert.equal(s.fake.sent.length, 2)
+  assert.equal(s.fake.sent[1].text, 'I cannot read this kind of message yet; send text, an image or a file.')
+  assert.equal(s.fake.sent[1].chat.key, 'dm-u1')
+  assert.equal(s.prompts.length, 0)
+  assert.deepEqual(warnings.filter(line => line.includes('not read')), ['ds-bot: im telegram direct message not read: sticker'])
+  // A group message that does not mention the bot stays ignored, whatever it carried.
+  await gm(s, 'u1', '', { mentioned: false, unsupported: 'sticker' })
+  // An adapter that names nothing keeps the silent drop of an empty message.
+  await dm(s, 'u1', '')
+  assert.equal(s.fake.sent.length, 2)
+  assert.equal(s.prompts.length, 0)
+  // Whatever could be read is delivered, with no reply of this kind.
+  await dm(s, 'u1', 'the words that were read', { unsupported: 'post' })
+  assert.equal(s.fake.sent.length, 2)
+  assert.deepEqual(s.prompts.at(-1).content, [{ type: 'text', text: 'the words that were read' }])
+})
+
+test('the reply to an unreadable message is written in each interface language', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  const replies = []
+  for (const language of ['English', 'Chinese (简体中文)', 'Traditional Chinese (繁體中文)', 'Japanese (日本語)', 'Korean (한국어)', 'Spanish (Español)', 'French (Français)', 'German (Deutsch)']) {
+    s.rt.uiLanguage = () => language
+    await dm(s, 'u1', '', { unsupported: 'sticker' })
+    replies.push(s.fake.sent.at(-1).text)
+  }
+  assert.equal(replies[1], '这种消息我还读不了，请发文字、图片或文件。')
+  assert.equal(new Set(replies).size, 8, 'every language has its own sentence')
+  assert.ok(replies.every(reply => reply !== 'unreadable'), 'no language falls back to the key')
+})
+
 test('a failed add keeps the network reason under "fetch failed"', async (t) => {
   // #1120: the outlet printed only error.message, so a DNS failure read as
   // "im-add: fetch failed" and the user could not tell it from a bad token.
@@ -2395,10 +2443,14 @@ test('the connection Bot can still im_send to the owner\'s private chat once it 
   const owners = botNamed(s, 'u1')
   assert.ok(owners)
   s.fake.sent.length = 0
-  assert.equal(await send({ text: 'daily report' }, 'a'), 'Sent to u1.', 'only the owner\'s private chat, not u2\'s')
+  assert.equal(await send({ text: 'daily report' }, 'a'), 'Sent to u1.', 'with no chat named, the owner\'s private chat, not u2\'s')
   await s.flush()
   assert.equal(s.fake.sent.at(-1).text, 'daily report')
   assert.equal(s.fake.sent.at(-1).chat.key, 'dm-u1')
+  // Named, the connection's Bot reaches the other chats on its connection too.
+  assert.equal(await send({ text: 'for u2', chat: 'u2' }, 'a'), 'Sent to u2.')
+  await s.flush()
+  assert.equal(s.fake.sent.at(-1).chat.key, 'dm-u2')
   assert.equal(await send({ text: 'from the chat Bot' }, owners.id), 'Sent to u1.')
   // An owner's chat recorded before chat Bots covered it is reachable before its next message too.
   s.rt.state.im.connections[conn.id].chats['dm-u1'] = { kind: 'direct', title: 'u1', at: 1 }
@@ -2471,6 +2523,177 @@ test('im_send reaches only the calling Bot\'s own chats and names them when it m
   assert.equal(await send({ text: 'to the group', chat: 'Group One' }, 'a'), 'Sent to Group One.')
   await assert.rejects(send({ text: '' }, 'a'), /empty/)
   await assert.rejects(send({ text: 'x'.repeat(4001) }, 'a'), /4001 characters/)
+})
+
+// --------------------------------------------------------------- chat list
+
+// Waits for work the plugin starts on its own, with no promise to await.
+const until = async (check, tries = 200) => {
+  for (let at = 0; at < tries; at += 1) {
+    if (check()) return true
+    await delay(10)
+  }
+  return false
+}
+const CHAT_SYNC_MS = 10 * 60_000
+// Fakes the intervals a connection starts from here on, so a test can let the chat
+// list's next reading come due; the runtime's own timers, started before, stay real.
+const fakeIntervals = (t, s) => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  t.after(async () => {
+    t.mock.timers.reset()
+    await s.stop()
+  })
+}
+const GROUPS = [
+  { key: 'oc_a', kind: 'group', title: 'Writers' },
+  { key: 'oc_b', kind: 'group', title: 'Editors' },
+  { key: 'oc_c', kind: 'group', title: 'Producers' },
+]
+
+test('the groups a platform lists are registered once the connection is ready, each with its own Bot, one after another', async (t) => {
+  let listed = 0
+  const s = await start({ adapter: fakeAdapter({ chats: () => { listed += 1; return GROUPS } }) })
+  fakeIntervals(t, s)
+  // A creation that starts while another runs would show here.
+  let running = 0
+  let most = 0
+  const create = s.ctx.sessionController.create
+  s.ctx.sessionController.create = async (...args) => {
+    running += 1
+    most = Math.max(most, running)
+    await delay(5)
+    running -= 1
+    return create(...args)
+  }
+  const conn = await add(s)
+  assert.ok(await until(() => GROUPS.every(group => s.rt.state.im.connections[conn.id].chats?.[group.key]?.target !== undefined)), 'every group got a Bot')
+  const chats = s.rt.state.im.connections[conn.id].chats
+  assert.deepEqual(Object.keys(chats), ['oc_a', 'oc_b', 'oc_c'])
+  // Nobody is paired and nobody wrote: the list alone registered them.
+  assert.equal(s.prompts.length, 0)
+  assert.equal(s.fake.sent.length, 0)
+  assert.equal(most, 1)
+  assert.deepEqual(Object.values(s.rt.state.bots).slice(2).map(bot => bot.name), ['Writers', 'Editors', 'Producers'])
+  for (const group of GROUPS) {
+    const bot = botNamed(s, group.title)
+    assert.deepEqual(chats[group.key].target, { botId: bot.id })
+    assert.equal(chats[group.key].kind, 'group')
+    assert.equal(chats[group.key].title, group.title)
+    assert.equal(chats[group.key].auto, true)
+    assert.equal(chats[group.key].botName, group.title)
+    assert.equal(bot.role, 'Telegram group')
+    assert.equal(s.rt.state.sections.find(sec => sec.id === bot.sectionId)?.name, 'Telegram')
+  }
+  // The list is read again while the connection stays ready, and makes nothing twice.
+  const bots = Object.keys(s.rt.state.bots).length
+  assert.equal(listed, 1)
+  t.mock.timers.tick(CHAT_SYNC_MS)
+  assert.ok(await until(() => listed === 2))
+  await s.flush()
+  assert.equal(Object.keys(s.rt.state.bots).length, bots)
+  // A message from a registered group goes to the Bot it already has.
+  await pairAll(s, conn, 'u1')
+  await gm(s, 'u1', 'hello', { chat: { key: 'oc_b', kind: 'group', title: 'Editors' } })
+  assert.equal(s.prompts.at(-1).sessionId, botNamed(s, 'Editors').id)
+  assert.equal(Object.keys(s.rt.state.bots).length, bots)
+})
+
+test('a listed group that is already known follows its new name and gets no second Bot, also after its Bot was deleted', async (t) => {
+  let groups = [GROUPS[0]]
+  const s = await start({ adapter: fakeAdapter({ chats: () => groups }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  assert.ok(await until(() => botNamed(s, 'Writers') !== undefined))
+  const bot = botNamed(s, 'Writers')
+  groups = [{ ...GROUPS[0], title: 'Screenwriters' }]
+  s.fake.handlers.onStatus({ state: 'ready' })
+  assert.ok(await until(() => s.rt.botOf(bot.id).name === 'Screenwriters'))
+  assert.equal(s.rt.state.im.connections[conn.id].chats.oc_a.title, 'Screenwriters')
+  // A Bot the user deleted is not made again by the list; the chat's next message makes one.
+  await s.rt.deleteBot(bot.id)
+  const bots = Object.keys(s.rt.state.bots).length
+  s.fake.handlers.onStatus({ state: 'ready' })
+  await s.flush()
+  await s.flush()
+  assert.equal(Object.keys(s.rt.state.bots).length, bots)
+})
+
+test('with a Bot for each chat off, listed groups are recorded and get no Bot', async (t) => {
+  let groups = []
+  const s = await start({ adapter: fakeAdapter({ chats: () => groups }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  await s.rt.imEndpoint('im-update', { id: conn.id, chatBots: false })
+  groups = GROUPS
+  s.fake.handlers.onStatus({ state: 'ready' })
+  assert.ok(await until(() => Object.keys(s.rt.state.im.connections[conn.id].chats ?? {}).length === 3))
+  await s.flush()
+  const chats = s.rt.state.im.connections[conn.id].chats
+  assert.deepEqual(Object.values(chats).map(chat => [chat.kind, chat.title, chat.target]), GROUPS.map(group => ['group', group.title, undefined]))
+  assert.deepEqual(Object.keys(s.rt.state.bots), ['a', 'b'])
+})
+
+test('a chat list that cannot be read is logged once per connect and leaves the connection ready', async (t) => {
+  let listed = 0
+  const s = await start({ adapter: fakeAdapter({ chats: () => { listed += 1; throw new Error('Access denied') } }) })
+  fakeIntervals(t, s)
+  const warnings = []
+  s.ctx.logger.warn = (...args) => warnings.push(format(...args))
+  const conn = await add(s)
+  assert.ok(await until(() => listed === 1))
+  t.mock.timers.tick(CHAT_SYNC_MS)
+  assert.ok(await until(() => listed === 2))
+  await s.flush()
+  assert.deepEqual(warnings.filter(line => line.includes('chat list')), ['ds-bot: im telegram chat list could not be read: Access denied'])
+  assert.equal(s.rt.imStatusView()[conn.id].state, 'ready')
+  assert.deepEqual(s.rt.state.im.connections[conn.id].chats ?? {}, {})
+  // The connection still takes messages, and a chat that writes is registered as before.
+  await pairAll(s, conn, 'u1')
+  await gm(s, 'u1', 'hello')
+  assert.equal(s.prompts.length, 1)
+  // A new connect may say it once more.
+  s.fake.handlers.onStatus({ state: 'ready' })
+  assert.ok(await until(() => listed === 3))
+  await s.flush()
+  assert.equal(warnings.filter(line => line.includes('chat list')).length, 2)
+})
+
+test('a chat the platform reports the bot joined is registered with its Bot, once', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  const conn = await add(s)
+  await s.fake.handlers.onChat({ key: 'oc_new', kind: 'group', title: 'Launch' })
+  const bot = botNamed(s, 'Launch')
+  assert.ok(bot, 'the group got a Bot named after it')
+  assert.deepEqual(s.rt.state.im.connections[conn.id].chats.oc_new.target, { botId: bot.id })
+  const bots = Object.keys(s.rt.state.bots).length
+  await s.fake.handlers.onChat({ key: 'oc_new', kind: 'group', title: 'Launch' })
+  assert.equal(Object.keys(s.rt.state.bots).length, bots)
+})
+
+test('im_send from the Bot a connection belongs to reaches every chat on it; other Bots keep their own chats', async (t) => {
+  const s = await start()
+  t.after(s.stop)
+  await add(s)
+  const send = (args, sessionId) => s.rt.teamTools.find(def => def.name === 'im_send').execute(args, { agent: { id: sessionId } })
+  await s.fake.handlers.onChat({ key: 'oc_w', kind: 'group', title: 'Writers' })
+  const group = botNamed(s, 'Writers')
+  // By title and by key, although the group's messages go to the group's own Bot.
+  assert.equal(await send({ text: 'call at three', chat: 'Writers' }, 'a'), 'Sent to Writers.')
+  assert.equal(await send({ text: 'and by key', chat: 'oc_w' }, 'a'), 'Sent to Writers.')
+  await s.flush()
+  assert.deepEqual(s.fake.sent.map(entry => [entry.chat.key, entry.text]), [['oc_w', 'call at three'], ['oc_w', 'and by key']])
+  // What was sent is not passed to the group's Bot.
+  assert.equal(s.prompts.length, 0)
+  assert.equal(await send({ text: 'from the group Bot' }, group.id), 'Sent to Writers.')
+  await assert.rejects(send({ text: 'x', chat: 'Writers' }, 'b'), /nowhere to send/)
+  // Two chats with one title are listed with their keys, and either form picks one.
+  await s.fake.handlers.onChat({ key: 'oc_w2', kind: 'group', title: 'Writers' })
+  await assert.rejects(send({ text: 'x', chat: 'Writers' }, 'a'), /several chats; name one\. Your chats: Writers \(oc_w\), Writers \(oc_w2\)/)
+  assert.equal(await send({ text: 'to the second', chat: 'Writers (oc_w2)' }, 'a'), 'Sent to Writers (oc_w2).')
+  await s.flush()
+  assert.equal(s.fake.sent.at(-1).chat.key, 'oc_w2')
 })
 
 // ------------------------------------------------------------------ access
@@ -2678,4 +2901,119 @@ test('dsh-im: the channel-neutral dshIm config links an existing connection, and
   assert.equal(s.rt.imView().connections.find(conn => conn.id === 'im_0000000a').dshImBotId, 'dt_one')
   assert.equal(s.rt.imStatusView().im_0000000b.state, 'error')
   assert.match(s.rt.imStatusView().im_0000000b.error, /changed/)
+})
+
+test('dsh-im Feishu with the rich consumer: groups register on connect, posts, files and voice are read, what cannot be read is answered, Markdown replies are cards on the source message', async (t) => {
+  const connId = 'im_87654321'
+  const legacyBot = 'bot_rich'
+  const identity = { provider: 'feishu', domain: 'feishu', appId: 'cli_rich', botOpenId: 'ou_bot' }
+  const fingerprint = createHash('sha256').update(JSON.stringify(identity)).digest('hex')
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2])
+  const seed = TEAM()
+  seed.im = { connections: { [connId]: {
+    id: connId, platform: 'feishu', enabled: true, botId: 'a', account: { id: 'ou_bot' },
+    settings: { domain: 'feishu', appId: identity.appId }, secrets: {},
+    paired: [{ id: 'ou_actor', name: 'Mei' }], requests: [], chats: {},
+  } } }
+  let onEvent
+  const replies = []
+  const service = {
+    inboundVersion: 1,
+    describeBot: async () => ({ channel: 'feishu', account: { fingerprint },
+      capabilities: ['exclusive-text-consumer', 'reply-text-checked', 'muse-rich-consumer'] }),
+    async consumeInbound(botId, options) {
+      assert.equal(options.rich, true)
+      onEvent = options.onEvent
+      return () => {}
+    },
+    async replyChecked(botId, route, text) {
+      replies.push({ route, text })
+      return { sent: true, messageId: `om_text_${replies.length}` }
+    },
+  }
+  const rest = []
+  let refuseCards = false
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    const { pathname, search } = new URL(url)
+    rest.push({ method: init.method ?? 'GET', path: `${pathname}${search}`, body: init.body === undefined ? undefined : JSON.parse(init.body) })
+    if (pathname === '/open-apis/auth/v3/tenant_access_token/internal') return Response.json({ code: 0, tenant_access_token: 'fixture', expire: 7200 })
+    if (pathname === '/open-apis/im/v1/chats') return Response.json({ code: 0, data: { items: [{ chat_id: 'oc_joined', name: 'Joined group' }], has_more: false } })
+    if (pathname.includes('/resources/')) return new Response(search.includes('type=image') ? png : Buffer.from(`bytes of ${pathname.split('/').at(-1)}`))
+    if (pathname.endsWith('/reply')) {
+      return refuseCards
+        ? Response.json({ code: 230099, msg: 'Failed to create card content' }, { status: 400 })
+        : Response.json({ code: 0, data: { message_id: 'om_card' } })
+    }
+    if (pathname.endsWith('/members')) return Response.json({ code: 0, data: { items: [{ member_id: 'ou_actor', name: 'Mei' }] } })
+    return Response.json({ code: 0, data: { name: 'Studio group' } })
+  })
+  const uploads = []
+  const s = await start({
+    platform: 'feishu', seed, config: { feishuDshIm: { [connId]: legacyBot } },
+    services: { dshIm: service, fileUploads: { uploadStream: async ({ name }) => { uploads.push(name); return { receiptId: `receipt-${name}` } } } },
+  })
+  t.after(s.stop)
+  await s.rt.load()
+  await s.flush()
+  const conn = () => s.rt.state.im.connections[connId]
+  // The bot's groups are registered with Bots of their own before anyone writes.
+  assert.ok(await until(() => conn().chats?.oc_joined?.target !== undefined))
+  assert.equal(conn().chats.oc_joined.target.botId, botNamed(s, 'Joined group').id)
+  const event = (messageId, messageType, extra = {}) => ({
+    version: 1, channel: 'feishu', botId: legacyBot, fingerprint, messageId, messageType,
+    conversation: { id: 'oc_dm', kind: 'dm' }, actor: { id: 'ou_actor' }, text: '', mentions: [], mentionedAccount: false,
+    reply: { messageId, conversationId: 'oc_dm', actorId: 'ou_actor' }, ...extra,
+  })
+  const inbound = { signal: new AbortController().signal }
+  const resources = () => rest.filter(call => call.path.includes('/resources/')).map(call => call.path)
+
+  // A post flattens to its title and paragraphs; the bot's own mention goes, its picture is read.
+  await onEvent(event('om_post', 'post', {
+    mentions: [{ key: '@_user_1', id: 'ou_bot', name: 'bot' }],
+    post: { title: 'Episode 3', content: [[{ tag: 'at', user_id: '@_user_1' }, { tag: 'text', text: ' see ' }, { tag: 'a', href: 'https://example.com/o', text: 'outline' }], [{ tag: 'img', image_key: 'img_1' }]] },
+  }), inbound)
+  assert.deepEqual(s.prompts.at(-1).content.map(block => block.type), ['text', 'image'])
+  assert.equal(s.prompts.at(-1).content[0].text, 'Episode 3\nsee [outline](https://example.com/o)')
+  assert.equal(s.prompts.at(-1).content[1].mediaType, 'image/png')
+  // A file, and a voice message where dsh-im turns no speech into text, reach the Bot as files.
+  await onEvent(event('om_file', 'file', { fileKey: 'file_1', fileName: 'plan.txt' }), inbound)
+  await onEvent(event('om_voice', 'audio', { audioKey: 'file_2' }), inbound)
+  assert.deepEqual(uploads, ['plan.txt', 'audio.opus'])
+  assert.deepEqual(s.prompts.at(-1).content, [{ type: 'file', receiptId: 'receipt-audio.opus' }])
+  assert.deepEqual(resources(), [
+    '/open-apis/im/v1/messages/om_post/resources/img_1?type=image',
+    '/open-apis/im/v1/messages/om_file/resources/file_1?type=file',
+    '/open-apis/im/v1/messages/om_voice/resources/file_2?type=file',
+  ])
+  // A group message that does not mention the bot fetches nothing.
+  await onEvent({ ...event('om_quiet', 'image', { imageKey: 'img_2' }), conversation: { id: 'oc_joined', kind: 'group' },
+    reply: { messageId: 'om_quiet', conversationId: 'oc_joined', actorId: 'ou_actor' } }, inbound)
+  assert.equal(resources().length, 3)
+  // A sticker is answered once, on its own message, and starts no turn.
+  const prompts = s.prompts.length
+  await onEvent(event('om_sticker', 'sticker'), inbound)
+  await s.flush()
+  assert.equal(s.prompts.length, prompts)
+  assert.deepEqual(replies.at(-1), { route: event('om_sticker', 'sticker').reply, text: 'I cannot read this kind of message yet; send text, an image or a file.' })
+
+  // The Bot's Markdown answer is a card replying to the voice message; plain text stays a dsh-im reply.
+  const asked = s.prompts.at(-1)
+  s.emitEvent(asked.sessionId, 'turn/start', {})
+  s.emitEvent(asked.sessionId, 'user/message', { source: { kind: 'user', rpcId: asked.requestId }, content: [] })
+  s.emitEvent(asked.sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: '## Done\n\n- **plan** read' }] } })
+  await s.flush()
+  const card = rest.filter(call => call.path.endsWith('/reply')).at(-1)
+  assert.equal(card.path, '/open-apis/im/v1/messages/om_voice/reply')
+  assert.equal(card.body.msg_type, 'interactive')
+  assert.equal(JSON.parse(card.body.content).body.elements[0].content, '## Done\n\n- **plan** read')
+  s.emitEvent(asked.sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: 'all good' }] } })
+  await s.flush()
+  assert.deepEqual(replies.at(-1), { route: event('om_voice', 'audio').reply, text: 'all good' })
+  // A card Feishu refuses for its content goes out as text through dsh-im.
+  refuseCards = true
+  s.emitEvent(asked.sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: '**Bold** answer' }] } })
+  await s.flush()
+  assert.match(replies.at(-1).text, /^Bold answer$/)
+  // The connection's Bot writes to the registered group by name.
+  assert.deepEqual(await s.rt.imSend('a', 'Joined group', 'Call at three'), { sent: 'Joined group' })
 })

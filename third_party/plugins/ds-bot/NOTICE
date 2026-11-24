@@ -152,6 +152,12 @@ MIT License, Copyright (c) 2026 xmanrui
     src/channels/shared/markdown-chunks.mjs and telegram-rich-message.mjs
     there: code fences stay whole where they fit and are re-fenced when
     they must be split.
+  - ds-bot/src/host/im/feishu-markdown.js follows the Feishu reply cards of
+    src/channels/feishu/feishu-cards.mjs and bridge.mjs there: Markdown sent
+    as the markdown element of a schema 2.0 card, the GFM table detection
+    with the five-table limit of one card and the cut where a table begins,
+    the content budget under the card size cap, and plain text when a rich
+    send is refused.
   - ds-bot/src/host/im/platforms/discord.js follows the gateway and REST
     mapping of dsh-im's discord channel (src/channels/discord/discord-runtime.mjs
     and discord-api.mjs): resume with session_id and resume_gateway_url,
