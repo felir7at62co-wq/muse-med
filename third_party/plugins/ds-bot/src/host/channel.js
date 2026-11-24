@@ -172,6 +172,8 @@ export function install(rt) {
     capabilityStatuses: rt.capabilityStatusesView(),
     phone: rt.phoneView(),
     imStatus: rt.imStatusView?.() ?? {},
+    // dsh-im accounts no connection takes yet, for Settings → IM.
+    imAvailable: rt.imAvailableView?.() ?? [],
     imVia: rt.imViaView?.() ?? {},
     // Why this host cannot write the team, or null. It changes without a save — the
     // other dsh can quit while this window stays open and this host takes the lock
@@ -873,10 +875,12 @@ export function install(rt) {
           return ok(true)
         }
         case 'im-add':
+        case 'im-link':
         case 'im-update':
         case 'im-remove':
         case 'im-pair':
         case 'im-unpair':
+        case 'im-person':
         case 'im-chat':
         case 'im-retry':
         case 'im-login-start':

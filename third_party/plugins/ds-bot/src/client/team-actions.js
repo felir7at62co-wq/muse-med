@@ -293,6 +293,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, hel
     phonePairCancel: () => after(call('phone-pair-cancel')),
     phoneRemove: id => after(call('phone-remove', { id })),
     imAdd: payload => after(call('im-add', payload)),
+    imLink: payload => after(call('im-link', payload)),
     imUpdate: (id, patch) => after(call('im-update', { id, ...patch })),
     imRemove: id => after(call('im-remove', { id })),
     imPair: (id, senderId, allow) => after(call('im-pair', { id, senderId, allow })),

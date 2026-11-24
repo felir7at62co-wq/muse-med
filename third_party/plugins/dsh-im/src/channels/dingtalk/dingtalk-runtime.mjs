@@ -1,3 +1,4 @@
+import { dingtalkExternalChannel } from './dingtalk-external.mjs';
 import { atConnectionStage, createConnectionDiagnostics } from '../shared/connection-error.mjs';
 import { createDingtalkApi } from './dingtalk-api.mjs';
 import {
@@ -150,6 +151,7 @@ export class DingtalkRuntime {
   #connectionMonitor = null;
   #abortController = null;
   #callbackTasks = new Set();
+  #external;
 
   constructor({
     config,
@@ -165,6 +167,7 @@ export class DingtalkRuntime {
     connectPollIntervalMs = 25,
     api = createDingtalkApi({ logger }),
     streamFactory = defaultStreamFactory,
+    external,
   }) {
     if (!config || !nonEmptyString(config.clientId) || !nonEmptyString(clientSecret)) {
       throw new TypeError('DingtalkRuntime requires app credentials');
@@ -185,6 +188,8 @@ export class DingtalkRuntime {
     this.#connectPollIntervalMs = connectPollIntervalMs;
     this.#api = api;
     this.#streamFactory = streamFactory;
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
     this.#status = createDingtalkRuntimeStatus({
       pendingSenders: this.#pendingSenders(),
       approvedSenders: approvedSenderCount(config),
@@ -231,8 +236,10 @@ export class DingtalkRuntime {
     let startStage = 'dingtalk-harness-connect-failed';
 
     try {
-      await atConnectionStage('harness.check', () => this.#harness.ensureRunning({ signal }));
-      this.#status.harnessReachable = true;
+      if (!this.#external) {
+        await atConnectionStage('harness.check', () => this.#harness.ensureRunning({ signal }));
+        this.#status.harnessReachable = true;
+      }
       startStage = 'dingtalk-runtime-prepare-failed';
       if (typeof this.#state.removePendingSenderByStaffId === 'function') {
         for (const staffId of approvedSenderIds(this.#config)) {
@@ -240,7 +247,17 @@ export class DingtalkRuntime {
         }
         this.#status.pendingSenders = this.#pendingSenders();
       }
-      this.#bridge = new DingtalkHarnessBridge({
+      this.#bridge = this.#external ? this.#external.createBridge({
+        ...dingtalkExternalChannel({
+          api: this.#api,
+          clientId: this.#config.clientId,
+          clientSecret: this.#clientSecret,
+          maxMessageChars: this.#maxMessageChars,
+        }),
+        status: this.#status,
+        logger: this.#logger,
+        signal,
+      }) : new DingtalkHarnessBridge({
         api: this.#api,
         clientId: this.#config.clientId,
         clientSecret: this.#clientSecret,

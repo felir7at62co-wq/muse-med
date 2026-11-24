@@ -1,3 +1,4 @@
+import { weixinExternalChannel } from './weixin-external.mjs';
 import { createWeixinDiagnostics } from './connection-error.mjs';
 import { DEFAULT_WEIXIN_MAX_MESSAGE_CHARS, WeixinApiError, rejectedProviderResponse, splitWeixinText } from './weixin-api.mjs';
 import { chunkMarkdownText } from '../shared/markdown-chunks.mjs';
@@ -130,6 +131,7 @@ export class WeixinRuntime {
   #abortController = null;
   #monitor = null;
   #starting = null;
+  #external;
 
   constructor({
     api,
@@ -144,6 +146,7 @@ export class WeixinRuntime {
     replyTimeoutMs = 600_000,
     maxMessageChars = DEFAULT_WEIXIN_MAX_MESSAGE_CHARS,
     startRetryDelaysMs,
+    external,
   }) {
     if (!api || !config || !token || !harness || !state) {
       throw new TypeError('WeixinRuntime requires API, account, token, Harness, and state');
@@ -160,6 +163,8 @@ export class WeixinRuntime {
     this.#replyTimeoutMs = replyTimeoutMs;
     this.#maxMessageChars = maxMessageChars;
     this.#startRetryDelaysMs = startRetryDelays(startRetryDelaysMs);
+    // Set while the account is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
   }
 
   get status() {
@@ -183,17 +188,29 @@ export class WeixinRuntime {
     this.#status.lastError = null;
     this.#status.connectionError = null;
     try {
-      try {
-        await this.#harness.ensureRunning();
-      } catch (error) {
-        throw harnessHealthError(error);
+      if (!this.#external) {
+        try {
+          await this.#harness.ensureRunning();
+        } catch (error) {
+          throw harnessHealthError(error);
+        }
+        this.#status.harnessReachable = true;
       }
-      this.#status.harnessReachable = true;
       await this.#state.bindContextTokens?.(this.#token);
       await this.#notifyStart();
       this.#abortController = new AbortController();
       const signal = this.#abortController.signal;
-      this.#bridge = new WeixinHarnessBridge({
+      this.#bridge = this.#external ? this.#external.createBridge({
+        ...weixinExternalChannel({
+          api: this.#api,
+          state: this.#state,
+          sendText: (target, text, options) => this.sendProactiveText(target, text, options),
+          logger: this.#logger,
+        }),
+        status: this.#status,
+        logger: this.#logger,
+        signal,
+      }) : new WeixinHarnessBridge({
         api: this.#api,
         baseUrl: this.#config.baseUrl,
         token: this.#token,

@@ -4,7 +4,7 @@ import { unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { QqConfigStore } from '../../../../src/channels/qq/config-store.mjs';
+import { QqConfigStore, maskQqAppId } from '../../../../src/channels/qq/config-store.mjs';
 import { QqHarnessClient } from '../../../../src/channels/qq/harness-client.mjs';
 import { QqController } from '../../../../src/channels/qq/qq-controller.mjs';
 import { QqRuntime } from '../../../../src/channels/qq/qq-runtime.mjs';
@@ -20,6 +20,7 @@ import { prepareBotWorkspace } from '../../../../src/channels/shared/default-wor
 import { listAgentPresetCatalog } from '../../../../src/channels/shared/agent-preset.mjs';
 import { listModelCatalog } from '../../../../src/channels/shared/model-setting.mjs';
 import { createDeliveryAdapter } from '../../delivery-adapter.mjs';
+import { loadExternalConsumerHost } from '../../external-consumer-host.mjs';
 import { createConnectionSupervisor } from './connection-supervisor.mjs';
 import { createHarnessCommandExecutor } from '../../harness-command-executor.mjs';
 import { harnessConnection } from '../../harness-connection.mjs';
@@ -38,6 +39,7 @@ function pluginPaths(config) {
   const dshHome = resolve(config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'));
   const root = resolve(config.dataDir ?? join(dshHome, 'integrations', 'dsh-qq'));
   return {
+    root,
     config: resolve(config.configPath ?? join(root, 'config.json')),
     bots: resolve(config.botsDir ?? join(root, 'bots')),
     workspaces: resolve(config.workspacesPath ?? join(root, 'workspaces.json')),
@@ -74,6 +76,19 @@ export async function createProductionController(ctx, config = {}, internals = {
     : configStore;
   const qrAuth = internals.qrAuth ?? new QrAuth({ source: config.qrSource ?? 'deepseek-harness' });
   const stateStores = new Map();
+  // Bots handed to Muse's DS Bot keep their connection here and answer through it.
+  let coreController;
+  const external = internals.external ?? await loadExternalConsumerHost({
+    channel: 'qq',
+    path: resolve(paths.root, 'external-consumers.json'),
+    account: (botId) => {
+      const bot = configStore.list().find((item) => item.botId === botId);
+      return bot ? { name: workspaces.aliasFor?.(botId) || maskQqAppId(bot.appId) } : null;
+    },
+    reconnect: (botId) => coreController.reconnectBot(botId),
+    consumerWaitMs: config.externalConsumerWaitMs ?? 60_000,
+    logger,
+  });
   const statePath = (botId) => resolve(paths.bots, botId, 'state.json');
   const stateFor = async (botId) => {
     let state = stateStores.get(botId);
@@ -110,7 +125,7 @@ export async function createProductionController(ctx, config = {}, internals = {
     imageInputPolicy: () => getImageInputSettingsStore(config).get(),
   });
   const modelCatalog = (options) => listModelCatalog(harness, options);
-  const coreController = new Controller({
+  coreController = new Controller({
     qrAuth,
     credentials: ctx.credentials,
     configStore: observedConfigStore,
@@ -125,6 +140,7 @@ export async function createProductionController(ctx, config = {}, internals = {
         botId, workspaces, state, agentPresetCatalog,
       });
       return new Runtime({
+        ...(external.isExternal(botId) ? { external: external.runtimeHook(botId) } : {}),
         config: botConfig,
         appSecret,
         harness: workspaceScope.harness,
@@ -173,10 +189,11 @@ export async function createProductionController(ctx, config = {}, internals = {
   }).start();
   return {
     controller,
-    deliveryAdapter: createDeliveryAdapter({ channel: 'qq', workspaces, coreController, stateFor }),
+    deliveryAdapter: createDeliveryAdapter({ channel: 'qq', workspaces, coreController, stateFor, external }),
     ready: supervisor.ready,
     async close() {
       await supervisor.close();
+      external.close();
       await controller.close();
       harness.stopManagedProcess();
     },

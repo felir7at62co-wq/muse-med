@@ -176,6 +176,13 @@ export function normalizeDeliveryTarget(channel, value, { targetIdRequired = tru
   return normalized;
 }
 
+/** The conversation id a delivery target addresses, as external events name it. */
+function conversationIdOf(target) {
+  const route = target?.route ?? {};
+  return route.chatId ?? route.openConversationId ?? route.userId ?? route.toUserId ?? route.groupOpenId
+    ?? route.userOpenId ?? route.channelId ?? route.jid ?? route.chatGuid ?? route.address ?? route.roomId ?? route.openId;
+}
+
 function targetWithoutSessionSync(target) {
   return {
     targetId: target.targetId,
@@ -219,8 +226,13 @@ function sessionSyncView(channel, target, sessions, configured) {
   return { enabled: false, state: conversationKey ? 'off' : 'unavailable' };
 }
 
-/** Bind one channel's existing workspace store and unwrapped controller to DeliveryService. */
-export function createDeliveryAdapter({ channel, workspaces, coreController, stateFor }) {
+/**
+ * Bind one channel's existing workspace store and unwrapped controller to DeliveryService.
+ *
+ * `external` is the channel's external-consumer host; when given, it serves the
+ * consumer methods (inbound, checked replies, history, account) for every bot.
+ */
+export function createDeliveryAdapter({ channel, workspaces, coreController, stateFor, external }) {
   if (!supportsDeliveryChannel(channel)) throw new TypeError(`Unsupported delivery channel: ${channel}`);
   if (!workspaces || typeof workspaces !== 'object') {
     throw new TypeError('delivery adapter requires a workspace store');
@@ -243,30 +255,34 @@ export function createDeliveryAdapter({ channel, workspaces, coreController, sta
     }
     return { target, conversationKey: configured.conversationKey };
   };
+  const consumer = external ?? coreController;
   return Object.freeze({
     channel,
     consumeInbound: (botId, options) => {
+      if (external) return external.consumeInbound(botId, options);
       if (typeof coreController.consumeInbound !== 'function')
         throw Object.assign(new Error('capability-unavailable'), { code: 'capability-unavailable' });
       return coreController.consumeInbound(botId, options);
     },
     historyChecked: (botId, route, query, options) => {
+      if (external) return external.historyChecked(botId, route, query, options);
       if (typeof coreController.historyChecked !== 'function')
         throw Object.assign(new Error('capability-unavailable'), { code: 'capability-unavailable' });
       return coreController.historyChecked(botId, route, query, options);
     },
     replyChecked: (botId, route, text, options) => {
+      if (external) return external.replyChecked(botId, route, text, options);
       if (typeof coreController.replyChecked !== 'function')
         throw Object.assign(new Error('capability-unavailable'), { code: 'capability-unavailable' });
       return coreController.replyChecked(botId, route, text, options);
     },
     describeAccount: (botId) => {
-      if (typeof coreController.describeDeliveryAccount !== 'function') {
+      if (typeof consumer.describeDeliveryAccount !== 'function') {
         const error = new Error('Verified account capability unavailable');
         error.code = 'capability-unavailable';
         throw error;
       }
-      return coreController.describeDeliveryAccount(botId);
+      return consumer.describeDeliveryAccount(botId);
     },
     ownsBot: (botId) => workspaces.has(botId),
     listBots: () => workspaces.listBotIds(),
@@ -314,6 +330,7 @@ export function createDeliveryAdapter({ channel, workspaces, coreController, sta
         throw new TypeError('delivery controller cannot send proactive text');
       }
       const result = await coreController.sendProactiveText(botId, normalized, text, options);
+      external?.rememberSent(botId, conversationIdOf(normalized), text);
       return options.receipt === true ? result : { sent: true };
     },
     async setSessionSync(botId, targetId, enabled) {

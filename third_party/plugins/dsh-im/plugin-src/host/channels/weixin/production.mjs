@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici';
 
-import { WeixinConfigStore } from '../../../../src/channels/weixin/config-store.mjs';
+import { WeixinConfigStore, maskWeixinAccountId } from '../../../../src/channels/weixin/config-store.mjs';
 import { HarnessClient } from '../../../../src/channels/weixin/harness-client.mjs';
 import { WeixinStateStore } from '../../../../src/channels/weixin/state-store.mjs';
 import {
@@ -24,6 +24,7 @@ import { prepareBotWorkspace } from '../../../../src/channels/shared/default-wor
 import { listAgentPresetCatalog } from '../../../../src/channels/shared/agent-preset.mjs';
 import { listModelCatalog } from '../../../../src/channels/shared/model-setting.mjs';
 import { createDeliveryAdapter } from '../../delivery-adapter.mjs';
+import { loadExternalConsumerHost } from '../../external-consumer-host.mjs';
 import { createConnectionSupervisor } from './connection-supervisor.mjs';
 import { createHarnessCommandExecutor } from '../../harness-command-executor.mjs';
 import { harnessConnection } from '../../harness-connection.mjs';
@@ -114,6 +115,21 @@ export async function createProductionController(ctx, config = {}, internals = {
     ? observeBotWorkspaceRemovals(configStore, { workspaces })
     : configStore;
   const stateStores = new Map();
+  // Bots handed to Muse's DS Bot keep their connection here and answer through it.
+  let coreController;
+  const external = internals.external ?? await loadExternalConsumerHost({
+    channel: 'weixin',
+    path: resolve(paths.root, 'external-consumers.json'),
+    account: (botId) => {
+      const bot = configStore.list().find((item) => item.botId === botId);
+      return bot ? { name: workspaces.aliasFor?.(botId) || maskWeixinAccountId(bot.accountId) } : null;
+    },
+    reconnect: (botId) => coreController.reconnectBot(botId),
+    consumerWaitMs: config.externalConsumerWaitMs ?? 60_000,
+    // The platform shows plain text only.
+    formats: ['plain'],
+    logger,
+  });
 
   const statePath = (botId) => resolve(paths.accounts, botId, 'state.json');
   const stateFor = async (botId) => {
@@ -151,7 +167,7 @@ export async function createProductionController(ctx, config = {}, internals = {
     imageInputPolicy: () => getImageInputSettingsStore(config).get(),
   });
   const modelCatalog = (options) => listModelCatalog(harness, options);
-  const coreController = new Controller({
+  coreController = new Controller({
     api,
     credentials: ctx.credentials,
     configStore: observedConfigStore,
@@ -167,6 +183,7 @@ export async function createProductionController(ctx, config = {}, internals = {
         botId, workspaces, state, agentPresetCatalog,
       });
       return new Runtime({
+        ...(external.isExternal(botId) ? { external: external.runtimeHook(botId) } : {}),
         diagnostics,
         api,
         config: accountConfig,
@@ -236,12 +253,13 @@ export async function createProductionController(ctx, config = {}, internals = {
   return {
     controller,
     deliveryAdapter: createDeliveryAdapter({
-      channel: 'weixin', workspaces, coreController, stateFor,
+      channel: 'weixin', workspaces, coreController, stateFor, external,
     }),
     ready: supervisor.ready,
     async close() {
       try {
         await supervisor.close();
+        external.close();
         await controller.close();
       } finally {
         const dispatcher = uploadDispatcher;

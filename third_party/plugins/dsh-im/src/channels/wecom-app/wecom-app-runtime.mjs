@@ -1,3 +1,4 @@
+import { wecomAppExternalChannel } from './wecom-app-external.mjs';
 import { atConnectionStage } from '../shared/connection-error.mjs';
 import {
   WecomAppApi,
@@ -51,6 +52,7 @@ export class WecomAppRuntime {
   #bridge = null;
   #started = false;
   #controller = new AbortController();
+  #external;
 
   constructor({
     config,
@@ -62,6 +64,7 @@ export class WecomAppRuntime {
     logger = console,
     callbackServer,
     replyTimeoutMs = 600_000,
+    external,
   }) {
     if (!config || !secrets || !harness || !state) {
       throw new TypeError('WecomAppRuntime requires config, secrets, Harness, and state');
@@ -79,6 +82,8 @@ export class WecomAppRuntime {
     this.#callbackServer = callbackServer;
     this.#replyTimeoutMs = replyTimeoutMs;
     this.#streamEnabled = config.streamEnabled !== false;
+    // Set while the app is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
   }
 
   get status() {
@@ -105,8 +110,10 @@ export class WecomAppRuntime {
     this.#status.startedAt = new Date().toISOString();
     this.#status.lastError = null;
     this.#status.wecomAppConnectionState = 'connecting';
-    await atConnectionStage('harness.check', () => this.#harness.ensureRunning({ signal: this.#signal() }));
-    this.#status.harnessReachable = true;
+    if (!this.#external) {
+      await atConnectionStage('harness.check', () => this.#harness.ensureRunning({ signal: this.#signal() }));
+      this.#status.harnessReachable = true;
+    }
 
     this.#api = new WecomAppApi({
       corpId: this.#config.corpId,
@@ -116,7 +123,15 @@ export class WecomAppRuntime {
       logger: this.#logger,
       signal: undefined,
     });
-    this.#bridge = new WecomAppBridge({
+    this.#bridge = this.#external ? this.#external.createBridge({
+      ...wecomAppExternalChannel({
+        api: this.#api,
+        sendText: (target, text, options) => this.sendProactiveText(target, text, options),
+      }),
+      status: this.#status,
+      logger: this.#logger,
+      signal: this.#signal(),
+    }) : new WecomAppBridge({
       api: this.#api,
       harness: this.#harness,
       state: this.#state,
@@ -136,7 +151,8 @@ export class WecomAppRuntime {
         encodingAESKey,
         corpId: this.#config.corpId,
       }),
-      streamEnabled: () => this.#streamEnabled,
+      // An external consumer answers by message, never through the callback stream.
+      streamEnabled: () => !this.#external && this.#streamEnabled,
       onInbound: async ({ kind, message, stream }) => {
         if (kind === 'event') {
           await this.#bridge.acceptEvent(message);

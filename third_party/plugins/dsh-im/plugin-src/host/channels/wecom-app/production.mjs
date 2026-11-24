@@ -3,7 +3,7 @@ import { unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { WecomAppConfigStore } from '../../../../src/channels/wecom-app/config-store.mjs';
+import { WecomAppConfigStore, maskCorpId } from '../../../../src/channels/wecom-app/config-store.mjs';
 import { WecomAppHarnessClient } from '../../../../src/channels/wecom-app/harness-client.mjs';
 import { WecomAppStateStore } from '../../../../src/channels/wecom-app/state-store.mjs';
 import { WecomAppController } from '../../../../src/channels/wecom-app/wecom-app-controller.mjs';
@@ -19,6 +19,7 @@ import { prepareBotWorkspace } from '../../../../src/channels/shared/default-wor
 import { listAgentPresetCatalog } from '../../../../src/channels/shared/agent-preset.mjs';
 import { listModelCatalog } from '../../../../src/channels/shared/model-setting.mjs';
 import { createDeliveryAdapter } from '../../delivery-adapter.mjs';
+import { loadExternalConsumerHost } from '../../external-consumer-host.mjs';
 import { createConnectionSupervisor } from '../wecom/connection-supervisor.mjs';
 import { createHarnessCommandExecutor } from '../../harness-command-executor.mjs';
 import { harnessConnection } from '../../harness-connection.mjs';
@@ -36,6 +37,7 @@ function pluginPaths(config) {
   const dshHome = resolve(config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'));
   const root = resolve(config.dataDir ?? join(dshHome, 'integrations', 'dsh-wecom-app'));
   return {
+    root,
     config: resolve(config.configPath ?? join(root, 'config.json')),
     bots: resolve(config.botsDir ?? join(root, 'bots')),
     workspaces: resolve(config.workspacesPath ?? join(root, 'workspaces.json')),
@@ -109,6 +111,21 @@ export async function createProductionController(ctx, config = {}, internals = {
     return origin ? `${origin}${callbackServer.routePath(bot)}` : null;
   };
   const stateStores = new Map();
+  // Bots handed to Muse's DS Bot keep their connection here and answer through it.
+  let coreController;
+  const external = internals.external ?? await loadExternalConsumerHost({
+    channel: 'wecom-app',
+    path: resolve(paths.root, 'external-consumers.json'),
+    account: (botId) => {
+      const bot = configStore.list().find((item) => item.botId === botId);
+      return bot ? { name: workspaces.aliasFor?.(botId) || `${maskCorpId(bot.corpId)} · ${bot.agentId}` } : null;
+    },
+    reconnect: (botId) => coreController.reconnectBot(botId),
+    consumerWaitMs: config.externalConsumerWaitMs ?? 60_000,
+    // The platform shows plain text only.
+    formats: ['plain'],
+    logger,
+  });
   const statePath = (botId) => resolve(paths.bots, botId, 'state.json');
   const stateFor = async (botId) => {
     let state = stateStores.get(botId);
@@ -145,7 +162,7 @@ export async function createProductionController(ctx, config = {}, internals = {
     imageInputPolicy: () => getImageInputSettingsStore(config).get(),
   });
   const modelCatalog = (options) => listModelCatalog(harness, options);
-  const coreController = new Controller({
+  coreController = new Controller({
     credentials: ctx.credentials,
     configStore: observedConfigStore,
     buildCallbackUrl,
@@ -160,6 +177,7 @@ export async function createProductionController(ctx, config = {}, internals = {
         botId, workspaces, state, agentPresetCatalog,
       });
       return new Runtime({
+        ...(external.isExternal(botId) ? { external: external.runtimeHook(botId) } : {}),
         config: botConfig,
         secrets,
         harness: workspaceScope.harness,
@@ -208,11 +226,12 @@ export async function createProductionController(ctx, config = {}, internals = {
   return {
     controller,
     deliveryAdapter: createDeliveryAdapter({
-      channel: 'wecom-app', workspaces, coreController, stateFor,
+      channel: 'wecom-app', workspaces, coreController, stateFor, external,
     }),
     ready: supervisor.ready,
     async close() {
       await supervisor.close();
+      external.close();
       await controller.close();
       await callbackServer.stop();
       harness.stopManagedProcess();

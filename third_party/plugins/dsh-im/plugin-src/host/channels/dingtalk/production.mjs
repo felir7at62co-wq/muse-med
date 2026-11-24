@@ -3,7 +3,7 @@ import { unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { DingtalkConfigStore } from '../../../../src/channels/dingtalk/config-store.mjs';
+import { DingtalkConfigStore, maskDingtalkClientId } from '../../../../src/channels/dingtalk/config-store.mjs';
 import { DingtalkDeviceAuth } from '../../../../src/channels/dingtalk/device-auth.mjs';
 import { DingtalkController } from '../../../../src/channels/dingtalk/dingtalk-controller.mjs';
 import { DingtalkRuntime } from '../../../../src/channels/dingtalk/dingtalk-runtime.mjs';
@@ -19,6 +19,7 @@ import { prepareBotWorkspace } from '../../../../src/channels/shared/default-wor
 import { listAgentPresetCatalog } from '../../../../src/channels/shared/agent-preset.mjs';
 import { listModelCatalog } from '../../../../src/channels/shared/model-setting.mjs';
 import { createDeliveryAdapter } from '../../delivery-adapter.mjs';
+import { loadExternalConsumerHost } from '../../external-consumer-host.mjs';
 import { createConnectionSupervisor } from './connection-supervisor.mjs';
 import { createHarnessCommandExecutor } from '../../harness-command-executor.mjs';
 import { harnessConnection } from '../../harness-connection.mjs';
@@ -80,6 +81,19 @@ export async function createProductionController(ctx, config = {}, internals = {
     baseUrl: config.registrationBaseUrl,
   });
   const stateStores = new Map();
+  // Bots handed to Muse's DS Bot keep their DingTalk connection here and answer through it.
+  let coreController;
+  const external = internals.external ?? await loadExternalConsumerHost({
+    channel: 'dingtalk',
+    path: resolve(paths.root, 'external-consumers.json'),
+    account: (botId) => {
+      const bot = canListConfiguredBots ? configStore.list().find((item) => item.botId === botId) : undefined;
+      return bot ? { name: workspaces.aliasFor?.(botId) || maskDingtalkClientId(bot.clientId) } : null;
+    },
+    reconnect: (botId) => coreController.reconnectBot(botId),
+    consumerWaitMs: config.externalConsumerWaitMs ?? 60_000,
+    logger,
+  });
 
   const statePath = (botId) => resolve(paths.bots, botId, 'state.json');
   const stateFor = async (botId) => {
@@ -117,7 +131,7 @@ export async function createProductionController(ctx, config = {}, internals = {
     imageInputPolicy: () => getImageInputSettingsStore(config).get(),
   });
   const modelCatalog = (options) => listModelCatalog(harness, options);
-  const coreController = new Controller({
+  coreController = new Controller({
     deviceAuth,
     credentials: ctx.credentials,
     configStore: observedConfigStore,
@@ -143,6 +157,7 @@ export async function createProductionController(ctx, config = {}, internals = {
         replyTimeoutMs: config.replyTimeoutMs ?? 600_000,
         maxMessageChars: config.maxMessageChars ?? 4_000,
         connectTimeoutMs: config.connectTimeoutMs ?? 15_000,
+        ...(external.isExternal(botId) ? { external: external.runtimeHook(botId) } : {}),
         logger: {
           error: (...args) => logger.error?.(`[${botId}]`, ...args),
           warn: (...args) => logger.warn?.(`[${botId}]`, ...args),
@@ -181,11 +196,12 @@ export async function createProductionController(ctx, config = {}, internals = {
   return {
     controller,
     deliveryAdapter: createDeliveryAdapter({
-      channel: 'dingtalk', workspaces, coreController, stateFor,
+      channel: 'dingtalk', workspaces, coreController, stateFor, external,
     }),
     ready: supervisor.ready,
     async close() {
       await supervisor.close();
+      external.close();
       await controller.close();
       harness.stopManagedProcess();
     },

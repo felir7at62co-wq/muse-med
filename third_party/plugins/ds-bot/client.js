@@ -255,6 +255,12 @@ var JA = {
   "Edition": "エディション",
   "DingTalk": "DingTalk",
   "WeCom": "WeCom",
+  "WeCom app": "WeCom アプリ",
+  "WhatsApp": "WhatsApp",
+  "Matrix": "Matrix",
+  "iMessage": "iMessage",
+  "Email": "メール",
+  "Accounts in the IM plugin": "IM プラグインのアカウント",
   "In Telegram, open @BotFather and send /newbot.": "Telegram で @BotFather を開き、/newbot を送信します。",
   "Give the bot a name and a username.": "ボットの表示名とユーザー名を設定します。",
   "Paste the token that BotFather sends.": "BotFather から送られたトークンを下に貼り付けます。",
@@ -2797,6 +2803,12 @@ var KO = {
   Edition: "에디션",
   DingTalk: "DingTalk",
   WeCom: "WeCom",
+  "WeCom app": "WeCom 앱",
+  "WhatsApp": "WhatsApp",
+  "Matrix": "Matrix",
+  "iMessage": "iMessage",
+  "Email": "이메일",
+  "Accounts in the IM plugin": "IM 플러그인의 계정",
   "In Telegram, open @BotFather and send /newbot.": "Telegram에서 @BotFather를 열고 /newbot을 보냅니다.",
   "Give the bot a name and a username.": "봇의 이름과 사용자 이름을 지정합니다.",
   "Paste the token that BotFather sends.": "BotFather가 보낸 토큰을 아래에 붙여넣습니다.",
@@ -5382,6 +5394,12 @@ var ES = {
   Edition: "Edición",
   DingTalk: "DingTalk",
   WeCom: "WeCom",
+  "WeCom app": "App de WeCom",
+  "WhatsApp": "WhatsApp",
+  "Matrix": "Matrix",
+  "iMessage": "iMessage",
+  "Email": "Correo",
+  "Accounts in the IM plugin": "Cuentas del plugin de IM",
   "In Telegram, open @BotFather and send /newbot.": "En Telegram, abre @BotFather y envía /newbot.",
   "Give the bot a name and a username.": "Dale al bot un nombre y un nombre de usuario.",
   "Paste the token that BotFather sends.": "Pega el token que te envíe BotFather.",
@@ -7965,6 +7983,12 @@ var FR = {
   "Edition": "Édition",
   "DingTalk": "DingTalk",
   "WeCom": "WeCom",
+  "WeCom app": "Application WeCom",
+  "WhatsApp": "WhatsApp",
+  "Matrix": "Matrix",
+  "iMessage": "iMessage",
+  "Email": "E-mail",
+  "Accounts in the IM plugin": "Comptes du plugin IM",
   "In Telegram, open @BotFather and send /newbot.": "Dans Telegram, ouvrez @BotFather et envoyez /newbot.",
   "Give the bot a name and a username.": "Donnez un nom et un nom d’utilisateur au bot.",
   "Paste the token that BotFather sends.": "Collez le jeton envoyé par BotFather.",
@@ -10507,6 +10531,12 @@ var DE = {
   Edition: "Version",
   DingTalk: "DingTalk",
   WeCom: "WeCom",
+  "WeCom app": "WeCom-App",
+  "WhatsApp": "WhatsApp",
+  "Matrix": "Matrix",
+  "iMessage": "iMessage",
+  "Email": "E-Mail",
+  "Accounts in the IM plugin": "Konten im IM-Plugin",
   "In Telegram, open @BotFather and send /newbot.": "Öffne in Telegram @BotFather und sende /newbot.",
   "Give the bot a name and a username.": "Gib dem Bot einen Namen und einen Benutzernamen.",
   "Paste the token that BotFather sends.": "Füge das Token ein, das BotFather sendet.",
@@ -13090,6 +13120,12 @@ var ZH = {
   Edition: "版本",
   DingTalk: "钉钉",
   WeCom: "企业微信",
+  "WeCom app": "企业微信应用",
+  "WhatsApp": "WhatsApp",
+  "Matrix": "Matrix",
+  "iMessage": "iMessage",
+  "Email": "邮件",
+  "Accounts in the IM plugin": "可接入的 IM 账号",
   "In Telegram, open @BotFather and send /newbot.": "在 Telegram 里打开 @BotFather，发送 /newbot。",
   "Give the bot a name and a username.": "给机器人起名字和用户名。",
   "Paste the token that BotFather sends.": "把 BotFather 发来的 token 粘贴到下面。",
@@ -15768,6 +15804,7 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
     phonePairCancel: () => after(call2("phone-pair-cancel")),
     phoneRemove: (id) => after(call2("phone-remove", { id })),
     imAdd: (payload) => after(call2("im-add", payload)),
+    imLink: (payload) => after(call2("im-link", payload)),
     imUpdate: (id, patch) => after(call2("im-update", { id, ...patch })),
     imRemove: (id) => after(call2("im-remove", { id })),
     imPair: (id, senderId, allow) => after(call2("im-pair", { id, senderId, allow })),
@@ -31106,7 +31143,14 @@ var IM_PLATFORMS = [
     groups: true
   }
 ];
-var imPlatform = (id) => IM_PLATFORMS.find((platform) => platform.id === id);
+var DSH_IM_CHANNELS = [
+  { id: "wecom-app", name: "WeCom app", fields: [], buttons: false, groups: false },
+  { id: "whatsapp", name: "WhatsApp", fields: [], buttons: false, groups: true },
+  { id: "matrix", name: "Matrix", fields: [], buttons: false, groups: true },
+  { id: "imessage", name: "iMessage", fields: [], buttons: false, groups: true },
+  { id: "email", name: "Email", fields: [], buttons: false, groups: false }
+];
+var imPlatform = (id) => IM_PLATFORMS.find((platform) => platform.id === id) ?? DSH_IM_CHANNELS.find((platform) => platform.id === id);
 var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
 
 // src/client/user-message.js
@@ -40205,7 +40249,7 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
 var import_react58 = require("react");
 var import_react_dom10 = require("react-dom");
 var BRAND = { telegram: "telegram", weixin: "wechat", qq: "qq", discord: "discord", slack: "slack" };
-var MONO = { feishu: "飞", dingtalk: "钉", wecom: "企" };
+var MONO = { feishu: "飞", dingtalk: "钉", wecom: "企", "wecom-app": "企", email: "@" };
 var GUIDES = {
   telegram: {
     link: ["https://t.me/BotFather", "BotFather"],
@@ -40250,7 +40294,7 @@ var GUIDES = {
     ]
   }
 };
-var platformOf = (id) => IM_PLATFORMS.find((entry) => entry.id === id) ?? { id, name: id, fields: [] };
+var platformOf = (id) => imPlatform(id) ?? { id, name: id, fields: [] };
 function ImMark({ id, size = 36 }) {
   const Brand = MARKS[BRAND[id]];
   return (0, import_react58.createElement)(
@@ -40598,7 +40642,7 @@ function DetailView({ conn, status, roster, actions, onBack, renderFeishuSetting
   };
   const chats = Object.entries(conn.chats ?? {});
   const botIds = [...new Set([conn.botId, ...chats.map(([, chat]) => chat.target?.botId)].filter(Boolean))];
-  const feishu = conn.dshImBotId && renderFeishuSettings;
+  const feishu = conn.platform === "feishu" && conn.dshImBotId && renderFeishuSettings;
   return (0, import_react58.createElement)(
     Subview2,
     { title: t(conn.account?.name ?? shown.name), onBack },
@@ -40745,10 +40789,31 @@ function PlatformTile({ platform, count, onOpen }) {
     (0, import_react58.createElement)("button", { type: "button", className: "bt-app-btn", onClick: onOpen }, t("Connect"))
   );
 }
-function ImPage({ roster, actions, renderFeishuSettings }) {
+function AvailableRow({ entry, roster, busy, onPick }) {
+  const shown = platformOf(entry.channel);
+  const state = entry.connected ? "ready" : "connecting";
+  return (0, import_react58.createElement)(
+    "div",
+    { className: "bt-set-row bt-im-bot", "data-state": state },
+    (0, import_react58.createElement)(ImMark, { id: entry.channel, size: 36 }),
+    (0, import_react58.createElement)(
+      "span",
+      { className: "bt-set-copy" },
+      (0, import_react58.createElement)("span", { className: "bt-im-title" }, entry.name),
+      (0, import_react58.createElement)("span", { className: "bt-im-status" }, (0, import_react58.createElement)(Dot, { state }), t(shown.name))
+    ),
+    (0, import_react58.createElement)(
+      "span",
+      { className: "bt-set-control" },
+      (0, import_react58.createElement)(TargetMenu, { value: null, roster, label: t("Talks to"), disabled: busy, onPick: (next) => next?.botId && onPick(next.botId) })
+    )
+  );
+}
+function ImPage({ roster, actions, renderFeishuSettings, openImPlugin }) {
   const [view, setView] = (0, import_react58.useState)(null);
   const { busy, error, run: run2 } = useRun();
   const list = roster.im?.connections ?? [];
+  const available = roster.imAvailable ?? [];
   const statuses = roster.imStatus ?? {};
   const platforms = (roster.im?.platforms ?? []).map(platformOf);
   const back = () => setView(null);
@@ -40771,6 +40836,23 @@ function ImPage({ roster, actions, renderFeishuSettings }) {
       { className: "bt-set-section" },
       (0, import_react58.createElement)("h3", null, t("Your IM bots")),
       (0, import_react58.createElement)("div", { className: "bt-set-card" }, list.map((conn) => (0, import_react58.createElement)(BotRow2, { key: conn.id, conn, status: statuses[conn.id], roster, onOpen: () => setView({ conn: conn.id }) })))
+    ) : null,
+    available.length > 0 || openImPlugin ? (0, import_react58.createElement)(
+      "section",
+      { className: "bt-set-section" },
+      (0, import_react58.createElement)(
+        "div",
+        { className: "bt-la-sec-head" },
+        (0, import_react58.createElement)("h3", null, t("Accounts in the IM plugin")),
+        openImPlugin ? (0, import_react58.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: openImPlugin }, t("Add account")) : null
+      ),
+      available.length > 0 ? (0, import_react58.createElement)("div", { className: "bt-set-card" }, available.map((entry) => (0, import_react58.createElement)(AvailableRow, {
+        key: entry.botId,
+        entry,
+        roster,
+        busy,
+        onPick: (botId) => run2(actions.imLink({ dshImBotId: entry.botId, botId }))
+      }))) : null
     ) : null,
     (0, import_react58.createElement)(
       "section",
@@ -42687,7 +42769,7 @@ function SettingsDialog({ page, id, roster, actions, useUi, useUpdate, leaving =
   const pages = SETTINGS_PAGES.filter(([key]) => (key !== "models" || actions.providers !== void 0) && (key !== "account" || hasAccountPage));
   const mergedIm = hasSection(dsh, IM_ROBOT_SECTION) && (roster.im?.connections ?? []).some((conn) => conn.dshImBotId);
   const extra = dshPages(dsh).filter((row) => !mergedIm || row.id !== IM_ROBOT_SECTION);
-  const section = page === "dsh" ? extra.find((row) => row.id === id) : void 0;
+  const section = page === "dsh" ? dshPages(dsh).find((row) => row.id === id) : void 0;
   const advanced = page === "models" && id === "advanced" && hasSection(dsh, "models");
   const shown = section ? "dsh" : pages.some(([key]) => key === page) ? page : hasAccountPage ? "account" : "general";
   const usageFocus = shown === "usage" && id ? id : null;
@@ -42772,7 +42854,8 @@ function SettingsDialog({ page, id, roster, actions, useUi, useUpdate, leaving =
             shown === "im" ? (0, import_react66.createElement)(ImPage, {
               roster,
               actions,
-              renderFeishuSettings: mergedIm ? (botId) => dsh.renderSlot("settings.section", { close, museFeishuBotId: botId }, { only: IM_ROBOT_SECTION }) : void 0
+              renderFeishuSettings: mergedIm ? (botId) => dsh.renderSlot("settings.section", { close, museFeishuBotId: botId }, { only: IM_ROBOT_SECTION }) : void 0,
+              openImPlugin: hasSection(dsh, IM_ROBOT_SECTION) ? () => actions.openSettings("dsh", IM_ROBOT_SECTION) : void 0
             }) : null,
             shown === "capabilities" ? (0, import_react66.createElement)(CapabilitiesPage, { roster, actions, run: run2 }) : null,
             shown === "phone" ? (0, import_react66.createElement)(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,
@@ -48878,6 +48961,7 @@ function apply(ctx) {
     if (value.btwCards !== void 0 && JSON.stringify(value.btwCards) !== JSON.stringify(current2.btwCards ?? {})) live2.btwCards = value.btwCards;
     if (value.sideChats !== void 0 && JSON.stringify(value.sideChats) !== JSON.stringify(current2.sideChats ?? {})) live2.sideChats = value.sideChats;
     if (value.imStatus !== void 0 && JSON.stringify(value.imStatus) !== JSON.stringify(current2.imStatus ?? {})) live2.imStatus = value.imStatus;
+    if (value.imAvailable !== void 0 && JSON.stringify(value.imAvailable) !== JSON.stringify(current2.imAvailable ?? [])) live2.imAvailable = value.imAvailable;
     if (value.imVia !== void 0 && JSON.stringify(value.imVia) !== JSON.stringify(current2.imVia ?? {})) live2.imVia = value.imVia;
     if (value.readOnly !== void 0 && (value.readOnly ?? null) !== (current2.readOnly ?? null)) live2.readOnly = value.readOnly;
     if (Object.keys(live2).length > 0 && current2.ready) roster.set({ ...current2, ...live2 });

@@ -46,6 +46,8 @@ const DELIVERY_ERROR_CODES = new Set([
   'history-unavailable',
   'thread-unavailable',
   'untrusted-source',
+  'attachment-unavailable',
+  'attachment-too-large',
 ]);
 
 const SESSION_SYNC_METHODS = Object.freeze([
@@ -486,6 +488,53 @@ export class DeliveryService {
         throw deliveryError('send-result-unknown');
       return { sent: true, receipt: { version: 1, messageId: result.receipt.messageId, conversationId: result.receipt.conversationId } };
     } catch (error) { throw publicOperationError(error); }
+  }
+
+  /**
+   * Send one proactive text to a conversation a consumer learned from an inbound event.
+   *
+   * The target is not a saved delivery target: it is the `target` an external
+   * inbound event carried. The account must still be the one the consumer pinned.
+   *
+   * @param {string} botId
+   * @param {{kind: string, route: object}} target
+   * @param {string} text - 1 to 4000 characters.
+   * @param {{expectedFingerprint: string, signal?: AbortSignal, format?: 'plain'|'markdown'}} options
+   * @returns {Promise<{sent: true}>}
+   */
+  async pushChecked(botId, target, text, { expectedFingerprint, signal, format = 'plain' } = {}) {
+    const id = botIdOf(botId);
+    if (typeof text !== 'string' || !text.trim() || text.length > 4000 || !['plain', 'markdown'].includes(format)
+      || !/^[a-f0-9]{64}$/.test(expectedFingerprint ?? '') || !target || typeof target !== 'object') {
+      throw deliveryError('bad-request');
+    }
+    cancellation(signal);
+    const registration = await this.#checkedRegistrationFor(id);
+    const { adapter } = registration;
+    if (typeof adapter.describeAccount !== 'function') throw deliveryError('capability-unavailable');
+    this.#assertRegistered(registration);
+    try {
+      const normalized = normalizeDeliveryTarget(adapter.channel, {
+        kind: target.kind, route: structuredClone(target.route),
+      }, { targetIdRequired: false });
+      const account = await adapter.describeAccount(id);
+      if (account?.version !== 1 || !account.capabilities?.includes('proactive-text-checked')) {
+        throw deliveryError('capability-unavailable');
+      }
+      if (account.account?.fingerprint !== expectedFingerprint) throw deliveryError('account-changed');
+      cancellation(signal);
+      this.#assertRegistered(registration);
+      await adapter.sendText(id, { targetId: DRAFT_TARGET_ID, ...normalized }, text, {
+        signal, expectedFingerprint, beforeSend: () => { cancellation(signal); this.#assertRegistered(registration); },
+        ...(format === 'markdown' ? { format } : {}),
+      });
+      return { sent: true };
+    } catch (error) {
+      if (signal?.aborted || error?.name === 'AbortError' || error?.code === 'ABORT_ERR') {
+        throw deliveryError('cancelled', 'Request cancelled', { cause: error });
+      }
+      throw publicOperationError(error);
+    }
   }
 
   async send(botId, targetIdOrDraft, text, { signal, format = 'plain' } = {}) {

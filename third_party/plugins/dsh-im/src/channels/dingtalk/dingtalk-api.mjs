@@ -1054,7 +1054,7 @@ export function createDingtalkApi({
 
     failAiCard: failCard,
 
-    async sendText({ clientId, clientSecret, sessionWebhook, text, at, signal }) {
+    async sendText({ clientId, clientSecret, sessionWebhook, text, at, signal, markdownTitle }) {
       const content = nonEmptyString(text);
       if (!content) throw new TypeError('text is required');
       const webhook = normalizeDingtalkSessionWebhook(sessionWebhook);
@@ -1065,7 +1065,10 @@ export function createDingtalkApi({
           || at.isAtAll === true)
           ? { at } : {};
       const response = await requestJson(fetchImpl, webhook, {
-        body: { msgtype: 'text', text: { content }, ...replyAt },
+        // A title switches the reply to a Markdown message; the title shows in notifications.
+        body: nonEmptyString(markdownTitle)
+          ? { msgtype: 'markdown', markdown: { title: nonEmptyString(markdownTitle), text: content }, ...replyAt }
+          : { msgtype: 'text', text: { content }, ...replyAt },
         headers: { 'x-acs-dingtalk-access-token': token },
         signal,
         action: '消息回复',

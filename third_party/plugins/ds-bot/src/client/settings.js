@@ -322,7 +322,8 @@ export function SettingsDialog({ page, id, roster, actions, useUi, useUpdate, le
   const mergedIm = hasSection(dsh, IM_ROBOT_SECTION) && (roster.im?.connections ?? []).some(conn => conn.dshImBotId)
   const extra = dshPages(dsh).filter(row => !mergedIm || row.id !== IM_ROBOT_SECTION)
   // A DSH page is `dsh` with its section id; one no longer registered falls back to General.
-  const section = page === 'dsh' ? extra.find(row => row.id === id) : undefined
+  // The IM plugin's page stays reachable from Settings → IM after it leaves the list.
+  const section = page === 'dsh' ? dshPages(dsh).find(row => row.id === id) : undefined
   // DSH's Models page, one level into Models.
   const advanced = page === 'models' && id === 'advanced' && hasSection(dsh, 'models')
   const shown = section ? 'dsh' : pages.some(([key]) => key === page) ? page : hasAccountPage ? 'account' : 'general'
@@ -389,6 +390,7 @@ export function SettingsDialog({ page, id, roster, actions, useUi, useUpdate, le
           shown === 'connectors' ? h(ConnectorsPage, { roster, actions, dsh }) : null,
           shown === 'im' ? h(ImPage, { roster, actions,
             renderFeishuSettings: mergedIm ? botId => dsh.renderSlot('settings.section', { close, museFeishuBotId: botId }, { only: IM_ROBOT_SECTION }) : undefined,
+            openImPlugin: hasSection(dsh, IM_ROBOT_SECTION) ? () => actions.openSettings('dsh', IM_ROBOT_SECTION) : undefined,
           }) : null,
           shown === 'capabilities' ? h(CapabilitiesPage, { roster, actions, run }) : null,
           shown === 'phone' ? h(PhonePage, { roster, actions, Section: SetSection, Row: SetRow }) : null,

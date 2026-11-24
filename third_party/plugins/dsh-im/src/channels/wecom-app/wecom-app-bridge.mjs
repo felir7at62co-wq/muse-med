@@ -175,7 +175,7 @@ function imageSource(api, image) {
   };
 }
 
-function wecomAppInboundMessage(message, api) {
+export function wecomAppInboundMessage(message, api) {
   return {
     content: messageText(message),
     images: hasImageItems(message)

@@ -5,7 +5,7 @@
 import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import qrcode from 'qrcode-generator'
-import { IM_PLATFORMS } from '../shared/im-platforms.js'
+import { imPlatform } from '../shared/im-platforms.js'
 import { MARKS } from './connector-marks.js'
 import { MaskedInput } from './secret-card.js'
 import { Switch } from './bot-settings.js'
@@ -18,7 +18,7 @@ import { hostText, t } from './i18n.js'
 
 // Brand marks where Simple Icons has one; the others get a plain monogram tile.
 const BRAND = { telegram: 'telegram', weixin: 'wechat', qq: 'qq', discord: 'discord', slack: 'slack' }
-const MONO = { feishu: '飞', dingtalk: '钉', wecom: '企' }
+const MONO = { feishu: '飞', dingtalk: '钉', wecom: '企', 'wecom-app': '企', email: '@' }
 
 const GUIDES = {
   telegram: {
@@ -65,7 +65,7 @@ const GUIDES = {
   },
 }
 
-const platformOf = id => IM_PLATFORMS.find(entry => entry.id === id) ?? { id, name: id, fields: [] }
+const platformOf = id => imPlatform(id) ?? { id, name: id, fields: [] }
 
 export function ImMark({ id, size = 36 }) {
   const Brand = MARKS[BRAND[id]]
@@ -327,7 +327,8 @@ function DetailView({ conn, status, roster, actions, onBack, renderFeishuSetting
   }
   const chats = Object.entries(conn.chats ?? {})
   const botIds = [...new Set([conn.botId, ...chats.map(([, chat]) => chat.target?.botId)].filter(Boolean))]
-  const feishu = conn.dshImBotId && renderFeishuSettings
+  // The IM plugin's own settings for this connection; it shows them for Feishu.
+  const feishu = conn.platform === 'feishu' && conn.dshImBotId && renderFeishuSettings
   return h(Subview, { title: t(conn.account?.name ?? shown.name), onBack },
     error ? h('div', { className: 'bt-im-banner', role: 'alert' }, hostText(error)) : null,
     h('div', { className: 'bt-set-card' },
@@ -408,10 +409,24 @@ function PlatformTile({ platform, count, onOpen }) {
     h('button', { type: 'button', className: 'bt-app-btn', onClick: onOpen }, t('Connect')))
 }
 
-export function ImPage({ roster, actions, renderFeishuSettings }) {
+// A dsh-im account no connection takes yet: picking a Bot links it.
+function AvailableRow({ entry, roster, busy, onPick }) {
+  const shown = platformOf(entry.channel)
+  const state = entry.connected ? 'ready' : 'connecting'
+  return h('div', { className: 'bt-set-row bt-im-bot', 'data-state': state },
+    h(ImMark, { id: entry.channel, size: 36 }),
+    h('span', { className: 'bt-set-copy' },
+      h('span', { className: 'bt-im-title' }, entry.name),
+      h('span', { className: 'bt-im-status' }, h(Dot, { state }), t(shown.name))),
+    h('span', { className: 'bt-set-control' },
+      h(TargetMenu, { value: null, roster, label: t('Talks to'), disabled: busy, onPick: next => next?.botId && onPick(next.botId) })))
+}
+
+export function ImPage({ roster, actions, renderFeishuSettings, openImPlugin }) {
   const [view, setView] = useState(null)
   const { busy, error, run } = useRun()
   const list = roster.im?.connections ?? []
+  const available = roster.imAvailable ?? []
   const statuses = roster.imStatus ?? {}
   const platforms = (roster.im?.platforms ?? []).map(platformOf)
   const back = () => setView(null)
@@ -429,6 +444,14 @@ export function ImPage({ roster, actions, renderFeishuSettings }) {
     list.length > 0 ? h('section', { className: 'bt-set-section' },
       h('h3', null, t('Your IM bots')),
       h('div', { className: 'bt-set-card' }, list.map(conn => h(BotRow, { key: conn.id, conn, status: statuses[conn.id], roster, onOpen: () => setView({ conn: conn.id }) })))) : null,
+    available.length > 0 || openImPlugin ? h('section', { className: 'bt-set-section' },
+      h('div', { className: 'bt-la-sec-head' },
+        h('h3', null, t('Accounts in the IM plugin')),
+        openImPlugin ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: openImPlugin }, t('Add account')) : null),
+      available.length > 0 ? h('div', { className: 'bt-set-card' }, available.map(entry => h(AvailableRow, {
+        key: entry.botId, entry, roster, busy,
+        onPick: botId => run(actions.imLink({ dshImBotId: entry.botId, botId })),
+      }))) : null) : null,
     h('section', { className: 'bt-app-section' },
       h('div', { className: 'bt-app-section-head' }, h('h3', null, list.length > 0 ? t('Add an IM bot') : t('Choose a platform'))),
       h('div', { className: 'bt-app-grid' }, platforms.map(platform => h(PlatformTile, {

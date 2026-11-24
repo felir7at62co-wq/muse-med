@@ -164,7 +164,7 @@ export function applyImDesktopCompatibility(directory) {
   edit(directory, 'plugin-src/host/channels/shared/access-policy-production.mjs', '73177cf116e079045659a285ab3a9800188197734ec2c6af9b07f006dcdb4ba0', [
     ["  if (key === 'feishu' || key === 'qq') {", "  if (key === 'feishu') return initialAccessPolicyFor(channel, config);\n  if (key === 'qq') {"],
   ])
-  edit(directory, 'plugin-src/host/index.mjs', '5f4359d0b10197837fc573690734f7d7095910e6414c4dd10bfa555e8495af28', [
+  edit(directory, 'plugin-src/host/index.mjs', '7f08310f4466aa5b42116e8c4a11ba72b6a97da116c452039d9174220813f66f', [
     ["import { installOutboundArtifactTool } from '../../src/channels/shared/semantic/artifact.mjs';", "import { createOutboundArtifactTool, outboundArtifactRegistry } from '../../src/channels/shared/semantic/artifact.mjs';\nimport { installMuseImFiles } from '../../lib/muse-im-files.mjs';"],
     ['        installOutboundArtifactTool(artifactCtx);', '        installMuseImFiles(artifactCtx, { registry: outboundArtifactRegistry, createTool: createOutboundArtifactTool, maxFileBytes: config.feishu.maxFileBytes });'],
     ['      installOutboundArtifactTool(ctx);', '      installMuseImFiles(ctx, { registry: outboundArtifactRegistry, createTool: createOutboundArtifactTool, maxFileBytes: config.feishu.maxFileBytes });'],

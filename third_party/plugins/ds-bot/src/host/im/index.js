@@ -11,6 +11,7 @@ import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { adapters } from './platforms/index.js'
 import { connectDshImFeishu, feishuDshImConfig } from './platforms/feishu-dsh-im.js'
+import { connectDshIm, consumable, dshImConfig, isDshImBotId } from './platforms/dsh-im.js'
 import { createFeishuTurn } from './feishu-turn.js'
 import { nameProblem } from '../../shared/mentions.js'
 
@@ -30,10 +31,28 @@ const NUMBERS = /^\s*\d+(\s+\d+)*\s*$/
 
 const secretField = key => key.replace(/[A-Z]/g, char => `_${char}`).toUpperCase()
 
+// Connections that take their messages from dsh-im (the IM plugin): the `dshIm` config
+// map, the older Feishu-only `feishuDshIm` map, and links made in Settings → IM.
+function dshImLinks(config) {
+  const links = feishuDshImConfig(config.feishuDshIm)
+  for (const [id, bot] of dshImConfig(config.dshIm)) {
+    if ((links.has(id) && links.get(id) !== bot) || [...links].some(([other, taken]) => other !== id && taken === bot)) {
+      throw new Error('Each dsh-im Bot needs a single Muse connection')
+    }
+    links.set(id, bot)
+  }
+  return links
+}
+
 export function install(rt) {
-  const legacyFeishu = feishuDshImConfig(rt.config.feishuDshIm)
+  const configLinks = dshImLinks(rt.config)
   let dshIm
-  const supportsButtons = conn => imPlatform(conn.platform)?.buttons === true && (!legacyFeishu.has(conn.id) || runners.get(conn.id)?.handle?.rich === true)
+  // The dsh-im bot a connection takes its messages from, or undefined for a built-in adapter.
+  const linkOf = conn => configLinks.get(conn.id) ?? (isDshImBotId(conn.dshIm?.botId) ? conn.dshIm.botId : undefined)
+  // A Feishu connection whose app DS Bot holds too keeps the Feishu bridge with cards,
+  // progress, images and voice; every other link goes through the channel-neutral one.
+  const richFeishu = conn => conn.platform === 'feishu' && linkOf(conn) !== undefined && typeof conn.settings?.appId === 'string' && conn.settings.appId !== ''
+  const supportsButtons = conn => imPlatform(conn.platform)?.buttons === true && (linkOf(conn) === undefined || runners.get(conn.id)?.handle?.rich === true)
   const { ctx, state } = rt
   const imDir = join(rt.home, 'im')
   const langKey = () => {
@@ -692,11 +711,11 @@ export function install(rt) {
           const settled = queue.stoppedSend
           queue.stoppedSend = undefined
           const how = failClass(error)
-          if (error?.unknown === true && legacyFeishu.has(conn.id)) {
+          if (error?.unknown === true && linkOf(conn) !== undefined) {
             queue.jobs.shift()
             clearPendingSend(conn.id, chatKey, settled)
             if (!runner.stopped) setSendStatus(conn.id, chatKey, { state: 'error', error: failMessage(error) })
-            rt.warn('ds-bot: Feishu reply outcome could not be confirmed: %s', failMessage(error))
+            rt.warn('ds-bot: %s reply outcome could not be confirmed: %s', conn.platform, failMessage(error))
             continue
           }
           if (runner.stopped || connections()[conn.id] === undefined) {
@@ -767,7 +786,7 @@ export function install(rt) {
   // ----------------------------------------------------------------- inbound
   const requested = (conn, msg) => {
     if ((conn.requests ?? []).some(entry => entry.id === msg.sender.id)) return false
-    conn.requests = [...(conn.requests ?? []), { id: msg.sender.id, name: msg.sender.name, chatKey: msg.chat.key, chatKind: msg.chat.kind, chatTitle: msg.chat.title, at: Date.now() }]
+    conn.requests = [...(conn.requests ?? []), { id: msg.sender.id, name: msg.sender.name, chatKey: msg.chat.key, chatKind: msg.chat.kind, chatTitle: msg.chat.title, ...(msg.chat.route !== undefined ? { route: msg.chat.route } : {}), at: Date.now() }]
     return true
   }
 
@@ -795,8 +814,8 @@ export function install(rt) {
   const wantsOwnBot = (conn, chat) => conn.chatBots !== false
     && (chat.target === undefined ? chat.manual !== true : chat.auto === true && resolveTarget(conn, chat) === undefined)
   const LOCAL_PLATFORM_NAMES = {
-    zh: { feishu: '飞书', weixin: '微信', dingtalk: '钉钉', wecom: '企业微信' },
-    'zh-TW': { feishu: '飛書', weixin: '微信', dingtalk: '釘釘', wecom: '企業微信' },
+    zh: { feishu: '飞书', weixin: '微信', dingtalk: '钉钉', wecom: '企业微信', 'wecom-app': '企业微信应用', email: '邮件' },
+    'zh-TW': { feishu: '飛書', weixin: '微信', dingtalk: '釘釘', wecom: '企業微信', 'wecom-app': '企業微信應用', email: '郵件' },
   }
   const platformLabel = (conn) => {
     if (conn.platform === 'feishu' && conn.settings?.domain === 'lark') return 'Lark'
@@ -954,6 +973,11 @@ export function install(rt) {
     }
     let body = String(msg.text ?? '').trim()
     const chat = conn.chats[msg.chat.key]
+    // Where a dsh-im chat can be written to unprompted, for im_send and cards.
+    if (msg.chat.route !== undefined && JSON.stringify(chat.route) !== JSON.stringify(msg.chat.route)) {
+      chat.route = msg.chat.route
+      await rt.save()
+    }
     // The person in a private chat, so the connection's Bot can still find the owner's.
     if (msg.chat.kind === 'direct' && chat.kind === 'direct' && msg.sender.id !== undefined && chat.personId !== msg.sender.id) {
       chat.personId = msg.sender.id
@@ -1060,11 +1084,21 @@ export function install(rt) {
     const uploadTo = target.botId !== undefined
       ? rt.chatOf(target.botId)
       : rt.sessionOfRoom(rt.roomOf(target.roomId))
+    // dsh-im attachments load only for a message that is admitted.
+    let images = msg.images ?? []
+    let files = msg.files ?? []
+    if (typeof msg.attachments === 'function') {
+      const loaded = await msg.attachments()
+      msg.signal?.throwIfAborted()
+      images = [...images, ...loaded.images]
+      files = [...files, ...loaded.files]
+      if (loaded.skipped.length > 0) await sendText(conn, msg.chat, text('noFile'))
+    }
     const content = []
     if (body !== '') content.push({ type: 'text', text: body })
-    for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
+    for (const image of images) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
     const env = await envFor(conn)
-    for (const file of msg.files ?? []) {
+    for (const file of files) {
       try {
         const receiptId = await env.uploadFile(uploadTo, file)
         content.push({ type: 'file', receiptId })
@@ -1291,8 +1325,8 @@ export function install(rt) {
 
   const start = async (conn) => {
     const adapter = adapters[conn.platform]
-    if (adapter === undefined || runners.has(conn.id)) return
-    const legacyBot = legacyFeishu.get(conn.id)
+    const legacyBot = linkOf(conn)
+    if ((adapter === undefined && legacyBot === undefined) || runners.has(conn.id)) return
     const platform = imPlatform(conn.platform)
     if (legacyBot === undefined && platform?.ws === true && globalThis.WebSocket === undefined) {
       setStatus(conn.id, { state: 'error', error: 'This dsh runs on a Node without WebSocket', at: Date.now() })
@@ -1321,8 +1355,25 @@ export function install(rt) {
       let handle
       if (legacyBot === undefined) {
         handle = adapter.connect(fieldsOf(conn), env, handlers)
+      } else if (!richFeishu(conn)) {
+        handle = await connectDshIm(runner.legacyService, { botId: legacyBot, fingerprint: conn.dshIm?.fingerprint }, env, {
+          onMessage: async (msg) => {
+            const current = fresh(conn.id)
+            if (current === undefined || runners.get(conn.id) !== runner || rt.readOnly() !== undefined) {
+              throw new Error('The Muse IM connection is no longer active')
+            }
+            await onMessage(current)(msg)
+          },
+          onStatus: handlers.onStatus,
+          routeOf: chatKey => fresh(conn.id)?.chats?.[chatKey]?.route,
+        }, runner.controller.signal)
+        // A link made in Settings pins the account it was made with.
+        const current = fresh(conn.id)
+        if (current?.dshIm !== undefined && current.dshIm.fingerprint === undefined && runners.get(conn.id) === runner) {
+          current.dshIm = { ...current.dshIm, fingerprint: handle.fingerprint }
+          await rt.save()
+        }
       } else {
-        if (conn.platform !== 'feishu') throw new Error('Only Feishu connections can use dsh-im')
         handle = await connectDshImFeishu(runner.legacyService, legacyBot, conn, fieldsOf(conn), env, async msg => {
           const current = fresh(conn.id)
           if (current === undefined || runners.get(conn.id) !== runner || rt.readOnly() !== undefined) {
@@ -1342,7 +1393,7 @@ export function install(rt) {
         return
       }
       runner.handle = handle
-      if (legacyBot !== undefined) handlers.onStatus({ state: 'ready' })
+      if (legacyBot !== undefined && richFeishu(conn)) handlers.onStatus({ state: 'ready' })
       for (const chatKey of runner.queues.keys()) void drain(conn, chatKey)
       if (typeof runner.handle?.typing === 'function') {
         runner.typing = setInterval(() => {
@@ -1420,10 +1471,11 @@ export function install(rt) {
     const run = syncing.then(async () => {
       const conns = connections()
       for (const conn of Object.values(conns)) {
-        const wants = stopped !== true && adapters[conn.platform] !== undefined && conn.enabled !== false
+        const linked = linkOf(conn) !== undefined
+        const wants = stopped !== true && (adapters[conn.platform] !== undefined || linked) && conn.enabled !== false
           && rt.readOnly() === undefined && hasSecrets(conn)
         const runner = runners.get(conn.id)
-        if (runner !== undefined && (!wants || (legacyFeishu.has(conn.id) && runner.legacyService !== dshIm))) await stop(conn.id)
+        if (runner !== undefined && (!wants || (linked && runner.legacyService !== dshIm))) await stop(conn.id)
         if (wants && !runners.has(conn.id)) await start(conn)
       }
       for (const id of [...runners.keys()]) if (conns[id] === undefined) await stop(id)
@@ -1434,29 +1486,52 @@ export function install(rt) {
         }
       }
       await diffCards()
+      await refreshAvailable()
     })
     syncing = run.catch(() => {})
     return run
   }
 
-  let stopped = false
-  if (legacyFeishu.size > 0) {
-    const attach = (sub) => {
-      const service = sub.dshIm
-      sub.effect(() => {
-        dshIm = service
-        void rt.load().then(() => sync()).catch(() => {})
-        return () => {
-          if (dshIm !== service) return
-          dshIm = undefined
-          for (const id of legacyFeishu.keys()) runners.get(id)?.controller?.abort()
-          return sync()
-        }
-      }, 'ds-bot: dsh-im Feishu service')
+  // dsh-im accounts a connection could take its messages from, for Settings → IM.
+  let available = []
+  const refreshAvailable = async () => {
+    const service = dshIm
+    if (service === undefined || typeof service.listBots !== 'function') {
+      available = []
+      return
     }
-    if (typeof ctx.inject === 'function') ctx.inject(['dshIm'], attach)
-    else if (ctx.get?.('dshIm') !== undefined) attach({ dshIm: ctx.get('dshIm'), effect: (...args) => ctx.effect(...args) })
+    try {
+      const taken = new Set(Object.values(connections()).map(linkOf).filter(Boolean))
+      const next = []
+      for (const entry of await service.listBots()) {
+        if (taken.has(entry.botId)) continue
+        const described = await service.describeBot(entry.botId).catch(() => undefined)
+        if (!consumable(described)) continue
+        next.push({ botId: entry.botId, channel: described.channel, name: described.account.name ?? entry.botId, connected: described.connected !== false })
+      }
+      if (dshIm === service) available = next
+    } catch (error) {
+      rt.warn('ds-bot: dsh-im accounts could not be listed: %s', error?.message ?? error)
+    }
   }
+
+  let stopped = false
+  const attach = (sub) => {
+    const service = sub.dshIm
+    sub.effect(() => {
+      dshIm = service
+      void rt.load().then(() => sync()).catch(() => {})
+      return () => {
+        if (dshIm !== service) return
+        dshIm = undefined
+        available = []
+        for (const conn of Object.values(connections())) if (linkOf(conn) !== undefined) runners.get(conn.id)?.controller?.abort()
+        return sync()
+      }
+    }, 'ds-bot: dsh-im service')
+  }
+  if (typeof ctx.inject === 'function') ctx.inject(['dshIm'], attach)
+  else if (ctx.get?.('dshIm') !== undefined) attach({ dshIm: ctx.get('dshIm'), effect: (...args) => ctx.effect(...args) })
 
   // ---------------------------------------------------------------- endpoints
   const secretName = (conn, key) => `IM_${conn.platform.toUpperCase()}_${conn.id.slice(3, 9).toUpperCase()}_${secretField(key)}`
@@ -1502,7 +1577,7 @@ export function install(rt) {
     access: { direct: sceneOf(conn, 'direct'), group: sceneOf(conn, 'group') },
     chats: Object.fromEntries(Object.entries(conn.chats ?? {}).map(([key, chat]) => [key, { ...chat }])),
     createdAt: conn.createdAt,
-    ...(legacyFeishu.has(conn.id) ? { dshImBotId: legacyFeishu.get(conn.id) } : {}),
+    ...(linkOf(conn) !== undefined ? { dshImBotId: linkOf(conn) } : {}),
   })
 
   const endpoints = {
@@ -1537,11 +1612,45 @@ export function install(rt) {
       await sync()
       return viewOf(conn)
     },
+    // Link a dsh-im account to a Bot: its chats reach Bots from now on, and the IM
+    // plugin stops answering them through its own sessions.
+    async 'im-link'(body) {
+      const service = dshIm
+      if (service === undefined) throw new Error('The IM plugin is not running')
+      const dshImBotId = String(body.dshImBotId ?? '')
+      if (!isDshImBotId(dshImBotId)) throw new Error('Choose an account')
+      if (Object.values(connections()).some(conn => linkOf(conn) === dshImBotId)) throw new Error('This account is already connected')
+      const bot = rt.botOf(String(body.botId ?? ''))
+      if (bot === undefined) throw new Error('Choose a Bot first')
+      const described = await service.describeBot(dshImBotId)
+      if (!consumable(described)) throw new Error('Bots cannot use this account')
+      const conn = {
+        id: `im_${randomBytes(4).toString('hex')}`,
+        platform: described.channel,
+        account: { id: dshImBotId, name: described.account.name ?? dshImBotId },
+        botId: bot.id,
+        settings: {},
+        secrets: {},
+        enabled: true,
+        paired: [],
+        requests: [],
+        chats: {},
+        dshIm: { botId: dshImBotId, fingerprint: described.account.fingerprint },
+        createdAt: Date.now(),
+      }
+      connections()[conn.id] = conn
+      await rt.save()
+      await sync()
+      return viewOf(conn)
+    },
     async 'im-update'(body) {
       const conn = connections()[String(body.id ?? '')]
       if (conn === undefined) throw new Error('No such IM bot')
       const platform = imPlatform(conn.platform)
-      if (platform === undefined) throw new Error('No such platform')
+      if (platform === undefined && linkOf(conn) === undefined) throw new Error('No such platform')
+      if (body.fields !== undefined && (platform === undefined || (linkOf(conn) !== undefined && !richFeishu(conn)))) {
+        throw new Error('This account is set up in the IM plugin')
+      }
       if (body.botId !== undefined) {
         const bot = rt.botOf(String(body.botId))
         if (bot === undefined) throw new Error('Choose a Bot first')
@@ -1606,7 +1715,7 @@ export function install(rt) {
       if (body.allow === true) {
         conn.paired = [...(conn.paired ?? []), { id: request.id, name: request.name, at: Date.now() }]
         conn.chats ??= {}
-        conn.chats[request.chatKey] ??= { kind: request.chatKind, title: request.chatKind === 'group' ? (request.chatTitle ?? request.name) : request.name, ...(request.chatKind === 'direct' ? { personId: request.id } : {}), at: Date.now() }
+        conn.chats[request.chatKey] ??= { kind: request.chatKind, title: request.chatKind === 'group' ? (request.chatTitle ?? request.name) : request.name, ...(request.chatKind === 'direct' ? { personId: request.id } : {}), ...(request.route !== undefined ? { route: request.route } : {}), at: Date.now() }
         await rt.save()
         const chat = conn.chats[request.chatKey]
         await ensureChatBot(conn, request.chatKey, chat, request.name)
@@ -1936,6 +2045,12 @@ export function install(rt) {
    * @param {string} body - Message text.
    * @returns {Promise<{ sent: string } | { error: 'none' | 'which' | 'unknown' | 'offline' | 'reply-only', chats: string[] }>}
    */
+  // A linked connection writes first into a chat only through a channel that sends
+  // unprompted and a chat that told us where it lives; Feishu needs its rich bridge.
+  const canWriteFirst = (conn, chat) => {
+    const handle = runners.get(conn.id)?.handle
+    return richFeishu(conn) ? handle?.rich === true : handle?.canPush === true && chat.route !== undefined
+  }
   const imSend = async (botId, chatName, body) => {
     const chats = chatsOfBot(botId)
     const names = chats.map(item => item.name)
@@ -1943,10 +2058,12 @@ export function install(rt) {
     const picked = chatName === undefined || chatName === '' ? (chats.length === 1 ? chats[0] : undefined) : chats.find(item => item.name === chatName)
     if (picked === undefined) return { error: chatName === undefined || chatName === '' ? 'which' : 'unknown', chats: names }
     if (!runners.has(picked.conn.id)) return { error: 'offline', chats: names }
-    if (legacyFeishu.has(picked.conn.id) && runners.get(picked.conn.id)?.handle?.rich !== true) return { error: 'reply-only', chats: names }
+    if (linkOf(picked.conn) !== undefined && !canWriteFirst(picked.conn, picked.chat)) return { error: 'reply-only', chats: names }
     await sendTo(picked.conn, picked.chatKey, { key: picked.chatKey, kind: picked.chat.kind, title: picked.chat.title }, body)
     return { sent: picked.name }
   }
 
-  Object.assign(rt, { imView, imStatusView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, imChatsOf, imSend })
+  const imAvailableView = () => available.map(entry => ({ ...entry }))
+
+  Object.assign(rt, { imView, imStatusView, imAvailableView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, imChatsOf, imSend })
 }

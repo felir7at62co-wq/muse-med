@@ -2538,3 +2538,131 @@ test('a chat Bot named after an id takes the chat\'s real name once it can be re
   assert.equal(s.rt.botOf(bot.id).name, 'Ops desk')
   assert.equal(s.rt.state.im.connections[conn.id].chats.oc_abc.title, '剧组二')
 })
+
+// A dsh-im service with one DingTalk account any connection may take.
+const dshImService = () => {
+  const fingerprint = createHash('sha256').update(JSON.stringify({ provider: 'dingtalk', botId: 'dt_one' })).digest('hex')
+  const service = {
+    fingerprint,
+    inboundVersion: 1,
+    replies: [],
+    pushes: [],
+    disposals: 0,
+    connected: true,
+    listBots: async () => [{ botId: 'dt_one', channel: 'dingtalk' }, { botId: 'tg_one', channel: 'telegram' }],
+    async describeBot(botId) {
+      if (botId !== 'dt_one') throw Object.assign(new Error('capability-unavailable'), { code: 'capability-unavailable' })
+      return { version: 1, botId, channel: 'dingtalk', account: { fingerprint, name: 'Studio bot' }, connected: service.connected, formats: ['plain', 'markdown'],
+        capabilities: ['exclusive-text-consumer', 'reply-text-checked', 'proactive-text-checked', 'channel-neutral-consumer'] }
+    },
+    async consumeInbound(botId, options) {
+      service.onEvent = options.onEvent
+      service.signal = options.signal
+      return () => { service.disposals += 1 }
+    },
+    async replyChecked(botId, route, text, options) {
+      service.replies.push({ route, text, format: options.format })
+      return { sent: true }
+    },
+    async pushChecked(botId, target, text) {
+      service.pushes.push({ target, text })
+      return { sent: true }
+    },
+  }
+  return service
+}
+
+const dingtalkEvent = (service, messageId, overrides = {}) => ({
+  version: 1, channel: 'dingtalk', botId: 'dt_one', fingerprint: service.fingerprint, eventId: `dingtalk:${messageId}`, messageId,
+  actor: { kind: 'user', id: 'staff-1', name: '小梅' }, conversation: { kind: 'dm', id: 'staff-1', title: '小梅' },
+  mentions: [], mentionedAccount: true, at: new Date(0).toISOString(), text: 'hello', attachments: [],
+  reply: { kind: 'dm', senderId: 'staff-1', messageId, conversationId: 'staff-1' },
+  target: { kind: 'user', route: { userId: 'staff-1' } },
+  ...overrides,
+})
+
+test('dsh-im: Settings → IM lists an account of any channel, a Bot picks it up, and replies go back to the chat that asked', async (t) => {
+  const service = dshImService()
+  const s = await start({ services: { dshIm: service } })
+  t.after(s.stop)
+  await s.rt.load()
+  await s.flush()
+  assert.deepEqual(s.rt.imAvailableView(), [{ botId: 'dt_one', channel: 'dingtalk', name: 'Studio bot', connected: true }])
+  const view = await s.rt.imEndpoint('im-link', { dshImBotId: 'dt_one', botId: 'a' })
+  await s.flush()
+  assert.equal(view.platform, 'dingtalk')
+  assert.equal(view.dshImBotId, 'dt_one')
+  assert.equal(typeof service.onEvent, 'function')
+  assert.deepEqual(s.rt.imAvailableView(), [], 'a linked account leaves the list')
+  assert.equal(s.rt.imStatusView()[view.id].state, 'ready')
+  await assert.rejects(s.rt.imEndpoint('im-link', { dshImBotId: 'dt_one', botId: 'a' }), /already connected/)
+  const conn = s.rt.state.im.connections[view.id]
+  assert.equal(conn.dshIm.fingerprint, service.fingerprint)
+  const inbound = { signal: new AbortController().signal }
+
+  // A stranger asks first; the answer goes to their own message.
+  await service.onEvent(dingtalkEvent(service, 'msg-1'), inbound)
+  assert.equal(conn.requests.length, 1)
+  await s.flush()
+  assert.match(service.replies.at(-1).text, /connection request/)
+  assert.deepEqual(service.replies.at(-1).route, dingtalkEvent(service, 'msg-1').reply)
+  await s.rt.imEndpoint('im-pair', { id: view.id, senderId: 'staff-1', allow: true })
+  await s.flush()
+  // The welcome is written first, through the chat's saved route.
+  assert.deepEqual(service.pushes.at(-1).target, { kind: 'user', route: { userId: 'staff-1' } })
+  const chat = s.rt.state.im.connections[view.id].chats['staff-1']
+  const chatBot = chat.target.botId
+  assert.equal(s.rt.botOf(chatBot).name, '小梅')
+
+  await service.onEvent(dingtalkEvent(service, 'msg-2', { text: 'look at this', attachments: [{ kind: 'image', name: 'image' }] }), {
+    ...inbound,
+    loadAttachment: async () => ({ kind: 'image', data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) }),
+  })
+  const prompt = s.prompts.at(-1)
+  assert.equal(prompt.sessionId, s.rt.chatOf(chatBot))
+  assert.deepEqual(prompt.content.map(block => block.type), ['text', 'image'])
+  assert.equal(prompt.content[1].mediaType, 'image/png')
+  s.emitEvent(prompt.sessionId, 'turn/start', { turn: s.prompts.length })
+  for (const source of CONTEXT_BEFORE_IM) s.emitEvent(prompt.sessionId, 'user/message', context(source))
+  s.emitEvent(prompt.sessionId, 'user/message', { source: { kind: 'user', rpcId: prompt.requestId }, content: [{ type: 'text', text: 'look at this' }] })
+  for (const source of CONTEXT_AFTER_IM) s.emitEvent(prompt.sessionId, 'user/message', context(source))
+  s.emitEvent(prompt.sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: '**Seen** it' }] } })
+  await s.flush()
+  assert.deepEqual(service.replies.at(-1), { route: dingtalkEvent(service, 'msg-2').reply, text: '**Seen** it', format: 'markdown' })
+  // A turn the Web UI starts stays in Muse.
+  s.emitEvent(prompt.sessionId, 'turn/end', {})
+  s.emitEvent(prompt.sessionId, 'turn/start', {})
+  s.emitEvent(prompt.sessionId, 'user/message', { source: { kind: 'user' } })
+  s.emitEvent(prompt.sessionId, 'assistant/message', { message: { content: [{ type: 'text', text: 'Only in Muse' }] } })
+  await s.flush()
+  assert.notEqual(service.replies.at(-1).text, 'Only in Muse')
+  // The chat's Bot can report unprompted through the saved route.
+  assert.deepEqual(await s.rt.imSend(chatBot, undefined, 'Report'), { sent: '小梅' })
+  await s.flush()
+  assert.deepEqual(service.pushes.at(-1), { target: { kind: 'user', route: { userId: 'staff-1' } }, text: 'Report' })
+
+  service.connected = false
+  await s.rt.imEndpoint('im-update', { id: view.id, enabled: false })
+  assert.equal(service.signal.aborted, true)
+  assert.equal(service.disposals, 1)
+  await assert.rejects(s.rt.imEndpoint('im-update', { id: view.id, fields: { clientId: 'x' } }), /set up in the IM plugin/)
+})
+
+test('dsh-im: the channel-neutral dshIm config links an existing connection, and a changed account is refused', async (t) => {
+  const service = dshImService()
+  const seed = TEAM()
+  seed.im = { connections: {
+    im_0000000a: { id: 'im_0000000a', platform: 'dingtalk', enabled: true, botId: 'a', settings: {}, secrets: {}, paired: [], requests: [], chats: {} },
+    im_0000000b: { id: 'im_0000000b', platform: 'dingtalk', enabled: true, botId: 'a', settings: {}, secrets: {}, paired: [], requests: [], chats: {},
+      dshIm: { botId: 'dt_two', fingerprint: 'e'.repeat(64) } },
+  } }
+  const two = { ...service, describeBot: async botId => ({ ...(await service.describeBot('dt_one')), botId }) }
+  const s = await start({ seed, services: { dshIm: two }, config: { dshIm: { im_0000000a: 'dt_one' } } })
+  t.after(s.stop)
+  await s.rt.load()
+  await s.flush()
+  assert.equal(s.rt.imStatusView().im_0000000a.state, 'ready')
+  assert.equal(s.rt.imView().connections.find(conn => conn.id === 'im_0000000a').dshImBotId, 'dt_one')
+  assert.equal(s.rt.imStatusView().im_0000000b.state, 'error')
+  assert.match(s.rt.imStatusView().im_0000000b.error, /changed/)
+})

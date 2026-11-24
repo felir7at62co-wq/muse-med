@@ -1,3 +1,4 @@
+import { qqExternalChannel } from './qq-external.mjs';
 import { extractConnectionEvidence, createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';
 import { QQBot, contentSanitizer, typingIndicator } from '@tencent-connect/qqbot-nodejs';
 
@@ -50,6 +51,7 @@ export class QqRuntime {
   #abortController = null;
   #runTask = null;
   #starting = null;
+  #external;
 
   constructor({
     config,
@@ -64,6 +66,7 @@ export class QqRuntime {
     connectTimeoutMs = 20_000,
     createBot = (options) => new QQBot(options),
     typingMiddleware = typingIndicator,
+    external,
   }) {
     if (!config || !appSecret || !harness || !state) {
       throw new TypeError('QqRuntime requires config, app secret, Harness, and state');
@@ -80,6 +83,8 @@ export class QqRuntime {
     this.#connectTimeoutMs = connectTimeoutMs;
     this.#createBot = createBot;
     this.#typingMiddleware = typingMiddleware;
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
   }
 
   get status() {
@@ -162,8 +167,10 @@ export class QqRuntime {
     this.#status.startedAt = new Date().toISOString();
     this.#status.qqConnectionState = 'connecting';
     this.#status.lastError = null; this.#status.error = null; this.#diagnostics.clear();
-    await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
-    this.#status.harnessReachable = true;
+    if (!this.#external) {
+      await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
+      this.#status.harnessReachable = true;
+    }
 
     const sdkLogger = {
       error: (...args) => this.#logger.error?.(...args),
@@ -188,7 +195,12 @@ export class QqRuntime {
     const controller = new AbortController();
     this.#abortController = controller;
     this.#bot = bot;
-    this.#bridge = new QqHarnessBridge({
+    this.#bridge = this.#external ? this.#external.createBridge({
+      ...qqExternalChannel({ bot, logger: this.#logger }),
+      status: this.#status,
+      logger: this.#logger,
+      signal: controller.signal,
+    }) : new QqHarnessBridge({
       bot,
       ownerUserOpenid: this.#config.ownerUserOpenid,
       harness: this.#harness,

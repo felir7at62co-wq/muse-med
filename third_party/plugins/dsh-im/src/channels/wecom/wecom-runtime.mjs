@@ -2,6 +2,7 @@ import { createConnectionDiagnostics, atConnectionStage } from '../shared/connec
 import { WSAuthFailureError, WSClient, WSReconnectExhaustedError } from '@wecom/aibot-node-sdk';
 
 import { createWecomBridgeStatus, WecomHarnessBridge } from './wecom-bridge.mjs';
+import { wecomExternalChannel } from './wecom-external.mjs';
 import { sendRememberedConnectionTest } from '../shared/connection-test.mjs';
 import { t } from '../shared/i18n.mjs';
 import { chunkMarkdownText } from '../shared/markdown-chunks.mjs';
@@ -44,6 +45,7 @@ export class WecomRuntime {
   #starting = null;
   #startController = null;
   #runtimeController = null;
+  #external;
 
   constructor({
     config,
@@ -57,6 +59,7 @@ export class WecomRuntime {
     connectTimeoutMs = 20_000,
     maxReconnectAttempts = 10,
     createClient = (options) => new WSClient(options),
+    external,
   }) {
     if (!config || !secret || !harness || !state) {
       throw new TypeError('WecomRuntime requires config, secret, Harness, and state');
@@ -72,6 +75,8 @@ export class WecomRuntime {
     this.#connectTimeoutMs = connectTimeoutMs;
     this.#maxReconnectAttempts = maxReconnectAttempts;
     this.#createClient = createClient;
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
   }
 
   get status() {
@@ -98,8 +103,10 @@ export class WecomRuntime {
     this.#status.startedAt = new Date().toISOString();
     this.#status.wecomConnectionState = 'connecting';
     this.#status.lastError = null; this.#status.error = null; this.#diagnostics.clear();
-    await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
-    this.#status.harnessReachable = true;
+    if (!this.#external) {
+      await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
+      this.#status.harnessReachable = true;
+    }
 
     const silentSdkLogger = { debug() {}, info() {}, warn() {}, error() {} };
     const client = this.#createClient({
@@ -112,7 +119,12 @@ export class WecomRuntime {
       throw new TypeError('Enterprise WeChat client factory returned an invalid client');
     }
     this.#client = client;
-    this.#bridge = new WecomHarnessBridge({
+    this.#bridge = this.#external ? this.#external.createBridge({
+      ...wecomExternalChannel({ client }),
+      status: this.#status,
+      logger: this.#logger,
+      signal,
+    }) : new WecomHarnessBridge({
       client,
       harness: this.#harness,
       state: this.#state,
