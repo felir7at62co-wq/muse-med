@@ -2075,5 +2075,34 @@ export function install(rt) {
 
   const imAvailableView = () => available.map(entry => ({ ...entry }))
 
-  Object.assign(rt, { imView, imStatusView, imAvailableView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, imChatsOf, imSend })
+  /**
+   * Read one of a Bot's chats as its dsh-im connection saw it.
+   * @param {string} botId - The Bot that reads.
+   * @param {string | undefined} chatName - The chat's name; may be left out when the Bot has one chat.
+   * @param {number} limit - How many messages, 1 to 50.
+   * @returns {Promise<{ chat: string, coverage?: string, messages: object[] } | { error: 'none' | 'which' | 'unknown' | 'offline' | 'unsupported', chats: string[] }>}
+   */
+  const imHistory = async (botId, chatName, limit) => {
+    const chats = chatsOfBot(botId)
+    const names = chats.map(item => item.name)
+    if (chats.length === 0) return { error: 'none', chats: names }
+    const picked = chatName === undefined || chatName === '' ? (chats.length === 1 ? chats[0] : undefined) : chats.find(item => item.name === chatName)
+    if (picked === undefined) return { error: chatName === undefined || chatName === '' ? 'which' : 'unknown', chats: names }
+    if (!runners.has(picked.conn.id)) return { error: 'offline', chats: names }
+    const handle = runners.get(picked.conn.id)?.handle
+    if (typeof handle?.history !== 'function') return { error: 'unsupported', chats: names }
+    const read = await handle.history(picked.chatKey, limit)
+    return {
+      chat: picked.name,
+      ...(read.coverage === undefined ? {} : { coverage: read.coverage }),
+      messages: read.events.map(entry => ({
+        at: entry.at,
+        from: entry.direction === 'outbound' ? 'sent here' : (entry.actor?.name ?? entry.actor?.id ?? 'someone'),
+        text: String(entry.text ?? ''),
+        ...(Array.isArray(entry.attachments) && entry.attachments.length > 0 ? { attachments: entry.attachments.map(item => item.name ?? item.kind) } : {}),
+      })),
+    }
+  }
+
+  Object.assign(rt, { imView, imStatusView, imAvailableView, imViaView, imEndpoint, holdImOrigin, peekImOrigin, dropImOrigin, imChatsOf, imSend, imHistory })
 }

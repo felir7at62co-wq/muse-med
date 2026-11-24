@@ -2553,7 +2553,14 @@ const dshImService = () => {
     async describeBot(botId) {
       if (botId !== 'dt_one') throw Object.assign(new Error('capability-unavailable'), { code: 'capability-unavailable' })
       return { version: 1, botId, channel: 'dingtalk', account: { fingerprint, name: 'Studio bot' }, connected: service.connected, formats: ['plain', 'markdown'],
-        capabilities: ['exclusive-text-consumer', 'reply-text-checked', 'proactive-text-checked', 'channel-neutral-consumer'] }
+        capabilities: ['exclusive-text-consumer', 'reply-text-checked', 'proactive-text-checked', 'history-text-checked', 'channel-neutral-consumer'] }
+    },
+    async historyChecked(botId, route, query, options) {
+      service.reads = [...(service.reads ?? []), { botId, route, query, fingerprint: options.expectedFingerprint }]
+      return { version: 1, coverage: 'seen-since-connect', events: [
+        { direction: 'outbound', text: 'Report', at: '2026-11-24T01:00:01.000Z' },
+        { direction: 'inbound', actor: { id: 'staff-1', name: '小梅' }, text: 'look at this', attachments: [{ kind: 'image', name: 'image' }], at: '2026-11-24T01:00:00.000Z' },
+      ] }
     },
     async consumeInbound(botId, options) {
       service.onEvent = options.onEvent
@@ -2640,6 +2647,12 @@ test('dsh-im: Settings → IM lists an account of any channel, a Bot picks it up
   assert.deepEqual(await s.rt.imSend(chatBot, undefined, 'Report'), { sent: '小梅' })
   await s.flush()
   assert.deepEqual(service.pushes.at(-1), { target: { kind: 'user', route: { userId: 'staff-1' } }, text: 'Report' })
+  // The chat's Bot reads the chat back through dsh-im.
+  const readChat = s.rt.teamTools.find(def => def.name === 'im_history')
+  const read = await readChat.execute({ limit: 5 }, { agent: { id: s.rt.chatOf(chatBot) } })
+  assert.deepEqual(service.reads, [{ botId: 'dt_one', route: { conversationId: 'staff-1' }, query: { scope: 'group', limit: 5 }, fingerprint: service.fingerprint }])
+  assert.equal(String(read?.content?.[0]?.text ?? read), '小梅 (since its connection started):\n[2026-11-24T01:00:01.000Z] sent here: Report\n[2026-11-24T01:00:00.000Z] 小梅: look at this (image)')
+  await assert.rejects(readChat.execute({ limit: 99 }, { agent: { id: s.rt.chatOf(chatBot) } }), /1 to 50/)
 
   service.connected = false
   await s.rt.imEndpoint('im-update', { id: view.id, enabled: false })

@@ -527,6 +527,33 @@ export function install(rt) {
   }))
 
   rt.teamTools.push(defineTool({
+    name: 'im_history',
+    description: 'Read the latest messages of one of your chat app chats, newest first: who wrote what and what was sent there. Use it to catch up on a group before answering or to check what you already told a chat. Feishu reads the chat itself; other chat apps show what their connection received and sent since it last started.',
+    parameters: {
+      chat: { type: 'string', description: 'Chat name, needed only when you have several; a refusal lists them' },
+      limit: { type: 'number', description: 'How many messages, 1 to 50; 20 when left out' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const sender = callerBot(exec)
+      if (sender === undefined) refuse('Only a Bot can read its chats.')
+      const limit = args.limit === undefined ? 20 : Number(args.limit)
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) refuse('limit must be a whole number from 1 to 50.')
+      const result = await rt.imHistory(sender.id, args.chat === undefined ? undefined : String(args.chat).trim(), limit)
+      if ('messages' in result) {
+        if (result.messages.length === 0) return `No messages in ${result.chat} yet.`
+        const lines = result.messages.map(entry => `[${entry.at}] ${entry.from}: ${entry.text}${entry.attachments ? ` (${entry.attachments.join(', ')})` : ''}`)
+        return `${result.chat}${result.coverage === 'seen-since-connect' ? ' (since its connection started)' : ''}:\n${lines.join('\n')}`
+      }
+      if (result.error === 'none') refuse('No chat app chat comes to you, so there is nothing to read.')
+      if (result.error === 'unsupported') refuse('This chat\'s connection cannot read its messages back; ask the people in it instead.')
+      if (result.error === 'offline') refuse('That chat\'s connection is offline right now; try again later.')
+      refuse(`${result.error === 'which' ? 'You have several chats; name one' : 'No chat by that name'}. Your chats: ${result.chats.join(', ')}`)
+    },
+  }))
+
+  rt.teamTools.push(defineTool({
     name: 'create_bot',
     description: 'Main Bot only. Create a new Bot on the user\'s team. It appears in the sidebar and greets the user.',
     parameters: {

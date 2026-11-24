@@ -77,6 +77,7 @@ export async function connectDshIm(service, link, env, { onMessage, onStatus, ro
   const channel = described.channel
   const formats = Array.isArray(described.formats) ? described.formats : ['plain']
   const canPush = described.capabilities.includes('proactive-text-checked') && typeof service.pushChecked === 'function'
+  const canRead = described.capabilities.includes('history-text-checked') && typeof service.historyChecked === 'function'
   const options = { expectedFingerprint: fingerprint, signal }
   const saved = env.runtime.get().dshImSeen
   const seen = new Set(Array.isArray(saved) ? saved.slice(-MAX_SEEN) : [])
@@ -182,6 +183,14 @@ export async function connectDshIm(service, link, env, { onMessage, onStatus, ro
       clearInterval(watcher)
       return dispose()
     },
+    // The chat's latest messages as dsh-im saw or reads them, newest first.
+    ...(canRead ? {
+      async history(chatKey, limit) {
+        signal.throwIfAborted()
+        const result = await service.historyChecked(link.botId, { conversationId: chatKey }, { scope: 'group', limit }, options)
+        return { coverage: result?.coverage, events: Array.isArray(result?.events) ? result.events : [] }
+      },
+    } : {}),
     async send(chat, job) {
       signal.throwIfAborted()
       const format = formats.includes('markdown') ? 'markdown' : 'plain'

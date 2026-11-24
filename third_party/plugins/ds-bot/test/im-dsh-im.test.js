@@ -14,7 +14,7 @@ const fakeService = (channel, { formats = ['plain', 'markdown'], fingerprint = F
     disposed: 0,
     async describeBot(botId) {
       return { version: 1, botId, channel, account: { fingerprint, name: `${channel} bot` }, connected: true, formats,
-        capabilities: ['exclusive-text-consumer', 'reply-text-checked', ...(push ? ['proactive-text-checked'] : [])] }
+        capabilities: ['exclusive-text-consumer', 'reply-text-checked', 'history-text-checked', ...(push ? ['proactive-text-checked'] : [])] }
     },
     async consumeInbound(botId, options) {
       service.botId = botId
@@ -25,6 +25,10 @@ const fakeService = (channel, { formats = ['plain', 'markdown'], fingerprint = F
       if (replyError !== undefined) throw replyError
       service.replies.push({ route, text, format: options.format })
       return { sent: true, messageId: `r${service.replies.length}` }
+    },
+    async historyChecked(botId, route, query, options) {
+      service.reads = [...(service.reads ?? []), { route, query, fingerprint: options.expectedFingerprint }]
+      return { version: 1, coverage: 'seen-since-connect', events: [{ direction: 'inbound', text: 'hi' }] }
     },
     async pushChecked(botId, target, text, options) {
       service.pushes.push({ target, text, format: options.format })
@@ -138,4 +142,11 @@ test('dsh-im refuses an account other than the one the connection was linked wit
   assert.deepEqual([...dshImConfig({ im_0123abcd: 'wx_bot' })], [['im_0123abcd', 'wx_bot']])
   assert.throws(() => dshImConfig({ im_0123abcd: 'wx_bot', im_0123abce: 'wx_bot' }), /single Muse connection/)
   assert.throws(() => dshImConfig({ conn: 'wx_bot' }), /dshIm must map/)
+})
+
+test('dsh-im reads a chat back for its Bot', async () => {
+  const s = await connect('qq')
+  assert.deepEqual(await s.handle.history('chat-1', 5), { coverage: 'seen-since-connect', events: [{ direction: 'inbound', text: 'hi' }] })
+  assert.deepEqual(s.service.reads, [{ route: { conversationId: 'chat-1' }, query: { scope: 'group', limit: 5 }, fingerprint: FINGERPRINT }])
+  s.handle.stop()
 })
