@@ -8,6 +8,7 @@ import { within } from './folders.js'
 import { missingFileRefs } from './claims.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
+import { inactiveContext } from './services.js'
 import { unquote } from './text.js'
 import { isOpenPart, ownChatSessions, taskModelOf } from './threads.js'
 import { mentionSpans } from '../shared/mentions.js'
@@ -1127,6 +1128,8 @@ export function install(rt) {
           ;(held.added ??= new Set()).add(def.name)
           held.unlisted.add(def.name)
         } catch (error) {
+          // An Agent DSH is closing takes no tools.
+          if (inactiveContext(error)) return
           // A name the replaced plugin's scope still holds reads as already
           // registered. It is left out of `added`, so the next assemble tries again
           // once that scope is released, and it is not reported as a new failure.
@@ -1159,6 +1162,12 @@ export function install(rt) {
         }
         registered.push(def.name)
       } catch (error) {
+        // An Agent DSH is closing takes no tools and is not scoped; the next Agent of
+        // its Session is.
+        if (inactiveContext(error)) {
+          for (const dispose of disposers) { try { dispose() } catch { /* went with the Agent */ } }
+          return
+        }
         // A tool another plugin already scoped onto this agent stays missing
         // rather than stopping the team; the rest still land.
         failed.push(`${def.name}: ${error.message ?? error}`)
@@ -1188,16 +1197,24 @@ export function install(rt) {
   // after this one.
   const filterBotAssembly = (agent, held) => {
     if (held.filtered === true || typeof agent.ctx?.on !== 'function') return
-    const dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      const assembled = await next()
-      // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
-      // older assembly still carries tools to drop here.
-      return {
-        ...assembled,
-        ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
-        sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
-      }
-    })
+    let dispose
+    try {
+      dispose = agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const assembled = await next()
+        // DSH 0.2.2 adds the tool list after this waterfall (#814), so only an
+        // older assembly still carries tools to drop here.
+        return {
+          ...assembled,
+          ...Array.isArray(assembled.tools) ? { tools: assembled.tools.filter(tool => !HIDDEN_TOOLS.includes(tool.name)) } : {},
+          sections: assembled.sections.filter(section => !HIDDEN_SECTIONS.has(section.name)),
+        }
+      })
+    } catch (error) {
+      // An Agent DSH is closing assembles no more requests; a message delivered to it
+      // goes on without the filter.
+      if (inactiveContext(error)) return
+      throw error
+    }
     held.filtered = true
     if (typeof dispose === 'function') held.disposers.push(dispose)
   }

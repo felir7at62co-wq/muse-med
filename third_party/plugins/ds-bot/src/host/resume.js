@@ -9,12 +9,17 @@
 // is settled from the Session's durable log: an answer that was produced goes to the Bot
 // that waits for it, and an outcome that cannot be read is said to be unknown. The
 // request itself is never sent again there.
+//
+// A subagent run belongs to the process that started it, so a run a waiting work still
+// counts as out after a start never hands back by itself. Each is settled once from its
+// child's log: a closing message it wrote goes to the Bot that waited, and a run the
+// restart cut off is said to be unknown. Its request is never sent again.
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HISTORY_TIMEOUT_MS, MESSAGE_INLINE_MAX, SOURCE_KIND, STEER_CUT } from './constants.js'
-import { answerSender, cutOffText, failureLine, turnFailure } from './turns.js'
+import { answerSender, cutOffText, failureLine, runEndText, turnFailure } from './turns.js'
 import { textOf } from './text.js'
 import { taskModelOf, threadCurrentOfPart } from './threads.js'
 
@@ -27,14 +32,26 @@ export const resumeText = record => [
   'Check what is already done (files, commands, messages) before you repeat anything, then finish the task and give your reply.',
 ].filter(Boolean).join(' ')
 
-// The turns of a Session's durable log, each with the exchanges it took up, what it
-// said and how it ended.
+// What a restart settled of the subagent runs a Bot waited for, as that Bot reads it:
+// a line per run, and what to do before redoing any of it when one was cut off.
+export function cutRunsText(runs) {
+  const lines = runs.map(run => (run.cut
+    ? `A restart cut off ${run.name}; its result is unknown.`
+    : `${run.name} ended before the restart, and its result never reached you:\n${run.said}`))
+  if (runs.some(run => run.cut)) lines.push('Check what is already on disk before you redo any of it.')
+  return lines.join('\n')
+}
+// The result a cut-off run adds to the answer of the work it was for.
+const CUT_RESULT = 'Cut off by a DeepSeek Harness restart; its result is unknown.'
+
+// The turns of a Session's durable log, each with when it started, the exchanges it
+// took up, what it said and how it ended.
 export function turnsOf(events) {
   const turns = []
   let current
   for (const event of events) {
     if (event.type === 'turn/start') {
-      current = { turn: event.data?.turn, took: [], texts: [], reason: undefined }
+      current = { turn: event.data?.turn, since: event.time, took: [], texts: [], reason: undefined }
       turns.push(current)
       continue
     }
@@ -88,6 +105,18 @@ export function turnOf(events, exchangeId) {
 // Whether a Session already holds the answer to an exchange.
 export function answeredIn(events, exchangeId) {
   return events.some(event => event.type === 'user/message' && event.data?.source?.replyTo === exchangeId)
+}
+
+// How a subagent run that started at `at` ended, from its child's log: the closing
+// text it hands back, or undefined when the restart cut it off. A fork's log begins
+// with its parent's turns, and a continued child's with its earlier runs; only turns
+// since the run started are its own.
+export function runEnding(events, at) {
+  const last = turnsOf(events).filter(turn => turn.since === undefined || turn.since >= at).at(-1)
+  const reason = last?.reason
+  if (reason === undefined || reason.kind === 'interrupted' || reason.kind === 'blocked'
+    || (reason.kind === 'aborted' && reason.reason?.kind === 'disposed')) return undefined
+  return runEndText(last.texts.at(-1) ?? '', reason.kind)
 }
 
 // The trigger fields a resumed turn needs to answer the same sender.
@@ -244,10 +273,11 @@ export function install(rt) {
   rt.noteApproval = (sessionId, approval) => update(sessionId, record => (record === undefined ? record
     : approval === undefined ? (({ approval: _, ...rest }) => rest)(record) : { ...record, approval }))
 
-  async function resumeTurn(sessionId, record) {
+  // `notices`: what settleRuns settled, by work; the one for this turn's work goes along
+  // with it and leaves the map.
+  async function resumeTurn(sessionId, record, notices) {
     const bot = rt.botOf(record.botId)
     if (bot === undefined) return
-    const text = resumeText(record)
     if (record.roomId !== undefined) {
       const room = rt.roomOf(record.roomId)
       if (room === undefined || !room.members.includes(bot.id)) return
@@ -255,7 +285,7 @@ export function install(rt) {
       // A turn already picked up once and cut off again stays stopped: a restart loop
       // must not run it forever.
       if (record.resumed) return
-      await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, note: 'picking up after a restart', resumed: true, text, ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}) })
+      await rt.deliver({ toId: bot.id, sessionId: room.sessions?.[bot.id] ?? sessionId, role: 'room', roomId: room.id, note: 'picking up after a restart', resumed: true, text: resumeText(record), ...(record.trigger?.askedBy ? { askedBy: record.trigger.askedBy } : {}) })
       return
     }
     if (record.resumed) return
@@ -267,6 +297,10 @@ export function install(rt) {
     const ownPart = currentTask !== undefined ? { sessionId: currentTask, taskThread: true }
       : rt.selfOf(sessionId) === bot.id && rt.isBotSession(sessionId) ? { sessionId } : {}
     const trigger = record.trigger
+    const workId = rt.workOf(trigger)
+    const notice = workId === undefined || notices?.get(workId)?.botId !== bot.id ? undefined : notices.get(workId)
+    if (notice !== undefined) notices.delete(workId)
+    const text = notice === undefined ? resumeText(record) : `${resumeText(record)}\n${cutRunsText(notice.runs)}`
     if ((trigger?.role === 'request' || trigger?.role === 'stopped') && trigger.senderSessionId && trigger.audience !== 'user' && rt.botOf(trigger.senderSessionId)) {
       // The sender still waits for this turn's answer, so it goes on under the same exchange.
       await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, ...ownPart, ...(trigger.senderPart ? { fromPart: trigger.senderPart } : {}), role: trigger.role, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
@@ -312,13 +346,106 @@ export function install(rt) {
     }
   }
 
-  // A Session's durable log, as DSH keeps it: what happened there, and what it said.
-  // Undefined when this DSH cannot read it, or when the Session is gone.
+  // A Session's durable log, as DSH keeps it: its header and events. Read without
+  // opening the Session, so a subagent's child stays closed. Undefined when this DSH
+  // cannot read it, or when the Session is gone.
   async function logOf(sessionId) {
+    const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     const inspect = ctx.sessionController?.inspect
-    if (typeof inspect !== 'function') return undefined
-    const seen = await inspect(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS)).catch(() => undefined)
-    return Array.isArray(seen?.events) ? seen.events : undefined
+    if (typeof inspect === 'function') {
+      const seen = await inspect(sessionId, signal).catch(() => undefined)
+      return Array.isArray(seen?.events) ? seen : undefined
+    }
+    const query = ctx.get?.('sessionQuery')
+    if (typeof query?.observeSession !== 'function') return undefined
+    let observation
+    try {
+      observation = await query.observeSession(sessionId, { signal, projectionMode: 'none' })
+      return { header: observation.header, events: Array.from(observation.events) }
+    } catch (error) {
+      rt.warn('ds-bot: the log of %s could not be read: %s', sessionId, error)
+      return undefined
+    } finally {
+      observation?.[Symbol.dispose]?.()
+    }
+  }
+  const eventsOf = async sessionId => (await logOf(sessionId))?.events
+
+  // A run whose child is still resident here can still hand back: only DS Bot
+  // reloaded, and DSH went on. So can every run under a Bot Session whose subagent
+  // tree still works, since which run that is cannot be told.
+  const agents = () => ctx.get?.('agents')
+  const childLive = run => agents()?.get?.(run.child) !== undefined
+  function treeLive(sessionId) {
+    const parent = sessionId === undefined ? undefined : agents()?.get?.(sessionId)
+    if (parent === undefined) return false
+    try {
+      return ctx.get?.('subagents')?.hasTreeWork?.(parent) === true
+    } catch (error) {
+      rt.warn('ds-bot: the subagents of %s could not be checked: %s', sessionId, error)
+      return true
+    }
+  }
+  // A run's ending is brought by its settlement notice while that is still in the
+  // inbox of the Session that started the run.
+  const noticeWaits = (run, sessionId) => {
+    const inbox = sessionId === undefined ? undefined : agents()?.get?.(sessionId)?.inbox
+    return [...(inbox?.nextStep ?? []), ...(inbox?.nextTurn ?? [])]
+      .some(message => message?.source?.kind === 'subagent-settled' && message.source.senderSessionId === run.child)
+  }
+
+  // One run a restart left (rt.runsLeft), settled: what it ended with (`said`) and the
+  // result it adds to the work, or `cut`. Undefined when it is left as it is.
+  async function settleRun(run) {
+    if (rt.botOf(run.botId) === undefined) return undefined
+    if (run.result !== undefined) return noticeWaits(run, run.session) ? undefined : { ...run, said: run.result }
+    if (childLive(run)) return undefined
+    const log = await logOf(run.child)
+    const session = run.session ?? log?.header?.parentSession
+    if (treeLive(session) || noticeWaits(run, session)) return undefined
+    const said = log === undefined ? undefined : runEnding(log.events, run.at)
+    return { ...run, ...(session === undefined ? {} : { session }), ...(said === undefined ? { cut: true, text: CUT_RESULT } : { said, text: said }) }
+  }
+
+  // Every run a restart left is settled once, after the start: its wait ends in the
+  // team file, which is saved before anyone is told. Returns, by work, the Bot that
+  // waits and the runs settled for it. Only the host that saves the team settles.
+  async function settleRuns() {
+    const left = rt.runsLeft?.() ?? []
+    const byWork = new Map()
+    if (rt.readOnly() !== undefined) return byWork
+    for (const run of left) {
+      const settled = await settleRun(run).catch((error) => {
+        rt.warn('ds-bot: settling subagent run %s failed: %s', run.id, error)
+        return undefined
+      })
+      if (settled !== undefined) byWork.set(run.parentId, [...(byWork.get(run.parentId) ?? []), settled])
+    }
+    const notices = new Map()
+    for (const [workId, runs] of byWork) {
+      const done = rt.closeRuns(workId, runs)
+      if (done.length > 0) notices.set(workId, { botId: done[0].botId, session: done.find(run => run.session !== undefined)?.session, runs: done })
+    }
+    if (notices.size > 0) await rt.save().catch(error => rt.warn('ds-bot: saving the settled subagent runs failed: %s', error))
+    return notices
+  }
+
+  // The Bot that waited hears what was settled, in the part that started the runs (or
+  // its chat), under the work they were for: once it goes on, its answer goes up as
+  // it would have.
+  async function tellRuns(notices) {
+    for (const [workId, notice] of notices) {
+      const bot = rt.botOf(notice.botId)
+      if (bot === undefined) continue
+      const sessionId = (notice.session === undefined ? undefined : threadCurrentOfPart(bot, notice.session)) ?? rt.chatOf(bot.id)
+      await rt.deliver({ fromName: 'DeepSeek Harness', toId: bot.id, sessionId, text: cutRunsText(notice.runs), role: 'reply', work: workId, restarted: true, recordExchange: false })
+        .catch(error => rt.warn('ds-bot: telling %s what a restart settled failed: %s', bot.name, error))
+    }
+  }
+
+  async function settleAfterStart() {
+    await rt.load()
+    await tellRuns(await settleRuns())
   }
 
   // A turn that ended while DS Bot was not watching it: its answer may exist and never
@@ -339,7 +466,7 @@ export function install(rt) {
       update(sessionId, () => record)
       return
     }
-    const events = await logOf(sessionId)
+    const events = await eventsOf(sessionId)
     if (events === undefined) {
       // The record of that work cannot be read: whether it answered cannot be
       // established. The sender is told that, and the work is not run again.
@@ -368,7 +495,7 @@ export function install(rt) {
     // The answer would have gone to the part of the asking Bot's chat the request came
     // from, which is not its foreground chat when that part is a background one.
     const where = back ?? (asker.senderPart === undefined ? undefined : threadCurrentOfPart(rt.botOf(sender), asker.senderPart)) ?? rt.chatOf(sender)
-    const sent = await logOf(where)
+    const sent = await eventsOf(where)
     if (sent !== undefined && answeredIn(sent, workId)) {
       rt.closeWork?.(workId, name, rt.answerText(workId, said, name))
       return
@@ -429,7 +556,11 @@ export function install(rt) {
 
   async function resumeAll() {
     await rt.load()
-    if (rt.readOnly() !== undefined) return
+    if (rt.readOnly() !== undefined) {
+      // Settles nothing on a reading host, but ends its record of the runs it started.
+      await settleRuns()
+      return
+    }
     const { turns: noted, queued: dropped } = interrupted
     interrupted = { turns: {}, queued: {} }
     // What the last run still had on the way is noted again first, under the
@@ -462,29 +593,40 @@ export function install(rt) {
       else cut.push([sessionId, record])
     }
     firstTurn = undefined
+    // A Bot whose own turn is picked up hears what was settled for that turn's work
+    // with it, in one message; any other waiting Bot hears it on its own.
+    const notices = await settleRuns().catch((error) => {
+      rt.warn('ds-bot: settling subagent runs failed: %s', error)
+      return new Map()
+    })
     for (const [sessionId, list] of Object.entries(dropped)) {
       if (!Array.isArray(list)) continue
       await resendQueued(sessionId, list).catch(error => rt.warn('ds-bot: sending again what %s was sent failed: %s', sessionId, error))
     }
     taken = undefined
     for (const [sessionId, record] of cut) {
-      await resumeTurn(sessionId, record).catch(error => rt.warn('ds-bot: picking up the turn of %s failed: %s', sessionId, error))
+      await resumeTurn(sessionId, record, notices).catch(error => rt.warn('ds-bot: picking up the turn of %s failed: %s', sessionId, error))
     }
+    await tellRuns(notices)
     // What a group's members were asked for and will not pick up is settled now.
     await rt.settleRoomBatches?.()
   }
 
   ctx.effect(() => {
     const pending = Object.keys(interrupted.turns).length > 0 || Object.keys(interrupted.queued).length > 0
-    // With nothing to pick up, the group batches a restart left are settled at once.
-    const timer = pending
-      ? setTimeout(() => void resumeAll().catch(error => rt.warn('ds-bot: picking up interrupted work failed: %s', error)), RESUME_DELAY_MS)
-      : setTimeout(() => void rt.load().then(() => rt.settleRoomBatches?.()).catch(error => rt.warn('ds-bot: settling group batches failed: %s', error)), 0)
-    timer?.unref?.()
+    // With nothing to pick up, the group batches a restart left are settled at once,
+    // and the subagent runs once DSH has opened its workspaces.
+    const timers = pending
+      ? [setTimeout(() => void resumeAll().catch(error => rt.warn('ds-bot: picking up interrupted work failed: %s', error)), RESUME_DELAY_MS)]
+      : [
+        setTimeout(() => void rt.load().then(() => rt.settleRoomBatches?.()).catch(error => rt.warn('ds-bot: settling group batches failed: %s', error)), 0),
+        setTimeout(() => void settleAfterStart().catch(error => rt.warn('ds-bot: settling subagent runs failed: %s', error)), RESUME_DELAY_MS),
+      ]
+    for (const timer of timers) timer?.unref?.()
     // What the turns stopped by this shutdown left stays as last noted.
     return () => {
       stopped = true
-      clearTimeout(timer)
+      for (const timer of timers) clearTimeout(timer)
       return writing
     }
   }, 'ds-bot: resume interrupted turns')

@@ -139,12 +139,11 @@ const SUBAGENT_TOOLS = new Set(['subagent', 'subagent_fork'])
 // A settled child's closing text, or why it ended without one. A child that did
 // not finish says so: output it left behind can be partial, so the reason it
 // ended is part of its result.
-const subEndText = (data) => {
-  const text = textOf(data?.lastAssistantMessage)
-  const reason = typeof data?.stopReason === 'string' ? data.stopReason : ''
+export const runEndText = (text, reason = '') => {
   if (text === '') return `subagent ended${reason === '' ? '' : ` (${reason})`} without a closing message.`
   return reason === '' || reason === 'completed' ? text : `subagent ended (${reason}) before it finished. What it had written:\n${text}`
 }
+const subEndText = data => runEndText(textOf(data?.lastAssistantMessage), typeof data?.stopReason === 'string' ? data.stopReason : '')
 
 // A settlement notice is all a plugin loaded again has of an ending (#973): its
 // runtime-owned summary names how the child stopped without carrying raw output into
@@ -1354,7 +1353,7 @@ export function install(rt) {
     const work = rt.workOf?.(entry?.info)
     const self = id === undefined ? undefined : rt.selfOf(id)
     if (work === undefined || self === undefined || !rt.chatOwners.has(id) || typeof info?.id !== 'string' || typeof info?.runId !== 'string' || !rt.ownsWork?.(self, work)) return
-    rt.openWork?.(info.runId, { from: self, parent: work, name: 'subagent', child: info.id })
+    rt.openWork?.(info.runId, { from: self, parent: work, name: 'subagent', child: info.id, session: id })
   })
   // A settled run closes its sub-work: its closing text joins the results of
   // the work it hung under.

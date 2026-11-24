@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { encodeUrlComponent } from './secrets.js'
+import { inactiveContext } from './services.js'
 import { own } from './store.js'
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
@@ -432,20 +433,28 @@ export function install(rt) {
       rt.warn('ds-bot: capability Agent for %s could not be resolved: %s', sessionId, rt.redactSecrets(String(error)))
       return
     }
-    trackAgent(agent)
-    await prepare(agent, sessionId)
+    if (trackAgent(agent)) await prepare(agent, sessionId)
   }
+  // Returns false only for an Agent DSH is already closing: it gets no mounts, and the
+  // message being delivered to it goes on without them.
   const trackAgent = agent => {
     const sessionId = agent?.session?.id
-    if (typeof sessionId !== 'string' || !agent.ctx) return
-    if (agents.get(sessionId)?.deref() === agent) return
+    if (typeof sessionId !== 'string' || !agent.ctx) return true
+    if (agents.get(sessionId)?.deref() === agent) return true
+    try {
+      agent.ctx.effect(() => () => {
+        if (agents.get(sessionId)?.deref() === agent) agents.delete(sessionId)
+        clearSession(sessionId)
+        for (const mount of mounts.get(agent)?.values() ?? []) void disposeMount(mount)
+        mounts.delete(agent)
+      }, `ds-bot: capabilities ${sessionId}`)
+    } catch (error) {
+      if (!inactiveContext(error)) throw error
+      rt.warn('ds-bot: capabilities not mounted for %s: its Agent is closing', sessionId)
+      return false
+    }
     agents.set(sessionId, new WeakRef(agent))
-    agent.ctx.effect(() => () => {
-      if (agents.get(sessionId)?.deref() === agent) agents.delete(sessionId)
-      clearSession(sessionId)
-      for (const mount of mounts.get(agent)?.values() ?? []) void disposeMount(mount)
-      mounts.delete(agent)
-    }, `ds-bot: capabilities ${sessionId}`)
+    return true
   }
   const trackBotAgents = async bot => {
     const sessionIds = new Set()
@@ -504,7 +513,7 @@ export function install(rt) {
   // Creation waits for these listeners, so a new Agent's first request already has its
   // tools and skill catalog. agent/pre-step is too late: a step assembles its tools first.
   ctx.on('agent/created', async function prepareCapabilities({ agent }) {
-    trackAgent(agent)
+    if (!trackAgent(agent)) return
     try {
       await rt.load()
       const bot = botOfSession(agent.session.id)

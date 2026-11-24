@@ -32,6 +32,9 @@ export function install(rt) {
   const whole = new Map()
   const save = () => void rt.save().catch(() => {})
   const nameOf = id => rt.botOf(id)?.name
+  // The subagent runs this host started, until runsLeft has looked for the ones a
+  // restart left: these hand back through their own notice.
+  let startedHere = new Set()
 
   // The whole result of a work, in a file of its own: state.json is written whole on
   // every save, so it keeps only the start of a long result, and a restart would cut
@@ -107,12 +110,14 @@ export function install(rt) {
   // `parent`: the work the sender was doing when it sent this one. `child`: the
   // session id of the subagent a run of this work belongs to — the run, not the
   // child, is the sub-work, so a child that is continued hands up a result per run.
-  // `fromPart`: the part of the sender's own chat it wrote from, which its answer goes
-  // back to when that is a background part.
-  function openWork(id, { from, to, parent, fromRoom, room, name, child, fromPart }) {
+  // `session`: the Bot Session that started that run. `fromPart`: the part of the
+  // sender's own chat it wrote from, which its answer goes back to when that is a
+  // background part.
+  function openWork(id, { from, to, parent, fromRoom, room, name, child, session, fromPart }) {
     const above = parent === undefined ? undefined : works()[parent]
-    works()[id] = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(room ? { room } : {}), ...(above ? { parent } : {}), ...(fromRoom ? { fromRoom } : {}), ...(fromPart ? { fromPart } : {}), ...(name ? { name } : {}), ...(child ? { child } : {}), open: [], results: [], at: Date.now() }
+    works()[id] = { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(room ? { room } : {}), ...(above ? { parent } : {}), ...(fromRoom ? { fromRoom } : {}), ...(fromPart ? { fromPart } : {}), ...(name ? { name } : {}), ...(child ? { child } : {}), ...(session ? { session } : {}), open: [], results: [], at: Date.now() }
     if (above !== undefined) above.open.push(id)
+    if (child) startedHere?.add(id)
     save()
   }
 
@@ -128,7 +133,7 @@ export function install(rt) {
     if (above !== undefined) {
       // The whole result goes into a file of its own before the team file names it.
       const file = keepResult(id, text)
-      above.results.push({ id, name, text: headOf(text, TEXT_KEPT), ...(work.child ? { child: work.child } : {}), ...(text.length > TEXT_KEPT ? { length: text.length } : {}), ...(file ? { file } : {}), at: Date.now(), ...extra })
+      above.results.push({ id, name, text: headOf(text, TEXT_KEPT), ...(work.child ? { child: work.child } : {}), ...(work.session ? { session: work.session } : {}), ...(text.length > TEXT_KEPT ? { length: text.length } : {}), ...(file ? { file } : {}), at: Date.now(), ...extra })
       whole.set(id, text)
     }
     for (const result of work.results ?? []) whole.delete(result.id)
@@ -182,6 +187,44 @@ export function install(rt) {
       fromName: late.name ?? 'the subagent', toId: waiting, text: LATE_ANSWER + text, role: 'reply',
       exchangeId: randomUUID(), recordExchange: false,
     }).catch(error => rt.warn('ds-bot: the late result of %s did not reach %s: %s', late.name ?? 'a subagent', waiting, error))
+  }
+  // The subagent runs a restart left that waiting works still count as out, for the
+  // settlement after a start (resume.js), which calls this once: a run that never
+  // handed back, or one whose result came back (`result`, its text) but was never
+  // read, since the notice that brings it is not kept over a restart.
+  function runsLeft() {
+    const here = startedHere
+    startedHere = undefined
+    const out = []
+    for (const [parentId, parent] of Object.entries(works())) {
+      if (parent.to === undefined) continue
+      for (const id of parent.open) {
+        const work = works()[id]
+        const result = work === undefined ? parent.results?.find(item => item.id === id) : undefined
+        const run = work ?? result
+        if (run?.child === undefined || here?.has(id)) continue
+        out.push({ id, parentId, botId: parent.to, child: run.child, name: run.name ?? 'subagent', at: run.at ?? 0, ...(run.session ? { session: run.session } : {}), ...(result ? { result: resultText(result).text } : {}) })
+      }
+    }
+    return out
+  }
+  // Ends the wait for runs of work `parentId` (items of runsLeft): a run still out
+  // closes with its `text` as its result, and each leaves the work's open list now. A
+  // run that settled, or a result that was read, since runsLeft is left as it is.
+  // Returns the items settled here.
+  function closeRuns(parentId, items) {
+    const parent = works()[parentId]
+    if (parent === undefined) return []
+    const done = []
+    for (const item of items) {
+      const stillOut = works()[item.id] !== undefined
+      if (!parent.open.includes(item.id) || stillOut !== (item.result === undefined)) continue
+      if (stillOut) closeWork(item.id, item.name, item.text)
+      parent.open = parent.open.filter(other => other !== item.id)
+      done.push(item)
+    }
+    if (done.length > 0) save()
+    return done
   }
   // A fast child can settle before its tool result identifies the call that made it.
   const nameSubWork = (id, name) => {
@@ -365,9 +408,8 @@ export function install(rt) {
 
   // A restart settles the waits whose target no longer exists, with the same path as a
   // user giving up: a deleted Bot or a deleted group. Those are the targets the team
-  // file states for certain. A subagent run is left to the menu: whether its Session
-  // still exists cannot be told apart from a DSH that cannot read Sessions, and a
-  // running child must not be given up on a guess.
+  // file states for certain. A subagent run is settled from its child's log instead
+  // (resume.js).
   function reconcileLostWorks() {
     if (rt.readOnly?.() !== undefined) return
     for (const [id, work] of Object.entries(works())) {
@@ -450,5 +492,5 @@ export function install(rt) {
     return lines.join('; ')
   }
 
-  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, lateWork, answerMissed, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView, settleSubWork, subWorkRun, nameSubWork, abandonWork, abandonedWork: takeAbandoned })
+  Object.assign(rt, { workOf, openWork, closeWork, dropWork, takenWork: taken, lateWork, answerMissed, ownsWork: owns, waitsWork: waits, holdWork: hold, workAsker: askedBy, answerText, upstreamOf, sameWork, forgetBotWork: forgetBot, statusOf, waitingView, settleSubWork, subWorkRun, nameSubWork, runsLeft, closeRuns, abandonWork, abandonedWork: takeAbandoned })
 }

@@ -13,3 +13,7 @@ export function serviceOf(ctx, name) {
     return undefined
   }
 }
+
+// Whether `error` is Cordis refusing a registration on a disposed context: an Agent
+// that DSH is closing (a shutdown, a restart, a part switch) takes no new effects.
+export const inactiveContext = error => error?.code === 'INACTIVE_EFFECT' || /inactive context/.test(String(error?.message ?? error))
