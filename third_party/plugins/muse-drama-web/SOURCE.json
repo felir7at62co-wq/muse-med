@@ -1,0 +1,14 @@
+{
+    "hostVersion":  "0.2.1-alpha.1",
+    "commit":  "79cbecf0cdb79f9dca8a56a808ad2a8e451d7e00",
+    "referenceApp":  {
+                         "included":  false
+                     },
+    "primitives":  [
+
+                   ],
+    "files":  [
+
+              ],
+    "localEdits":  "Muse-owned plugin: UTF-8 text uses LF, no trailing spaces and one final newline; no upstream source is vendored, so files[] stays empty"
+}
