@@ -48,6 +48,14 @@ const REPLACED = [
   '突出实际产物与下一步，避免重复堆砌。',
   // Only the section heading is dropped; the sentence after it opens muse-video-production.
   '##短剧制作：镜头、人物与节奏以下规则用于将剧本制作为视频，不把视频转写或小说改剧本的来源正文强行改成分镜。',
+  // muse-episode-delivery restates the render and subtitle rules for the episode_subtitles → jianying_draft flow;
+  // drama_render takes the SRT episode_subtitles writes, so the older subtitles → prepare → render wording is not kept.
+  compact('短剧需要直出成片时，本地合成采用已确认的镜流媒体和实际时间线，按当前工具 schema 优先使用 drama_render 的 subtitles → prepare → render，而不是沿用历史会话的手写 ASS、FFmpeg 命令或旧脚本；已有同源校订 SRT 可直接复用，不为格式重复转写或覆盖原稿；同一时间线和 prepare 返回的实际字幕候选供成片及可编辑草稿复用，存在源画面字幕覆盖计划时使用对应 resolved SRT 与报告。'),
+  compact('Muse 短剧产品对竖版新输出统一正文字幕视觉，旧项目和时间线字幕样式不覆盖该配置；横版及方形沿用现有布局规则。'),
+  compact('剪映草稿保留可编辑性，用户可在剪映调整。'),
+  compact('查看 render_preview 和实际画面核对字体、大小、位置、单行、标点及片尾，不能把旧命令或 SRT 文本当作继承样式的证据。'),
+  compact('长句根据同源词级时间与字形宽度处理，无可靠切点不猜时间。'),
+  compact('只需草稿时不额外编码整集；工具确有能力缺口时说明并核验替代产物。'),
 ]
 
 it('carries every sentence of the resident short-drama prompt into the lean persona or one of its skills', async () => {
