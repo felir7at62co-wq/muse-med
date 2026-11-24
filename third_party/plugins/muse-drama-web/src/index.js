@@ -28,7 +28,7 @@ export function apply(ctx, config = {}) {
     name: 'drama_web_login',
     description: '用剧壳账号换一个 Bearer token（POST /auth/login，form-urlencoded）。账号密码只从宿主环境变量读取（DRAMA_WEB_USERNAME / DRAMA_WEB_PASSWORD），不接受模型传参，返回里不回显 token。token 只留在本进程内存，进程结束即失效。若已配置 DRAMA_WEB_TOKEN 则无需调用本工具。返回 must_change_password 为真时必须先到网页端改密，否则后续接口继续 401。',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
-    output: output({ token_present: { type: 'boolean' }, must_change_password: { type: 'boolean' }, expires_at: { type: ['string', 'null'] } }),
+    output: output({ token_present: { type: 'boolean' }, must_change_password: { type: 'boolean' }, expires_at: { type: 'string' } }),
     timeoutMs: 35_000,
     execute: async (_args, exec) => {
       const username = process.env[client.config.usernameEnv] ?? ''

@@ -123,6 +123,28 @@ test('subtitle erase refuses an incomplete region before any request', async () 
   }
 })
 
+test('every declared schema uses single-type fields', () => {
+  const { ctx, tools } = fakeContext('C:/work')
+  apply(ctx, { baseUrl: 'http://127.0.0.1:9/api/v1', tokenEnv: 'TEST_DRAMA_TOKEN' })
+  const walk = (node, trail) => {
+    if (!node || typeof node !== 'object') return
+    if ('type' in node) {
+      assert.equal(typeof node.type, 'string', `${trail}.type must be a single type string, got ${JSON.stringify(node.type)}`)
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'properties') {
+        for (const [name, child] of Object.entries(value ?? {})) walk(child, `${trail}.properties.${name}`)
+      }
+      else if (key === 'items') walk(value, `${trail}.items`)
+      else if (key === 'additionalProperties' && value && typeof value === 'object') walk(value, `${trail}.additionalProperties`)
+    }
+  }
+  for (const tool of tools.values()) {
+    walk(tool.parameters, `${tool.name}.parameters`)
+    walk(tool.output?.schema, `${tool.name}.output.schema`)
+  }
+})
+
 test('link tool needs no network and points at the drama page', async () => {
   const { ctx, tools } = fakeContext('C:/work')
   apply(ctx, { baseUrl: 'http://drama-web.jubianai.net/api/v1' })
