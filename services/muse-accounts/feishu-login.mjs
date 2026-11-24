@@ -3,7 +3,6 @@ import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {open} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {isAbsolute} from 'node:path';
-import {FEISHU_ORGANIZATION_SCOPES,readFeishuOrganization} from './feishu-organization.mjs';
 
 const AUTHORIZATION_URL='https://accounts.feishu.cn/open-apis/authen/v1/authorize';
 const TOKEN_URLS=Object.freeze({v3:'https://accounts.feishu.cn/oauth/v3/token',v2:'https://open.feishu.cn/open-apis/authen/v2/oauth/token'});
@@ -15,7 +14,7 @@ const validToken=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{43}$/.test(valu
 const identifier=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,256}$/.test(value);
 const text=(value,max)=>typeof value==='string'&&value.length>0&&value.length<=max&&!/[\x00-\x1f\x7f]/.test(value);
 const attribute=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const pageHeaders={'content-type':'text/html; charset=utf-8','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"};
+const pageHeaders={'content-type':'text/html; charset=utf-8','referrer-policy':'no-referrer','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"};
 const failureMetadata=new WeakMap();
 
 function operationFailure(reason,{httpStatus,providerCode}={}){
@@ -43,7 +42,7 @@ function reportFailure(diagnostic){console.warn('[muse-feishu-login] verificatio
 function resolveConfig(value,publicOrigin,environment='production'){
  if(!['development','production'].includes(environment))throw Error('Invalid Feishu login environment');
  if(!value||typeof value!=='object'||Array.isArray(value)
-  ||Object.keys(value).some(key=>!['appId','appSecret','appType','redirectUri','tokenEndpointVersion','requestTimeoutMs','attemptTtlMs','maxAttempts','requestRatePerMinute','organizationSync'].includes(key))
+  ||Object.keys(value).some(key=>!['appId','appSecret','appType','redirectUri','tokenEndpointVersion','requestTimeoutMs','attemptTtlMs','maxAttempts','requestRatePerMinute'].includes(key))
   ||!/^cli_[A-Za-z0-9_-]{1,128}$/.test(value.appId)||!text(value.appSecret,4096)||value.appSecret.length<16||!['custom','store'].includes(value.appType))throw Error('Invalid Feishu login configuration');
  let origin,redirect;
  try{origin=new URL(publicOrigin);redirect=new URL(value.redirectUri);}catch{throw Error('Invalid Feishu login callback');}
@@ -51,7 +50,6 @@ function resolveConfig(value,publicOrigin,environment='production'){
  if(origin.protocol!=='https:'&&!localDevelopment||origin.username||origin.password||redirect.href!==origin.origin+CALLBACK_PATH)throw Error('Feishu login requires the exact HTTPS callback, or a development loopback callback');
  const config={...value,tokenEndpointVersion:value.tokenEndpointVersion===undefined?'v3':value.tokenEndpointVersion,requestTimeoutMs:value.requestTimeoutMs??15000,attemptTtlMs:value.attemptTtlMs??300000,maxAttempts:value.maxAttempts??1000,requestRatePerMinute:value.requestRatePerMinute??60};
  if(!['v3','v2'].includes(config.tokenEndpointVersion))throw Error('Invalid Feishu token endpoint version');
- if(config.organizationSync!==undefined&&typeof config.organizationSync!=='boolean')throw Error('Invalid Feishu organization sync policy');
  if(!Number.isSafeInteger(config.requestTimeoutMs)||config.requestTimeoutMs<1000||config.requestTimeoutMs>60000
   ||!Number.isSafeInteger(config.attemptTtlMs)||config.attemptTtlMs<60000||config.attemptTtlMs>600000
   ||!Number.isSafeInteger(config.maxAttempts)||config.maxAttempts<1||config.maxAttempts>10000
@@ -139,7 +137,7 @@ export function createFeishuLogin({config,publicOrigin,environment='production',
   if(!bindCurrent(a)){failure(res,403,'原 Muse 登录已失效，请重新登录后绑定飞书。');return;}
   const controller=new AbortController(),abort=()=>controller.abort();controllers.add(controller);
   req.once('aborted',abort);res.once('close',abort);
-  let signal=AbortSignal.any([controller.signal,AbortSignal.timeout(config.requestTimeoutMs)]);
+  const signal=AbortSignal.any([controller.signal,AbortSignal.timeout(config.requestTimeoutMs)]);
   let credential,stage='token_exchange';const startedAt=performance.now();
   try{
    const tokenResponse=await fetchImpl(tokenUrl,{method:'POST',redirect:'error',signal,headers:{'content-type':'application/json; charset=utf-8'},body:JSON.stringify({grant_type:'authorization_code',client_id:config.appId,client_secret:config.appSecret,redirect_uri:config.redirectUri,code,code_verifier:a.verifier})});
@@ -151,12 +149,6 @@ export function createFeishuLogin({config,publicOrigin,environment='production',
    signal.throwIfAborted();if(closed||!bindCurrent(a))throw Object.assign(Error('Account revision changed'),{code:'ACCOUNT_REVISION_CHANGED'});
    stage='profile_validate';
    const profile=profileOf(userResult.data,config.appId);
-   if(config.organizationSync===true){
-    profile.organization=await readFeishuOrganization({accessToken:tokenResult.access_token,openId:profile.openId,
-     signal:AbortSignal.any([controller.signal,AbortSignal.timeout(config.requestTimeoutMs)]),fetchImpl,now});
-    signal=AbortSignal.any([controller.signal,AbortSignal.timeout(config.requestTimeoutMs)]);
-   }else profile.organization={status:'permission-required',syncedAt:new Date(now()).toISOString(),departments:[]};
-   signal.throwIfAborted();if(closed||!bindCurrent(a))throw Object.assign(Error('Account revision changed'),{code:'ACCOUNT_REVISION_CHANGED'});
    stage='identity_store';
    const account=await store.resolveFeishuIdentity(profile,a.bindAccountId===undefined?{}:{bindAccountId:a.bindAccountId,bindRevision:a.bindRevision,validateBinding:()=>!signal.aborted&&!closed&&bindCurrent(a)});
    signal.throwIfAborted();if(closed||!bindCurrent(a)||account.disabled||!allowAccount(account)||store.get(account.id)?.revision!==account.revision)throw Object.assign(Error('Account unavailable'),{code:'ACCOUNT_DISABLED'});
@@ -210,7 +202,6 @@ export function createFeishuLogin({config,publicOrigin,environment='production',
   const state=token(),nonce=token(),verifier=token();
   attempts.set(state,{nonceHash:digest(nonce),verifier,expiresAt:now()+config.attemptTtlMs,desktopLogin:fields.get('desktop_login'),...consent?{desktopConsent:consent}:{},...browser?{bindAccountId:browser.id,bindRevision:browser.account.revision,browserToken:browser.token}:{}});
   const authorize=new URL(AUTHORIZATION_URL);
-  if(config.organizationSync===true)authorize.searchParams.set('scope',FEISHU_ORGANIZATION_SCOPES);
   for(const[key,value]of Object.entries({client_id:config.appId,response_type:'code',redirect_uri:config.redirectUri,state,code_challenge:digest(verifier).toString('base64url'),code_challenge_method:'S256',...browser?{prompt:'consent'}:{}}))authorize.searchParams.set(key,value);
   reply(res,303,'',{location:authorize.href,'set-cookie':`${nonceCookie}=${nonce}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${Math.ceil(config.attemptTtlMs/1000)}`});return true;
  }

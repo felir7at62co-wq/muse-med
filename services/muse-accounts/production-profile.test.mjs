@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {once} from 'node:events';
+import {openStore} from './store.mjs';
+import {createAccountServer} from './gateway.mjs';
+
+test('production profile and administrator groups preserve ownership and durable assignments',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'muse-profile-production-'));
+ t.after(()=>rm(root,{recursive:true,force:true}));
+ const file=join(root,'accounts.json'),store=await openStore(file);
+ const writer=await store.create('fixture-writer','fixture-pass'),admin=await store.create('fixture-admin','fixture-pass',{admin:true});
+ const origin='https://muse.test',server=createAccountServer({store,workspaceMode:'desktop',publicOrigin:origin});
+ t.after(async()=>{server.closeAllConnections();await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));});
+ server.listen(0,'127.0.0.1');await once(server,'listening');const base='http://127.0.0.1:'+server.address().port;
+ const login=async username=>{const response=await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username,password:'fixture-pass'}),redirect:'manual'});assert.equal(response.status,303);return response.headers.get('set-cookie').split(';')[0];};
+ const ownerCookie=await login(writer.username),adminCookie=await login(admin.username);
+ const get=(path,cookie)=>fetch(base+path,{headers:{cookie},redirect:'manual'});
+ const assign=(cookie,extraOrigin=origin,groupName='测试组')=>fetch(base+'/admin/groups',{method:'POST',headers:{cookie,origin:extraOrigin},body:new URLSearchParams({id:writer.id,groupName,groupDescription:'测试说明'}),redirect:'manual'});
+ assert.deepEqual((await(await get('/api/muse/profile',ownerCookie)).json()).groups,[]);
+ assert.equal((await assign(ownerCookie)).status,403);
+ assert.equal((await assign(adminCookie,'https://other.test')).status,403);
+ assert.equal((await assign(adminCookie,origin,'a'.repeat(81))).status,400);
+ const form=await get('/admin/groups?id='+writer.id,adminCookie);assert.equal(form.status,200);assert.match(await form.text(),/name="groupName"/);
+ assert.equal((await assign(adminCookie)).status,303);
+ const response=await get('/api/muse/profile',ownerCookie),profile=await response.json();
+ assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+ assert.equal(profile.account.id,writer.id);assert.equal(profile.groups[0].name,'测试组');
+ assert.equal(profile.organization.status,'unavailable');
+ assert.deepEqual((await openStore(file)).get(writer.id).groups,profile.groups);
+ assert.equal(store.get(writer.id).revision,writer.revision);
+ assert.equal((await get('/api/muse/profile?accountId='+admin.id,ownerCookie)).status,400);
+ assert.doesNotMatch(JSON.stringify(profile),new RegExp(admin.id+'|fixture-admin|salt|hash|password'));
+});

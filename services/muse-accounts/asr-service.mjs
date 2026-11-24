@@ -8,11 +8,13 @@ import {pipeline} from 'node:stream/promises';
 import {Transform} from 'node:stream';
 import {setTimeout as delay} from 'node:timers/promises';
 import {resolveAsrResources,resourceForJob} from './asr-resources.mjs';
-import {AsrProviderError,isTerminalAsrQueryCode} from './asr-provider.mjs';
+import {AsrProviderError} from './asr-provider.mjs';
 
 function fail(status,message,code,retryAfter){return Object.assign(Error(message),{status,...code?{code}:{},...retryAfter?{retryAfter}:{}});}
 const validKey=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 const digest=value=>createHash('sha256').update(value).digest('hex');
+/** Symbol key of the service method that copies its in-memory receipt index; it is absent from JSON and Object.keys(). */
+export const asrReceiptIndex=Symbol('MUSE ASR receipt index');
 
 /** Resolve and validate private gateway configuration before creating workers or storage clients. */
 export function resolveAsrConfig(input){
@@ -67,9 +69,14 @@ export function createAsrService(options){
  if(!Number.isSafeInteger(queryBackoffMaxMs)||queryBackoffMaxMs<pollIntervalMs||queryBackoffMaxMs>86400000||!Number.isSafeInteger(queryBlockedRetryMs)||queryBlockedRetryMs<queryBackoffMaxMs||queryBlockedRetryMs>86400000)throw Error('Invalid ASR query retry configuration');
  if(pool.resources.every(row=>row.serviceVersion==='flash')&&(maxDurationSeconds>7200||maxAudioBytes>100_000_000))throw Error('Invalid ASR provider configuration');
  const jobs=join(root,'jobs'),audio=join(root,'audio'),active=new Map(),waiting=[],workers=new Map(),sweeps=new Set(),expiring=new Map();
- const accountTails=new Map(),fileTails=new Map(),rateTails=new Map(),nextRequestAt=new Map(),queryGroupCooldownUntil=new Map(),queryAppCooldownUntil=new Map(),shutdown=new AbortController(),ledger=new Map();let reservationTail=Promise.resolve(),lastAccount,started=autoStart,ledgerReady=false;
+ const accountTails=new Map(),fileTails=new Map(),rateTails=new Map(),nextRequestAt=new Map(),queryGroupCooldownUntil=new Map(),queryAppCooldownUntil=new Map(),shutdown=new AbortController();let reservationTail=Promise.resolve(),lastAccount,started=autoStart;
  const queueFullSinceStart=new Map(['occupied_total','waiting_capacity'].map(category=>[category,{category,count:0,lastSeenAt:null}])),startedAt=now();
  let workerFailure,closing=false;
+ // Receipt path -> frozen copy of the fields admission, dispatch, resource checks and expiry read; replaced only after a durable write,
+ // and dropped when a read finds the receipt file gone.
+ const receiptIndex=new Map(),indexStrings=new Map(),indexFields=['id','account','status','day','duration','purpose','providerKind','serviceVersion','poolId','appId','quotaGroup','resourceId','reservedAtMs','objectStagedAt','submittedAtMs','cleanupPending','retentionExpired'];
+ const unsettledStatuses=['queued','preparing','submitting','processing','uncertain'],terminalStatuses=['complete','silent','failed'];
+ const longestRollingWindowMs=Math.max(0,...[...groups.values()].map(group=>group.rollingAudioWindowSeconds??0))*1000;
  const jobKey=job=>job.account+'\0'+job.id;
  const busy=key=>workers.has(key)||waiting.some(job=>jobKey(job)===key);
 
@@ -104,21 +111,39 @@ export function createAsrService(options){
   const prior=fileTails.get(target)??Promise.resolve(),pending=prior.then(operation),tail=pending.then(()=>{},()=>{});fileTails.set(target,tail);
   try{return await pending;}finally{if(fileTails.get(target)===tail)fileTails.delete(target);}
  }
- function ledgerRow(job){
-  const {account,id,day,duration,status,poolId,appId,quotaGroup,serviceVersion,resourceId,providerKind,purpose,submittedAtMs,reservedAtMs,objectStagedAt,cleanupPending,retentionExpired}=job;
-  return {account,id,day,duration,status,poolId,appId,quotaGroup,serviceVersion,resourceId,providerKind,purpose,submittedAtMs,reservedAtMs,objectStagedAt,cleanupPending,retentionExpired};
- }
- async function readTarget(target){return await fileOperation(target,async()=>{try{const job=JSON.parse(await readFile(target,'utf8'));if(ledgerReady){if(job)ledger.set(target,ledgerRow(job));else ledger.delete(target);}return job;}catch(error){if(error.code==='ENOENT'){if(ledgerReady)ledger.delete(target);return null;}throw error;}});}
+ async function readTarget(target){return await fileOperation(target,async()=>{try{return JSON.parse(await readFile(target,'utf8'));}catch(error){if(error.code==='ENOENT'){receiptIndex.delete(target);return null;}throw error;}});}
  async function read(account,key){return await readTarget(path(account,key));}
- async function save(account,key,job){const target=path(account,key),body=JSON.stringify(job)+'\n';await fileOperation(target,async()=>{const staged=target+'.'+randomUUID()+'.tmp';try{await writeFile(staged,body,{mode:0o600});await rename(staged,target);if(ledgerReady)ledger.set(target,ledgerRow(JSON.parse(body)));}finally{await rm(staged,{force:true});}});}
- async function scanEntries(){const result=[];for(const name of await readdir(jobs)){if(name.endsWith('.json')){const target=join(jobs,name),job=await readTarget(target);if(job)result.push({target,job});}}return result;}
- // Rows are replaced after a durable write; consumers may only change the returned array.
- function entries(){return [...ledger.values()];}
+ /** Copy the indexed fields through JSON, so a row equals what rereading the written receipt would return; repeated strings share one copy. */
+ function indexRow(job){
+  const row={};for(const field of indexFields)if(job[field]!==undefined)row[field]=job[field];
+  const copy=JSON.parse(JSON.stringify(row));
+  for(const field of indexFields)if(field!=='id'&&typeof copy[field]==='string'){const shared=indexStrings.get(copy[field]);if(shared===undefined)indexStrings.set(copy[field],copy[field]);else copy[field]=shared;}
+  return Object.freeze(copy);
+ }
+ async function save(account,key,job){const target=path(account,key),body=JSON.stringify(job)+'\n',row=indexRow(job);await fileOperation(target,async()=>{const staged=target+'.'+randomUUID()+'.tmp';try{await writeFile(staged,body,{mode:0o600});await rename(staged,target);receiptIndex.set(target,row);}finally{await rm(staged,{force:true});}});}
+ /** Visit receipts in directory order; reads run 64 at a time, so startup never holds every parsed receipt. */
+ async function scanReceipts(visit){
+  const targets=(await readdir(jobs)).filter(name=>name.endsWith('.json')).map(name=>join(jobs,name));
+  for(let offset=0;offset<targets.length;offset+=64){
+   const batch=targets.slice(offset,offset+64),results=await Promise.allSettled(batch.map(readTarget));
+   for(let item=0;item<batch.length;item++){if(results[item].status==='rejected')throw results[item].reason;if(results[item].value)visit(batch[item],results[item].value);}
+  }
+ }
+ /**
+  * Return the index rows that reserve(), eligibleForDispatch() and dispatchReady() can count: rows from `today` or a waiting job's day,
+  * unsettled rows, and rows whose submission time is inside the longest rolling window plus one day of clock-step margin.
+  * Every other row fails each of their daily, rolling-window and load filters, so leaving it out changes no decision.
+  */
+ function ledger(today){
+  const days=new Set(waiting.map(job=>job.day)),start=now()-longestRollingWindowMs-86400000,result=[];if(today)days.add(today);
+  for(const row of receiptIndex.values())if(days.has(row.day)||unsettledStatuses.includes(row.status)||longestRollingWindowMs&&(row.submittedAtMs??row.reservedAtMs??row.objectStagedAt)>start)result.push(row);
+  return result;
+ }
  async function reserve(job,existing){
   const prior=reservationTail;
   const pending=(async()=>{
    await prior;if(workerFailure||closing)throw fail(503,'ASR job storage is unavailable');
-   const all=await entries(),today=new Date(now()).toISOString().slice(0,10);
+   const today=new Date(now()).toISOString().slice(0,10),all=ledger(today);
    const billed=all.filter(entry=>entry.day===today&&!(entry.id===job.id&&entry.account===job.account)&&(entry.status!=='failed'||entry.submittedAtMs!==undefined));
    const accountJobs=billed.filter(entry=>entry.account===job.account);
    if(accountJobs.length>=maxDailyJobs||accountJobs.reduce((sum,entry)=>sum+entry.duration,0)+job.duration>maxDailySeconds)throw fail(429,'Daily cloud transcription limit reached','daily_quota');
@@ -159,6 +184,12 @@ export function createAsrService(options){
   if(size===0||hash.digest('hex')!==expectedHash){await rm(file,{force:true});throw fail(422,'Audio is empty or its digest changed');}
  }
  async function cleanup(job,account,key){try{if(job.providerKind!=='flash')await storage.remove(storage.key(job.taskId,job.audioFormat));await rm(audioPath(account,key),{force:true});job.cleanupPending=false;await save(account,key,job);}catch{job.cleanupPending=true;await save(account,key,job);}}
+ /** Report whether expire() owes this receipt a change now; the two conditions in its locked body must stay identical to these. */
+ function expiryWanted(current,key){
+  const expired=Number.isFinite(current.objectStagedAt)&&now()-current.objectStagedAt>=retentionSeconds*1000;
+  if(waiting.some(entry=>jobKey(entry)===key))return expired&&current.status==='queued'&&current.submittedAtMs===undefined;
+  return Boolean(current.cleanupPending||expired&&!current.retentionExpired&&!terminalStatuses.includes(current.status));
+ }
  async function expire(job){
   const key=jobKey(job);if(expiring.has(key)){await expiring.get(key);return;}if(closing)return;
   const operation=(async()=>{
@@ -167,13 +198,15 @@ export function createAsrService(options){
    const pending=reservationTail.then(async()=>{
     if(active.has(key)||workers.has(key))return;
     const current=await read(job.account,job.id);
+    // The sweep works from the index, so the receipt file may have been removed since startup; nothing is left to expire.
+    if(!current)return;
     const expired=Number.isFinite(current.objectStagedAt)&&now()-current.objectStagedAt>=retentionSeconds*1000;
     const index=waiting.findIndex(entry=>jobKey(entry)===key);
     if(index>=0){
      if(!expired||current.status!=='queued'||current.submittedAtMs!==undefined)return;
      cleanupJob={...current,status:'failed',retentionExpired:true,cleanupPending:true};
      await save(cleanupJob.account,cleanupJob.id,cleanupJob);waiting.splice(index,1);
-     await dispatchReady(await entries());return;
+     await dispatchReady(ledger());return;
     }
     if(current.cleanupPending||expired&&!current.retentionExpired&&!['complete','silent','failed'].includes(current.status)){
      cleanupJob={...current,cleanupPending:true,...expired?{retentionExpired:true}:{}};
@@ -196,7 +229,7 @@ export function createAsrService(options){
    await save(account,key,job);return publicJob(job);
   }
   delete job.queryRetry;
-  if(result.status==='failed'&&isTerminalAsrQueryCode(result.providerCode)){
+  if(result.status==='failed'&&['45000006','45000092','55001010'].includes(result.providerCode)){
    const count=job.terminalQuery?.code===result.providerCode?job.terminalQuery.count+1:1;
    job.terminalQuery={code:result.providerCode,count};job.failureCode='provider_rejected';
    job.providerFailure={code:job.failureCode,operation:'query',reason:'response',providerCode:result.providerCode};
@@ -233,8 +266,7 @@ export function createAsrService(options){
    job.status=job.status==='queued'?'failed':'uncertain';recordProviderFailure(job,error);await save(job.account,job.id,job);
   }
  }
- // Measure the provider cadence after the durable receipt is ready.
- async function rateProvider(resource,operation,prepare){
+ async function rateProvider(resource,operation){
   const group=groups.get(resource.quotaGroup),key=group.id+'\0'+operation,prior=rateTails.get(key)??Promise.resolve();
   const pending=(async()=>{
    await prior;
@@ -245,7 +277,6 @@ export function createAsrService(options){
     await delay(wait,undefined,{signal:shutdown.signal});
    }
    if(closing)return false;
-   if(prepare)await prepare();
    nextRequestAt.set(key,performance.now()+1000/group[operation==='submit'?'submitQps':'queryQps']);
    return true;
   })();
@@ -261,10 +292,8 @@ export function createAsrService(options){
     await stat(file);await storage.assertPrivateBeforeUpload();step='upload';
     const object=storage.key(job.taskId,job.audioFormat);await storage.upload(file,object);step='storage-verification';
     const url=await storage.signedReadUrl(object);await storage.assertPrivateAndReadable(object,url);
-    const ready=await rateProvider(resource,'submit',async()=>{
-     job.status='submitting';job.submittedAtMs=now();await save(job.account,job.id,job);
-    });
-    if(!ready)return;
+    await rateProvider(resource,'submit');if(closing)return;
+    job.status='submitting';job.submittedAtMs=now();await save(job.account,job.id,job);
     try{await resource.provider.submit({id:job.taskId,url,language:job.language,format:job.audioFormat,purpose:job.purpose,durationSeconds:job.duration});job.status='processing';}
     catch(error){job.status='uncertain';recordProviderFailure(job,error);}
     await save(job.account,job.id,job);await rm(file,{force:true});
@@ -333,27 +362,35 @@ export function createAsrService(options){
   }
  }
  function dispatch(){
-  const pending=reservationTail.then(async()=>{if(!closing&&waiting.length)await dispatchReady(entries());});
+  const pending=reservationTail.then(async()=>{if(!closing&&waiting.length)await dispatchReady(ledger());});
   reservationTail=pending.catch(error=>{workerFailure=error;});
   return pending;
  }
  const initialized=(async()=>{
   await mkdir(jobs,{recursive:true,mode:0o700});await mkdir(audio,{recursive:true,mode:0o700});
-  const scanned=await scanEntries(),persisted=scanned.map(row=>row.job);
-  const legacyJobs=persisted.filter(job=>job.poolId===undefined&&job.appId===undefined&&job.quotaGroup===undefined);
-  const legacySet=new Set(legacyJobs);
+  // One pass builds the index; a full receipt stays in memory only while recovery may queue or rewrite it.
+  const recovering=[],migrating=[];let legacyCount=0,invalid;
+  await scanReceipts((target,job)=>{
+   receiptIndex.set(target,indexRow(job));
+   const legacy=job.poolId===undefined&&job.appId===undefined&&job.quotaGroup===undefined,recover=['queued','submitting','processing','uncertain'].includes(job.status);
+   if(legacy)legacyCount++;
+   // The legacy-application error outranks the first invalid receipt, so validation failures wait for the whole scan.
+   if(!invalid)try{
+    resourceOf(job);if(job.providerKind!=='flash'&&(job.storageKind??'tos')!==storageKind)throw Error('ASR receipt storage provider has changed');
+    if(job.queryRetry!==undefined){if(!Number.isSafeInteger(job.queryRetry?.count)||job.queryRetry.count<1||job.queryRetry.count>32||!Number.isSafeInteger(job.queryRetry?.nextAttemptAtMs)||job.queryRetry.nextAttemptAtMs<0)throw Error('Invalid ASR query retry receipt');rememberQueryCooldown(job);}
+   }catch(error){invalid={error};}
+   if(recover)recovering.push(job);
+   if(legacy||job.serviceVersion===undefined||job.resourceId===undefined)migrating.push(recover?job:target);
+  });
   const legacyResource=resources.get(pool.defaultPoolId);
-  if(legacyJobs.length&&(!pool.legacyAppId||pool.legacyAppId!==legacyResource.appId))throw Error('Legacy ASR application must match the retained default resource');
-  for(const job of persisted){
-   resourceOf(job);if(job.providerKind!=='flash'&&(job.storageKind??'tos')!==storageKind)throw Error('ASR receipt storage provider has changed');
-   if(job.queryRetry!==undefined){if(!Number.isSafeInteger(job.queryRetry?.count)||job.queryRetry.count<1||job.queryRetry.count>32||!Number.isSafeInteger(job.queryRetry?.nextAttemptAtMs)||job.queryRetry.nextAttemptAtMs<0)throw Error('Invalid ASR query retry receipt');rememberQueryCooldown(job);}
+  if(legacyCount&&(!pool.legacyAppId||pool.legacyAppId!==legacyResource.appId))throw Error('Legacy ASR application must match the retained default resource');
+  if(invalid)throw invalid.error;
+  for(const item of migrating){
+   const job=typeof item==='string'?await readTarget(item):item;if(!job)continue;
+   const resource=resourceOf(job);Object.assign(job,{poolId:resource.poolId,appId:resource.appId,quotaGroup:resource.quotaGroup,serviceVersion:resource.serviceVersion,resourceId:resource.resourceId});await save(job.account,job.id,job);
   }
-  for(const {target,job} of scanned)ledger.set(target,ledgerRow(job));
-  ledgerReady=true;
-  for(const job of persisted){
-   if(legacySet.has(job)||job.serviceVersion===undefined||job.resourceId===undefined){const resource=resourceOf(job);Object.assign(job,{poolId:resource.poolId,appId:resource.appId,quotaGroup:resource.quotaGroup,serviceVersion:resource.serviceVersion,resourceId:resource.resourceId});await save(job.account,job.id,job);}
-  }
-  for(const job of persisted){
+  // Settled receipts match none of these status checks, and resourceOf() already proved that a Flash receipt's resource can recognize.
+  for(const job of recovering){
    if(job.status==='queued'&&job.submittedAtMs!==undefined){job.status='uncertain';await save(job.account,job.id,job);}
    if(job.providerKind==='flash'){
     if(typeof resourceOf(job).provider.recognize!=='function')throw Error('Flash receipt recovery requires a flash provider');
@@ -434,10 +471,12 @@ export function createAsrService(options){
    const tail=pending.then(()=>{},()=>{});accountTails.set(account,tail);
    try{return await pending;}finally{active.delete(activeKey);if(accountTails.get(account)===tail)accountTails.delete(account);}
   },
-  /** Read an account-owned receipt or active upload; background workers alone query charged tasks. */
-  async get(account,key){await initialized;if(!validKey(key))throw fail(400,'Invalid ASR job ID');const job=await read(account,key);
-   if(!job){if(active.has(account+'\0'+key))return {id:key,status:'preparing',recovery:{capability:'none',next_action:'wait',automatic_resubmit:false}};throw fail(404,'ASR job not found');}
-   if(active.has(account+'\0'+key)||workers.has(account+'\0'+key))return publicJob(job);
+  /** Read an account-owned receipt; background workers alone query charged tasks. */
+  async get(account,key){await initialized;if(!validKey(key))throw fail(400,'Invalid ASR job ID');const job=await read(account,key);if(!job)throw fail(404,'ASR job not found');
+   const owned=account+'\0'+key;
+   if(active.has(owned)||workers.has(owned))return publicJob(job);
+   // The receipt just read is the answer unless it owes an expiry change or one is running; only that change queues behind admission.
+   if(!expiring.has(owned)&&(closing||!expiryWanted(job,owned)))return publicJob(job);
    await expire(job);
    return publicJob(await read(account,key));
   },
@@ -456,21 +495,18 @@ export function createAsrService(options){
    const queueFullCategories=[...queueFullSinceStart.values()].map(row=>({category:row.category,count:row.count,last_seen_seconds_ago:row.lastSeenAt===null?null:Math.max(0,Math.floor((observedAt-row.lastSeenAt)/1000))}));
    return {schema_version:1,occupancy:{active:active.size,workers:workers.size,waiting:waiting.length,occupied_unique:occupied.size,worker_limit:maxConcurrentJobs,waiting_limit:maxQueuedJobs},by_service_version:[...versions.values()].sort((a,b)=>a.service_version.localeCompare(b.service_version)).map(({occupied:keys,...row})=>({...row,occupied_unique:keys.size})),by_quota_group:[...quotaGroups.values()].sort((a,b)=>a.quota_group.localeCompare(b.quota_group)).map(({occupied:keys,...row})=>({...row,occupied_unique:keys.size})),active_unassigned_to_quota_group:unassignedActive,standard_unresolved:unresolved,queue_full_since_start:{observed_window_seconds:Math.max(0,Math.floor((observedAt-startedAt)/1000)),total:queueFullCategories.reduce((sum,row)=>sum+row.count,0),categories:queueFullCategories}};
   },
+  /** Copy the in-memory receipt index (receipt path -> frozen indexed fields) for tests and operator checks. */
+  [asrReceiptIndex](){return new Map(receiptIndex);},
   /** Remove expired temporary objects while retaining receipts and original task IDs. */
   async sweep(){
    if(closing)return;
    const pending=(async()=>{
     await initialized;
-    const seen=new Set();
-    for(const name of await readdir(jobs).catch(error=>error.code==='ENOENT'?[]:Promise.reject(error))){
-     if(!name.endsWith('.json'))continue;
-     const target=join(jobs,name);seen.add(target);
-     const job=await readTarget(target);if(!job)continue;
-     const expired=Number.isFinite(job.objectStagedAt)&&now()-job.objectStagedAt>=retentionSeconds*1000;
-     if(job.cleanupPending||expired&&(!job.retentionExpired&&!['complete','silent','failed'].includes(job.status)
-      ||job.status==='queued'&&job.submittedAtMs===undefined&&waiting.some(entry=>jobKey(entry)===jobKey(job))))await expire(job);
+    // Candidates are every row that expiryWanted() could accept whether or not the job is waiting; expire() rereads each receipt first.
+    for(const row of [...receiptIndex.values()]){
+     const expired=Number.isFinite(row.objectStagedAt)&&now()-row.objectStagedAt>=retentionSeconds*1000;
+     if(row.cleanupPending||expired&&(!row.retentionExpired&&!terminalStatuses.includes(row.status)||row.status==='queued'&&row.submittedAtMs===undefined))await expire(row);
     }
-    for(const target of ledger.keys())if(!seen.has(target))await readTarget(target);
    })();
    sweeps.add(pending);try{await pending;}finally{sweeps.delete(pending);}
   },

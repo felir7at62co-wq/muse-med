@@ -48,14 +48,7 @@ function fixture(t,{currency='LTV',failUpload=false}={}){
  const segments=compile(sources.segments,{'./musePostproductionMedia':media,'./musePostproductionFal':fal});
  const service=compile(sources.postproduction,{'./musePostproductionMedia':media,'./musePostproductionFal':fal,'./musePostproductionSegments':segments,'./museBudget':budget,'./aiConfigService':{getConfig:()=>provider,listConfigs:()=>[provider]}});
  const cfg={muse_budget:{currency,prices:currency==='CNY'?[{id:'fal-erasure',service:'postproduction',provider:'fal',model:fal.models.erase_subtitles,origin:'https://queue.fal.run',currency:'CNY',reserve_minor:100,source:'operator-entered',effective_at:'2020-01-01T00:00:00.000Z',expires_at:'2099-01-01T00:00:00.000Z',estimate_kind:'per-dispatch-estimate'}]:[]}};
- if(currency==='LTV'){
-  // Historical ledgers can be read, but the current API cannot create a retired budget.
-  budget.schema(db,cfg);
-  db.prepare('INSERT INTO muse_project_budgets (project_id,currency,limit_minor,allow_estimates,allow_task_envelopes,revision,updated_at) VALUES(?,?,?,?,?,?,?)')
-   .run(1,currency,10000,1,1,1,'2026-01-01T00:00:00.000Z');
- }else{
-  budget.updateProject(db,cfg,1,{operation_id:'fixture-budget-limit',expected_revision:0,currency,limit_minor:10000,allow_estimates:true,allow_task_envelopes:true});
- }
+ budget.updateProject(db,cfg,1,{operation_id:'fixture-budget-limit',expected_revision:0,currency,limit_minor:10000,allow_estimates:true,allow_task_envelopes:true});
  const database=service.capabilities(db,cfg).database_id,input={database_id:database,operation_id:'original-erasure-task',source_generation_id:1,source_sha256:sha(original),config_id:1,kind:'erase_subtitles',prompt:'burned in subtitles'};
  const legacy=()=>{
   const raw=compile(source('muse-postproduction.cjs'),{'./musePostproductionMedia':media,'./musePostproductionFal':fal,'./musePostproductionSegments':segments,'./aiConfigService':{getConfig:()=>provider,listConfigs:()=>[provider]}});
@@ -68,7 +61,7 @@ if(process.argv[2]==='--write-fixture')writeFileSync(process.argv[3],JSON.string
 else{
  test('deployed Fal submission rejects LTV before upload and preserves the native ledger',async t=>{
   const f=fixture(t),before=f.budget.readProject(f.db,f.cfg,1);
-  await assert.rejects(f.service.submit(f.db,f.cfg,f.input),{code:'budget_provider_retired',status:410});
+  await assert.rejects(f.service.submit(f.db,f.cfg,f.input),{code:'budget_credit_provider_required'});
   assert.deepEqual(f.calls,{upload:0,submit:0});assert.deepEqual(f.budget.readProject(f.db,f.cfg,1),before);
   assert.equal(f.db.prepare('SELECT count(*) AS n FROM muse_postproduction_tasks').get().n,0);
  });

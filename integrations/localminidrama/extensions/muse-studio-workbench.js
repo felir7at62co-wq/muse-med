@@ -1,34 +1,7 @@
 /** Gallery selection and free, receipt-backed edits; supplier generation belongs to Muse. */
 const positive = value => Number.isSafeInteger(Number(value)) && Number(value) > 0
 const clone = value => JSON.parse(JSON.stringify(value))
-const blankDraft = () => ({ imagePrompt: '', videoPrompt: '', imageBindings: [], videoBindings: [], parentGenerationId: null, changeReason: null })
-
-/**
- * Check saved asset metadata without inferring image quality or changing project data.
- * @param project - Saved project returned by the authenticated project query.
- * @returns Category counts and assets with missing names/images or same-category duplicate names.
- */
-export function studioAssetInspection(project) {
-  const text = value => typeof value === 'string' ? value.trim() : ''
-  const groups = [], issues = []
-  for (const [kind, label, source] of [['character', '人物', 'characters'], ['scene', '场景', 'scenes'], ['prop', '道具', 'props']]) {
-    const items = Array.isArray(project?.[source]) ? project[source] : []
-    const names = items.map(item => text(item.name) || text(item.location))
-    const normalized = names.map(name => name.normalize('NFKC').toLowerCase())
-    const counts = new Map()
-    for (const name of normalized) if (name) counts.set(name, (counts.get(name) || 0) + 1)
-    const group = { kind, label, total: items.length, missingImage: 0, missingName: 0, duplicateName: 0 }
-    items.forEach((item, index) => {
-      const reasons = []
-      if (!names[index]) { group.missingName++; reasons.push('未填写名称') }
-      if (!text(item.image_url) && !text(item.local_path)) { group.missingImage++; reasons.push('未设置主参考图') }
-      if (normalized[index] && counts.get(normalized[index]) > 1) { group.duplicateName++; reasons.push('同类资产重名，请核对') }
-      if (reasons.length) issues.push({ key: kind + ':' + index, kind, label, id: item.id, name: names[index] || '未命名' + label, reasons })
-    })
-    groups.push(group)
-  }
-  return { groups, issues, total: groups.reduce((sum, group) => sum + group.total, 0) }
-}
+const blankDraft = () => ({ imagePrompt: '', videoPrompt: '', imageBindings: [], videoBindings: [] })
 
 /**
  * Split a stored prompt into text and exact reference tokens without interpreting HTML.
@@ -77,8 +50,7 @@ function validateTrace(value, packageId) {
 
 function draftOf(current) {
   return { imagePrompt: current.imagePrompt, videoPrompt: current.videoPrompt,
-    imageBindings: clone(current.imageBindings), videoBindings: clone(current.videoBindings),
-    parentGenerationId: current.parentGenerationId ?? null, changeReason: current.changeReason ?? null }
+    imageBindings: clone(current.imageBindings), videoBindings: clone(current.videoBindings) }
 }
 
 /**
@@ -282,10 +254,6 @@ export function createStudioWorkbenchController({ state, request, storage = glob
     state.notice = ''
     try {
       const input = { ...snapshot(), imagePrompt: state.draft.imagePrompt, videoPrompt: state.draft.videoPrompt }
-      if (state.draft.parentGenerationId !== null && state.draft.parentGenerationId !== undefined) {
-        if (!positive(state.draft.parentGenerationId) || typeof state.draft.changeReason !== 'string' || !state.draft.changeReason.trim()) throw new Error('请填写基于原视频修改的具体原因')
-        input.parentGenerationId = Number(state.draft.parentGenerationId); input.changeReason = state.draft.changeReason.trim()
-      }
       for (const [field, prompt] of [['imageBindings', input.imagePrompt], ['videoBindings', input.videoPrompt]]) {
         const parts = studioPromptParts(prompt, state.draft[field])
         if (parts.some(part => part.kind === 'missing')) throw new Error('提示词中有未绑定的参考图，请重新选择或移除该引用')

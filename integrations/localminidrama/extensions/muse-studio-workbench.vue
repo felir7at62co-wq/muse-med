@@ -8,7 +8,7 @@
       </div>
       <div class="muse-wb-actions">
         <el-button type="primary" :disabled="!bridgeState.available || bridgeState.pending || dirty" @click="askMuse('continue_production')">
-          <el-icon><VideoPlay /></el-icon>让 Muse 规划制作
+          <el-icon><VideoPlay /></el-icon>让 Muse 继续制作
         </el-button>
         <el-dropdown trigger="click" @command="moreAction"><el-button>更多<el-icon><ArrowDown /></el-icon></el-button>
           <template #dropdown><el-dropdown-menu>
@@ -18,6 +18,8 @@
             <el-dropdown-item command="revisions">编辑记录与恢复</el-dropdown-item>
             <el-dropdown-item command="admission">生成提交记录</el-dropdown-item>
             <el-dropdown-item command="postproduction">视频后期处理</el-dropdown-item>
+            <el-dropdown-item command="libtv">LibTV API</el-dropdown-item>
+            <el-dropdown-item command="migration">导入剧变迁移包</el-dropdown-item>
             <el-dropdown-item command="media" divided>媒体素材库</el-dropdown-item>
             <el-dropdown-item command="canvas">画布模式</el-dropdown-item>
             <el-dropdown-item command="advanced">高级制作工具</el-dropdown-item>
@@ -26,8 +28,6 @@
         </el-dropdown>
       </div>
     </header>
-
-    <div class="muse-wb-notice" role="status">生成后端尚未接入；项目、资产和历史可正常管理</div>
 
     <nav class="muse-wb-tabs" role="tablist" aria-label="制作阶段">
       <button v-for="tab in tabs" :key="tab.id" type="button" role="tab" class="muse-wb-tab"
@@ -109,7 +109,6 @@
                     <label><span>视频提示词</span><MuseStudioPrompt :text="state.draft.videoPrompt" :bindings="state.draft.videoBindings" editable
                       :disabled="blocked" label="当前视频提示词" @update:text="state.draft.videoPrompt = $event" @preview="previewAsset" /></label>
                     <div class="muse-wb-actions"><el-button size="small" :disabled="blocked" @click="openBindings('video')"><el-icon><Picture /></el-icon>绑定视频参考</el-button></div>
-                    <label v-if="state.draft.parentGenerationId"><span>基于视频版本 {{ state.draft.parentGenerationId }} 的修改原因</span><el-input v-model="state.draft.changeReason" type="textarea" :disabled="blocked" maxlength="2000" placeholder="说明问题所在时段、剧本依据和本次修改" /></label>
                     <div v-if="allDraftBindings.length" class="muse-wb-section"><h3>本修订绑定的参考图</h3>
                       <div v-for="row in allDraftBindings" :key="row.field + row.binding.bindingId" class="muse-wb-section-header">
                         <button type="button" class="muse-wb-chip" @click="previewAsset(row.binding)"><img v-if="row.binding.mediaUrl" :src="media(row.binding.mediaUrl)" alt="" /><span>{{ row.field === 'image' ? '图片' : '视频' }} · {{ row.binding.displayName }}</span></button>
@@ -149,15 +148,7 @@
                       <div v-if="state.versionId === version.generationId" class="muse-wb-actions"><el-button v-if="!version.adopted" :disabled="blocked || dirty || version.status !== 'completed' || !version.mediaUrl" @click="controller.adoptVersion(version)">采用此视频</el-button>
                         <el-button :disabled="blocked || !version.inputs.prompt" @click="editVideoVersion(version)">基于此版本修改</el-button>
                         <el-button :disabled="!bridgeState.available || bridgeState.pending || dirty" @click="askMuse('propose_fix', version)">交给 Muse 修复</el-button></div>
-                      <p v-if="version.inputs.parentGenerationId" class="muse-wb-help">基于视频版本 {{ version.inputs.parentGenerationId }} 修改 · {{ version.inputs.changeReason }}</p>
-                      <details v-if="version.inputs.operationId"><summary>原生成记录</summary><p class="muse-wb-help">{{ version.inputs.operationId }}</p>
-                        <p v-if="version.inputs.requestSha256" class="muse-wb-help">请求摘要 {{ version.inputs.requestSha256 }}</p>
-                        <p v-if="version.inputs.revisionId" class="muse-wb-help">输入修订 {{ version.inputs.revisionId }}</p>
-                        <template v-if="version.inputs.supplier"><p class="muse-wb-help">原生成任务 {{ version.inputs.supplier.taskId || '未记录' }} · 子结果 {{ version.inputs.supplier.subtaskId || '未记录' }}</p>
-                          <p class="muse-wb-help">预占报价与供应商实际费用分别保留，未核实账单不视为已确认费用</p>
-                          <details><summary>报价与供应商费用原值</summary><pre>{{ JSON.stringify({ quote: version.inputs.supplier.quote ?? null, supplierReportedCost: version.inputs.supplier.observedCost ?? null }, null, 2) }}</pre></details></template>
-                      </details>
-                      <p v-if="version.inputs.parentGenerationId" class="muse-wb-help">基于视频版本 {{ version.inputs.parentGenerationId }} 修改：{{ version.inputs.changeReason }}</p>
+                      <details v-if="version.inputs.operationId"><summary>原生成记录</summary><p class="muse-wb-help">{{ version.inputs.operationId }}</p></details>
                     </article>
                     <el-button v-if="state.trace.videos.nextCursor" :loading="state.loadingMore" @click="controller.moreVersions('video')">更早视频版本</el-button>
                   </template>
@@ -175,17 +166,12 @@
         <div class="muse-wb-section-header"><h2>本集剧本</h2><el-button :disabled="!bridgeState.available || bridgeState.pending" @click="askMuse('propose_fix')">交给 Muse 调整剧本</el-button></div>
         <div class="muse-wb-script">{{ episode?.script_content || '尚未保存本集剧本，可将原文交给 Muse 整理并创建分集' }}</div>
       </section>
-      <section v-show="activeTab === 'assets'" id="muse-stage-assets" role="tabpanel" aria-label="资产" class="muse-wb-panel">
-        <div class="muse-wb-section-header"><h2>本项目资产</h2><el-button :disabled="!state.project || state.loading" @click="openAssetInspection"><el-icon><MagicStick /></el-icon>让 Muse 检查资产</el-button></div>
+      <section v-show="activeTab === 'assets'" id="muse-stage-assets" role="tabpanel" aria-label="主体设定" class="muse-wb-panel">
+        <div class="muse-wb-section-header"><h2>本项目资产</h2><el-button :disabled="!bridgeState.available || bridgeState.pending" @click="askMuse('inspect_project')">让 Muse 核对资产</el-button></div>
         <p class="muse-wb-help">这里展示当前项目素材；每次视频实际使用的图片请在该包的生成记录中查看</p>
-        <div class="muse-wb-asset-toolbar"><div class="muse-wb-filter" role="group" aria-label="资产分类">
-          <button v-for="group in projectAssetGroups" :key="group.kind" type="button" :aria-pressed="assetCategory === group.kind" @click="assetCategory = group.kind"><el-icon><component :is="group.icon" /></el-icon>{{ group.label }} <span>{{ group.items.length }}</span></button>
-        </div></div>
-        <section :aria-label="selectedAssetGroup.label + '资产'">
-        <div v-if="selectedAssetGroup.items.length" class="muse-wb-asset-grid"><button v-for="asset in selectedAssetGroup.items" :key="asset.kind + asset.id" type="button" class="muse-wb-asset" @click="previewAsset({mediaUrl:asset.url,displayName:asset.name})">
+        <div v-if="projectAssets.length" class="muse-wb-asset-grid"><button v-for="asset in projectAssets" :key="asset.kind + asset.id" type="button" class="muse-wb-asset" @click="previewAsset({mediaUrl:asset.url,displayName:asset.name})">
           <img v-if="asset.url" :src="media(asset.url)" alt="" loading="lazy" /><div v-else class="muse-wb-placeholder"><el-icon><Picture /></el-icon></div><h3>{{ asset.name }}</h3><p class="muse-wb-help">{{ asset.label }}</p></button></div>
-        <div v-else class="muse-wb-empty"><el-icon><component :is="selectedAssetGroup.icon" /></el-icon><h3>尚无{{ selectedAssetGroup.label }}资产</h3><p>Muse 可根据剧本建立{{ selectedAssetGroup.label }}，已有资产会显示在对应分类中</p></div>
-        </section>
+        <div v-else class="muse-wb-empty"><el-icon><User /></el-icon><p>尚无项目资产，Muse 可根据剧本建立角色、场景与道具</p></div>
       </section>
       <section v-show="activeTab === 'output'" id="muse-stage-output" role="tabpanel" aria-label="成片" class="muse-wb-panel">
         <div class="muse-wb-section-header"><h2>本集成片</h2><el-button :disabled="!bridgeState.available || bridgeState.pending" @click="askMuse('continue_production')">让 Muse 继续合成与检查</el-button></div>
@@ -201,36 +187,15 @@
       </details>
     </template>
 
-    <el-dialog v-model="assetInspectionOpen" title="资产检查" width="min(760px, 94vw)" destroy-on-close>
-      <p class="muse-wb-help">先核对已保存的资产资料，再交给 Muse 检查图片内容、剧本要求和镜头引用。检查不会修改资产或提交生成</p>
-      <h3>资料初检</h3>
-      <div class="muse-wb-asset-check-counts"><div v-for="group in assetInspection.groups" :key="group.kind"><span>{{ group.label }}</span><strong>{{ group.total }}</strong><small>缺主图 {{ group.missingImage }} · 缺名称 {{ group.missingName }}</small></div></div>
-      <p v-if="!assetInspection.total" class="muse-wb-help">项目中还没有资产，Muse 可以根据已保存的剧本列出需要准备的人物、场景和道具</p>
-      <ul v-else-if="assetInspection.issues.length" class="muse-wb-asset-check-issues"><li v-for="issue in assetInspection.issues" :key="issue.key"><button type="button" @click="showAssetCategory(issue.kind)">{{ issue.label }} · {{ issue.name }}</button><span>{{ issue.reasons.join('；') }}</span></li></ul>
-      <p v-else class="muse-wb-help">未发现缺名称、缺主图或同类重名。尚未检查图片能否读取、内容是否正确和镜头绑定是否一致</p>
-      <div class="muse-wb-asset-check-handoff">
-        <h3>Muse 深入检查</h3>
-        <p v-if="!bridgeState.available" class="muse-wb-help">当前页面未连接 Muse 会话。请在 Muse 左侧的「制作平台」打开同一项目，再使用此按钮选择接收检查结果的会话</p>
-        <p v-else-if="!canInspectAssets" class="muse-wb-help">当前 Muse 尚不支持资产检查，请更新此分支的 Muse 后重新打开制作平台</p>
-        <p v-else class="muse-wb-help">Muse 会核对人物、场景、道具及其镜头引用，查看可读取的图片，并在你选择的会话中给出问题位置和修复建议</p>
-        <p v-if="dirty" class="muse-wb-help">当前镜头有未保存的修改，本次只检查已保存的项目内容</p>
-        <p v-if="assetInspectionError" class="muse-wb-help" role="alert">{{ assetInspectionError }}</p>
-        <div class="muse-wb-actions"><el-button type="primary" :disabled="!canInspectAssets || bridgeState.pending" @click="inspectAssetsWithMuse">{{ bridgeState.pending ? '等待选择 Muse 会话' : '交给 Muse 深入检查' }}</el-button><el-button @click="assetInspectionOpen = false">关闭</el-button></div>
-        <p class="muse-wb-help" role="status">{{ bridgeLabel }}</p>
-      </div>
-    </el-dialog>
     <el-dialog v-model="assetPicker" title="将资产图绑定到提示词" width="min(760px, 94vw)" destroy-on-close>
       <p class="muse-wb-help">选择已保存参考版本，或把当前资产图保存为独立参考。绑定只修改本修订，旧视频仍显示当次原图</p>
-      <section v-for="group in bindingAssetGroups" :key="group.kind" class="muse-wb-asset-group" :aria-label="group.label + '参考图'">
-        <h3 class="muse-wb-asset-group-title"><el-icon><component :is="group.icon" /></el-icon>{{ group.label }}<span class="muse-wb-help">{{ group.items.length }}</span></h3>
-        <div class="muse-wb-asset-grid"><article v-for="asset in group.items" :key="asset.assetKind + asset.assetId" class="muse-wb-asset">
+      <div class="muse-wb-asset-grid"><article v-for="asset in state.trace?.assets || []" :key="asset.assetKind + asset.assetId" class="muse-wb-asset">
         <button type="button" class="muse-wb-image-preview" :aria-label="'预览 ' + assetChoice(asset).displayName" @click="previewAsset(assetChoice(asset))"><img v-if="assetChoice(asset).mediaUrl" :src="media(assetChoice(asset).mediaUrl)" :alt="assetChoice(asset).displayName" /></button><h3>{{ asset.name }}</h3>
         <el-select v-model="assetSelections[asset.assetKind + asset.assetId]" :aria-label="asset.name + ' 的参考版本'" placeholder="选择已保存版本" popper-class="muse-wb-asset-options"><el-option v-for="version in asset.versions" :key="version.versionId" :value="version.versionId" :label="assetVersionLabel(version)"><div class="muse-wb-asset-option"><img :src="media(version.mediaUrl)" alt="" /><div><span>{{ version.displayName }}</span><small>{{ formatTime(version.createdAt) }} · {{ version.sha256.slice(0,8) }}</small></div></div></el-option></el-select>
         <div class="muse-wb-actions"><el-button size="small" :disabled="blocked || !assetSelections[asset.assetKind + asset.assetId]" @click="bindSavedAsset(asset)">绑定此版本</el-button>
           <el-button size="small" :disabled="blocked || !asset.currentMediaUrl" @click="captureCurrentAsset(asset)">保存并绑定当前图</el-button></div>
-        </article></div>
-        <p v-if="!group.items.length" class="muse-wb-help">尚无可绑定的{{ group.label }}图</p>
-      </section>
+      </article></div>
+      <p v-if="!state.trace?.assets.length" class="muse-wb-help">当前项目还没有可绑定的角色、场景或道具图</p>
     </el-dialog>
     <el-dialog v-model="previewOpen" :title="preview?.displayName || '参考图预览'" width="min(860px, 94vw)" destroy-on-close><img v-if="preview?.mediaUrl" :src="media(preview.mediaUrl)" :alt="preview.displayName" class="muse-wb-preview" /><p v-else>当次参考图暂时不可读取，未用当前图片替代</p><details v-if="preview?.sha256"><summary>查看图片校验信息</summary><p class="muse-wb-help">SHA-256：{{ preview.sha256 }}</p></details></el-dialog>
     <el-dialog :model-value="!!dialog" :title="dialogTitle" width="min(1080px, 95vw)" destroy-on-close :close-on-click-modal="false" @close="dialog = ''">
@@ -239,6 +204,8 @@
       <MuseRevisionsPanel v-else-if="dialog === 'revisions'" :project-id="state.projectId" @restored="refreshProject" />
       <MuseAdmissionPanel v-else-if="dialog === 'admission'" />
       <MusePostproductionPanel v-else-if="dialog === 'postproduction'" :drama-id="state.projectId" @adopted="refreshProject" />
+      <MuseLibTvPanel v-else-if="dialog === 'libtv'" />
+      <MuseJubianImportPanel v-else-if="dialog === 'migration'" @imported="refreshProject" />
     </el-dialog>
   </div>
 </template>
@@ -247,33 +214,32 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, ArrowDown, VideoPlay, Document, User, Film, Picture, Loading, Mouse, VideoCamera, MagicStick, ChatDotRound, Location, Box } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowDown, VideoPlay, Document, User, Film, Picture, Loading, Mouse, VideoCamera, MagicStick, ChatDotRound } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 import { museMediaUrl } from '@/utils/museStudioPath'
 import { useTheme } from '@/composables/useTheme'
 import { createMuseStudioBridge } from '@/utils/museStudioBridge'
-import { createStudioWorkbenchState, createStudioWorkbenchController, studioDuration, studioPackageStatus, studioOtherReferences, confirmStudioDiscard, studioAssetVersionLabel, studioAssetChoice, studioAssetInspection } from '@/utils/museStudioWorkbench'
+import { createStudioWorkbenchState, createStudioWorkbenchController, studioDuration, studioPackageStatus, studioOtherReferences, confirmStudioDiscard, studioAssetVersionLabel, studioAssetChoice } from '@/utils/museStudioWorkbench'
 import MuseStudioPrompt from '@/components/MuseStudioPrompt.vue'
 import MuseBudgetPanel from '@/components/MuseBudgetPanel.vue'
 import MuseAudioPanel from '@/components/MuseAudioPanel.vue'
 import MuseRevisionsPanel from '@/components/MuseRevisionsPanel.vue'
 import MuseAdmissionPanel from '@/components/MuseAdmissionPanel.vue'
 import MusePostproductionPanel from '@/components/MusePostproductionPanel.vue'
+import MuseLibTvPanel from '@/components/MuseLibTvPanel.vue'
+import MuseJubianImportPanel from '@/components/MuseJubianImportPanel.vue'
 import '@/styles/museStudioWorkbench.css'
 
 const route = useRoute(), router = useRouter(), { isDark, toggle: toggleTheme } = useTheme()
 const state = reactive(createStudioWorkbenchState())
 const controller = createStudioWorkbenchController({ state, request })
 const activeTab = ref('packages'), inspectorTab = ref('content'), filter = ref('all'), dialog = ref('')
-const assetCategory = ref('character')
-const assetInspectionOpen = ref(false)
-const assetInspectionError = ref('')
 const previewOpen = ref(false), preview = ref(null), assetPicker = ref(false), bindingField = ref('video'), assetSelections = reactive({})
-const bridgeState = reactive({ available: false, pending: false, outcome: null, intents: [] })
+const bridgeState = reactive({ available: false, pending: false, outcome: null })
 const bridge = createMuseStudioBridge({ onState: value => Object.assign(bridgeState, value) })
-const tabs = [{ id: 'script', label: '剧本', icon: Document }, { id: 'assets', label: '资产', icon: User },
+const tabs = [{ id: 'script', label: '剧本', icon: Document }, { id: 'assets', label: '主体设定', icon: User },
   { id: 'packages', label: '分镜制作', icon: Film }, { id: 'output', label: '成片', icon: VideoPlay }]
-const dialogTitles = { budget: '项目预算与账目', audio: '声音与配音', revisions: '编辑记录与恢复', admission: '生成提交记录', postproduction: '视频后期处理' }
+const dialogTitles = { budget: '项目预算与账目', audio: '声音与配音', revisions: '编辑记录与恢复', admission: '生成提交记录', postproduction: '视频后期处理', libtv: 'LibTV API', migration: '导入剧变迁移包' }
 const dialogTitle = computed(() => dialogTitles[dialog.value] || '')
 const episode = computed(() => state.project?.episodes.find(item => item.id === state.episodeId))
 const selectedPackage = computed(() => state.packages.find(item => item.id === state.packageId))
@@ -283,18 +249,7 @@ const blocked = computed(() => state.saving || !!state.pending)
 const filteredPackages = computed(() => filter.value === 'attention' ? state.packages.filter(item => status(item).attention || !item.adopted_video_present) : state.packages)
 const attentionCount = computed(() => state.packages.filter(item => status(item).attention || !item.adopted_video_present).length)
 const allDraftBindings = computed(() => ['image', 'video'].flatMap(field => state.draft[field + 'Bindings'].filter(binding => state.draft[field + 'Prompt'].includes(binding.referenceToken)).map(binding => ({ field, binding }))))
-const assetCategories = [{ kind: 'character', label: '人物', source: 'characters', icon: User }, { kind: 'scene', label: '场景', source: 'scenes', icon: Location }, { kind: 'prop', label: '道具', source: 'props', icon: Box }]
-const projectAssetGroups = computed(() => assetCategories.map(group => ({ ...group, items: (state.project?.[group.source] || []).map(item => ({ id: item.id, kind: group.kind, label: group.label, name: item.name || item.location || '未命名资产', url: item.image_url || item.local_path || '' })) })))
-const selectedAssetGroup = computed(() => projectAssetGroups.value.find(group => group.kind === assetCategory.value))
-const bindingAssetGroups = computed(() => {
-  const assets = state.trace?.assets || []
-  const groups = assetCategories.map(group => ({ ...group, items: assets.filter(asset => asset.assetKind === group.kind) }))
-  const storyboards = assets.filter(asset => asset.assetKind === 'storyboard')
-  if (storyboards.length) groups.push({ kind: 'storyboard', label: '分镜参考', icon: Film, items: storyboards })
-  return groups
-})
-const assetInspection = computed(() => studioAssetInspection(state.project))
-const canInspectAssets = computed(() => bridgeState.available && bridgeState.intents.includes('inspect_assets'))
+const projectAssets = computed(() => [{ kind: 'character', label: '角色', items: state.project?.characters || [] }, { kind: 'scene', label: '场景', items: state.project?.scenes || [] }, { kind: 'prop', label: '道具', items: state.project?.props || [] }].flatMap(group => group.items.map(item => ({ id: item.id, kind: group.kind, label: group.label, name: item.name || item.location || '未命名资产', url: item.image_url || item.local_path || '' }))))
 const bridgeLabel = computed(() => bridgeState.pending ? '等待在 Muse 中选择会话' : ({ draft_prepared: '已在所选会话准备草稿', sent: '已交给所选会话', cancelled: '已取消交接', failed: '交接未完成，可重新打开', unavailable: '请在 Muse 中打开以协作' }[bridgeState.outcome] || (bridgeState.available ? '可交给 Muse 主会话' : '当前没有连接 Muse 会话')))
 const media = value => museMediaUrl(value || '')
 const status = studioPackageStatus, duration = studioDuration, otherReferences = studioOtherReferences, assetVersionLabel = studioAssetVersionLabel
@@ -303,9 +258,6 @@ const formatTime = value => value && !Number.isNaN(Date.parse(value)) ? new Date
 const packageLabel = item => 'EP' + String(episode.value?.episode_number || 1).padStart(2, '0') + '-P' + String(item.order || 1).padStart(2, '0')
 function packageImage(item) { const card = episode.value?.storyboards?.find(row => row.id === item.id); return card ? media(card.image_url || card.local_path) : '' }
 function previewAsset(value) { preview.value = value; previewOpen.value = true }
-function showAssetCategory(kind) { assetCategory.value = kind; activeTab.value = 'assets'; assetInspectionOpen.value = false }
-function openAssetInspection() { assetInspectionError.value = ''; assetInspectionOpen.value = true }
-function inspectAssetsWithMuse() { if (askMuse('inspect_assets')) assetInspectionOpen.value = false; else assetInspectionError.value = '检查任务未能交给 Muse，请确认会话连接后重试' }
 function assetChoice(asset) { return studioAssetChoice(asset, assetSelections[asset.assetKind + asset.assetId]) }
 function openBindings(field) { bindingField.value = field; assetPicker.value = true }
 function bindSavedAsset(asset) { const version = asset.versions.find(item => item.versionId === assetSelections[asset.assetKind + asset.assetId]); if (!version || blocked.value) return; controller.addBinding(version, bindingField.value); assetPicker.value = false }
@@ -319,9 +271,9 @@ async function updateLocation() { await router.replace({ path: route.path, query
 async function refreshProject() { await controller.loadProject(state.projectId || route.params.id, state.episodeId || route.query.episode, state.packageId || route.query.package) }
 async function refreshPackage() { if (state.packageId) await controller.selectPackage(state.packageId, { keepDraft: dirty.value }) }
 async function openPendingPackage() { const pending = state.pending; if (!pending) return; if (pending.projectId !== state.projectId) await router.push({ path: '/film/' + pending.projectId, query: { episode: pending.episodeId, package: pending.packageId } }); else await controller.selectEpisode(pending.episodeId, pending.packageId) }
-async function editVideoVersion(version) { if (blocked.value || !version.inputs.prompt || !(await allowDiscard())) return; state.draft.videoPrompt = version.inputs.prompt; state.draft.videoBindings = JSON.parse(JSON.stringify(version.inputs.bindings)); state.draft.parentGenerationId = version.generationId; state.draft.changeReason = ''; inspectorTab.value = 'content'; state.notice = '已根据此视频的当次提示词和绑定资产准备新草稿，保存后不会改变原版本' + (version.inputs.references.length ? '。其他当次参考图仍在生成记录中，请核对本次需要绑定的资产' : '') }
+async function editVideoVersion(version) { if (blocked.value || !version.inputs.prompt || !(await allowDiscard())) return; state.draft.videoPrompt = version.inputs.prompt; state.draft.videoBindings = JSON.parse(JSON.stringify(version.inputs.bindings)); inspectorTab.value = 'content'; state.notice = '已根据此视频的当次提示词和绑定资产准备新草稿，保存后不会改变原版本' + (version.inputs.references.length ? '。其他当次参考图仍在生成记录中，请核对本次需要绑定的资产' : '') }
 async function moreAction(command) { if (command === 'refresh') return await refreshProject(); if (command === 'theme') return toggleTheme(); if (command === 'media') return await navigate('/media-library'); if (command === 'canvas') return await navigate('/film/' + state.projectId + '/canvas'); if (command === 'advanced') return await navigate('/film/' + state.projectId + '/advanced'); dialog.value = command }
-function askMuse(intent, version) { if (!state.projectId) return false; if (dirty.value && !['inspect_assets', 'inspect_project', 'inspect_package', 'inspect_operation'].includes(intent)) { state.notice = '请先保存镜头修改，再交给 Muse 继续处理'; return false } const selection = { projectId: state.projectId }; if (intent !== 'inspect_assets') { if (state.episodeId) selection.episodeId = state.episodeId; if (state.packageId) selection.storyboardId = state.packageId } if (version) { selection.kind = version.kind; selection.generationId = version.generationId; if (version.inputs.operationId) selection.operationId = version.inputs.operationId } const sent = bridge.request(intent, selection); if (!sent) state.notice = '未能交给 Muse，请检查会话连接后重试'; return sent }
+function askMuse(intent, version) { if (dirty.value || !state.projectId) return; const selection = { projectId: state.projectId }; if (state.episodeId) selection.episodeId = state.episodeId; if (state.packageId) selection.storyboardId = state.packageId; if (version) { selection.kind = version.kind; selection.generationId = version.generationId; if (version.inputs.operationId) selection.operationId = version.inputs.operationId } bridge.request(intent, selection) }
 watch(() => route.params.id, id => { void controller.loadProject(id, route.query.episode, route.query.package) }, { immediate: true })
 onMounted(() => bridge.start())
 onBeforeUnmount(() => { bridge.stop(); controller.dispose() })

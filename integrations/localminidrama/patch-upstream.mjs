@@ -23,11 +23,13 @@ import { planMuseEpisodePackages } from './compatibility/muse-episode-packages.m
 import { planEpisodeMerge } from './compatibility/episode-merge.mjs'
 import { planMuseBudget } from './compatibility/muse-budget.mjs'
 import { planMuseEditCas } from './compatibility/muse-edit-cas.mjs'
+import { planMuseLibTv } from './compatibility/muse-libtv.mjs'
+import { planMuseJubianImport } from './compatibility/muse-jubian-import.mjs'
+import { planMuseLibTvCli } from './compatibility/muse-libtv-cli.mjs'
+import { planMuseLibTvPostproduction } from './compatibility/muse-libtv-postproduction.mjs'
 import { planMuseProductionPlan } from './compatibility/muse-production-plan.mjs'
 import { planMuseStudio } from './compatibility/muse-studio.mjs'
 import { planMuseStudioNative } from './compatibility/muse-studio-native.mjs'
-import { planMuseGeneration } from './compatibility/muse-generation.mjs'
-import { planMuseProjectArchive } from './compatibility/muse-project-archive.mjs'
 import { planStudioEntry } from './compatibility/studio-entry.mjs'
 import { planStudioUx } from './compatibility/studio-ux.mjs'
 
@@ -74,8 +76,8 @@ export function patchUpstream(root) {
   for (const planner of [planModelSelection, planStoryboardCompatibility, planVerification, planMediaAdoption, planAssetMedia, planReferences,
     planVideoInputs, planEmbeddedStudio, planMuseBranding, planCloudPrefix, planMuseAudio, planMuseRevisions,
     planPostproduction, planMuseAdmission, planMuseEpisodePackages, planModelCapabilities, planRuntimeDependencies, planEpisodeMerge,
-    planMuseBudget, planMuseEditCas, planMuseProductionPlan,
-    planMuseStudio, planMuseStudioNative, planMuseProjectArchive, planStudioEntry, planStudioUx, planMuseGeneration]) {
+    planMuseBudget, planMuseLibTv, planMuseLibTvCli, planMuseLibTvPostproduction, planMuseEditCas, planMuseJubianImport, planMuseProductionPlan,
+    planMuseStudio, planMuseStudioNative, planStudioEntry, planStudioUx]) {
     for (const [path, source] of planner(root, readSource)) pending.set(path, source)
   }
   const removals = museBrandingRemovals.map(({ path, sha256 }) => {

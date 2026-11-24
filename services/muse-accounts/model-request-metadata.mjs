@@ -80,7 +80,7 @@ export function createModelRequestMetadata({clientId,route=null,sink=defaultSink
   upstream_status:null,client_status:null,response_bytes:0,response_id:null,response_model:null,
   response_identity_changed:false,raw_finish_reasons:[],usage:null,done:false,eof:false,error_kind:null,error_code:null,
   observation_truncated:false};
- let parser,finished=false;
+ let parser,finished=false,finalRecord;
  const containsSecret=value=>typeof value==='string'&&[...secrets].some(secret=>value.includes(secret));
  const safe=(value,pattern)=>typeof value==='string'&&pattern.test(value)&&!containsSecret(value)?value:null;
  function scrub(value){
@@ -122,21 +122,7 @@ export function createModelRequestMetadata({clientId,route=null,sink=defaultSink
    record.forward_bytes=count(bytes)?bytes:null;
    parser=metadataParser({stream:Boolean(stream),accept,done:()=>{record.done=true;},truncated:()=>{record.observation_truncated=true;}});
   },
-  supplier(name){
-   if(name!=='jubian'&&name!=='bailian')return;
-   record.model_supplier=name;
-   record.upstream_status=null;
-   record.supplier_attempts??=[];
-   if(record.supplier_attempts.length<2)record.supplier_attempts.push({supplier:name,upstream_status:null});
-  },
-  supplierFailover(kind){
-   if(kind==='upstream_http'||kind==='connect')record.supplier_attempts.at(-1).failover=kind;
-  },
-  upstream(code){
-   record.upstream_status=status(code);
-   const attempt=record.supplier_attempts?.at(-1);
-   if(attempt)attempt.upstream_status=record.upstream_status;
-  },
+  upstream(code){record.upstream_status=status(code);},
   client(code){record.client_status=status(code);},
   bytes(chunk){
    record.response_bytes+=typeof chunk==='string'?Buffer.byteLength(chunk):chunk.byteLength;
@@ -150,11 +136,13 @@ export function createModelRequestMetadata({clientId,route=null,sink=defaultSink
    const code=object(error)?error.code:undefined;if(ERROR_CODES.has(code))record.error_code=code;
   },
   finish(code){
-   if(finished)return;finished=true;if(status(code)!==null)record.client_status=code;
+   if(finished)return structuredClone(finalRecord);finished=true;if(status(code)!==null)record.client_status=code;
    // Diagnostic failures must never change the response, cancellation, lease or retry behavior.
    if(containsSecret(record.client_request_id)){record.client_request_id=null;record.client_request_id_state='redacted';}
-   try{sink(scrub(record));}catch(error){/* A failed diagnostic sink has no request authority. */}
+   finalRecord=scrub(record);
+   try{sink(structuredClone(finalRecord));}catch(error){/* A failed diagnostic sink has no request authority. */}
    secrets.clear();parser=undefined;
+   return structuredClone(finalRecord);
   },
  };
 }

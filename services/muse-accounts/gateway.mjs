@@ -1,10 +1,22 @@
+import {createStudioUsageReader} from '../../integrations/localminidrama/cloud/studio-usage.mjs';
+import {studioUsageRoute} from './studio-usage-http.mjs';
+import {loadStudioConfig} from '../../integrations/localminidrama/cloud/config.mjs';
+import {createStudioRuntime} from '../../integrations/localminidrama/cloud/runtime.mjs';
+import {studioRoute} from '../../integrations/localminidrama/cloud/proxy.mjs';
+import {loadCompanyCliService} from './company-cli-service.mjs';
+import {loadProductionFees} from './production-fees.mjs';
+import {productionFeeRoute} from './production-fee-http.mjs';
+import {createNativeJubianHttp} from './native-jubian-http.mjs';
+import {loadNativeJubianAdmission} from './native-jubian-config.mjs';
+import {loadMarket,marketPage} from './market.mjs';
+import {renderSitePage} from './site-shell.mjs';
+import {openDirectModelLeases,resolveDirectLeasePolicy} from './model-direct-leases.mjs';
 import http from 'node:http';
 import {createDesktopLogin} from './desktop-login.mjs';
-import {createWorkbenchLogin,loadWorkbenchClients} from './workbench-login.mjs';
 import {createFeishuLogin,loadFeishuLoginConfig} from './feishu-login.mjs';
-import {renderAccountIdentity,renderAdminAccounts,renderAccountDetails,renderAccountGroups} from './account-pages.mjs';
-import {accountDetailsQuery,createMemoryUsageLedger,openUsageLedger} from './account-details.mjs';
-import {accountProfile} from './account-profile.mjs';
+import {renderAccountIdentity,renderAdminAccounts,renderAccountGroups} from './account-pages.mjs';
+import {resolveFeishuOnlyLogin} from './auth-policy.mjs';
+import {createFeishuOrgCoordinator} from './feishu-organization-coordinator.mjs';
 import {randomBytes} from 'node:crypto';
 import {readFile,access,stat} from 'node:fs/promises';
 import {realpathSync} from 'node:fs';
@@ -12,6 +24,8 @@ import {pathToFileURL} from 'node:url';
 import {dirname,join,resolve} from 'node:path';
 import {openFeedback} from './feedback.mjs';
 import {feedbackRoute} from './feedback-http.mjs';
+import {openFeedbackAutomation} from './feedback-automation.mjs';
+import {loadFeedbackAiConfig,createFeedbackAnalyzer} from './feedback-analyzer.mjs';
 import {openAdminAccess} from './admin-access.mjs';
 import {openStore,validId} from './store.mjs';
 import {scheduleSessionExpiry} from './session-expiry.mjs';
@@ -24,13 +38,22 @@ import {loadPortfolioReaders} from './kb-portfolio-config.mjs';
 import {openModelConfig,createModelRelay} from './model-relay.mjs';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
 import {createDesktopModels} from './desktop-models.mjs';
-import {openDeepSeekFlashRouting} from './deepseek-flash-routing.mjs';
+import {createWebSearch} from './web-search.mjs';
+import {openModelUsage,modelUsageQuery} from './model-usage.mjs';
+import {renderModelUsage} from './model-usage-pages.mjs';
 import {resolveModelKeyPoolPolicy,createModelKeyPool} from './model-key-pool.mjs';
 import {createDesktopRelay} from './desktop-relay.mjs';
+import {createWorkbench} from './workbench.mjs';
+import {renderWorkbench} from './workbench-pages.mjs';
+import {createBotCoordination} from './bot-coordination.mjs';
 import {desktopRoute,desktopPrefix} from './desktop-route.mjs';
+import {openUsageLedger} from './usage-ledger.mjs';
+import {openSessionArchives} from './session-archives.mjs';
+import {accountDataRoute,createAccountDataAdmission} from './account-data-http.mjs';
+import {accountProfile} from './account-profile.mjs';
+import {renderAccountData} from './account-data-page.mjs';
 import {desktopPicker} from './desktop-picker.mjs';
 import {createVoiceSlots,createJubianVoiceVerifier,resolveVoiceSlotOptions} from './voice-slots.mjs';
-import {loadMarket,marketRoute} from './market.mjs';
 
 /** Load account Wiki storage and administrator grants without opening legacy vector files.
  * @param {object} environment Gateway environment containing the KB directory and credential-file paths.
@@ -48,13 +71,15 @@ export async function loadKnowledgeBase(environment = process.env) {
 }
 
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const style='*{box-sizing:border-box}body{margin:0;background:#f7f6f2;color:#191919;font:16px system-ui,sans-serif}main{max-width:960px;margin:8vh auto;padding:36px;background:white;border:1px solid #e8e7e1;border-radius:24px}.auth{max-width:430px}img{width:72px;height:72px}h1{letter-spacing:5px}p,small{color:#777}label{display:block;margin-top:18px;font-size:14px}input,button{padding:12px;border-radius:8px;font:inherit;border:1px solid #ddd}.auth input,.auth button{width:100%}button{background:#202020;color:white;cursor:pointer;margin:12px 0}a{color:#444}nav{display:flex;gap:24px;align-items:center}td,th{text-align:left;padding:12px;border-bottom:1px solid #eee}table{width:100%;border-collapse:collapse}.scroll{overflow-x:auto;max-width:100%}.row{display:flex;gap:8px;align-items:center}.row input{width:140px}@media(max-width:700px){main{margin:20px 12px;padding:22px}.scroll{overflow-x:auto}}';
-const polish='body{background:#f5f5f3;-webkit-font-smoothing:antialiased}main{box-shadow:0 16px 70px #00000005}h1{font-size:30px;letter-spacing:-.04em;margin:16px 0}h2{font-size:20px;margin-top:32px}nav{flex-wrap:wrap;margin:24px 0}nav a{font-size:14px;text-decoration:none;border:1px solid #e3e3df;padding:9px 14px;border-radius:10px}a:hover{color:#000}input{background:#fafafa;transition:border-color .15s}input:focus{outline:2px solid #222;outline-offset:2px}button:hover{background:#404040}button:focus-visible,a:focus-visible{outline:2px solid #222;outline-offset:3px}.eyebrow{font-size:11px;letter-spacing:.2em;color:#888}.model-form{max-width:680px;margin:30px 0}.model-form input{display:block;width:100%;margin-top:8px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.notice{padding:14px 18px;border:1px solid #d5dfd6;background:#f4f8f4;border-radius:12px;font-size:14px}small{display:block;line-height:1.8}th{color:#777;font-size:12px;font-weight:500}td{font-size:14px}.feishu-login{display:block;padding:12px;border-radius:8px;background:#202020;color:white;text-align:center;text-decoration:none}.feishu-login:hover{background:#404040;color:white}.auth h1{letter-spacing:.14em}.auth>img{display:block;margin-bottom:22px}.auth form{margin:24px 0}.auth input{margin-top:8px}.auth small{font-size:12px}.auth>p{line-height:1.7}main:not(.auth)>form:not(.model-form){max-width:520px}main:not(.auth)>form>label input{display:block;width:100%;margin-top:8px}@media(max-width:600px){.form-grid{grid-template-columns:1fr;gap:0}h1{font-size:26px}main{border-radius:18px}}';
-function page(title,body,auth=false){return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="/favicon.ico"><title>${title==='MUSE'?'MUSE':escape(title)+' · MUSE'}</title><style>${style}${polish}</style><main class="${auth?'auth':''}">${body}</main></html>`;}
+function page(title,body,auth=false,context={}){
+ const active=context.active??(title==='模型用量'?'usage':title.includes('管理员')||title.includes('模型配置')?'users':title==='选择电脑'?'computers':'account');
+ return renderSitePage({title,body,auth,active,admin:context.admin??(active==='users'||active==='usage'),username:context.username,mainClass:'site-panel'});
+}
 function loginPage(register=false,desktopLogin,feishuEnabled=false,feishuAppType,consent){
  const continuation=desktopLogin?`?desktop_login=${encodeURIComponent(desktopLogin)}`:'';
  const passwordForm=`<form action="/${register?'register':'login'}" method="post">${desktopLogin?`<input type="hidden" name="desktop_login" value="${escape(desktopLogin)}">`:''}<label>用户名<input name="username" autocomplete="username" minlength="2" maxlength="32" required${feishuEnabled?'':' autofocus'}></label><label>密码<input name="password" type="password" autocomplete="${register?'new-password':'current-password'}" maxlength="128" required></label><button>${register?'注册并进入工作间':'进入工作间 →'}</button></form>`;
- const feishuAction=consent?`<p>请核对 MUSE 中的设备码：<strong>${escape(consent.code)}</strong>。仅在你本人发起登录时授权。</p><form action="/auth/feishu/start" method="post"><input type="hidden" name="desktop_login" value="${escape(desktopLogin)}"><input type="hidden" name="desktop_intent" value="${escape(consent.intent)}"><button class="feishu-login">使用飞书授权并登录此设备</button></form>`:`<p><a class="feishu-login" href="/auth/feishu/start${continuation}">使用飞书登录</a></p>`;
+ const issuerConsent=consent?.feeIssuer?`<fieldset><legend>费用确认设备</legend><p>${escape(consent.feeIssuer.deviceName)}</p><small>${escape(consent.feeIssuer.fingerprint)}</small><label><input style="width:auto" type="checkbox" name="fee_issuer_consent" value="approve" required>允许此设备逐次请求付费确认；仍须每笔确认，不会立即扣费，也不授予无限额度。</label></fieldset>`:'';
+ const feishuAction=consent?`<p>请核对 MUSE 中的设备码：<strong>${escape(consent.code)}</strong>。仅在你本人发起登录时授权。</p><form action="/auth/feishu/start" method="post"><input type="hidden" name="desktop_login" value="${escape(desktopLogin)}"><input type="hidden" name="desktop_intent" value="${escape(consent.intent)}">${issuerConsent}<button class="feishu-login">使用飞书授权并登录此设备</button></form>`:`<p><a class="feishu-login" href="/auth/feishu/start${continuation}">使用飞书登录</a></p>`;
  const legacy=feishuEnabled?'':passwordForm+`<p>${register?`已有账号？<a href="/login${continuation}">登录</a>`:`<a href="/register${continuation}">免费注册个人工作间</a>`}</p>`;
  return page('MUSE',`<img src="/spider.png" alt="MUSE"><h1>MUSE</h1><p>让灵感成形，让故事发生。</p>${feishuEnabled?`${feishuAction}<small>飞书授权后即可使用，无需另设 MUSE 密码。${feishuAppType==='custom'?'仅限本企业应用可用范围内的成员。':''}</small>`:''}${legacy}<small>每个账号拥有独立的文档与会话。</small>`,true);
 }
@@ -63,9 +88,14 @@ function loginPage(register=false,desktopLogin,feishuEnabled=false,feishuAppType
  * @param {import('node:http').Server} [options.httpServer] Unhandled carrier, optionally already listening; the factory installs gateway handlers and owns their close cleanup.
  * @returns {import('node:http').Server} The supplied carrier or a new HTTP server.
  */
-export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},workbenchClients,modelConfig,globalModels,flashRouting,modelForward,modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,usageLedger,voiceSlots,market,httpServer,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
- usageLedger??=createMemoryUsageLedger({now});
+export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},workbenchOptions={},botTeamOptions,botCoordination:providedBotCoordination,productionBoard:providedProductionBoard,desktopLoginOptions={},feishuLoginOptions={},feishuOnlyLogin=false,feishuOrgSync,modelConfig,globalModels,modelForward,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,studioUsage,productionFees,productionFeeReadRatePerMinute=120,nativeJubianAdmission,nativeJubianApprovals,nativeJubianMaxRequestBytes=262144,nativeJubianRequestRatePerMinute=120,archiveAdmissionOptions={},httpServer,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,feedbackAutomation,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,voiceSlots,market,webSearchOptions={},now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  if(httpServer&&(httpServer.listenerCount('request')!==0||httpServer.listenerCount('upgrade')!==0))throw Error('Account HTTP carrier must have no request or upgrade handlers');
+ if(!Number.isSafeInteger(nativeJubianRequestRatePerMinute)||nativeJubianRequestRatePerMinute<1||nativeJubianRequestRatePerMinute>10000)throw Error('Invalid native Jubian metadata rate');
+ if(!Number.isSafeInteger(productionFeeReadRatePerMinute)||productionFeeReadRatePerMinute<1||productionFeeReadRatePerMinute>10000)throw Error('Invalid production fee metadata rate');
+ const nativeJubianHttp=createNativeJubianHttp({admission:nativeJubianAdmission,fees:nativeJubianApprovals,maxRequestBytes:nativeJubianMaxRequestBytes});
+ if(typeof feishuOnlyLogin!=='boolean')throw Error('Invalid Feishu-only login policy');
+ if(feishuOnlyLogin&&!feishuLoginOptions.config)throw Error('Feishu-only login requires configured Feishu login');
+
  if(!Number.isSafeInteger(activityRequestRatePerMinute)||activityRequestRatePerMinute<1||activityRequestRatePerMinute>10000)throw Error('Invalid activity request rate');
  if(!['cloud','desktop'].includes(workspaceMode))throw Error('Invalid workspace mode');
  if(!['development','production'].includes(environment))throw Error('Invalid environment');
@@ -76,23 +106,33 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   const kbEndpoint=kb?.vaultRoot&&typeof kb.secret==='string'&&kb.secret.length>=32?createKbMcp({vaultRoot:kb.vaultRoot,personalRoot:kb.personalRoot,accounts:store,secret:kb.secret,documentGrants:kb.documentGrants,portfolioReaders:kb.portfolioReaders,authorize:authorizeKbToken,embedder:kb.embedder,vectors:kb.vectors,semanticWeight:kb.semanticWeight,semanticFloor:kb.semanticFloor,onWarn:message=>console.error('[muse-kb]',message)}):null;
  async function maintenance(){if(!maintenanceFile)return false;try{await access(maintenanceFile);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
  function workspaceMutation(path){return /^\/api\/workspace[./](create|delete|rename|update|change|insertBefore)(?:\/|$)/.test(decodeURIComponent(path));}
- const desktopModels=createDesktopModels({globalModels,flashRouting,modelConfig,forward:modelForward,now,keyPoolPolicy:modelKeyPoolPolicy,keyPool:modelKeyPool,usageLedger});
+ const validWebSearchSession=s=>{const current=sessionStore.get(s.token),account=current&&store.get(current.id);return !!current&&current.id===s.id&&current.expiry>now()&&!!account&&!account.disabled&&account.revision===current.revision;};
+ const webSearch=createWebSearch({...webSearchOptions,globalModels,now,validSession:validWebSearchSession});
+ const desktopModels=createDesktopModels({globalModels,modelConfig,forward:modelForward,now,transport:desktopModelTransport,keyPoolPolicy:modelKeyPoolPolicy,keyPool:modelKeyPool,directLeases:directModelLeases,modelUsage,usageLedger});
+ const archiveAdmission=createAccountDataAdmission(archiveAdmissionOptions);
+
  publicOrigin=new URL(publicOrigin).origin;const rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map(),kbAccessTokens=new Map(),activeTokens=new Map(),accountRevocations=new Map();
  let desktopRelay,admissionStopped=false;
- function disconnect(token){desktopRelay?.revoke(token);desktopModels.revoke(token);activeTokens.delete(token);for(const [key,grant] of kbAccessTokens)if(grant.sessionToken===token)kbAccessTokens.delete(key);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
+ function disconnect(token){desktopRelay?.revoke(token);desktopModels.revoke(token);webSearch.revoke(token);activeTokens.delete(token);for(const [key,grant] of kbAccessTokens)if(grant.sessionToken===token)kbAccessTokens.delete(key);adminAccess?.revoke(token);for(const socket of connections.get(token)||[])socket.destroy();connections.delete(token);for(const stream of httpStreams.get(token)||[])stream.destroy();httpStreams.delete(token);}
  async function revoke(token){disconnect(token);await sessionStore.revoke(token);}
  function sessionWriteFailed(){console.error('[muse-accounts] Session revocation persistence failed');}
  function revokeSoon(token){void revoke(token).catch(sessionWriteFailed);}
  function touchAccount(id){try{Promise.resolve(runtime.touch?.(id)).catch(()=>{});}catch{}}
  const changed=id=>{for(const [token,accountId] of activeTokens)if(accountId===id)disconnect(token);cookies.delete(id);const pending=sessionStore.revokeAccount(id);pending.catch(sessionWriteFailed);accountRevocations.set(id,pending);};store.on('change',changed);
- function session(req){const token=((req.url?.startsWith('/api/desktop-models/')||req.url?.startsWith('/api/jubian/voice-slots'))?req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]+)$/)?.[1]:undefined)??req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1);const s=sessionStore.get(token),a=s&&store.get(s.id);if(s&&a&&!a.disabled&&a.revision===s.revision&&(!devOnlyAdmin||a.admin)){activeTokens.set(token,s.id);return {token,...s,account:a};}if(token)revokeSoon(token);return null;}
+ function session(req){const token=((req.url?.split('?')[0]==='/studio'||req.url?.startsWith('/studio/')||req.url?.startsWith('/api/desktop-models/')||req.url?.startsWith('/api/jubian/voice-slots')||req.url?.startsWith('/api/muse/')||req.url?.startsWith('/api/admin/usage')||req.url?.startsWith('/api/admin/accounts')||req.url?.startsWith('/api/admin/studio-usage'))?req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]+)$/)?.[1]:undefined)??req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1);const s=sessionStore.get(token),a=s&&store.get(s.id);if(s&&a&&!a.disabled&&a.revision===s.revision&&(!devOnlyAdmin||a.admin)){activeTokens.set(token,s.id);return {token,...s,account:a};}if(token)revokeSoon(token);return null;}
  function originOK(req,required=false){return req.headers.origin?req.headers.origin===publicOrigin:!required&&req.headers['sec-fetch-site']!=='cross-site';}
  desktopRelay=createDesktopRelay({...desktopRelayOptions,store,publicOrigin,now,validSession:s=>{const current=sessionStore.get(s.token),account=store.get(s.id);return !!current&&current.id===s.id&&!!account&&!account.disabled&&account.revision===current.revision;}});
+ const botCoordination=providedBotCoordination??(botTeamOptions===undefined?undefined:createBotCoordination({...botTeamOptions,store,now,authorizeDevice:request=>desktopRelay.authorizeDevice(request),onlineDevices:accountId=>desktopRelay.devices({id:accountId}).filter(device=>device.state==='online')}));
+ let productionBoard=providedProductionBoard,botClosed=false;
+ const workbench=createWorkbench({store,desktopRelay,orgSnapshot:()=>feishuOrgSync?.getSnapshot(),botSnapshot:(session,query)=>botCoordination?.snapshot(session,query),productionSnapshot:session=>productionBoard?.read(session),usage:modelUsage,now,cloudDeviceId:workbenchOptions.cloudDeviceId});
  function reply(res,status,text='',extra={}){res.writeHead(status,{'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer',...extra});res.end(text);}
  // Same-origin form navigation retains Origin for the CSRF check.
- function html(res,status,text,{feishuForm=false}={}){const formAction=feishuForm&&feishuLoginOptions.config?"'self' https://accounts.feishu.cn":"'self'";reply(res,status,text,{'referrer-policy':'same-origin','content-type':'text/html; charset=utf-8','content-security-policy':`default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`});}
+ function html(res,status,text,{feishuForm=false,accountData=false}={}){const formAction=feishuForm&&feishuLoginOptions.config?"'self' https://accounts.feishu.cn":"'self'";reply(res,status,text,{'referrer-policy':'same-origin','content-type':'text/html; charset=utf-8','content-security-policy':`default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; ${accountData?"script-src 'self'; connect-src 'self'; ":''}form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`});}
+ function appendAccountData(document,admin){if(!document.includes('</main>'))throw Error('Account document has no main region');return document.replace('</main>',renderAccountData({admin,escape})+'</main>');}
+ function accountDataPage(admin){return (title,body,...options)=>page(title,body+renderAccountData({admin,escape}),...options);}
+
  function rate(req,type,limit){const time=now();for(const[k,v]of rates)if(time-v.start>=60000)rates.delete(k);const key=type+':'+(req.headers['x-real-ip']||req.socket.remoteAddress);if(!rates.has(key)&&rates.size>=10000)return false;const entry=rates.get(key)||{start:time,count:0};rates.set(key,entry);return ++entry.count<=limit;}
- async function form(req,maxBytes=8192){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>maxBytes){const e=Error('请求内容过大');e.status=413;throw e;}chunks.push(chunk);}return new URLSearchParams(Buffer.concat(chunks).toString('utf8'));}
+ async function form(req){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>8192){const e=Error('请求内容过大');e.status=413;throw e;}chunks.push(chunk);}return new URLSearchParams(Buffer.concat(chunks).toString('utf8'));}
  async function newSession(res,a,location='/'){
   const token=await sessionStore.issue({id:a.id,revision:a.revision,expiry:now()+sessionTtlMs});
   try{
@@ -111,23 +151,45 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  function fetchHeaders(req,b){const h=headers(req,b);for(const k of ['connection','upgrade','keep-alive','transfer-encoding','te','trailer','proxy-authorization','proxy-authenticate','content-length'])delete h[k];return h;}
  function responseHeaders(h,target){const result={...h};delete result['set-cookie'];if(result.location){const u=new URL(result.location,target);if(u.origin===target.origin)result.location=u.pathname+u.search+u.hash;}return result;}
  const renderLoginPage=(register,continuation,consent)=>loginPage(register,continuation,!!feishuLoginOptions.config,feishuLoginOptions.config?.appType,consent);
- const desktopLogin=createDesktopLogin({...desktopLoginOptions,publicOrigin,store,sessionStore,sessionTtlMs,cookieName,session,originOK,rate,form,reply,html,page,loginPage:renderLoginPage,escape,feishuEnabled:!!feishuLoginOptions.config,now});
+ const desktopLogin=createDesktopLogin({...desktopLoginOptions,publicOrigin,store,sessionStore,sessionTtlMs,cookieName,session,originOK,rate,form,reply,html,page,loginPage:renderLoginPage,escape,feishuEnabled:!!feishuLoginOptions.config,feeIssuers:productionFees,now});
  const feishuLogin=createFeishuLogin({...feishuLoginOptions,publicOrigin,environment,store,session,sessionStore,sessionTtlMs,cookieName,originOK,rate,form,reply,page,returnPath:desktopLogin.returnPath,desktopConsent:desktopLogin,now,allowAccount:account=>!devOnlyAdmin||account.admin});
- const workbenchLogin=createWorkbenchLogin({clients:workbenchClients,publicOrigin,session,sessionStore,store,now,rate,form,reply,page,escape,cookieName});
- const server=httpServer??http.createServer();
- server.on('request',async(req,res)=>{try{
+ const server=http.createServer(async(req,res)=>{try{
   if(!req.url.startsWith('/')||req.url.startsWith('//')){reply(res,400);return;}
   const mount=workspaceMode==='desktop'?desktopRoute(req.url):null,path=new URL(mount?.path??req.url,'http://localhost').pathname;
-  if(!mount&&await workbenchLogin(req,res,path))return;
   if(await feishuLogin.handle(req,res,path))return;
   if(await desktopLogin.handle(req,res,path))return;
   if(asrStorage&&await asrStorage.handle(req,res))return;
-  if(!mount&&await marketRoute(req,res,{market,path,currentSession:()=>session(req),originOK:required=>originOK(req,required),rate:limit=>rate(req,'market',limit),store,reply,admissionStopped}))return;
+  if(!mount&&(path==='/market'||path.startsWith('/market/')||path.startsWith('/api/market/'))){
+   if(!market){reply(res,404);return;}
+   if(!originOK(req,!['GET','HEAD'].includes(req.method))){reply(res,403);return;}
+   if(!rate(req,'market',120)){reply(res,429,JSON.stringify({error:'rate-limited'}),{'content-type':'application/json','retry-after':'60'});return;}
+   if(req.method==='GET'&&path==='/market'){reply(res,200,marketPage,{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;}
+   if(req.method==='GET'&&['/market/client.js','/market/style.css'].includes(path)){reply(res,200,await readFile(new URL(path.endsWith('.js')?'./market-client.js':'./market.css',import.meta.url)),{'content-type':path.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8'});return;}
+   if(path.startsWith('/api/market/v1/')){
+    const current=session(req);let prepared;
+    if(path==='/api/market/v1/publishers'&&req.method==='POST'){
+     if(!current?.account.admin){req.resume();reply(res,current?403:401,JSON.stringify({error:current?'admin-required':'login-required'}),{'content-type':'application/json'});return;}
+     const chunks=[];let size=0;
+     for await(const chunk of req.iterator({destroyOnReturn:false})){size+=chunk.length;if(size>16384){req.resume();reply(res,413);return;}chunks.push(chunk);}
+     prepared=Buffer.concat(chunks);let invitation;try{invitation=JSON.parse(prepared.toString('utf8'));}catch{reply(res,400);return;}
+     const member=invitation&&validId(invitation.accountId)&&store.get(invitation.accountId);
+     if(!member||member.disabled){reply(res,400,JSON.stringify({error:'invalid-publisher-account'}),{'content-type':'application/json'});return;}
+    }
+    await market.handle(req,res,current?current.account:null,prepared);return;
+   }
+   reply(res,404);return;
+  }
+  if(['/assets/admin-accounts.css','/assets/site-shell.css'].includes(path)){
+   if(!['GET','HEAD'].includes(req.method)){reply(res,405,'',{allow:'GET, HEAD'});return;}
+   const content=await readFile(new URL(path.endsWith('site-shell.css')?'./site-shell.css':'./admin-accounts.css',import.meta.url));
+   reply(res,200,req.method==='HEAD'?'':content,{'content-type':'text/css; charset=utf-8','content-length':String(content.byteLength),'cache-control':'no-cache'});return;
+  }
   if(path==='/register'&&devOnlyAdmin){reply(res,403,'开发环境仅供管理员使用');return;}
   if(['/login','/register'].includes(path)&&req.method==='GET'){const requested=new URL(req.url,publicOrigin).searchParams.get('desktop_login'),continuation=desktopLogin.returnPath(requested)==='/'?undefined:requested;let content=devOnlyAdmin?renderLoginPage(false,continuation).replace('<a href="/register">免费注册个人工作间</a>','开发验证环境 · 管理员登录'):renderLoginPage(path==='/register',continuation);if(environment==='development')content=content.replace('<h1>MUSE</h1>','<h1>MUSE</h1><div class="eyebrow">开发验证环境</div>');html(res,200,content);return;}
   if(['/spider.png','/favicon.ico'].includes(path)&&req.method==='GET'){if(logoPath)reply(res,200,await readFile(logoPath),{'content-type':'image/png'});else reply(res,204);return;}
   if(['/login','/register'].includes(path)&&req.method==='POST'){
    if(!originOK(req,true)){reply(res,403);return;}if(!rate(req,path,path==='/login'?10:5)){reply(res,429,'请稍后再试',{'retry-after':'60'});return;}
+   if(feishuOnlyLogin){reply(res,409,JSON.stringify({error:'请更新 Muse 并使用飞书登录',error_code:'feishu_login_required'}),{'content-type':'application/json; charset=utf-8'});return;}
    const f=await form(req);let a;if(path==='/register'){try{a=await store.create(f.get('username'),f.get('password'));}catch(e){html(res,400,page('注册失败',`<p>${escape(e.message)}</p><a href="/register?desktop_login=${encodeURIComponent(f.get('desktop_login')||'')}">返回注册</a>`,true));return;}}else a=await store.authenticate(f.get('username'),f.get('password'));
    if(!a||devOnlyAdmin&&!a.admin){html(res,401,page('登录失败',`<p>用户名或密码不正确，或账号不可用。</p><a href="/login?desktop_login=${encodeURIComponent(f.get('desktop_login')||'')}">返回登录</a>`,true));return;}await newSession(res,a,desktopLogin.returnPath(f.get('desktop_login')));return;
   }
@@ -142,18 +204,85 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    reply(res,result.status,result.body??'',result.headers);
    return;
   }
-  const s=session(req);if(!s){if(path==='/api/muse.activity'||path==='/api/muse/profile'||path.startsWith('/api/muse.account/')||path.startsWith('/api/jubian/voice-slots'))reply(res,401,JSON.stringify({error:'Please sign in to Muse',error_code:'account_session_expired'}),{'content-type':'application/json'});else if(path.startsWith('/api/desktop-models/'))reply(res,401,JSON.stringify({error:{message:'请先登录 Muse'}}),{'content-type':'application/json'});else reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}if(workspaceMode==='cloud')touchAccount(s.id);
+  const s=session(req);if(!s){if(path==='/studio'||path.startsWith('/studio/')||path.startsWith('/api/muse/')||path==='/api/admin/usage'||path==='/api/admin/accounts'||path==='/api/admin/studio-usage'){reply(res,401,JSON.stringify({error:{code:'account_session_expired'}}),{'content-type':'application/json','cache-control':'no-store'});return;}if(path==='/api/web/search'||path==='/api/muse.activity'||path==='/api/workbench'||path.startsWith('/api/bot-team/')||path==='/api/production'||path.startsWith('/api/production/')||path==='/api/admin/model-usage'||path.startsWith('/api/jubian/voice-slots'))reply(res,401,JSON.stringify({error:'Please sign in to Muse',error_code:'account_session_expired'}),{'content-type':'application/json'});else if(path.startsWith('/api/desktop-models/'))reply(res,401,JSON.stringify({error:{message:'请先登录 Muse'}}),{'content-type':'application/json'});else reply(res,303,'',{location:'/login'});return;}if(!originOK(req,!['GET','HEAD','OPTIONS'].includes(req.method))){reply(res,403);return;}if(workspaceMode==='cloud')touchAccount(s.id);
+  if(!mount&&(path==='/api/muse/native-jubian'||path.startsWith('/api/muse/native-jubian/'))){
+   if(admissionStopped){reply(res,503,JSON.stringify({code:'native_jubian_draining'}),{'content-type':'application/json; charset=utf-8'});return;}
+   if(await nativeJubianHttp.route(req,res,{path,session:s,currentSession:()=>session(req),publicOrigin,rate:()=>rate(req,'native-jubian:'+s.id,nativeJubianRequestRatePerMinute)}))return;
+  }
+  if(!mount&&await productionFeeRoute(req,res,{path,session:s,fees:productionFees,reply,rate:()=>rate(req,'production-fee:'+s.id,productionFeeReadRatePerMinute)}))return;
+  if(path.startsWith('/studio/api/v1/muse/company-cli/')){
+   if(!rate(req,'company-cli',240)){reply(res,429,JSON.stringify({success:false,error:{code:'company_cli_rate_limited'}}),{'content-type':'application/json','retry-after':'60'});return;}
+   if(!companyCli){reply(res,503,JSON.stringify({success:false,error:{code:'company_cli_not_configured'}}),{'content-type':'application/json'});return;}
+   await companyCli.handle(req,res,{actor:{id:s.id},isAuthorized:()=>session(req)?.token===s.token});return;
+  }
+  if(!mount&&(path==='/studio'||path.startsWith('/studio/'))){
+   const controller=new AbortController(),stream={destroy:()=>controller.abort()};
+   if(!httpStreams.has(s.token))httpStreams.set(s.token,new Set());httpStreams.get(s.token).add(stream);
+   const cancelExpiry=scheduleSessionExpiry(s.expiry,()=>controller.abort(),{now});
+   try{await studioRoute(req,res,{runtime:studioRuntime,session:s,isAuthorized:()=>{const current=session(req);return current?.token===s.token&&current.id===s.id;},publicOrigin,signal:controller.signal});}
+   finally{cancelExpiry();controller.abort();const active=httpStreams.get(s.token);active?.delete(stream);if(active?.size===0)httpStreams.delete(s.token);}
+   return;
+  }
+  if(!mount&&await studioUsageRoute(req,res,{path,session:s,currentSession:()=>session(req),store,reader:studioUsage,publicOrigin}))return;
   if(!mount&&path==='/api/muse/profile'){
    if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}
    if(new URL(req.url,publicOrigin).search){reply(res,400);return;}
-   reply(res,200,JSON.stringify(accountProfile(s.account)),{'content-type':'application/json; charset=utf-8'});return;
-  }
-  if(path==='/api/muse.account/details'){
-   if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}
-   const query=accountDetailsQuery(new URL(req.url,publicOrigin).searchParams),details=await usageLedger.details(s.account,query,{tracking:'gateway-and-desktop'});
+   const profile=accountProfile(s.account,{organizationSnapshot:feishuOrgSync?.getSnapshot()});
    if(session(req)?.token!==s.token){reply(res,401);return;}
-   reply(res,200,JSON.stringify(details),{'content-type':'application/json; charset=utf-8'});return;
+   reply(res,200,JSON.stringify(profile),{'content-type':'application/json; charset=utf-8'});return;
   }
+  if(!mount&&await accountDataRoute(req,res,{path,publicOrigin,session:s,currentSession:()=>session(req),usageLedger,sessionArchives,store,admission:archiveAdmission}))return;
+  if(['/account-data-client.js','/account-data.css'].includes(path)&&req.method==='GET'){reply(res,200,await readFile(new URL('.'+path,import.meta.url)),{'content-type':path.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8'});return;}
+  if(!mount&&path.startsWith('/api/bot-team/')){
+   if(!botCoordination){reply(res,503,JSON.stringify({ok:false,error:'Bot coordination is not configured'}),{'content-type':'application/json; charset=utf-8'});return;}
+   await botCoordination.handle(req,res,s,path);return;
+  }
+  if(!mount&&(path==='/api/production'||path.startsWith('/api/production/'))){
+   const answer=(status,value)=>reply(res,status,JSON.stringify(value),{'content-type':'application/json; charset=utf-8'});
+   if(!productionBoard){answer(503,{ok:false,error:'Production board is not configured'});return;}
+   try{
+    if(path==='/api/production'&&req.method==='GET'){answer(200,{ok:true,value:productionBoard.read(s)});return;}
+    if(path==='/api/production/script'&&req.method==='GET'){
+     const params=new URL(req.url,publicOrigin).searchParams,value=await productionBoard.download(s,{key:params.get('key'),revision:params.get('revision'),fileToken:params.get('fileToken')});
+     const type=/^[a-zA-Z0-9!#$&^_.+-]+\/[a-zA-Z0-9!#$&^_.+-]+$/.test(value.contentType??'')?value.contentType:'application/octet-stream';
+     reply(res,200,value.bytes,{'content-type':type,'content-disposition':`attachment; filename="script"; filename*=UTF-8''${encodeURIComponent(value.filename).replace(/['()*]/g,char=>'%'+char.charCodeAt(0).toString(16).toUpperCase())}`,'x-content-type-options':'nosniff'});return;
+    }
+    if(req.method==='POST'&&['/api/production/sync','/api/production/decision'].includes(path)){
+     if(!s.account.admin){answer(403,{ok:false,error:'Administrator access required'});return;}
+     if(req.headers['content-type']?.split(';')[0].trim()!=='application/json'){answer(415,{ok:false,error:'JSON body required'});return;}
+     const chunks=[];let bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>32768){answer(413,{ok:false,error:'Production request too large'});return;}chunks.push(chunk);}
+     let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch(error){answer(400,{ok:false,error:'Invalid JSON'});return;}
+     if(!body||typeof body!=='object'||Array.isArray(body)){answer(400,{ok:false,error:'Invalid production request'});return;}
+     const value=path.endsWith('/sync')?await productionBoard.sync():await productionBoard.decide(s,body);answer(200,{ok:true,value});return;
+    }
+    reply(res,405,'',{allow:path.endsWith('/script')||path==='/api/production'?'GET':'POST'});return;
+   }catch(error){const status=[400,401,403,404,409,413,415,429,502,503].includes(error.status)?error.status:503;answer(status,{ok:false,error:status===409?'制作表或审批已更新，请刷新后核对':status===403?'当前账号没有操作权限':'制作服务暂不可用，请核对原记录后重试'});return;}
+  }
+  if(!mount&&workspaceMode==='desktop'&&['/workbench','/api/workbench','/workbench.js','/workbench.css'].includes(path)){
+   if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}
+   if(path==='/workbench.js'||path==='/workbench.css'){reply(res,200,await readFile(new URL('.'+path,import.meta.url)),{'content-type':path.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});return;}
+   let model;try{model=workbench.read(s,Object.fromEntries(new URL(req.url,publicOrigin).searchParams));}
+   catch(error){reply(res,error.status??500,JSON.stringify({error:error.status===403?'Administrator access required':error.status===400?'Invalid workbench filters':'Workbench temporarily unavailable'}),{'content-type':'application/json; charset=utf-8'});return;}
+   if(path==='/api/workbench')reply(res,200,JSON.stringify(model),{'content-type':'application/json; charset=utf-8'});
+   else reply(res,200,renderWorkbench(model),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
+   return;
+  }
+  if(path==='/api/admin/model-usage'||path==='/admin/usage'){
+   const answer=(status,value)=>reply(res,status,JSON.stringify(value),{'content-type':'application/json; charset=utf-8'});
+   if(!s.account.admin){answer(403,{error:'Administrator access required'});return;}
+   if(req.method!=='GET'){reply(res,405,'',{allow:'GET'});return;}
+   if(!modelUsage){answer(503,{error:'Model usage recording is not configured'});return;}
+   const params=new URL(req.url,publicOrigin).searchParams;let filters;
+   try{filters=modelUsageQuery(Object.fromEntries(['from','to','accountId','provider','model'].filter(key=>params.has(key)).map(key=>[key,params.get(key)])),now());}
+   catch(error){answer(400,{error:'Invalid model usage filters; use a range of 1 to 366 Beijing calendar days'});return;}
+   const summary=modelUsage.summary(filters);
+   const accounts=store.list().map(account=>({id:account.id,username:account.username,feishuIdentities:(account.feishuIdentities??[]).map(identity=>({name:identity.name}))}));
+   if(path==='/api/admin/model-usage'){const labels=new Map(accounts.map(account=>[account.id,account]));answer(200,{...summary,users:summary.users.map(row=>({...row,username:labels.get(row.accountId)?.username??null,feishuNames:labels.get(row.accountId)?.feishuIdentities.map(identity=>identity.name)??[]}))});}
+   else html(res,200,renderModelUsage({summary,accounts,escape,page:(title,body)=>page(title,body,false,{active:'usage',admin:s.account.admin,username:s.account.username})}));
+   return;
+  }
+  if(path==='/api/web/search'){await webSearch.handle(req,res,s);return;}
+
   if(path==='/api/muse.activity'){
    if(req.method!=='POST'){reply(res,405,'',{allow:'POST'});return;}
    if(req.headers['content-type']?.split(';')[0].trim()!=='application/json'){reply(res,415);return;}
@@ -252,7 +381,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    }catch(error){html(res,error.status||500,page('管理员验证',`<p>${escape(error.status?error.message:'操作失败，请重试')}</p><a href="/admin/control">返回管理员中心</a>`));return;}
   }
   if(context){touchAccount(targetId);await adminAccess.record(s.account,req.method+' '+path,context.target.id);}
-  if(await feedbackRoute({req,res,path,actor:s.account,environment,feedback,rate}))return;
+  if(await feedbackRoute({req,res,path,actor:s.account,environment,feedback,feedbackAutomation,rate}))return;
   if(workspaceMode==='cloud'&&!s.account.admin&&/^\/api\/(settings[/.]|credentials[/.]|llm[/.](?:discoverModels|listConfigurableProviders)(?:\/|$))/.test(decodeURIComponent(path))){reply(res,403,'模型配置仅管理员可修改');return;}
   let bufferedBody;
   const rpcMethod=decodeURIComponent(path).replace(/^\/api\//,'').replace(/\./g,'/');
@@ -284,8 +413,10 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   }
   if(path==='/logout'){if(req.method!=='POST'){reply(res,405,'',{allow:'POST'});return;}await revoke(s.token);reply(res,303,'',{location:'/login','set-cookie':`${cookieName}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`});return;}
   if(path==='/api/muse.account'&&req.method==='GET'){reply(res,200,JSON.stringify({username:s.account.username,admin:s.account.admin,environment,workspace:'/workspace',workspaceLabel:context?.target.label||s.account.username,fullAdmin:!!context,targetId:context?.target.id,targetLabel:context?.target.label,accountId:s.account.id,accountUrl:'/account',adminUrl:s.account.admin?'/admin':null}),{'content-type':'application/json; charset=utf-8'});return;}
-  if(path==='/account'&&req.method==='GET'){const query=accountDetailsQuery(new URL(req.url,publicOrigin).searchParams),details=await usageLedger.details(s.account,query,{tracking:'gateway-and-desktop'});if(session(req)?.token!==s.token){reply(res,401);return;}html(res,200,page('我的账户',`<h1>我的账户</h1>${devOnlyAdmin?'<p>开发验证环境</p>':''}<p>${escape(s.account.username)}</p><nav><a href="/">进入工作间</a>${s.account.admin?'<a href="/admin">管理账户</a>':''}<form action="/logout" method="post"><button>退出登录</button></form></nav>${renderAccountDetails({details,query,escape})}${renderAccountIdentity({account:s.account,feishuEnabled:feishuLogin.enabled,feishuAppType:feishuLogin.appType,escape})}${s.account.passwordLogin?`<h2>修改密码</h2><form action="/account/password" method="post"><label>原密码<input name="originalPassword" type="password" autocomplete="current-password" maxlength="128" required></label><label>新密码<input name="password" type="password" autocomplete="new-password" maxlength="128" required></label><button>修改密码</button></form><small>修改后需要重新登录。</small>`:'<p>此账号使用飞书登录，无需 Muse 密码。</p>'}`),{feishuForm:feishuLogin.enabled});return;}
+  if(path==='/account'&&req.method==='GET'){html(res,200,accountDataPage(false)('我的账户',`<h1>我的账户</h1>${devOnlyAdmin?'<p>开发验证环境</p>':''}<p>${escape(s.account.username)}</p><nav><a href="/">进入工作间</a>${s.account.admin?'<a href="/admin">管理账户</a>':''}<form action="/logout" method="post"><button>退出登录</button></form></nav>${renderAccountIdentity({account:s.account,feishuEnabled:feishuLogin.enabled,feishuAppType:feishuLogin.appType,escape})}${s.account.passwordLogin&&!feishuOnlyLogin?`<h2>修改密码</h2><form action="/account/password" method="post"><label>原密码<input name="originalPassword" type="password" autocomplete="current-password" maxlength="128" required></label><label>新密码<input name="password" type="password" autocomplete="new-password" maxlength="128" required></label><button>修改密码</button></form><small>修改后需要重新登录。</small>`:'<p>此账号使用飞书登录，无需 Muse 密码。</p>'}`,false,{active:'account',admin:s.account.admin,username:s.account.username}),{feishuForm:feishuLogin.enabled,accountData:true});return;}
+
   if(path==='/account/password'){
+   if(feishuOnlyLogin){reply(res,409,'当前仅开放飞书登录，账号密码操作已关闭');return;}
    if(req.method!=='POST'){reply(res,405,'',{allow:'POST'});return;}
    if(!rate(req,'password:'+s.id,5)){reply(res,429,'请稍后再试',{'retry-after':'60'});return;}
    const f=await form(req);try{await store.changePassword(s.id,f.get('originalPassword'),f.get('password'));}catch{html(res,400,page('修改密码失败','<p>原密码不正确，或新密码不符合要求。</p><a href="/account">返回我的账户</a>',true));return;}await accountRevocations.get(s.id);
@@ -296,7 +427,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
    if(path==='/admin/groups'){
     if(req.method==='GET'){
      const account=store.get(new URL(req.url,publicOrigin).searchParams.get('id'));
-     if(!account){reply(res,404);return;}html(res,200,renderAccountGroups({account,escape,page}));return;
+     if(!account){reply(res,404);return;}html(res,200,renderAccountGroups({account,escape,page:(title,body)=>page(title,body,false,{active:'users',admin:true,username:s.account.username})}));return;
     }
     if(req.method!=='POST'){reply(res,405,'',{allow:'GET, POST'});return;}
     const fields=await form(req,131072),id=fields.get('id'),names=fields.getAll('groupName'),descriptions=fields.getAll('groupDescription');
@@ -320,20 +451,27 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
     }
     reply(res,405);return;
    }
-   if(path==='/admin'&&req.method==='GET'){const accounts=store.list(),adminCentre=!!adminAccess&&Object.keys(adminHosts).length>0;html(res,200,renderAdminAccounts({accounts,session:s,devicesOf:id=>desktopRelay.devices({id}),adminCentre,adminHosts,now:now(),feishuEnabled:feishuLogin.enabled,escape,page,environment}));return;}
-   if(req.method==='POST'&&['/admin/disable','/admin/reset'].includes(path)){const f=await form(req),id=f.get('id');if(!validId(id)||!store.get(id)||id===s.id){reply(res,400,'操作不可用');return;}try{if(path==='/admin/disable'){await store.setDisabled(id,f.get('disabled')==='true');if(f.get('disabled')==='true')await runtime.stop?.(id);}else await store.resetPassword(id,f.get('password'));await accountRevocations.get(id);}catch{reply(res,400,'操作失败');return;}reply(res,303,'',{location:'/admin'});return;}
+   if(path==='/admin/organization/refresh'&&req.method==='POST'){
+    if(!feishuOrgSync){reply(res,503,'组织信息同步尚未配置');return;}
+    if(!rate(req,'organization-refresh:'+s.id,5)){reply(res,429,'请稍后再试',{'retry-after':'60'});return;}
+    void feishuOrgSync.refresh().catch(()=>console.error('MUSE organization synchronization failed'));
+    reply(res,303,'',{location:'/admin?org_refresh=started'});return;
+   }
+   if(path==='/admin'&&req.method==='GET'){const accounts=store.list(),adminCentre=!!adminAccess&&Object.keys(adminHosts).length>0;html(res,200,appendAccountData(renderAdminAccounts({accounts,session:s,devicesOf:id=>desktopRelay.devices({id}),adminCentre,adminHosts,now:now(),feishuEnabled:feishuLogin.enabled,passwordAuthEnabled:!feishuOnlyLogin,orgData:feishuOrgSync?.getSnapshot(),filters:Object.fromEntries(new URL(req.url,publicOrigin).searchParams),escape,page,environment,modelUsageEnabled:!!modelUsage}),true),{accountData:true});return;}
+   if(req.method==='POST'&&['/admin/disable','/admin/reset'].includes(path)){if(path==='/admin/reset'&&feishuOnlyLogin){reply(res,409,'当前仅开放飞书登录，账号密码操作已关闭');return;}const f=await form(req),id=f.get('id');if(!validId(id)||!store.get(id)||id===s.id){reply(res,400,'操作不可用');return;}try{if(path==='/admin/disable'){await store.setDisabled(id,f.get('disabled')==='true');if(workspaceMode==='cloud'&&f.get('disabled')==='true')await runtime.stop?.(id);}else await store.resetPassword(id,f.get('password'));await accountRevocations.get(id);}catch{reply(res,400,'操作失败');return;}reply(res,303,'',{location:'/admin'});return;}
+
    reply(res,404);return;
   }
   if(workspaceMode==='desktop'&&!context){
+   if(!mount&&path==='/'&&req.method==='GET'){reply(res,303,'',{location:'/workbench'});return;}
    if(await maintenance()){reply(res,503,'Muse 正在维护，请稍后重试。',{'retry-after':'30'});return;}
-   const devices=desktopRelay.devices(s),available=devices.filter(device=>device.state==='online'),mobile=new URL(req.url,publicOrigin).searchParams.get('mobile')==='1';
-   if(!mount&&path==='/'&&req.method==='GET'&&available.length===1){reply(res,303,'',{location:desktopPrefix(available[0].id)+new URL(req.url,publicOrigin).search});return;}
+   const devices=desktopRelay.devices(s),available=devices.filter(device=>device.state==='online');
    if(!mount&&path==='/computers'&&req.method==='GET'){
-    reply(res,200,page('选择电脑',desktopPicker(devices,undefined,{mobile})),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;
+    reply(res,200,page('选择电脑',desktopPicker(devices),false,{active:'computers',admin:s.account.admin,username:s.account.username}),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;
    }
    if(await desktopRelay.forward(req,res,s))return;
    if(path==='/'&&req.method==='GET'){
-    reply(res,200,page('选择电脑',desktopPicker(devices,mount?.deviceId,{mobile})),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
+    reply(res,200,page('选择电脑',desktopPicker(devices,mount?.deviceId),false,{active:'computers',admin:s.account.admin,username:s.account.username}),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
    }else reply(res,503,JSON.stringify({error:!mount&&available.length>1?'desktop-selection-required':'desktop-offline',message:!mount&&available.length>1?'请先选择要操作的电脑':'您的电脑上的 Muse 未启动'}),{'content-type':'application/json; charset=utf-8','retry-after':'5'});
    return;
   }
@@ -365,15 +503,22 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   try{const context=scope(req,s),targetId=context?.target.id||s.id;if(workspaceMutation(new URL(req.url,'http://localhost').pathname)&&!context){reject(403);return;}if(await maintenance()){reject(503);return;}const b=await backend(targetId);if(!scopeValid(req,s)){reject(401);return;}touchAccount(targetId);const proxy=http.request({hostname:b.target.hostname,port:b.target.port,path:cleanUrl(req),headers:headers(req,b)});
    proxy.on('upgrade',(response,upstream,backendHead)=>{if(!scopeValid(req,s)){upstream.destroy();reject(401);return;}if(!connections.has(s.token))connections.set(s.token,new Set());connections.get(s.token).add(socket);const cancelExpiry=scheduleSessionExpiry(Math.min(s.expiry,context?.expiry??Infinity),()=>context?socket.destroy():revokeSoon(s.token),{now});const touch=setInterval(()=>touchAccount(targetId),30000);touch.unref();socket.on('close',()=>{cancelExpiry();clearInterval(touch);connections.get(s.token)?.delete(socket);upstream.destroy();});socket.on('error',()=>upstream.destroy());upstream.on('error',()=>socket.destroy());upstream.on('close',()=>socket.destroy());socket.write(`HTTP/1.1 101 Switching Protocols\r\n${Object.entries(responseHeaders(response.headers,b.target)).map(([k,v])=>`${k}: ${v}\r\n`).join('')}\r\n`);if(head.length)upstream.write(head);if(backendHead.length)socket.write(backendHead);upstream.pipe(socket);socket.pipe(upstream);});proxy.on('response',r=>{r.resume();reject(502);});proxy.on('error',()=>reject(503));proxy.end();
   }catch{reject(503);}
- });server.on('close',()=>{desktopRelay.close();desktopModels.close();store.off('change',changed);for(const token of activeTokens.keys())disconnect(token);});server.stopAdmission=()=>{admissionStopped=true;};server.closeFeishuLogin=()=>feishuLogin.close();return server;
+ });
+ server.botCoordination=botCoordination;
+ server.attachProductionBoard=board=>{if(server.listening||productionBoard)throw Error('Attach the production board once before listening');productionBoard=board;};
+ server.closeProductionBoard=()=>productionBoard?.close();
+ server.closeBotCoordination=()=>{if(!botClosed){botClosed=true;botCoordination?.close();}};
+ server.on('close',()=>{desktopRelay.close();desktopModels.close();void webSearch.close();store.off('change',changed);for(const token of activeTokens.keys())disconnect(token);void Promise.resolve(server.closeProductionBoard()).catch(()=>console.error('MUSE production board shutdown failed'));server.closeBotCoordination();});
+ server.stopAdmission=()=>{admissionStopped=true;};server.closeFeishuLogin=()=>feishuLogin.close();server.closeWebSearch=()=>webSearch.close();server.closeFeishuOrganization=()=>feishuOrgSync?.close();server.closeNativeJubian=()=>nativeJubianHttp.close();return server;
 }
 
 /**
- * Stop ASR admission and release owned sockets and signals after synchronous responses settle.
- * @param options Listening gateway, provider service, and owned model resources.
+ * Stop task admission and release owned sockets and signals after synchronous responses settle.
+ * @param options Listening gateway, feedback worker, provider service, and owned model resources.
  * @returns An idempotent close operation rejecting only after cleanup completes.
  */
-export function installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,usageLedger,flashRouting,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
+export function installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,productionFees,nativeJubianAdmission,feedbackAutomation,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
+
  const sockets=new Set();let completion;
  const connection=socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));};
  accountServer.on('connection',connection);
@@ -382,16 +527,23 @@ export function installGatewayShutdown({accountServer,asr,market,modelRelay,mode
   if(completion)return completion;
   accountServer.stopAdmission();stopSweep();
   completion=(async()=>{
-   let failure;try{await accountServer.closeFeishuLogin?.();}catch(error){failure=error;}
+   let failure;try{await feedbackAutomation?.close();}catch(error){failure=error;}
+   try{await accountServer.closeFeishuLogin?.();}catch(error){failure??=error;}
+   try{await accountServer.closeFeishuOrganization?.();}catch(error){failure??=error;}
+   try{await accountServer.closeProductionBoard?.();}catch(error){failure??=error;}
+   try{await accountServer.closeWebSearch?.();}catch(error){failure??=error;}
    try{await asr?.close();}catch(error){failure??=error;}
+   try{await companyCli?.close();}catch(error){failure??=error;}
    try{await market?.close();}catch(error){failure??=error;}
    for(const socket of sockets)socket.destroy();
-   const closed=await Promise.allSettled([closeServer(accountServer),...modelRelay?[closeServer(modelRelay)]:[]]);
-   try{await usageLedger?.flush();}catch(error){failure??=error;}
-   try{await flashRouting?.flush();}catch(error){failure??=error;}
-   modelKeyPool?.close();accountServer.off('connection',connection);
+   let nativeDrained=false;
+   const closed=await Promise.allSettled([Promise.resolve().then(()=>studioRuntime?.close()),Promise.resolve().then(async()=>{await accountServer.closeNativeJubian?.();nativeDrained=true;}),closeServer(accountServer),...modelRelay?[closeServer(modelRelay)]:[],Promise.resolve().then(()=>directModelLeases?.close())]);
+   const stored=await Promise.allSettled([usageLedger?.flush(),sessionArchives?.flush()]);
+   if(nativeDrained){try{await nativeJubianAdmission?.close();}catch(error){failure??=error;}try{await productionFees?.close();}catch(error){failure??=error;}}
+   modelKeyPool?.close();try{await modelUsage?.close();}catch(error){failure??=error;}accountServer.off('connection',connection);
+
    signals.off('SIGTERM',signal);signals.off('SIGINT',signal);
-   if(failure)throw failure;for(const result of closed)if(result.status==='rejected')throw result.reason;
+   if(failure)throw failure;for(const result of [...closed,...stored])if(result.status==='rejected')throw result.reason;
   })();
   return completion;
  }
@@ -400,25 +552,58 @@ export function installGatewayShutdown({accountServer,asr,market,modelRelay,mode
  return {close};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href){
- if(process.env.MUSE_DESKTOP_MODEL_TRANSPORT!==undefined&&process.env.MUSE_DESKTOP_MODEL_TRANSPORT!=='relay')throw Error('MUSE_DESKTOP_MODEL_TRANSPORT only accepts relay: Desktop direct model access was removed and supplier credentials never leave the gateway. Remove the setting and rotate every supplier key that direct access distributed');
+ const desktopModelTransport=process.env.MUSE_DESKTOP_MODEL_TRANSPORT||'relay';
+ if(!['relay','direct'].includes(desktopModelTransport))throw Error('MUSE_DESKTOP_MODEL_TRANSPORT must be relay or direct');
  for(const name of ['MUSE_DESKTOP_MODEL_MAX_ACTIVE','MUSE_DESKTOP_MODEL_MAX_TOTAL'])if(process.env[name]!==undefined)throw Error(name+' is no longer supported; remove it to use unrestricted model relay concurrency');
- for(const name of ['MUSE_ZHIPU_DIRECT_TOKEN_MS','MUSE_ZHIPU_DIRECT_REQUEST_MS','MUSE_ZHIPU_DIRECT_CHECK_MS','MUSE_ZHIPU_DIRECT_GRACE_MS','MUSE_USAGE_RATE_PER_MINUTE'])if(process.env[name]!==undefined)throw Error(name+' is no longer supported; Desktop direct model access and its usage reports were removed');
+ const desktopRelayOptions=process.env.MUSE_DESKTOP_MAX_DEVICES===undefined?{}:{maxDevices:Number(process.env.MUSE_DESKTOP_MAX_DEVICES)};
  const workspaceMode=process.env.MUSE_WORKSPACE_MODE||'desktop';
+ const studioConfig=await loadStudioConfig(process.env.MUSE_STUDIO_CONFIG);
+ const studioRuntime=studioConfig?await createStudioRuntime(studioConfig,{publicOrigin:process.env.MUSE_PUBLIC_ORIGIN||'https://muse.aigc-pipeline.cn'}):undefined;
+ const studioUsage=studioConfig?createStudioUsageReader(studioConfig):undefined;
  const accountFile=resolve(process.env.MUSE_ACCOUNTS_FILE||'/var/lib/muse/accounts.json');
- const usageLedger=await openUsageLedger(process.env.MUSE_USAGE_FILE??join(dirname(accountFile),'model-usage.jsonl'));
  const sessionStore=await openSessionStore(resolveSessionFile(accountFile,process.env.MUSE_SESSIONS_FILE));
  const sessionTtlMs=resolveSessionTtlMs();
  const activityRequestRatePerMinute=process.env.MUSE_ACTIVITY_RATE_PER_MINUTE===undefined?120:Number(process.env.MUSE_ACTIVITY_RATE_PER_MINUTE);
  const feishuConfig=await loadFeishuLoginConfig(process.env.MUSE_FEISHU_LOGIN_CONFIG,{publicOrigin:process.env.MUSE_PUBLIC_ORIGIN||'https://muse.aigc-pipeline.cn',environment:process.env.MUSE_ENVIRONMENT||(process.env.MUSE_DEV_ONLY_ADMIN==='true'?'development':'production')});
+ const feishuOnlyLogin=resolveFeishuOnlyLogin(process.env.MUSE_FEISHU_ONLY_LOGIN,!!feishuConfig);
  const {createRuntime}=await import('./runtime.mjs');const store=await openStore(accountFile);const runtime=await createRuntime();
+ const productionFees=await loadProductionFees(process.env.MUSE_PRODUCTION_APPROVAL_CONFIG,{accounts:store,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN||'https://muse.aigc-pipeline.cn'});
+ let nativeJubianAdmission;
+ try{nativeJubianAdmission=await loadNativeJubianAdmission(process.env.MUSE_NATIVE_JUBIAN_ADMISSION_CONFIG,{accounts:store,nativeApprovals:productionFees?{verify:productionFees.verifyNativeJubian.bind(productionFees),verifyObservation:productionFees.verifyNativeJubianObservation.bind(productionFees),verifyBudget:productionFees.verifyNativeJubianBudget.bind(productionFees),verifySourceConsent:productionFees.verifyNativeJubianSourceConsent.bind(productionFees),verifySourceManaged:productionFees.verifyNativeJubianSourceManaged.bind(productionFees)}:undefined});}
+ catch(error){productionFees?.close();throw error;}
+ const usageLedger=await openUsageLedger(process.env.MUSE_USAGE_ROOT||join(dirname(accountFile),'usage'),{maxQueryDays:process.env.MUSE_USAGE_QUERY_DAYS===undefined?366:Number(process.env.MUSE_USAGE_QUERY_DAYS)});
+ const sessionArchives=await openSessionArchives(process.env.MUSE_SESSION_ARCHIVES_ROOT||join(dirname(accountFile),'session-archives'),{
+  ...process.env.MUSE_ARCHIVE_REVISION_BYTES===undefined?{}:{maxRevisionBytes:Number(process.env.MUSE_ARCHIVE_REVISION_BYTES)},
+  ...process.env.MUSE_ARCHIVE_ATTACHMENT_BYTES===undefined?{}:{maxAttachmentBytes:Number(process.env.MUSE_ARCHIVE_ATTACHMENT_BYTES)},
+  ...process.env.MUSE_ARCHIVE_EVENT_LIMIT===undefined?{}:{maxEvents:Number(process.env.MUSE_ARCHIVE_EVENT_LIMIT)},
+  ...process.env.MUSE_ARCHIVE_ATTACHMENT_LIMIT===undefined?{}:{maxAttachmentsPerRevision:Number(process.env.MUSE_ARCHIVE_ATTACHMENT_LIMIT)},
+  ...process.env.MUSE_ARCHIVE_REVISION_LIMIT===undefined?{}:{maxRevisionsPerSession:Number(process.env.MUSE_ARCHIVE_REVISION_LIMIT)},
+  ...process.env.MUSE_ARCHIVE_ACCOUNT_BYTES===undefined?{}:{maxAccountBytes:Number(process.env.MUSE_ARCHIVE_ACCOUNT_BYTES)},
+ });
+ const archiveAdmissionOptions={
+  ...process.env.MUSE_ARCHIVE_UPLOADS_PER_ACCOUNT===undefined?{}:{maxUploadsPerAccount:Number(process.env.MUSE_ARCHIVE_UPLOADS_PER_ACCOUNT)},
+  ...process.env.MUSE_ARCHIVE_UPLOADS_TOTAL===undefined?{}:{maxUploadsTotal:Number(process.env.MUSE_ARCHIVE_UPLOADS_TOTAL)},
+ };
+ const orgInterval=Number(process.env.MUSE_FEISHU_ORG_SYNC_INTERVAL_MS??900000);
+ if(!Number.isSafeInteger(orgInterval)||orgInterval<60000||orgInterval>86400000)throw Error('Invalid Feishu organization sync interval');
+ const feishuOrgSync=feishuConfig?.appType==='custom'?createFeishuOrgCoordinator({config:feishuConfig,store}):undefined;
+
  const modelConfig=process.env.MUSE_MODEL_CONFIG?await openModelConfig(process.env.MUSE_MODEL_CONFIG):undefined;
  let globalModels,modelRelay,modelSecret;
  if(modelConfig){const {Config,discoverModels}=await import('../node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js');globalModels=await openGlobalModels(process.env.MUSE_MODEL_CONFIG+'.native',{legacyConfig:modelConfig,schema:restrictModelSchema(Config.toJSON()),discover:discoverModels});modelSecret=(await readFile(process.env.MUSE_MODEL_SECRET,'utf8')).trim();if(modelSecret.length<32)throw Error('Invalid model relay secret');}
- const flashRouting=await openDeepSeekFlashRouting({configFile:process.env.MUSE_DEEPSEEK_FLASH_ROUTING,
-  affinityFile:join(dirname(accountFile),'deepseek-flash-affinity.json'),globalModels});
+ if(globalModels&&process.env.MUSE_YUNYING_BOOTSTRAP_FILE){
+  try{const {bootstrapRelease}=await import('./yunying-bootstrap.mjs');const result=await bootstrapRelease({models:globalModels,keyPath:process.env.MUSE_YUNYING_BOOTSTRAP_FILE});console.log('[muse-yunying-bootstrap] '+result.status);}
+  catch{console.error('[muse-yunying-bootstrap] unavailable');}
+ }
+ const modelUsage=await openModelUsage(process.env.MUSE_MODEL_USAGE_FILE??join(dirname(accountFile),'model-usage','requests.sqlite'));
  const modelKeyPoolPolicy=resolveModelKeyPoolPolicy(process.env);
  const modelKeyPool=createModelKeyPool({keys:()=>globalModels?.credentialPool?.('zhipu-official')??[],...modelKeyPoolPolicy});
- const feedback=await openFeedback(join(dirname(accountFile),'feedback'));
+ const directModelLeases=await openDirectModelLeases({pool:modelKeyPool,globalModels,file:join(dirname(accountFile),'model-direct-leases.json'),policy:resolveDirectLeasePolicy(process.env),allowAcquire:desktopModelTransport==='direct'});
+ const feedbackRoot=join(dirname(accountFile),'feedback');
+ const feedback=await openFeedback(feedbackRoot);
+ const feedbackAiConfig=await loadFeedbackAiConfig(process.env.MUSE_FEEDBACK_AI_CONFIG);
+ const feedbackAnalyzer=feedbackAiConfig?createFeedbackAnalyzer(feedbackAiConfig,{auditRoot:join(feedbackRoot,'.automation','audit'),readAttachment:(id,index)=>feedback.attachment({admin:true},id,index)}):null;
+ const feedbackAutomation=await openFeedbackAutomation({root:join(feedbackRoot,'.automation'),feedback,analyze:feedbackAnalyzer,config:{analysisTimeoutMs:feedbackAiConfig?.timeoutMs??60000}});
  const adminAccess=process.env.MUSE_ADMIN_ROOT?await openAdminAccess(process.env.MUSE_ADMIN_ROOT):undefined;
  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};
  const kb=await loadKnowledgeBase();
@@ -450,11 +635,28 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;asrRequestRatePerMinute=config.requestRatePerMinute;
  }
- const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},workbenchClients:await loadWorkbenchClients(process.env.MUSE_WORKBENCH_LOGIN_CONFIG),modelConfig,globalModels,flashRouting,modelKeyPoolPolicy,modelKeyPool,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,usageLedger,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
- if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,flashRouting,secret:modelSecret,accounts:store,usageLedger,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
- let sweepInterval;
- installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,usageLedger,flashRouting,stopSweep:()=>clearInterval(sweepInterval)});
- accountServer.listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>{console.log('MUSE accounts gateway listening on loopback:'+accountServer.address().port);if(asr)void asr.start().catch(()=>console.error('MUSE ASR startup failed'));});
+ const companyCli=await loadCompanyCliService(process.env.MUSE_COMPANY_CLI_CONFIG,{accounts:store,studioRuntime,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN||'https://muse.aigc-pipeline.cn'});
+ const accountServer=createAccountServer({store,runtime,workspaceMode,desktopRelayOptions,workbenchOptions:{cloudDeviceId:process.env.MUSE_CLOUD_BOT_DEVICE_ID},botTeamOptions:process.env.MUSE_BOT_TEAM_DB?{file:process.env.MUSE_BOT_TEAM_DB,...process.env.MUSE_BOT_STATUS_TTL_MS?{statusTtlMs:Number(process.env.MUSE_BOT_STATUS_TTL_MS)}:{}}:undefined,feishuLoginOptions:{config:feishuConfig},feishuOnlyLogin,feishuOrgSync,modelConfig,globalModels,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,studioUsage,productionFees,nativeJubianAdmission,nativeJubianApprovals:productionFees,nativeJubianMaxRequestBytes:process.env.MUSE_NATIVE_JUBIAN_REQUEST_BYTES===undefined?262144:Number(process.env.MUSE_NATIVE_JUBIAN_REQUEST_BYTES),nativeJubianRequestRatePerMinute:process.env.MUSE_NATIVE_JUBIAN_RATE_PER_MINUTE===undefined?120:Number(process.env.MUSE_NATIVE_JUBIAN_RATE_PER_MINUTE),productionFeeReadRatePerMinute:process.env.MUSE_FEE_READ_RATE_PER_MINUTE===undefined?120:Number(process.env.MUSE_FEE_READ_RATE_PER_MINUTE),archiveAdmissionOptions,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,feedbackAutomation,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,secret:modelSecret,accounts:store,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy,modelUsage,usageLedger}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
+ let sweepInterval,orgTimer,productionTimer;
+ if(process.env.MUSE_PRODUCTION_BOARD_CONFIG||process.env.MUSE_PRODUCTION_BOARD_DB){
+  if(!process.env.MUSE_PRODUCTION_BOARD_CONFIG||!process.env.MUSE_PRODUCTION_BOARD_DB||!accountServer.botCoordination||!feishuConfig)throw Error('Production board requires its mapping, database, Bot coordination and existing Feishu identity');
+  const {loadProductionConfig,createFeishuProductionSource}=await import('./production-source.mjs');
+  const {openProductionBoard}=await import('./production-board.mjs');
+  const config=await loadProductionConfig(process.env.MUSE_PRODUCTION_BOARD_CONFIG),source=createFeishuProductionSource({credentials:feishuConfig,config});
+  const coordination=accountServer.botCoordination,board=await openProductionBoard({file:process.env.MUSE_PRODUCTION_BOARD_DB,config,source,proposeTask:input=>coordination.dispatchTask(input),taskById:id=>coordination.task(id),lookupTask:request=>coordination.findProposal(request),deviceOwner:id=>coordination.readyDeviceOwner(id)});
+  accountServer.attachProductionBoard(board);
+  const synchronize=()=>void board.sync().catch(()=>console.error('MUSE production source synchronization failed'));
+  synchronize();productionTimer=setInterval(synchronize,config.intervalMs);productionTimer.unref();
+ }
+ installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,productionFees,nativeJubianAdmission,feedbackAutomation,stopSweep:()=>{clearInterval(sweepInterval);clearInterval(orgTimer);clearInterval(productionTimer);}});
+ accountServer.listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>{
+  console.log('MUSE accounts gateway listening on loopback:'+accountServer.address().port);
+  void feedbackAutomation.start().catch(()=>console.error('MUSE feedback automation startup failed'));
+  if(asr)void asr.start().catch(()=>console.error('MUSE ASR startup failed'));
+  if(feishuOrgSync){const sync=()=>void feishuOrgSync.refresh().catch(()=>console.error('MUSE organization synchronization failed'));sync();orgTimer=setInterval(sync,orgInterval);orgTimer.unref();}
+ });
+
  if(asr){
   const sweep=()=>void asr.sweep().catch(()=>console.error('MUSE ASR retention cleanup failed'));
   sweep();sweepInterval=setInterval(sweep,asrSweepIntervalSeconds*1000);sweepInterval.unref();

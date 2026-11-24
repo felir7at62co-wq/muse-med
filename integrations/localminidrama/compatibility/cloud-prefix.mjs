@@ -24,16 +24,6 @@ function parseAddress(value) {
   try { return new URL(value) } catch (error) { return null }
 }
 
-/** Resolve retained local mount prefixes without changing any stored address or external origin. */
-function localMediaAddress(value) {
-  const native = text => text.replace(/^\\/?(?:static\\/)?studio\\/static\\//, '/static/')
-  if (!/^https?:\\/\\//i.test(value)) return native(value)
-  const url = parseAddress(value)
-  if (!url || typeof window === 'undefined' || url.origin !== window.location.origin) return value
-  url.pathname = native(url.pathname)
-  return url.href
-}
-
 /** Prefix only this studio's request and public-resource paths, preserving external addresses. */
 export function museStudioPath(value) {
   if (value == null) return ''
@@ -52,7 +42,7 @@ export function museStudioPath(value) {
 /** Resolve a stored media URL or local storage path for preview, playback or a temporary generation reference. */
 export function museMediaUrl(value) {
   if (value == null) return ''
-  const text = localMediaAddress(String(value).trim())
+  const text = String(value).trim()
   if (!text) return ''
   if (/^[a-z][a-z\\d+.-]*:/i.test(text) || text.startsWith('//')) return museStudioPath(text)
   if (base !== '/' && text.startsWith(base)) return text
@@ -68,13 +58,12 @@ export function museModelReferenceUrl(value) {
 /** Recover a native static path only from this origin's rendered prefix for adopted-media matching. */
 export function museNativeMediaUrl(value) {
   if (value == null) return ''
-  const text = localMediaAddress(String(value).trim())
+  const text = String(value).trim()
   if (base === '/') return text
   if (/^https?:\\/\\//i.test(text)) {
     const url = parseAddress(text)
     if (!url || typeof window === 'undefined' || url.origin !== window.location.origin) return text
     if (url.pathname.startsWith(base + 'static/')) return '/' + url.pathname.slice(base.length) + url.search + url.hash
-    if (url.pathname.startsWith('/static/')) return url.pathname + url.search + url.hash
     return text
   }
   return text.startsWith(base + 'static/') ? '/' + text.slice(base.length) : text

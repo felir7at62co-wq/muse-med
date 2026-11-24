@@ -1,0 +1,32 @@
+.account-data { margin-top: 28px; display: grid; gap: 24px; }
+.account-data section { min-width: 0; }
+.account-data h2 { margin-top: 0; font-weight: 500; }
+.account-data p { line-height: 1.65; overflow-wrap: anywhere; }
+.account-data p, .account-data small, .account-data th { color: #555; }
+.account-data-filters, .account-data-heading { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.account-data-filters label { display: grid; gap: 6px; font-size: 13px; }
+.account-data-filters input, .account-data-filters select { width: 100%; max-width: 280px; min-height: 38px; font: inherit; padding: 10px; border: 1px solid #ddd; border-radius: 8px; }
+.account-data-heading { align-items: center; justify-content: space-between; }
+.account-data-heading h2 { margin: 0; }
+.account-data-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px; margin: 16px 0; }
+.account-data-summary div { padding: 12px; border: 1px solid #d5d5d5; border-radius: 9px; }
+.account-data-summary dt { font-size: 13px; color: #555; }
+.account-data-summary dd { margin: 5px 0 0; font-size: 20px; font-weight: 500; }
+.account-data .scroll { max-width: 100%; overflow-x: auto; margin: 14px 0; }
+.account-data table { min-width: 760px; width: 100%; font-size: 13px; }
+.account-data th, .account-data td { vertical-align: top; max-width: 260px; overflow-wrap: anywhere; }
+.account-data td small { display: block; margin-top: 4px; }
+.account-data-warning { border-left: 3px solid #8a5500; padding-left: 10px; }
+.account-data [role="status"] { min-height: 26px; }
+.account-data [hidden] { display: none; }
+.account-data [data-studio-usage] { border-top: 1px solid #e4e4e4; padding-top: 24px; }
+.account-data [data-studio-usage] table { min-width: 1050px; }
+.account-data [data-studio-coverage] { font-size: 13px; }
+@media (max-width: 480px) {
+ .account-data-filters label { flex: 1 1 100%; }
+ .account-data-filters input, .account-data-filters select { max-width: none; }
+ .account-data-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (pointer: coarse) {
+ .account-data-filters input, .account-data-filters select { font-size: 16px; }
+}

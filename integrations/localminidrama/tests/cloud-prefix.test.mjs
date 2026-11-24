@@ -91,26 +91,6 @@ for (const base of ['/', '/studio/']) {
     assert.equal(h.museStudioPath('/api/business/v1/assets'), '/api/business/v1/assets')
   })
 
-  test(`retained media prefixes render the same file under ${base} without changing source records`, { skip: !available }, () => {
-    const h = helper(base), image = 'libtv-cli/media/4b1516a9a0e5d8e8f6dad909ab81bd79346732e2b9cc62b32a2bb31887848f6c.png'
-    const records = { binding: '/studio/static/' + image, reference: '/static/studio/static/' + image,
-      currentPoster: 'studio/static/' + image, video: '/studio/static/history/original.mp4' }
-    const before = JSON.stringify(records), media = load('frontweb/src/utils/mediaUrl.js', h, ['assetImageUrl', 'storyboardVideoUrl'])
-    for (const value of [records.binding, records.reference, records.currentPoster]) {
-      assert.equal(h.museMediaUrl(value), base + 'static/' + image)
-      assert.equal(h.museModelReferenceUrl(value), base + 'static/' + image)
-      assert.equal(h.museNativeMediaUrl(value), '/static/' + image)
-    }
-    assert.equal(media.assetImageUrl({ image_url: records.currentPoster }), base + 'static/' + image)
-    assert.equal(media.storyboardVideoUrl({ video_url: records.video }), base + 'static/history/original.mp4')
-    assert.equal(h.museMediaUrl('https://muse.fixture.test' + records.binding + '?saved=1#frame'),
-      'https://muse.fixture.test' + base + 'static/' + image + '?saved=1#frame')
-    const foreign = 'https://supplier.fixture.test' + records.binding
-    assert.equal(h.museMediaUrl(foreign), foreign)
-    assert.equal(h.museNativeMediaUrl(foreign), foreign)
-    assert.equal(JSON.stringify(records), before)
-  })
-
   test(`actual axios, streaming, export and TTS request paths respect ${base}`, { skip: !available }, async () => {
     const h = helper(base), requests = []
     let config

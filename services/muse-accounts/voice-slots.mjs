@@ -26,7 +26,7 @@ function validateRequest(value) {
   return value;
 }
 
-function readAsset(value, slot, assetId, liveness = 'active') {
+function readAsset(value, slot, assetId) {
   if (!record(value)) fail(409, 'asset_unverified', 'Audio asset is unavailable or unreadable');
   const number = value => typeof value === 'string' && /^[1-9][0-9]*$/.test(value) ? Number(value) : value;
   const ids = [value.id, value.asset_id].filter(entry => entry !== undefined).map(number);
@@ -34,14 +34,10 @@ function readAsset(value, slot, assetId, liveness = 'active') {
   const categories = [value.assetType, value.asset_type].filter(entry => entry !== undefined);
   const id = ids[0], project = projects[0];
   const name = value.assetName ?? value.name, url = value.assetUrl ?? value.url;
-  const live = liveness === 'deleted'
-    ? (value.delFlag === 1 || value.delFlag === '1')
-      && (value.deleted === undefined || value.deleted === true || value.deleted === 1 || value.deleted === '1')
-    : (value.delFlag === 0 || value.delFlag === '0')
-      && (value.deleted === undefined || value.deleted === false || value.deleted === 0 || value.deleted === '0');
   if (!positive(id) || id !== assetId || ids.some(entry => entry !== id) || project !== slot.script_id || projects.some(entry => entry !== project)
     || categories.length === 0 || categories.some(entry => entry !== 4)
-    || !live
+    || value.delFlag !== 0 && value.delFlag !== '0'
+    || value.deleted !== undefined && value.deleted !== false && value.deleted !== 0 && value.deleted !== '0'
     || typeof name !== 'string' || !name.endsWith(tag(slot))) {
     fail(409, 'asset_unverified', 'Audio asset project, category or voice identity does not match');
   }
@@ -55,12 +51,11 @@ function readAsset(value, slot, assetId, liveness = 'active') {
 }
 
 function readReceipt(value, slot) {
-  if (!record(value) || Object.keys(value).some(key => !['version', 'script_id', 'character_id', 'voice_period_id', 'state', 'owner_account_id', 'operation_key', 'lease_id', 'lease_expires_at', 'updated_at', 'asset_id', 'replaces_asset_id'].includes(key))
+  if (!record(value) || Object.keys(value).some(key => !['version', 'script_id', 'character_id', 'voice_period_id', 'state', 'owner_account_id', 'operation_key', 'lease_id', 'lease_expires_at', 'updated_at', 'asset_id'].includes(key))
     || value.version !== 1 || !sameSlot(value, slot) || !states.has(value.state) || !text(value.owner_account_id)
     || !text(value.operation_key) || typeof value.lease_id !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value.lease_id)
     || !Number.isSafeInteger(value.updated_at) || value.updated_at < 0 || !Number.isSafeInteger(value.lease_expires_at) || value.lease_expires_at < 0
-    || value.state === 'ready' && !positive(value.asset_id) || value.state !== 'ready' && value.asset_id !== undefined
-    || value.replaces_asset_id !== undefined && (!positive(value.replaces_asset_id) || value.replaces_asset_id === value.asset_id)) fail(503, 'receipt_unreadable', 'Voice reservation receipt requires operator inspection');
+    || value.state === 'ready' && !positive(value.asset_id) || value.state !== 'ready' && value.asset_id !== undefined) fail(503, 'receipt_unreadable', 'Voice reservation receipt requires operator inspection');
   return value;
 }
 
@@ -117,8 +112,6 @@ export function createJubianVoiceVerifier({fetcher = fetch, timeoutMs = 10000, m
  * Create a cross-process durable reservation service for one gateway deployment.
  * Exclusive directory locks are never stolen: an interrupted lock needs operator cleanup after its writer is stopped.
  * Submitted receipts never expire; a lost creation response can only settle through its original owner and lease.
- * Explicit deletion of a ready asset permits a new operation after its original receipt is durably retired.
- * Current and retired receipts must be retained together; the retired account/key can never create again.
  * @param {object} options Absolute private root, exact-project/asset readers, clock and reservation/lock limits.
  * @returns {object} Startup readiness and account-authenticated request operations; raw provider tokens are never saved.
  */
@@ -145,19 +138,6 @@ export function createVoiceSlots({root, verifyProject, verifyAsset, now = Date.n
       catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
   }
-  async function read(file, slot) {
-    try {
-      const handle = await open(file, 'r');
-      try {
-        const metadata = await handle.stat();
-        if (!metadata.isFile() || metadata.size > 8192 || process.platform !== 'win32' && (metadata.mode & 0o077) !== 0) fail(503, 'receipt_unreadable', 'Voice reservation receipt must be private and bounded');
-        let parsed;
-        try { parsed = JSON.parse(await handle.readFile('utf8')); }
-        catch (_error) { fail(503, 'receipt_unreadable', 'Voice reservation receipt is unreadable'); }
-        return readReceipt(parsed, slot);
-      } finally { await handle.close(); }
-    } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  }
   async function locked(slot, run) {
     await ready;
     const file = join(directory, hash(JSON.stringify([slot.script_id, slot.character_id, slot.voice_period_id])) + '.json');
@@ -169,23 +149,20 @@ export function createVoiceSlots({root, verifyProject, verifyAsset, now = Date.n
       await delay(Math.min(lockPollMs, Math.max(1, lockWaitMs - (performance.now() - started))));
     }
     try {
-      const retiredFile = (accountId, operation) => join(directory,
-        'retired-' + hash(JSON.stringify([slot.script_id, slot.character_id, slot.voice_period_id, accountId, operation])) + '.json');
-      const retired = async (accountId, operation) => {
-        const receipt = await read(retiredFile(accountId, operation), slot);
-        if (receipt && (receipt.state !== 'ready' || receipt.owner_account_id !== accountId || receipt.operation_key !== operation)) {
-          fail(503, 'receipt_unreadable', 'Retired voice operation requires operator inspection');
+      let receipt;
+      try {
+        const handle = await open(file, 'r');
+        try {
+          const metadata = await handle.stat();
+          if (!metadata.isFile() || metadata.size > 8192 || process.platform !== 'win32' && (metadata.mode & 0o077) !== 0) fail(503, 'receipt_unreadable', 'Voice reservation receipt must be private and bounded');
+          let parsed;
+          try { parsed = JSON.parse(await handle.readFile('utf8')); }
+          catch (_error) { fail(503, 'receipt_unreadable', 'Voice reservation receipt is unreadable'); }
+          receipt = readReceipt(parsed, slot);
         }
-        return receipt;
-      };
-      const archive = async receipt => {
-        const previous = await retired(receipt.owner_account_id, receipt.operation_key);
-        if (previous) {
-          if (Object.keys(receipt).length !== Object.keys(previous).length
-            || Object.keys(receipt).some(key => receipt[key] !== previous[key])) fail(503, 'receipt_unreadable', 'Retired voice operation changed');
-        } else await save(retiredFile(receipt.owner_account_id, receipt.operation_key), receipt);
-      };
-      return await run(await read(file, slot), value => save(file, value), {retired, archive});
+        finally { await handle.close(); }
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      return await run(receipt, value => save(file, value));
     } finally { await rmdir(lock); }
   }
   return {
@@ -196,57 +173,33 @@ export function createVoiceSlots({root, verifyProject, verifyAsset, now = Date.n
       if (!text(accountId) || typeof token !== 'string' || token.length < 1 || token.length > 8192 || /[\x00-\x20\x7f]/.test(token)) fail(400, 'invalid_request', 'A private Jubian token and account are required');
       const authorize = () => { if (!isAuthorized()) fail(401, 'account_session_expired', 'Muse account session is no longer active'); };
       authorize(); await verifyProject({token, scriptId: request.script_id, accountId}); authorize();
-      return locked(request, async (stored, save, history) => {
+      return locked(request, async (stored, save) => {
         authorize();
-        const retired = await history.retired(accountId, request.operation_key);
-        authorize();
-        if (retired) fail(409, 'operation_retired', 'The original voice registration is retired; it cannot create another asset');
         const stamp = now();
         if (!Number.isSafeInteger(stamp) || stamp < 0) throw Error('Invalid voice reservation clock');
         const expired = stored?.state === 'reserved' && stored.lease_expires_at <= stamp;
-        let current = expired ? undefined : stored;
+        const current = expired ? undefined : stored;
         const owner = current?.owner_account_id === accountId && current.operation_key === request.operation_key;
         const base = {script_id: request.script_id, character_id: request.character_id, voice_period_id: request.voice_period_id};
         const view = (receipt, extra = {}) => ({...base, state: receipt?.state ?? 'available',
-          ...(receipt && owner ? {owner_operation: true, lease_id: receipt.lease_id,
-            ...(receipt.replaces_asset_id === undefined ? {} : {replaces_asset_id: receipt.replaces_asset_id}),
-            ...(receipt.state === 'reserved' ? {lease_expires_at: receipt.lease_expires_at} : {})} : {}), ...extra});
+          ...(receipt && owner ? {owner_operation: true, lease_id: receipt.lease_id, ...(receipt.state === 'reserved' ? {lease_expires_at: receipt.lease_expires_at} : {})} : {}), ...extra});
         async function confirmed(receipt) {
-          const value = await verifyAsset({token, scriptId: request.script_id, assetId: receipt.asset_id, accountId});
-          authorize(); return readAsset(value, request, receipt.asset_id);
-        }
-        async function deleted(assetId) {
-          const value = await verifyAsset({token, scriptId: request.script_id, assetId, accountId});
-          authorize(); readAsset(value, request, assetId, 'deleted');
+          const asset = readAsset(await verifyAsset({token, scriptId: request.script_id, assetId: receipt.asset_id, accountId}), request, receipt.asset_id);
+          authorize(); return asset;
         }
         if (request.action === 'read') return current?.state === 'ready' ? view(current, {asset: await confirmed(current)}) : view(current);
         if (request.action === 'acquire') {
-          let replaces;
-          if (current?.state === 'ready') {
-            const value = await verifyAsset({token, scriptId: request.script_id, assetId: current.asset_id, accountId});
-            authorize();
-            if (record(value) && (value.delFlag === 1 || value.delFlag === '1')) {
-              readAsset(value, request, current.asset_id, 'deleted');
-              if (owner) fail(409, 'asset_unverified', 'A deleted voice cannot be recreated by its original operation');
-              await history.archive(current); authorize(); replaces = current.asset_id; current = undefined;
-            } else return view(current, {asset: readAsset(value, request, current.asset_id)});
-          }
+          if (current?.state === 'ready') return view(current, {asset: await confirmed(current)});
           if (current) return owner ? view(current) : {...base, state: 'busy', blocking_state: current.state};
-          if (replaces === undefined && expired && stored.replaces_asset_id !== undefined) {
-            await deleted(stored.replaces_asset_id); replaces = stored.replaces_asset_id;
-          }
           const receipt = {...base, version: 1, state: 'reserved', owner_account_id: accountId, operation_key: request.operation_key,
-            lease_id: randomBytes(32).toString('base64url'), lease_expires_at: stamp + reservationLeaseMs, updated_at: stamp,
-            ...(replaces === undefined ? {} : {replaces_asset_id: replaces})};
+            lease_id: randomBytes(32).toString('base64url'), lease_expires_at: stamp + reservationLeaseMs, updated_at: stamp};
           authorize(); await save(receipt);
-          return {...base, state: 'reserved', owner_operation: true, lease_id: receipt.lease_id, lease_expires_at: receipt.lease_expires_at,
-            ...(replaces === undefined ? {} : {replaces_asset_id: replaces})};
+          return {...base, state: 'reserved', owner_operation: true, lease_id: receipt.lease_id, lease_expires_at: receipt.lease_expires_at};
         }
         if (!current || !owner || current.lease_id !== request.lease_id) fail(409, 'lease_conflict', 'Voice registration lease is unavailable or belongs to another operation');
         if (request.action === 'start') {
           if (current.state === 'ready') return view(current, {asset: await confirmed(current), started_now: false});
           if (current.state === 'submitted') return view(current, {started_now: false});
-          if (current.replaces_asset_id !== undefined) await deleted(current.replaces_asset_id);
           const next = {...current, state: 'submitted', updated_at: stamp}; authorize(); await save(next); return view(next, {started_now: true});
         }
         if (request.action === 'abandon') {
@@ -255,7 +208,6 @@ export function createVoiceSlots({root, verifyProject, verifyAsset, now = Date.n
         }
         if (current.state === 'reserved') fail(409, 'registration_not_started', 'Voice registration has not been marked as submitted');
         if (current.state === 'ready' && current.asset_id !== request.asset_id) fail(409, 'asset_conflict', 'Completed voice registration cannot change its asset');
-        if (current.replaces_asset_id === request.asset_id) fail(409, 'asset_conflict', 'A replacement must identify a new audio asset');
         const asset = await confirmed({...current, asset_id: request.asset_id});
         if (current.state !== 'ready') { authorize(); await save({...current, state: 'ready', asset_id: request.asset_id, updated_at: stamp}); }
         return view({...current, state: 'ready'}, {asset});

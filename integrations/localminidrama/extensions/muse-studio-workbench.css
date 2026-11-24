@@ -114,22 +114,6 @@
 .muse-wb-chip-list { flex-wrap: wrap; gap: 7px; }
 .muse-wb-chip[data-missing='true'] { border-color: var(--el-color-warning); color: color-mix(in srgb, var(--el-color-warning) 65%, var(--muse-ink)); background: color-mix(in srgb, var(--el-color-warning) 10%, var(--muse-surface)); }
 .muse-wb-asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(135px, 100%), 1fr)); gap: 12px; }
-.muse-wb-asset-toolbar { margin: 18px 0; }
-.muse-wb-asset-toolbar .muse-wb-filter { display: flex; flex-wrap: wrap; gap: 8px; }
-.muse-wb-asset-toolbar button { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; }
-.muse-wb-asset-toolbar button > span { font-variant-numeric: tabular-nums; }
-.muse-wb-asset-group + .muse-wb-asset-group { border-top: 1px solid var(--muse-line); margin-top: 20px; padding-top: 16px; }
-.muse-wb-asset-group-title { display: flex; align-items: center; gap: 8px; margin: 16px 0 12px; }
-.muse-wb-asset-check-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
-.muse-wb-asset-check-counts > div { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--muse-line); border-radius: 9px; background: var(--muse-inset); }
-.muse-wb-asset-check-counts strong { font-size: 22px; font-weight: 500; }
-.muse-wb-asset-check-counts small { font-size: 12px; color: var(--muse-muted); }
-.muse-wb-asset-check-issues { list-style: none; padding: 0; max-height: 220px; overflow: auto; }
-.muse-wb-asset-check-issues li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--muse-line); }
-.muse-wb-asset-check-issues button { border: 0; background: transparent; color: var(--muse-accent); padding: 0; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
-.muse-wb-asset-check-issues span { font-size: 13px; color: var(--muse-muted); }
-.muse-wb-asset-check-handoff { border-top: 1px solid var(--muse-line); margin-top: 18px; padding-top: 16px; }
-.muse-wb-asset-check-handoff .muse-wb-actions { margin: 14px 0; flex-wrap: wrap; }
 .muse-wb-asset { border: 1px solid var(--muse-line); border-radius: 9px; padding: 8px; color: inherit; background: var(--muse-surface); text-align: left; cursor: pointer; }
 .muse-wb-asset img { display: block; aspect-ratio: 1; width: 100%; object-fit: cover; border-radius: 6px; margin-bottom: 7px; }
 .muse-wb-asset[data-selected='true'] { border-color: var(--muse-accent); background: var(--muse-tint); }

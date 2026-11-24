@@ -28,22 +28,12 @@ kind: "package-reference"
 
 网关默认在账号文件旁写入仅所有者可访问、只追加的 `model-usage.jsonl`；也可用 `MUSE_USAGE_FILE` 指定发布目录之外的其他私密绝对路径。部署时保留此文件，每份账本只运行一个网关写入者。首条记录确定统计起点，不重建接入前历史。供应商未返回用量和旧客户端的直连调用均可能造成缺口，因此统计不等于供应商账单。记录不包含消息、生成内容、账号 Cookie 或供应商凭据。启动时拒绝损坏或不完整记录，持久化失败会让用量查询明确报错。嵌入式网关未传入已打开账本时使用独立内存存储。
 
-<a id="production-profile-overlay"></a>
-## 生产个人资料补丁
+<a id="production-source"></a>
+## 生产源码
 
-所有用户都需升级桌面客户端后才能看到此账号页面。单独部署的正式网关 `20261117-r25-account-profile` 提供配套个人资料接口和既有 account-data-v1 用量接口。每次请求使用该用户自己的登录，不依赖共享员工账号。Muse 分组为空是有效状态。既有企业组织同步提供部门路径，新绑定用户可能需要等待下一次同步。此目录的源码网关与正式发布版采用不同的组织和用量实现：**不得用此源码树整体替换生产服务目录**。正式环境须保留既有组织协调器、仅飞书登录策略、工作台、账号数据和用量账本。
+本目录与 `../../integrations/localminidrama` 保存正式网关发布版 `20261123-r35-jubian-models` 的源码，除统一为 LF 换行外内容一致，仅有两处例外：`bot-cloud-ledger.js` 是正式环境从共享 `third_party` 目录加载的 Bot 云端账本，`bot-coordination.mjs` 改为从本目录导入它；`package.json` 声明了正式环境已安装的 `fflate`。后续网关发布应从此源码构建，不再复制旧发布目录。本目录中的账号组织协调器、仅飞书登录策略、工作台、账号数据、用量账本、公司 CLI、制作费用和剧变原生准入均为正式实现。
 
-[固定基线清单](deployment/baselines.json)和三份[本地补丁](deployment/patches)维护这项范围有限的生产改动。构建器仅接受 `20261117-r24-native-company`、已验证的 `20261117-r25-account-profile` 或已包含当前补丁的精确受影响文件哈希，创建候选前即拒绝未知或混用来源。它只读取三份待修改源码和两个资料模块，要求普通文件，不读取配置、会话或凭据。r24 输入应用三份补丁；已识别的 r25 输入保留这三份文件，仅在需要时更新经过审核的资料模块。候选产物包含五个模块和哈希清单，不是完整服务发布包。
-
-准备 Node 22 或更新版本及 Git，选择受支持服务目录的本地副本，并指定另一个尚不存在的输出目录：
-
-```sh
-node services/muse-accounts/deployment/profile-overlay.mjs verify --source <local-service-directory>
-node services/muse-accounts/deployment/profile-overlay.mjs build --source <local-service-directory> --output <new-candidate-directory>
-node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate <new-candidate-directory>
-```
-
-`verify` 报告五份当前文件是否已存在，对已识别的当前状态再次构建保持幂等。`build` 校验输入与输出哈希，保留来源目录不变，并固定 Windows 与 POSIX 上的 Git 换行行为。`preflight` 校验候选哈希、JavaScript 语法，以及普通账号、新用户、零分组、多飞书绑定、跨账号隔离和不完整部门路径的合成资料场景。这些检查只覆盖补丁本身。发布负责人须保留完整固定基线中的其他生产文件与外部私密数据，在完整候选中运行既有网关集成检查，并另行审核启用步骤。工具不访问网络、不重启服务、不切换发布，也不部署。账号 JSON 仍为版本 2；分组是可选展示字段，不改变登录 revision，也不要求用户重新注册。准备发布时保留账号、会话存储与既有用量历史。
+下文部分章节和部分测试描述的是此前在本目录开发、但未进入正式环境的网关功能：DeepSeek Flash 供应商路由、剧本工坊与镜流的工作台登录、飞书登录时的部门授权、桌面隧道与手机入口、意见反馈请求编号、新版 Skill 市场界面、共享声线替换，以及上传进行中的 ASR 状态。在逐项移植或移除之前，这些功能的测试在当前源码上会失败。`deployment/` 下的补丁工具只接受已退役的 `20261117-r24-native-company` 和 `20261117-r25-account-profile` 输入。
 
 ## 意见箱
 

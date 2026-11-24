@@ -47,13 +47,6 @@ test('catalog normalization covers native paid paths while leaving local edits a
  assert.equal(f.service.match('/dramas/import-novel',{ai_summarize:false}),null);assert.ok(f.service.match('/dramas/import-novel',{ai_summarize:'true'}));
 })
 
-test('an explicitly locked video admission cannot bypass the Jubian provider',{skip:!available},async t=>{
- const f=await fixture(t,{muse_jubian:{video_only:true}});let calls=0;f.router.post('/videos',(req,res)=>{calls++;res.json({success:true})});
- const response=await f.post('/videos',{drama_id:1,storyboard_id:7,prompt:'retained draft'}),body=await response.json();
- assert.equal(response.status,409);assert.equal(body.error.code,'jubian_video_required');assert.equal(calls,0);
- assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM muse_native_operations').get().count,0);
-})
-
 test('the legacy paid GET is refused and a missing POST operation ID never reaches a handler',{skip:!available},async t=>{
  const f=await fixture(t),source=planned().get(filename('backend-node/src/routes/index.js')),start=source.indexOf("  r.get('/storyboards/episode/:episode_id/generate',"),end=source.indexOf('\n  });',start)+6;assert.ok(start>=0&&end>start);
  compileFunction(source.slice(start,end),['r','response'],{filename:'legacy-get-refusal'})(f.router,f.require(filename('backend-node/src/response.js')));
@@ -73,7 +66,7 @@ test('batch native inserts are captured before dispatch and async descendants re
 })
 
 test('native video route reserves before dispatch and replays original pointers across fresh UUIDs and terminals',{skip:!available},async t=>{
- const f=await fixture(t,{muse_jubian:{video_only:false}}),path=filename('backend-node/src/routes/videos.js'),taskPath=filename('backend-node/src/services/taskService.js'),taskService=compile(pristine(taskPath),taskPath,f.require);let calls=0;let finish;const done=new Promise(resolve=>finish=resolve);
+ const f=await fixture(t),path=filename('backend-node/src/routes/videos.js'),taskPath=filename('backend-node/src/services/taskService.js'),taskService=compile(pristine(taskPath),taskPath,f.require);let calls=0;let finish;const done=new Promise(resolve=>finish=resolve);
  const native=compile(pristine(path),path,name=>name==='../response'?f.require(filename('backend-node/src/response.js')):name==='../services/taskService'?taskService:name==='../services/videoClient'?{normalizeAspectRatioForApi:value=>value,resolveVideoReferenceInputs:value=>value,resolveVideoSelection:()=>({provider:'fixture',model:'fixture'})}:name==='../services/videoService'?{getById:(_,id)=>f.db.prepare('SELECT id,task_id,status FROM video_generations WHERE id=?').get(id),processVideoGeneration:async(_,log,id)=>{calls++;assert.equal(f.db.prepare('SELECT state FROM muse_native_operations ORDER BY rowid DESC LIMIT 1').get().state,'accepted');f.db.prepare("UPDATE video_generations SET status='completed' WHERE id=?").run(id);const task=f.db.prepare('SELECT task_id FROM video_generations WHERE id=?').get(id).task_id;taskService.updateTaskResult(f.db,task,{});finish()}}:f.require(name));
  f.router.post('/videos',native(f.db,{info(){},error(){}}).create);const first=await f.post('/videos',{drama_id:1,storyboard_id:7,prompt:'private request text'}),body=await first.json();assert.equal(first.status,201);assert.ok(body.data.id);await done;
  const replay=await f.post('/videos',{prompt:'private request text',storyboard_id:7,drama_id:1});assert.deepEqual(await replay.json(),body);assert.equal(calls,1);
@@ -140,7 +133,7 @@ test('real JSON and SSE suppliers retain reported usage once per call without in
 })
 
 test('resource usage attaches to the original video operation without ALS and replaces poll snapshots safely',{skip:!available},async t=>{
- const f=await fixture(t,{muse_jubian:{video_only:false}});f.service.reserve(f.db,f.cfg,'video-resource-original','/videos',{});f.db.prepare('INSERT INTO muse_native_operation_resources VALUES(?,?,?)').run('video-resource-original','video','42');
+ const f=await fixture(t);f.service.reserve(f.db,f.cfg,'video-resource-original','/videos',{});f.db.prepare('INSERT INTO muse_native_operation_resources VALUES(?,?,?)').run('video-resource-original','video','42');
  f.service.reserve(f.db,f.cfg,'later-pointer-only','/videos',{another:true});f.db.prepare('INSERT INTO muse_native_operation_resources VALUES(?,?,?)').run('later-pointer-only','video','42');
  assert.equal(f.service.recordResourceUsage(f.db,'video',42,{usage:{completion_tokens:12,total_tokens:12}},'provider-original-task'),true);assert.equal(f.service.recordResourceUsage(f.db,'video',42,{usage:{completion_tokens:16,total_tokens:16}},'provider-original-task'),true);let rows=f.db.prepare('SELECT usage_json,operation_id FROM muse_native_supplier_usage').all();assert.equal(rows.length,1);assert.equal(rows[0].operation_id,'video-resource-original');assert.equal(JSON.parse(rows[0].usage_json).total_tokens,16);assert.equal(JSON.parse(rows[0].usage_json).input_tokens,null);
  assert.equal(f.service.recordResourceUsage(f.db,'video',42,{usage:{completion_tokens:0,total_tokens:0}},'provider-original-task'),true);assert.equal(f.service.recordResourceUsage(f.db,'video',42,{usage:{completion_tokens:0.5,total_tokens:Number.MAX_SAFE_INTEGER+1}},'provider-original-task'),false);assert.equal(f.service.recordResourceUsage(f.db,'video',42,{},'provider-original-task'),false);assert.equal(JSON.parse(f.db.prepare('SELECT usage_json FROM muse_native_supplier_usage').get().usage_json).total_tokens,0);

@@ -212,6 +212,8 @@ export function createDesktopRelay({store,validSession,publicOrigin,now=Date.now
  return {
   control,forward,upgrade,
   devices,
+  /** Authorize Host-only coordination for the exact online installation and its Desktop login session. */
+  authorizeDevice:({session,deviceId})=>{const desktop=active(session,deviceId);return !!desktop&&desktop.session.token===session.token;},
   status:(session,deviceId)=>({state:active(session,deviceId)?'online':!deviceId&&devices(session).filter(d=>d.state==='online').length>1?'selection-required':'offline'}),
   revoke:token=>{for(const account of [...desktops.values()])for(const desktop of [...account.values()]){if(desktop.session.token===token)disconnect(desktop);else for(const state of [...desktop.requests.values()])if(state.session.token===token)fail(state,401);}},
   close:()=>{closed=true;for(const account of [...desktops.values()])for(const desktop of [...account.values()])disconnect(desktop);for(const ws of wss.clients)ws.terminate();wss.close();},

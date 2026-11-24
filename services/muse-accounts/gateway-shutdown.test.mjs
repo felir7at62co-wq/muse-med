@@ -57,7 +57,7 @@ server.listen(0,'127.0.0.1',()=>process.send({kind:'listening',port:server.addre
 
 test('shutdown failure still closes sockets and listeners and reports one owned completion',async()=>{
  const server=http.createServer((_req,res)=>res.end('fixture'));server.stopAdmission=()=>{};
- await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const signals=new EventEmitter();let calls=0,poolClosed=0,sweepStopped=0;
- const controller=installGatewayShutdown({accountServer:server,signals,asr:{close:async()=>{calls++;throw Error('private internal failure');}},modelKeyPool:{close:()=>poolClosed++},stopSweep:()=>sweepStopped++});
- const first=controller.close(),second=controller.close();assert.equal(first,second);await assert.rejects(first,/internal failure/);assert.equal(server.listening,false);assert.equal(calls,1);assert.equal(poolClosed,1);assert.equal(sweepStopped,1);assert.equal(signals.listenerCount('SIGTERM'),0);assert.equal(signals.listenerCount('SIGINT'),0);
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const signals=new EventEmitter();let calls=0,marketClosed=0,poolClosed=0,sweepStopped=0;
+ const controller=installGatewayShutdown({accountServer:server,signals,asr:{close:async()=>{calls++;throw Error('private internal failure');}},market:{close:async()=>marketClosed++},modelKeyPool:{close:()=>poolClosed++},stopSweep:()=>sweepStopped++});
+ const first=controller.close(),second=controller.close();assert.equal(first,second);await assert.rejects(first,/internal failure/);assert.equal(server.listening,false);assert.equal(calls,1);assert.equal(marketClosed,1);assert.equal(poolClosed,1);assert.equal(sweepStopped,1);assert.equal(signals.listenerCount('SIGTERM'),0);assert.equal(signals.listenerCount('SIGINT'),0);
 });

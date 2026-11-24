@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { requestLocalMini } from '../../../packages/drama/localminidrama/src/client.ts'
 
 const root = resolve(process.env.LOCALMINIDRAMA_SOURCE || '.local/localminidrama')
 const installed = existsSync(join(root, 'backend-node/node_modules/better-sqlite3'))
@@ -38,7 +39,6 @@ test('studio persists editable projects, exact uploads and multiple generation v
     config.storage.local_path = storage
     config.storage.base_url = ''
     config.server.host = '127.0.0.1'
-    config.muse_generation.enabled = true
     await writeFile(join(home, 'configs/config.yaml'), yaml.dump(config))
     process.chdir(home)
     const appResult = require(join(root, 'backend-node/src/app.js')).createApp()
@@ -48,20 +48,14 @@ test('studio persists editable projects, exact uploads and multiple generation v
     appResult.config.storage.base_url = `${url}/static`
     config.storage.base_url = `${url}/static`
     await writeFile(join(home, 'configs/config.yaml'), yaml.dump(config))
-    const request = async (path, method = 'GET', body) => {
-      const headers = { ...(method !== 'GET' && { 'x-muse-operation-id': randomUUID() }), ...(body !== undefined && { 'Content-Type': 'application/json' }) }
-      const response = await fetch(url + path, { method, headers, ...(body !== undefined && { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10000) })
-      const result = await response.json()
-      assert.ok(response.ok && result.success !== false, JSON.stringify(result))
-      return result.data
-    }
     const api = async (path, method = 'GET', body) => {
+      const signal = new AbortController().signal, operation = method === 'GET' ? {} : { operationId: randomUUID() }
       const edit = method === 'PUT' ? /^\/(dramas|storyboards)\/(\d+)(?:\/|$)/u.exec(path) : null
       if (edit) {
-        const current = await request(`/api/v1/muse/edit/${edit[1] === 'dramas' ? 'project' : 'storyboard'}/${edit[2]}`)
+        const current = await requestLocalMini(url, { path: `/api/v1/muse/edit/${edit[1] === 'dramas' ? 'project' : 'storyboard'}/${edit[2]}`, method: 'GET' }, { timeoutMs: 10000, maxResponseBytes: 2e6 }, signal)
         body = { ...body, _muse_edit: current.muse_edit }
       }
-      return request(`/api/v1${path}`, method, body)
+      return await requestLocalMini(url, { path: `/api/v1${path}`, method, ...(body ? { body } : {}) }, { timeoutMs: 10000, maxResponseBytes: 2e6, ...operation }, signal)
     }
     const project = await api('/dramas', 'POST', { title: 'Muse 隔离验收', style: '3d', metadata: { aspect_ratio: '16:9' } })
     await api(`/dramas/${project.id}/episodes`, 'PUT', { episodes: [{ episode_number: 1, title: '第一集', script_content: '甲：保留原台词。' }] })

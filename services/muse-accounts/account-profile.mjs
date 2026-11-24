@@ -19,7 +19,8 @@ function snapshotOrganization(accountId,snapshot){
   }
   departments.push({id,name:path.at(-1).name,path:path.map(node=>node.name).join(' / '),pathIds:path.map(node=>node.id)});
  }
- return {status:'available',updatedAt:snapshot.updatedAt??null,departments};
+ const person={...typeof membership.jobTitle==='string'?{jobTitle:membership.jobTitle}:{},...typeof membership.managerName==='string'?{managerName:membership.managerName}:{}};
+ return {status:'available',updatedAt:snapshot.updatedAt??null,departments,...person};
 }
 
 function identityOrganization(identities){
@@ -40,7 +41,7 @@ function identityOrganization(identities){
  * Project one validated account without credentials, other accounts, or usage assumptions.
  * @param {object} account Current public account record from the account store.
  * @param {object} options Optional account-indexed organization snapshot; an unavailable supplied snapshot takes precedence over identity caches.
- * @returns {object} Versioned safe profile, informational Muse groups, and complete current-account department paths; unavailable paths are never partial lists.
+ * @returns {object} Versioned safe profile, informational Muse groups, and complete current-account department paths with the synchronized job title and manager name when Feishu provides them; unavailable paths are never partial lists.
  */
 export function accountProfile(account,{organizationSnapshot}={}){
  const identities=account.feishuIdentities??[];

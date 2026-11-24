@@ -1,6 +1,5 @@
 /** Fixed native-record requests to an embedding Muse panel; standalone pages cannot dispatch chat. */
-const requiredIntents = ['inspect_project', 'inspect_package', 'inspect_operation', 'propose_fix', 'continue_production']
-const intents = [...requiredIntents, 'inspect_assets']
+const intents = ['inspect_project', 'inspect_package', 'inspect_operation', 'propose_fix', 'continue_production']
 const outcomes = ['received', 'draft_prepared', 'sent', 'cancelled', 'failed', 'unavailable']
 const token = value => typeof value === 'string' && /^[A-Za-z0-9_-]{8,128}$/u.test(value)
 const positive = value => Number.isSafeInteger(value) && value > 0
@@ -21,20 +20,19 @@ function validSelection(value) {
  */
 export function createMuseStudioBridge({ onState = () => {} } = {}) {
   let started = false, parentOrigin, nonce, pending
-  let state = { available: false, pending: false, outcome: null, intents: [] }
-  const snapshot = () => ({ ...state, intents: [...state.intents] })
-  const publish = patch => { state = { ...state, ...patch }; onState(snapshot()) }
+  let state = { available: false, pending: false, outcome: null }
+  const publish = patch => { state = { ...state, ...patch }; onState({ ...state }) }
   const receive = event => {
     if (!started || window.parent === window || event.source !== window.parent || event.origin === 'null'
       || (event.origin !== 'dsh-app://app' && event.origin !== window.location.origin) || !object(event.data)) return
     const data = event.data
     if (data.version !== 1 || (parentOrigin && parentOrigin !== event.origin)) return
     if (data.type === 'muse-localminidrama:capabilities' && token(data.nonce) && typeof data.available === 'boolean'
-      && Array.isArray(data.intents) && requiredIntents.every(intent => data.intents.includes(intent))) {
+      && Array.isArray(data.intents) && intents.every(intent => data.intents.includes(intent))) {
       parentOrigin = event.origin
       if (nonce !== data.nonce || !data.available) pending = undefined
       nonce = data.nonce
-      publish({ available: data.available, pending: pending !== undefined, intents: intents.filter(intent => data.intents.includes(intent)) })
+      publish({ available: data.available, pending: pending !== undefined })
     } else if (data.type === 'muse-localminidrama:intent-result' && pending && data.nonce === pending.nonce
       && data.requestId === pending.requestId && outcomes.includes(data.outcome)) {
       const waiting = data.outcome === 'received'
@@ -54,10 +52,10 @@ export function createMuseStudioBridge({ onState = () => {} } = {}) {
       if (!started) return
       started = false; window.removeEventListener('message', receive)
       parentOrigin = undefined; nonce = undefined; pending = undefined
-      publish({ available: false, pending: false, intents: [] })
+      publish({ available: false, pending: false })
     },
     request(intent, selection) {
-      if (!started || !state.available || pending || !parentOrigin || !nonce || !state.intents.includes(intent) || !validSelection(selection)
+      if (!started || !state.available || pending || !parentOrigin || !nonce || !intents.includes(intent) || !validSelection(selection)
         || (intent === 'inspect_package' && selection.episodeId === undefined)
         || (intent === 'inspect_operation' && selection.operationId === undefined && selection.generationId === undefined)) return false
       const bytes = window.crypto.getRandomValues(new Uint8Array(16))
@@ -67,6 +65,6 @@ export function createMuseStudioBridge({ onState = () => {} } = {}) {
       window.parent.postMessage(pending, parentOrigin)
       return true
     },
-    snapshot,
+    snapshot() { return { ...state } },
   }
 }

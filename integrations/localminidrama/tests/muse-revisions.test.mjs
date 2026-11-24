@@ -76,7 +76,7 @@ test('restore compares the frozen revision, excludes media and paid states and r
 })
 
 test('redaction never persists common credentials and prevents restoring masked content', {skip:!available},async t=>{
- const f=await fixture(t),secret='sk-'+'fixture-redaction-canary-'.repeat(2);f.db.prepare('UPDATE storyboards SET dialogue=? WHERE id=7').run('Bearer '+secret+' password="phrase with spaces"');
+ const f=await fixture(t),secret='sk-fixturePrivateSecret0123456789';f.db.prepare('UPDATE storyboards SET dialogue=? WHERE id=7').run('Bearer '+secret+' password="phrase with spaces"');
  const version=f.history().items[0],journal=f.db.prepare('SELECT before_json,after_json FROM muse_business_revisions').all();assert.ok(!JSON.stringify(journal).includes(secret));assert.ok(!JSON.stringify(journal).includes('phrase with spaces'));assert.ok(!JSON.stringify(journal).includes('metadata-private-fixture'));assert.ok(!JSON.stringify(journal).includes('never-audit-config-secret'));
  assert.ok(version.after.redacted_fields.includes('dialogue'));assert.throws(()=>f.service.restore(f.db,f.cfg,{...f.subject,operation_id:'restore-masked',revision_id:version.id,expected_revision:version.id,side:'after'}),/redacted_content/);
  assert.ok(f.db.prepare('SELECT dialogue FROM storyboards WHERE id=7').get().dialogue.includes(secret));

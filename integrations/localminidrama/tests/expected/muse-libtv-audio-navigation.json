@@ -1,0 +1,4 @@
+[
+  { "page": "FilmList", "entry": "more-menu", "trigger": "更多", "label": "媒体素材", "destination": "/media-library" },
+  { "page": "FilmCreate", "entry": "button", "label": "媒体素材", "destination": "/media-library" }
+]

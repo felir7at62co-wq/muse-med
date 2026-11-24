@@ -115,11 +115,7 @@ async function postprocess(db,raw,root,scenes,options,job) {
   if(dialogue&&!hasDialogue)throw fail('merge_dialogue_audio_required');
   if(narration&&!subtitles.length)throw fail('merge_narration_text_required');
   const filters=[];
-  if(subtitles.length){
-    const file=path.join(job.temp,'narration.srt');
-    fs.writeFileSync(file,subtitles.join('\n')+'\n','utf8');
-    filters.push("subtitles='"+filterPath(file)+"'");
-  }
+  if(subtitles.length){const file=path.join(job.temp,'narration.srt');fs.writeFileSync(file,subtitles.join('\n')+'\n');filters.push("subtitles='"+filterPath(file)+"':charenc=UTF-8");}
   if(watermark){const file=path.join(job.temp,'watermark.txt');fs.writeFileSync(file,watermark);
     const font=job.policy.font_file||[path.join(process.env.SystemRoot||'C:/Windows','Fonts','msyh.ttc'),'/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'].find(file=>fs.existsSync(file));
     if(job.policy.font_file){let header;try{const fd=fs.openSync(font,'r');try{header=Buffer.alloc(4);if(fs.readSync(fd,header,0,4,0)!==4)throw fail('merge_font_unavailable');}finally{fs.closeSync(fd);}}catch(error){throw fail('merge_font_unavailable');}

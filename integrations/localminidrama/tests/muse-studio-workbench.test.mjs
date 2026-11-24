@@ -8,10 +8,9 @@ import { resolve, join } from 'node:path'
 import { createRequire } from 'node:module'
 import { compileFunction } from 'node:vm'
 import { planStudioUx } from '../compatibility/studio-ux.mjs'
-import { createPinnedSourceReader } from './pinned-source.mjs'
 import { createStudioWorkbenchState, createStudioWorkbenchController, studioPromptParts,
   studioDuration, studioPackageStatus, studioOtherReferences, confirmStudioDiscard,
-  studioAssetVersionLabel, studioAssetChoice, studioAssetInspection } from '../extensions/muse-studio-workbench.js'
+  studioAssetVersionLabel, studioAssetChoice } from '../extensions/muse-studio-workbench.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 const hash = digit => digit.repeat(64)
@@ -153,23 +152,6 @@ test('unbound prompt tokens refuse saving and media adoption never discards a di
   f.controller.dispose()
 })
 
-test('a repair draft needs its reason and saves the original video identity without changing that history', async () => {
-  const f = fixture(); await f.controller.loadProject(1)
-  const original = clone(f.state.trace.videos.items[0]), history = clone(f.state.trace.videos.items)
-  f.state.draft.videoPrompt = original.inputs.prompt; f.state.draft.videoBindings = clone(original.inputs.bindings)
-  f.state.draft.parentGenerationId = original.generationId; f.state.draft.changeReason = ''
-  await f.controller.saveRevision(); assert.match(f.state.notice, /修改的具体原因/)
-  assert.equal(f.requests.filter(item => item.method === 'post').length, 0)
-  f.state.draft.changeReason = 'Correct the source-backed action'
-  await f.controller.saveRevision()
-  const request = f.requests.find(item => item.path.endsWith('/revisions'))
-  assert.equal(request.body.parentGenerationId, original.generationId)
-  assert.equal(request.body.changeReason, 'Correct the source-backed action')
-  assert.deepEqual(f.state.trace.videos.items, history)
-  assert.equal(f.requests.some(item => /generate|\/run|\/submit/.test(item.path)), false)
-  f.controller.dispose()
-})
-
 test('a late package response cannot replace a newer selection and transient errors preserve visible records', async () => {
   const f = fixture(); await f.controller.loadProject(1)
   let complete
@@ -265,111 +247,17 @@ test('the UX planner preserves advanced tools and refuses an already modified ro
   try {
     mkdirSync(join(root, 'frontweb/src/router'), { recursive: true })
     const path = join(root, 'frontweb/src/router/index.js')
-    const upstream = resolve(process.env.LOCALMINIDRAMA_SOURCE || '.local/localminidrama')
-    const original = createPinnedSourceReader(upstream)(resolve(upstream, 'frontweb/src/router/index.js'))
+    const original = readFileSync(resolve(process.env.LOCALMINIDRAMA_SOURCE || '.local/localminidrama', 'frontweb/src/router/index.js'), 'utf8')
     writeFileSync(path, original)
     const plan = planStudioUx(root)
     const router = plan.find(([file]) => file === path)[1]
     assert.match(router, /MuseStudioWorkbench\.vue/); assert.match(router, /film\/:id\/advanced/); assert.match(router, /FilmCreate\.vue/)
     assert.ok(plan.find(([file]) => file.endsWith('MuseStudioPrompt.vue')))
-    assert.equal(plan.some(([file]) => /MuseJubianPanel|museJubianPanel/.test(file)), false)
-    const workbench = plan.find(([file]) => file.endsWith('MuseStudioWorkbench.vue'))[1]
-    assert.doesNotMatch(workbench, /MuseJubian|askJubian|剧变|LibTV/)
-    assert.match(workbench, /role="status">生成后端尚未接入；项目、资产和历史可正常管理/)
-    assert.match(workbench, /人物/); assert.match(workbench, /场景/); assert.match(workbench, /道具/)
     writeFileSync(path, router); assert.throws(() => planStudioUx(root), /pinned source/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 const frontend = resolve(process.env.LOCALMINIDRAMA_SOURCE || '.local/localminidrama', 'frontweb')
-
-test('asset inspection checks saved category metadata without modifying assets or judging image content', () => {
-  const project = { characters: [
-    { id: 7, name: 'Hero', image_url: '' }, { id: 8, name: ' hero ', image_url: ' ' },
-    { id: 9, name: '', local_path: '/saved/character.png' }],
-  scenes: [{ id: 7, location: 'Hero', image_url: '/saved/scene.png' }],
-  props: [{ id: 7, name: 'Hero' }] }
-  const before = JSON.stringify(project), report = studioAssetInspection(project)
-  assert.equal(report.total, 5)
-  assert.deepEqual(report.groups, [
-    { kind: 'character', label: '人物', total: 3, missingImage: 2, missingName: 1, duplicateName: 2 },
-    { kind: 'scene', label: '场景', total: 1, missingImage: 0, missingName: 0, duplicateName: 0 },
-    { kind: 'prop', label: '道具', total: 1, missingImage: 1, missingName: 0, duplicateName: 0 }])
-  assert.equal(report.issues.length, 4)
-  assert.deepEqual(report.issues[0].reasons, ['未设置主参考图', '同类资产重名，请核对'])
-  assert.equal(report.issues[2].name, '未命名人物')
-  assert.equal(report.issues[3].kind, 'prop')
-  assert.equal(JSON.stringify(project), before)
-  const empty = studioAssetInspection(null)
-  assert.equal(empty.total, 0); assert.deepEqual(empty.issues, [])
-  assert.deepEqual(empty.groups.map(group => [group.kind, group.total]), [['character', 0], ['scene', 0], ['prop', 0]])
-})
-
-test('asset inspection hands off only the saved project even with an unsaved shot and keeps an unavailable request visible', { skip: !existsSync(resolve(frontend, 'node_modules/@vue/compiler-sfc')) }, async () => {
-  const { JSDOM } = await import('jsdom'), dom = new JSDOM('<div id="asset-inspection-fixture"></div>')
-  const names = ['window', 'document', 'Node', 'Element', 'HTMLElement', 'SVGElement']
-  const originals = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
-  let app
-  try {
-    for (const name of names) Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: dom.window[name] })
-    const require = createRequire(resolve(frontend, 'package.json')), Vue = require('vue')
-    const { parse, compileScript } = require('@vue/compiler-sfc')
-    const { descriptor } = parse(readFileSync(new URL('../extensions/muse-studio-workbench.vue', import.meta.url), 'utf8'))
-    const compiled = compileScript(descriptor, { id: 'workbench-asset-inspection', genDefaultAs: '__component' })
-    const initial = { ...createStudioWorkbenchState(), projectId: 1, episodeId: 11, packageId: 101,
-      project: { id: 1, episodes: [], characters: [{ id: 7, name: 'Hero' }], scenes: [], props: [] } }
-    const before = JSON.stringify(initial.project), requests = []
-    let publish, accepted = false
-    const controller = { loadProject: async () => {}, dispose() {}, dirty: () => true }
-    const fixtures = { useTheme: () => ({ isDark: Vue.ref(false), toggle() {} }),
-      useRoute: () => ({ params: { id: '1' }, query: {} }), useRouter: () => ({}), studioAssetInspection,
-      createStudioWorkbenchState: () => initial, createStudioWorkbenchController: () => controller,
-      createMuseStudioBridge: ({ onState }) => { publish = onState; return { start() {}, stop() {}, request(intent, selection) {
-        requests.push({ intent, selection }); return accepted
-      } } } }
-    const imports = Object.entries(compiled.imports)
-    const dependencies = imports.map(([name, entry]) => entry.source === 'vue' ? Vue[entry.imported] : fixtures[name] || {})
-    const Component = compileFunction(compiled.content.replace(/^import .*$/mg, '') + '\nreturn __component', imports.map(([name]) => name))(...dependencies)
-    let actions
-    app = Vue.createApp({ setup() {
-      actions = Component.setup({}, { expose() {} })
-      return () => Vue.h('div', [Vue.h('button', { onClick: actions.openAssetInspection }, '检查资产'),
-        actions.assetInspectionOpen.value ? Vue.h('section', { role: 'dialog' }, [
-          Vue.h('span', actions.assetInspection.value.issues.map(issue => issue.name).join(',')),
-          actions.assetInspectionError.value ? Vue.h('p', { role: 'alert' }, actions.assetInspectionError.value) : null,
-          Vue.h('button', { disabled: !actions.canInspectAssets.value, onClick: actions.inspectAssetsWithMuse }, '交给 Muse 深入检查')]) : null])
-    } })
-    app.mount(dom.window.document.getElementById('asset-inspection-fixture')); await Vue.nextTick()
-    dom.window.document.querySelector('button').click(); await Vue.nextTick()
-    assert.ok(dom.window.document.querySelector('[role="dialog"]'))
-    assert.equal(dom.window.document.querySelector('[role="dialog"] button').disabled, true)
-    assert.equal(actions.assetInspection.value.groups[0].missingImage, 1)
-    publish({ available: true, pending: false, intents: ['inspect_project'] }); await Vue.nextTick()
-    assert.equal(actions.canInspectAssets.value, false)
-    publish({ available: true, pending: false, intents: ['inspect_assets'] }); await Vue.nextTick()
-    assert.equal(dom.window.document.querySelector('[role="dialog"] button').disabled, false)
-    dom.window.document.querySelector('[role="dialog"] button').click(); await Vue.nextTick()
-    assert.equal(actions.assetInspectionOpen.value, true)
-    assert.match(actions.state.notice, /未能交给 Muse/)
-    assert.match(actions.assetInspectionError.value, /检查任务未能交给 Muse/)
-    assert.equal(dom.window.document.querySelector('[role="dialog"] [role="alert"]').textContent, actions.assetInspectionError.value)
-    actions.assetInspectionOpen.value = false
-    await Vue.nextTick()
-    dom.window.document.querySelector('button').click(); await Vue.nextTick()
-    assert.equal(actions.assetInspectionError.value, '')
-    assert.equal(dom.window.document.querySelector('[role="alert"]'), null)
-    accepted = true
-    dom.window.document.querySelector('[role="dialog"] button').click(); await Vue.nextTick()
-    assert.equal(actions.assetInspectionOpen.value, false)
-    assert.deepEqual(requests, [{ intent: 'inspect_assets', selection: { projectId: 1 } }, { intent: 'inspect_assets', selection: { projectId: 1 } }])
-    assert.equal(JSON.stringify(initial.project), before)
-    actions.assetInspectionOpen.value = true; actions.showAssetCategory('prop')
-    assert.equal(actions.assetCategory.value, 'prop'); assert.equal(actions.activeTab.value, 'assets'); assert.equal(actions.assetInspectionOpen.value, false)
-  } finally {
-    app?.unmount(); dom.window.close()
-    for (const name of names) { const descriptor = originals.get(name); if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name] }
-  }
-})
 test('the workbench theme action toggles the pinned composable and persists the visible theme', { skip: !existsSync(resolve(frontend, 'node_modules/@vue/compiler-sfc')) }, async () => {
   const { JSDOM } = await import('jsdom'), dom = new JSDOM('<div id="theme-fixture"></div>', { url: 'http://localhost' })
   const names = ['window', 'document', 'Node', 'Element', 'HTMLElement', 'SVGElement', 'localStorage']
@@ -387,7 +275,7 @@ test('the workbench theme action toggles the pinned composable and persists the 
     const compiled = compileScript(descriptor, { id: 'workbench-theme', genDefaultAs: '__component' })
     const controller = { loadProject: async () => {}, dispose() {}, dirty: () => false }
     const fixtures = { useTheme, useRoute: () => ({ params: { id: '1' }, query: {} }), useRouter: () => ({}),
-      createStudioWorkbenchState, createStudioWorkbenchController: () => controller, studioAssetInspection,
+      createStudioWorkbenchState, createStudioWorkbenchController: () => controller,
       createMuseStudioBridge: () => ({ start() {}, stop() {} }) }
     const imports = Object.entries(compiled.imports)
     const dependencies = imports.map(([name, entry]) => entry.source === 'vue' ? Vue[entry.imported] : fixtures[name] || {})
@@ -408,67 +296,6 @@ test('the workbench theme action toggles the pinned composable and persists the 
     assert.equal(dom.window.localStorage.getItem('lmd-theme'), 'light')
   } finally {
     app?.unmount(); scope?.stop(); dom.window.close()
-    for (const name of names) { const descriptor = originals.get(name); if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name] }
-  }
-})
-
-test('asset categories separate equal IDs, react to project changes and keep exact image versions for binding', { skip: !existsSync(resolve(frontend, 'node_modules/@vue/compiler-sfc')) }, async () => {
-  const { JSDOM } = await import('jsdom'), dom = new JSDOM('<div id="asset-category-fixture"></div>')
-  const names = ['window', 'document', 'Node', 'Element', 'HTMLElement', 'SVGElement']
-  const originals = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]))
-  let app
-  try {
-    for (const name of names) Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: dom.window[name] })
-    const require = createRequire(resolve(frontend, 'package.json')), Vue = require('vue')
-    const { parse, compileScript } = require('@vue/compiler-sfc')
-    const { descriptor } = parse(readFileSync(new URL('../extensions/muse-studio-workbench.vue', import.meta.url), 'utf8'))
-    const compiled = compileScript(descriptor, { id: 'workbench-asset-categories', genDefaultAs: '__component' })
-    const initial = { ...createStudioWorkbenchState(), project: { id: 1, episodes: [],
-      characters: [{ id: 7, name: '人物甲', image_url: '/static/character.png' }],
-      scenes: [{ id: 7, location: '场景甲', image_url: '/static/scene.png' }], props: [] }, trace: trace() }
-    const reference = kind => ({ ...clone(initial.trace.assets[0]), assetKind: kind, assetId: 7, name: kind,
-      versions: [{ ...binding('old'), assetKind: kind, versionId: kind + '-version' }] })
-    initial.trace.assets = ['prop', 'storyboard', 'character', 'scene'].map(reference)
-    const before = JSON.stringify(initial.trace), selected = []
-    const controller = { loadProject: async () => {}, dispose() {}, dirty: () => false,
-      addBinding: (version, field) => selected.push({ version, field }) }
-    const fixtures = { useTheme: () => ({ isDark: Vue.ref(false), toggle() {} }),
-      useRoute: () => ({ params: { id: '1' }, query: {} }), useRouter: () => ({}),
-      createStudioWorkbenchState: () => initial, createStudioWorkbenchController: () => controller, studioAssetInspection,
-      createMuseStudioBridge: () => ({ start() {}, stop() {} }) }
-    const imports = Object.entries(compiled.imports)
-    const dependencies = imports.map(([name, entry]) => entry.source === 'vue' ? Vue[entry.imported] : fixtures[name] || {})
-    const Component = compileFunction(compiled.content.replace(/^import .*$/mg, '') + '\nreturn __component', imports.map(([name]) => name))(...dependencies)
-    let actions
-    app = Vue.createApp({ setup() {
-      actions = Component.setup({}, { expose() {} })
-      return () => Vue.h('div', [Vue.h('nav', actions.projectAssetGroups.value.map(group => Vue.h('button', {
-        'data-kind': group.kind, onClick: () => { actions.assetCategory.value = group.kind },
-      }, group.label + ' ' + group.items.length))), Vue.h('section', { 'data-category': actions.selectedAssetGroup.value.kind },
-        actions.selectedAssetGroup.value.items.length ? actions.selectedAssetGroup.value.items.map(item => item.name).join(',') : 'empty')])
-    } })
-    app.mount(dom.window.document.getElementById('asset-category-fixture')); await Vue.nextTick()
-    assert.deepEqual([...dom.window.document.querySelectorAll('nav button')].map(button => button.textContent), ['人物 1', '场景 1', '道具 0'])
-    assert.equal(dom.window.document.querySelector('section').textContent, '人物甲')
-    dom.window.document.querySelector('[data-kind="scene"]').click(); await Vue.nextTick()
-    assert.equal(dom.window.document.querySelector('section').textContent, '场景甲')
-    dom.window.document.querySelector('[data-kind="prop"]').click(); await Vue.nextTick()
-    assert.equal(dom.window.document.querySelector('section').textContent, 'empty')
-    actions.state.project.props.push({ id: 7, name: '道具甲', local_path: 'prop.png' }); await Vue.nextTick()
-    assert.equal(dom.window.document.querySelector('[data-kind="prop"]').textContent, '道具 1')
-    assert.equal(dom.window.document.querySelector('section').textContent, '道具甲')
-    assert.equal(actions.selectedAssetGroup.value.items[0].url, 'prop.png')
-    assert.deepEqual(actions.bindingAssetGroups.value.map(group => group.kind), ['character', 'scene', 'prop', 'storyboard'])
-    for (const group of actions.bindingAssetGroups.value) assert.equal(Vue.toRaw(group.items[0]), initial.trace.assets.find(asset => asset.assetKind === group.kind))
-    const scene = actions.bindingAssetGroups.value.find(group => group.kind === 'scene').items[0]
-    actions.assetSelections.scene7 = 'scene-version'; actions.bindSavedAsset(scene)
-    assert.equal(selected[0].field, 'video')
-    assert.equal(Vue.toRaw(selected[0].version), initial.trace.assets.find(asset => asset.assetKind === 'scene').versions[0])
-    assert.equal(JSON.stringify(initial.trace), before)
-    actions.state.trace.assets = []
-    assert.deepEqual(actions.bindingAssetGroups.value.map(group => [group.kind, group.items.length]), [['character', 0], ['scene', 0], ['prop', 0]])
-  } finally {
-    app?.unmount(); dom.window.close()
     for (const name of names) { const descriptor = originals.get(name); if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name] }
   }
 })

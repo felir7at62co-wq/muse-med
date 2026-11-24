@@ -1,0 +1,9 @@
+{
+  "native_project": 1,
+  "config": 1,
+  "session": "selected-session",
+  "remote_project": "remote-project",
+  "context": "selected_session",
+  "confirmation": "项目会话绑定已保存，未提交生成",
+  "paid_requests": 0
+}

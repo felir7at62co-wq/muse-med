@@ -9,6 +9,7 @@ import { createContext, runInContext } from 'node:vm'
 import { planMediaAdoption } from '../compatibility/media-adoption.mjs'
 import { planMuseBranding } from '../compatibility/muse-branding.mjs'
 import { planCloudPrefix } from '../compatibility/cloud-prefix.mjs'
+import { planMuseLibTv } from '../compatibility/muse-libtv.mjs'
 import { planStudioEntry } from '../compatibility/studio-entry.mjs'
 
 const root = resolve(process.env.LOCALMINIDRAMA_SOURCE || '.local/localminidrama')
@@ -23,7 +24,7 @@ function pristine(path) {
 function preceding() {
   if (!staged) {
     staged = new Map()
-    for (const planner of [planMediaAdoption, planMuseBranding, planCloudPrefix]) {
+    for (const planner of [planMediaAdoption, planMuseBranding, planCloudPrefix, planMuseLibTv]) {
       for (const [path, source] of planner(root, path => staged.get(path) ?? pristine(path))) staged.set(path, source)
     }
   }

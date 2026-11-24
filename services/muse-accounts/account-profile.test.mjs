@@ -26,6 +26,13 @@ test('profile returns one account and copies only safe profile and group fields'
  assert.deepEqual(source.feishuIdentities[0].organization.departments[0].pathIds,['0','od_writer']);assert.equal(source.groups[0].description,'负责长剧');
 });
 
+test('snapshot adds the synchronized job title and manager name of the current account only',()=>{
+ const source=snapshot();Object.assign(source.accounts[owner],{jobTitle:'主编剧',managerName:'制片人'});Object.assign(source.accounts[other],{jobTitle:'另一职位',managerName:'另一上级'});
+ assert.deepEqual(accountProfile(account(),{organizationSnapshot:source}).organization,{status:'available',updatedAt:at,departments:[department],jobTitle:'主编剧',managerName:'制片人'});
+ source.accounts[owner].status='unknown';
+ assert.deepEqual(accountProfile(account(),{organizationSnapshot:source}).organization,missing);
+});
+
 test('snapshot projects only current memberships and their complete ancestor paths',()=>{
  const source=snapshot();source.status='partial';source.accounts[owner].departmentIds.push('od_writer');
  const value=accountProfile(account(),{organizationSnapshot:source});
@@ -77,7 +84,8 @@ test('personal profile HTTP access follows the login, Origin, method and query r
  const store=await openStore(join(root,'accounts.json')),writer=await store.create('writer','pw'),another=await store.create('another','pw');
  await store.setGroups(writer.id,[{name:'编剧一组',description:'负责长剧'}]);await store.setGroups(another.id,[{name:'另一组',description:'不可见'}]);
  await store.resolveFeishuIdentity(identity(),{bindAccountId:writer.id});
- const origin='https://muse.test',server=createAccountServer({store,workspaceMode:'desktop',publicOrigin:origin});
+ const organizationSnapshot=snapshot();organizationSnapshot.accounts={[writer.id]:{status:'ready',departmentIds:['od_writer']},[another.id]:{status:'ready',departmentIds:['od_other']}};
+ const origin='https://muse.test',server=createAccountServer({store,workspaceMode:'desktop',publicOrigin:origin,feishuOrgSync:{getSnapshot:()=>structuredClone(organizationSnapshot),close:async()=>{}}});
  t.after(async()=>{await server.closeFeishuLogin();server.closeAllConnections();await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));});
  server.listen(0,'127.0.0.1');await once(server,'listening');const base='http://127.0.0.1:'+server.address().port;
  const login=await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username:'writer',password:'pw'}),redirect:'manual'});

@@ -2,26 +2,24 @@
 (() => {
  const list=document.getElementById('computer-list'),status=document.getElementById('computer-status');
  const selected=list.dataset.selected;
- const mobile=list.dataset.mobile==='true';
- const desktopUrl=id=>'/desktop/'+id+'/'+(mobile?'?mobile=1':'');
  const platforms={win32:'Windows',darwin:'macOS',linux:'Linux',unknown:'电脑'};
  let pending,timer,stopped=false;
  function render(devices){
+  const online=devices.filter(device=>device.state==='online');
   const fragment=document.createDocumentFragment();
-  for(const device of devices){
+  for(const device of online){
    const row=document.createElement('li');row.className='computer';
    const detail=document.createElement('div'),name=document.createElement('span'),meta=document.createElement('span');
    name.className='computer-name';name.textContent=device.name;
-   meta.className='computer-meta';meta.textContent=platforms[device.platform]+' · '+(device.state==='online'?'在线':'离线');
+   meta.className='computer-meta';meta.textContent=platforms[device.platform]+' · 在线';
    detail.append(name,meta);
    if(device.lastSeenAt!==null){const seen=document.createElement('span');seen.className='computer-meta';seen.textContent='最近连接：'+new Date(device.lastSeenAt).toLocaleString();detail.append(seen);}
-   const action=document.createElement(device.state==='online'?'a':'button');
-   if(device.state==='online'){action.className='computer-open';action.href=desktopUrl(device.id);action.textContent='进入';}
-   else {action.type='button';action.disabled=true;action.textContent='离线';}
+   const action=document.createElement('a');
+   action.className='computer-open';action.href='/desktop/'+device.id+'/';action.textContent='进入';
    row.append(detail,action);fragment.append(row);
   }
   // Keep the focused action while an unchanged list is refreshed.
-  const fingerprint=JSON.stringify(devices);
+  const fingerprint=JSON.stringify(online);
   if(list.dataset.fingerprint!==fingerprint){list.replaceChildren(fragment);list.dataset.fingerprint=fingerprint;}
  }
  async function check(){
@@ -35,8 +33,8 @@
    if(!response.ok)throw Error('Computer list unavailable');
    const {devices}=await response.json();
    if(stopped)return;
-   if(selected&&devices.some(d=>d.id===selected&&d.state==='online')){location.assign(desktopUrl(selected));return;}
-   if(location.pathname==='/'&&!selected&&devices.filter(d=>d.state==='online').length===1){location.assign(desktopUrl(devices.find(d=>d.state==='online').id));return;}
+   if(selected&&devices.some(d=>d.id===selected&&d.state==='online')){location.assign('/desktop/'+selected+'/');return;}
+   if(location.pathname==='/'&&!selected&&devices.filter(d=>d.state==='online').length===1){location.assign('/desktop/'+devices.find(d=>d.state==='online').id+'/');return;}
    render(devices);status.textContent=devices.some(d=>d.state==='online')?'点击“进入”打开对应电脑':'正在等待您的电脑上线…';
   }catch(error){if(!stopped)status.textContent='暂时无法更新电脑列表，请重试';}
   finally{clearTimeout(deadline);if(pending===controller)pending=undefined;}

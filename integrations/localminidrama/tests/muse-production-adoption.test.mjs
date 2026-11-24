@@ -1,4 +1,4 @@
-/** Native asset adoption uses real SQLite, completed native image generations and immutable media bytes; no provider is called. */
+/** Native asset adoption uses real SQLite, verified CLI imports and immutable media bytes; no provider is called. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire,Module} from 'node:module';
@@ -8,6 +8,7 @@ import {mkdtemp,mkdir,rm,writeFile} from 'node:fs/promises';
 import {join,resolve,dirname,basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
+import {museAdmissionRoutes} from '../compatibility/muse-admission.mjs';
 
 const backend=resolve(process.env.LOCALMINIDRAMA_SOURCE||'.local/localminidrama','backend-node');
 const available=existsSync(join(backend,'node_modules/better-sqlite3/package.json'));
@@ -33,44 +34,34 @@ async function fixture(t){
  INSERT INTO muse_production_plans VALUES('demo',1);
  INSERT INTO muse_production_plan_entities VALUES('demo','character','hero',1,NULL),('demo','character_library','hero',1,NULL),('demo','scene','room',1,NULL),('demo','prop','book',1,NULL);`);
  const cfg={storage:{local_path:storage,base_url:'/studio/static'}},loaded=new Map();
- const files={museProductionAdoption:'muse-production-adoption.cjs',musePostproductionMedia:'muse-postproduction-media.cjs'};
+ const files={museProductionAdoption:'muse-production-adoption.cjs',museLibTvCli:'muse-libtv-cli.cjs',museLibTvCliMedia:'muse-libtv-cli-media.cjs',museLibTvAudio:'muse-libtv-audio.cjs',musePostproductionMedia:'muse-postproduction-media.cjs',museBudget:'muse-budget.cjs',museAdmission:'muse-admission.cjs'};
  function load(name){
   if(loaded.has(name))return loaded.get(name);
   const path=join(backend,'src/services',name+'.js'),module=new Module(path);module.filename=path;
-  module.require=key=>key.startsWith('./')&&files[key.slice(2)]?load(key.slice(2)):require(key);
+  module.require=key=>key==='./museAdmissionCatalog.json'?museAdmissionRoutes:key.startsWith('./')&&files[key.slice(2)]?load(key.slice(2)):require(key);
   module._compile(readFileSync(fileURLToPath(new URL('../extensions/'+files[name],import.meta.url)),'utf8'),path);
   loaded.set(name,module.exports);return module.exports;
  }
- const adopt=load('museProductionAdoption');
+ const cli=load('museLibTvCli'),adopt=load('museProductionAdoption'),databaseId=cli.schema(db,cfg),requestHash=sha('fixed original request');
+ db.prepare('INSERT INTO muse_libtv_cli_operations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run('source-cli-image',requestHash,'{}',sha('owner'),'canvas','node',1,null,'fixture-image','image',1,'Hero', '[]','completed','{}','fixture-budget','2026-01-01','2026-01-01');
  const bytes=await require('sharp')({create:{width:16,height:16,channels:3,background:'#aaccee'}}).png().toBuffer();
- const generations={};
- db.exec('CREATE TABLE muse_studio_media_versions(kind TEXT,generation_id INTEGER,snapshot_json TEXT)');
- for(const kind of ['character','scene','prop']){
-  const taskId='native-image-'+kind,localPath='images/'+kind+'-'+sha(bytes)+'.png';
-  await mkdir(join(storage,'images'),{recursive:true});await writeFile(join(storage,localPath),bytes);
-  const inserted=db.prepare('INSERT INTO image_generations(drama_id,character_id,scene_id,provider,prompt,model,local_path,status,task_id) VALUES(?,?,?,?,?,?,?,?,?)')
-   .run(1,kind==='character'?1:null,kind==='scene'?1:null,'native-fixture','Original '+kind+' prompt','fixture-image',localPath,'completed',taskId);
-  const generationId=Number(inserted.lastInsertRowid);
-  db.prepare('INSERT INTO async_tasks(id,type,status,resource_id,result) VALUES(?,?,?,?,?)').run(taskId,'image_generation','completed','1',JSON.stringify({image_generation_id:generationId,...kind==='prop'?{prop_id:1}:{}}));
-  db.prepare('INSERT INTO muse_studio_media_versions VALUES(?,?,?)').run('image',generationId,JSON.stringify({state:'captured',sha256:sha(bytes)}));
-  generations[kind]={generation_id:generationId,local_path:localPath,task_id:taskId};
- }
- const imported=generations.character;
+ cli.chunk(db,cfg,'source-cli-image',{database_id:databaseId,request_sha256:requestHash,sha256:sha(bytes),kind:'image',media_type:'image/png',total_bytes:bytes.length,total_chunks:1,index:0,chunk_sha256:sha(bytes),data_base64:bytes.toString('base64')});
+ const imported=await cli.importResult(db,cfg,'source-cli-image',{database_id:databaseId,request_sha256:requestHash,operation_id:'import-cli-image',sha256:sha(bytes),kind:'image'});
  const input={namespace:'demo',kind:'character',key:'hero',generation_id:imported.generation_id};
  const preview=()=>adopt.preview(db,cfg,input);
  const request=()=>{const p=preview();return {...input,operation_id:'adopt-hero-image',database_id:p.database_id,expected_target_sha256:p.target_sha256,expected_source_sha256:p.source_sha256};};
- return {db,cfg,storage,bytes,imported,generations,input,adopt,preview,request};
+ return {db,cfg,storage,bytes,imported,input,adopt,preview,request};
 }
 
 test('character, scene and prop adoption retain verified original history and previous media',{skip:!available},async t=>{
  const f=await fixture(t);
  for(const [kind,key,table]of [['character','hero','characters'],['scene','room','scenes'],['prop','book','props']]){
-  const input={...f.input,kind,key,generation_id:f.generations[kind].generation_id},p=f.adopt.preview(f.db,f.cfg,input);
+  const input={...f.input,kind,key},p=f.adopt.preview(f.db,f.cfg,input);
   const receipt=f.adopt.apply(f.db,f.cfg,{...input,operation_id:'adopt-'+key+'-image',database_id:p.database_id,expected_target_sha256:p.target_sha256,expected_source_sha256:p.source_sha256});
-  assert.equal(receipt.status,'adopted');assert.equal(receipt.sha256,sha(f.bytes));assert.equal(receipt.source_operation_id,f.generations[kind].task_id);assert.equal(receipt.paid_requests,0);
+  assert.equal(receipt.status,'adopted');assert.equal(receipt.sha256,sha(f.bytes));assert.equal(receipt.source_operation_id,'source-cli-image');assert.equal(receipt.paid_requests,0);
   assert.equal(f.db.prepare('SELECT image_url FROM '+table+' WHERE id=1').get().image_url,receipt.image_url);
   if(kind==='character')assert.equal(f.db.prepare('SELECT image_url FROM character_libraries WHERE id=1').get().image_url,receipt.image_url);
-  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM image_generations').get().n,3);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM image_generations').get().n,1);
  }
  const row=f.db.prepare("SELECT * FROM muse_production_adoptions WHERE operation_id='adopt-hero-image'").get();
  assert.equal(JSON.parse(row.previous_json).image_url,'/static/old.png');assert.equal(JSON.parse(row.source_json).imported.sha256,sha(f.bytes));
@@ -85,16 +76,6 @@ test('replaying one adoption never overwrites a later selection or accepts chang
  assert.equal(f.db.prepare('SELECT image_url FROM characters WHERE id=1').get().image_url,'/static/later.png');
  assert.throws(()=>f.adopt.apply(f.db,f.cfg,{...request,key:'someone-else'}),{code:'adoption_operation_changed'});
  assert.deepEqual(f.adopt.get(f.db,{operation_id:request.operation_id}),{...first,replayed:true});
-});
-
-test('one asset cannot adopt another asset generation and prop task evidence must name the exact generation',{skip:!available},async t=>{
- const f=await fixture(t);
- assert.throws(()=>f.adopt.preview(f.db,f.cfg,{...f.input,kind:'scene',key:'room'}),{code:'adoption_source_mismatch'});
- const propInput={...f.input,kind:'prop',key:'book',generation_id:f.generations.prop.generation_id};
- f.db.prepare("UPDATE async_tasks SET result=? WHERE id=?").run(JSON.stringify({prop_id:1,image_generation_id:f.generations.scene.generation_id}),f.generations.prop.task_id);
- assert.throws(()=>f.adopt.preview(f.db,f.cfg,propInput),{code:'adoption_source_mismatch'});
- assert.equal(f.db.prepare('SELECT image_url FROM scenes WHERE id=1').get().image_url,null);
- assert.equal(f.db.prepare('SELECT COUNT(*) n FROM muse_production_adoptions').get().n,0);
 });
 
 test('concurrent asset edits and source changes refuse adoption without changing media',{skip:!available},async t=>{
@@ -130,5 +111,5 @@ test('receipt persistence failure rolls back adopted media and keeps the prior a
  f.db.exec("CREATE TRIGGER refuse_adoption BEFORE INSERT ON muse_production_adoptions BEGIN SELECT RAISE(ABORT,'fixture receipt failure'); END;");
  assert.throws(()=>f.adopt.apply(f.db,f.cfg,request),/fixture receipt failure/);
  assert.equal(f.db.prepare('SELECT image_url FROM characters WHERE id=1').get().image_url,'/static/old.png');
- assert.equal(f.db.prepare('SELECT COUNT(*) n FROM image_generations').get().n,3);
+ assert.equal(f.db.prepare('SELECT COUNT(*) n FROM image_generations').get().n,1);
 });

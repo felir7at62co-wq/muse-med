@@ -17,7 +17,7 @@ export function workerPath(raw){
  if(decoded.includes('\\')||/[\x00-\x1f\x7f]/.test(decoded)||decoded.split('/').some(part=>part==='.'||part==='..'))throw new StudioError('studio_invalid_path',400);
  const url=new URL(raw,'http://127.0.0.1');for(const key of url.searchParams.keys())if(/^(?:account_?id|tenant(?:_?id)?|user_?id)$/i.test(key))throw new StudioError('studio_invalid_path',400);
  const lower=decoded.toLowerCase();
- if(lower.startsWith('/api/')&&(!lower.startsWith('/api/v1/')||!apiRoots.has(lower.slice('/api/v1/'.length).split('/')[0])&&!/^\/api\/v1\/muse\/(?:audio|packages|admission|revisions|postproduction|budget|jubian|edit|migration|production-plans|project-archives|studio)(?:\/|$)/.test(lower)))throw new StudioError('studio_route_unavailable',404);
+ if(lower.startsWith('/api/')&&(!lower.startsWith('/api/v1/')||!apiRoots.has(lower.slice('/api/v1/'.length).split('/')[0])&&!/^\/api\/v1\/muse\/(?:audio|packages|admission|revisions|postproduction|budget|libtv|libtv-cli|libtv-postproduction|edit|migration|production-plans|studio)(?:\/|$)/.test(lower)))throw new StudioError('studio_route_unavailable',404);
  if(/^\/(?:agent|mastra|cloud|admin|account|helper)(?:\/|\.|$)/i.test(decoded))throw new StudioError('studio_route_unavailable',404);
  return raw;
 }

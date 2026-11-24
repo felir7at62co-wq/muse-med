@@ -69,35 +69,6 @@ test('legacy history remains partial and never borrows current assets or current
  const f=await fixture(t,{legacy:true});f.db.prepare("UPDATE storyboards SET video_prompt='current fake prompt' WHERE id=1").run();const old=f.studio.packageTrace(f.db,f.cfg,1).videos.items[0];assert.equal(old.inputs.prompt,'actual old prompt');assert.equal(old.inputs.state,'partial');assert.deepEqual(old.inputs.bindings,[]);assert.equal(old.inputs.source,'legacy-record');assert.equal(old.mediaSnapshot.state,'legacy-unverified');
 });
 
-test('retired postproduction history reads its stored snapshot without loading the retired provider module',{skip:!available},async t=>{
- const f=await fixture(t,{legacy:true});
- f.db.exec('CREATE TABLE muse_libtv_postproduction_imports(operation_id TEXT PRIMARY KEY,generation_id INTEGER,project_id INTEGER,storyboard_id INTEGER,inputs_json TEXT)');
- assert.equal(f.studio.packageTrace(f.db,f.cfg,1).videos.items[0].inputs.prompt,'actual old prompt');
- const captured={state:'captured',source:'libtv-api-capture',prompt:'Exact retained input',submittedPrompt:'Exact retained input',bindings:[],references:[],model:'retained model',operationId:'retained-operation',requestSha256:'a'.repeat(64),revisionId:null,supplierVerified:false,postproduction:{kind:'erase_subtitles',sourceState:'matched',parentGenerationId:9}};
- f.db.prepare('INSERT INTO muse_libtv_postproduction_imports VALUES(?,?,?,?,?)').run('retained-operation',10,1,1,JSON.stringify(captured));
- const before=JSON.stringify(f.db.prepare('SELECT * FROM muse_libtv_postproduction_imports').all());
- assert.deepEqual(f.studio.packageTrace(f.db,f.cfg,1).videos.items[0].inputs,{...captured,parentGenerationId:null,changeReason:null});
- assert.equal(JSON.stringify(f.db.prepare('SELECT * FROM muse_libtv_postproduction_imports').all()),before);
- f.db.prepare('UPDATE muse_libtv_postproduction_imports SET project_id=2').run();
- assert.equal(f.studio.packageTrace(f.db,f.cfg,1).videos.items[0].inputs.prompt,'actual old prompt');
-});
-
-test('root deployment reads old mounted media without rewriting frozen bindings or accepting escaped paths',{skip:!available},async t=>{
- const f=await fixture(t),version=await f.snapshot(),saved=f.revision(version);
- const frozen=f.db.prepare('SELECT * FROM muse_studio_prompt_revisions').all();
- f.db.prepare("UPDATE characters SET local_path='/studio/static/hero.png' WHERE id=1").run();
- f.cfg.storage.base_url='/static';
- assert.equal(f.inputs.mediaUrl({local_path:'/studio/static/hero.png'},'image',f.cfg),'/static/hero.png');
- assert.equal(f.inputs.mediaUrl({video_url:'/studio/static/movies/clip.mp4'},'video',f.cfg),'/static/movies/clip.mp4');
- const prepared=f.inputs.prepare(f.db,f.cfg,1,{databaseId:f.databaseId,revisionId:saved.current.revisionId,kind:'video'});
- assert.equal(prepared.bindings[0].mediaUrl,'/static/'+f.db.prepare('SELECT local_path FROM muse_studio_asset_versions').get().local_path);
- assert.deepEqual(f.inputs.chunk(f.db,f.cfg,version.versionId,0).dataBase64,f.red.toString('base64'));
- assert.equal(f.inputs.current(f.db,f.cfg,1).videoBindings[0].mediaUrl,version.mediaUrl);
- assert.deepEqual(f.db.prepare('SELECT * FROM muse_studio_prompt_revisions').all(),frozen);
- assert.equal(f.inputs.localPath('https://provider.example/static/hero.png'),null);
- for(const bad of ['/studio/static/../outside.png','/studio/static/%2e%2e/outside.png','/studio/static/C:/outside.png','/studio/static//outside.png'])assert.throws(()=>f.inputs.localPath(bad),{code:'studio_media_unavailable'});
-});
-
 test('reused output paths never invent which historical prompt version was adopted',{skip:!available},async t=>{
  const f=await fixture(t);f.db.exec("INSERT INTO video_generations(id,drama_id,storyboard_id,prompt,status,local_path,video_url) VALUES(30,1,1,'first distinct prompt','completed','shared.mp4','/studio/static/shared.mp4'),(31,1,1,'second distinct prompt','completed','shared.mp4','/studio/static/shared.mp4');UPDATE storyboards SET video_url='/studio/static/shared.mp4' WHERE id=1");const rows=f.studio.packageTrace(f.db,f.cfg,1).videos.items;assert.equal(rows.filter(row=>row.adopted).length,0);assert.deepEqual(rows.map(row=>row.inputs.prompt),['second distinct prompt','first distinct prompt']);
 });
@@ -111,6 +82,11 @@ test('an exact storyboard image becomes a frozen keyframe binding and preparatio
  const f=await fixture(t);f.db.prepare("INSERT INTO image_generations(id,drama_id,storyboard_id,prompt,status,local_path,image_url) VALUES(9,1,1,'keyframe','completed','hero.png','/studio/static/hero.png')").run();const version=await f.inputs.assetVersion(f.db,f.cfg,{operationId:'snapshot-exact-keyframe',projectId:1,assetKind:'storyboard',assetId:1,generationId:9,expectedAsset:f.edit.snapshot(f.db,f.cfg,'storyboard',1)});assert.equal(version.assetKind,'storyboard');assert.equal(version.generationId,9);assert.equal(version.sha256,f.inputs.hash(f.red));const binding={bindingId:'keyframe',assetKind:'storyboard',assetId:1,versionId:version.versionId},saved=f.inputs.saveRevision(f.db,f.cfg,1,{operationId:'save-keyframe-reference',databaseId:f.databaseId,expectedSnapshotSha256:f.inputs.current(f.db,f.cfg,1).snapshotSha256,imagePrompt:'image @asset(keyframe)',videoPrompt:'video @asset(keyframe)',imageBindings:[binding],videoBindings:[binding]}),prepared=f.inputs.prepare(f.db,f.cfg,1,{databaseId:f.databaseId,revisionId:saved.current.revisionId,kind:'video'});assert.equal(prepared.authoredPrompt,'video @asset(keyframe)');assert.equal(prepared.prompt,'video 参考图1（storyboard）');assert.equal(prepared.bindings[0].referenceToken,'@asset(keyframe)');assert.deepEqual(prepared.referenceSha256s,[version.sha256]);assert.ok(!prepared.prompt.includes('@asset('));await assert.rejects(f.inputs.assetVersion(f.db,f.cfg,{operationId:'foreign-keyframe-reference',projectId:2,assetKind:'storyboard',assetId:2,generationId:9,expectedAsset:f.edit.snapshot(f.db,f.cfg,'storyboard',2)}),{code:'studio_generation_unavailable'});
 });
 
+test('CLI revision proofs require exact ordered source nodes, upload identities and stored image hashes',{skip:!available},async t=>{
+ const f=await fixture(t),version=await f.snapshot(),saved=f.revision(version),input={operation_id:'bound-cli-original',request_sha256:'a'.repeat(64),project_id:1,storyboard_id:1,service:'video',prompt:'video 参考图1（Hero）',muse_studio_database_id:f.databaseId,muse_prompt_revision_id:saved.current.revisionId,muse_prompt_references:[{version_id:version.versionId,node_id:'original-reference',sha256:version.sha256,upload_operation_id:'original-upload'}],input_capture:{protocol:'libtv-cli-input-v1',node:{data:{params:{prompt:'video 参考图1（Hero）'}}},references:{edges:[{source:'original-reference'}],nodes:[{node_id:'original-reference'}]}}};
+ const capture=f.inputs.validateCli(f.db,f.cfg,input);f.inputs.captureCli(f.db,f.cfg,input,capture);assert.deepEqual(f.inputs.validateCli(f.db,f.cfg,input),capture);assert.throws(()=>f.inputs.validateCli(f.db,f.cfg,{...input,muse_prompt_references:[{...input.muse_prompt_references[0],node_id:'other'}]}),{code:'studio_reference_set_changed'});assert.throws(()=>f.inputs.validateCli(f.db,f.cfg,{...input,prompt:'other'}),{code:'studio_prompt_tokens_changed'});assert.throws(()=>f.inputs.validateCli(f.db,f.cfg,{...input,muse_prompt_references:[{...input.muse_prompt_references[0],upload_operation_id:''}]}),{code:'studio_reference_set_changed'});
+ f.db.exec('CREATE TABLE muse_libtv_cli_operations(operation_id TEXT PRIMARY KEY,prompt TEXT,model TEXT,request_sha256 TEXT);CREATE TABLE muse_libtv_cli_inputs(operation_id TEXT PRIMARY KEY,capture_json TEXT);CREATE TABLE muse_libtv_cli_imports(kind TEXT,generation_id INTEGER,source_operation_id TEXT)');f.db.prepare('INSERT INTO muse_libtv_cli_operations VALUES(?,?,?,?)').run(input.operation_id,input.prompt,'captured-cli-model',input.request_sha256);f.db.prepare('INSERT INTO muse_libtv_cli_inputs VALUES(?,?)').run(input.operation_id,JSON.stringify(input.input_capture));f.db.exec("INSERT INTO video_generations(id,drama_id,storyboard_id,prompt,status) VALUES(5,1,1,'not used','completed')");f.db.prepare('INSERT INTO muse_libtv_cli_imports VALUES(?,?,?)').run('video',5,input.operation_id);const result=f.studio.packageTrace(f.db,f.cfg,1).videos.items[0];assert.equal(result.inputs.state,'captured');assert.equal(result.inputs.prompt,'video @asset(hero)');assert.equal(result.inputs.submittedPrompt,input.prompt);assert.equal(result.inputs.bindings[0].versionId,version.versionId);assert.equal(result.inputs.supplierVerified,false);
+});
 
 async function advancedTraceFixture(t){
  const f=await fixture(t),hero=await f.snapshot();
@@ -132,7 +108,7 @@ async function advancedTraceFixture(t){
  }
  const sourceCapture={protocol:'libtv-cli-input-v1',node:sourceNode,references:{nodes:[]}};
  operation('original-cli-video',{capture:sourceCapture,result:sourceNode});imported('original-cli-video',51,sourceUrl);
- f.db.prepare('INSERT INTO muse_studio_cli_inputs VALUES(?,?)').run('original-cli-video',JSON.stringify({...prepared,operationId:'original-cli-video'}));
+ f.inputs.captureCli(f.db,f.cfg,{operation_id:'original-cli-video'},{...prepared,operationId:'original-cli-video'});
  const capture={protocol:'libtv-cli-advanced-input-v1',command_kind:'video_hd',spec:{kind:'video_hd',project_uuid:canvas,node_id:'original-node',model_name:'Topazlabs'},node:{...sourceNode,data:{...sourceNode.data,params:{prompt:'edited after generation'}}}};
  const hdNode={nodeKey:'hd-node',status:2,url:[hdUrl]};
  operation('derived-cli-hd',{capture,result:{records:[hdNode],media_outputs:[{nodeKey:hdNode.nodeKey,kind:'video',url:hdUrl,node:hdNode,nodeSha256:f.inputs.digest(hdNode),outputIndex:0}]},model:'advanced:video_hd',service:'agent-task'});imported('derived-cli-hd',52,hdUrl);
@@ -187,35 +163,10 @@ test('HTTP endpoints return exact operation results, bounded verified chunks and
 
 test('planner installs evidence before admission and refuses repeated patches',{skip:!available},t=>{
  const uninstalled=mkdtempSync(join(tmpdir(),'muse-studio-planner-'));t.after(()=>rmSync(uninstalled,{recursive:true,force:true}));
- const original=new Map([[resolve(uninstalled,'backend-node/src/routes/index.js'),'function setupRouter(){\n  const r = express.Router();\n  return r;\n}']]);const planned=planMuseStudio(uninstalled,path=>original.get(path));assert.equal(planned.length,4);assert.match(planned.find(([path])=>path.replaceAll('\\','/').endsWith('routes/index.js'))[1],/museStudioRoutes/);assert.ok(planned.every(([path])=>!path.includes('LibTv')));
+ const original=new Map([[resolve(uninstalled,'backend-node/src/routes/index.js'),'function setupRouter(){\n  const r = express.Router();\n  return r;\n}'],[resolve(uninstalled,'backend-node/src/services/museLibTvCli.js'),"function reserve(){}\nmodule.exports={reserve};"]]);const planned=planMuseStudio(uninstalled,path=>original.get(path));assert.equal(planned.length,5);assert.match(planned.find(([path])=>path.replaceAll('\\','/').endsWith('routes/index.js'))[1],/museStudioRoutes/);assert.match(planned.find(([path])=>path.endsWith('museLibTvCli.js'))[1],/studio\.validateCli/);
  const staged=new Map(planned);assert.throws(()=>planMuseStudio(uninstalled,path=>staged.get(path)??original.get(path)),/differs|requires/);
 });
 
-test('dispatch and lineage upgrades preserve original revisions and leave their missing parent unknown',{skip:!available},async t=>{
- const f=await fixture(t),version=await f.snapshot(),saved=f.revision(version),columns='revision_id,project_id,package_id,image_prompt,video_prompt,image_bindings_json,video_bindings_json,created_at';
- const before=f.db.prepare('SELECT '+columns+' FROM muse_studio_prompt_revisions').all();
- f.db.exec('ALTER TABLE muse_studio_prompt_revisions DROP COLUMN parent_generation_id;ALTER TABLE muse_studio_prompt_revisions DROP COLUMN change_reason;DROP TABLE muse_studio_native_dispatches;UPDATE muse_studio_schema SET version=1');
- assert.equal(f.inputs.schema(f.db,f.cfg),f.databaseId);assert.equal(f.db.prepare('SELECT version FROM muse_studio_schema').get().version,3);
- assert.equal(f.inputs.current(f.db,f.cfg,1).revisionId,saved.current.revisionId);assert.equal(f.inputs.current(f.db,f.cfg,1).parentGenerationId,null);assert.equal(f.inputs.current(f.db,f.cfg,1).changeReason,null);
- assert.deepEqual(f.db.prepare('SELECT '+columns+' FROM muse_studio_prompt_revisions').all(),before);assert.equal(f.inputs.chunk(f.db,f.cfg,version.versionId,0).sha256,version.sha256);
- f.db.prepare('UPDATE muse_studio_schema SET version=4').run();assert.throws(()=>f.inputs.schema(f.db,f.cfg),{code:'studio_unsupported_schema'});
-});
-
-test('repair revisions bind one exact same-package video and preserve original inputs, receipts and trace',{skip:!available},async t=>{
- const f=await fixture(t),version=await f.snapshot(),original=f.revision(version);
- f.db.exec("INSERT INTO storyboards(id,episode_id,storyboard_number) VALUES(3,1,2);INSERT INTO video_generations(id,drama_id,storyboard_id,prompt,status) VALUES(71,1,1,'original attempted prompt','failed'),(72,2,2,'foreign','completed'),(73,1,3,'other package','completed'),(74,1,1,'archived','completed');UPDATE video_generations SET deleted_at='2026-01-01' WHERE id=74");
- const originals=f.db.prepare('SELECT * FROM video_generations ORDER BY id').all(),revisionBefore=f.db.prepare('SELECT * FROM muse_studio_prompt_revisions').all(),body={operationId:'repair-derived-revision',databaseId:f.databaseId,expectedSnapshotSha256:f.inputs.current(f.db,f.cfg,1).snapshotSha256,imagePrompt:'',videoPrompt:'Repaired @asset(hero)',imageBindings:[],videoBindings:[{bindingId:'hero',assetKind:'character',assetId:1,versionId:version.versionId}]};
- for(const invalid of [{parentGenerationId:71},{changeReason:'Fix pose'},{parentGenerationId:71,changeReason:' '},{parentGenerationId:72,changeReason:'Foreign'},{parentGenerationId:73,changeReason:'Other package'},{parentGenerationId:74,changeReason:'Archived'}])assert.throws(()=>f.inputs.saveRevision(f.db,f.cfg,1,{...body,...invalid}),error=>['studio_lineage_invalid','studio_lineage_parent_unavailable'].includes(error.code));
- assert.deepEqual(f.db.prepare('SELECT * FROM muse_studio_prompt_revisions').all(),revisionBefore);
- const input={...body,parentGenerationId:71,changeReason:'Repair the source-backed pose'},saved=f.inputs.saveRevision(f.db,f.cfg,1,input);
- assert.equal(saved.current.parentGenerationId,71);assert.equal(saved.current.changeReason,input.changeReason);assert.notEqual(saved.current.revisionId,original.current.revisionId);
- assert.deepEqual(f.inputs.saveRevision(f.db,f.cfg,1,input),saved);assert.throws(()=>f.inputs.saveRevision(f.db,f.cfg,1,{...input,changeReason:'Different reason'}),{code:'studio_operation_changed'});
- assert.throws(()=>f.inputs.saveRevision(f.db,f.cfg,1,{...input,operationId:'stale-repair-attempt'}),{code:'studio_snapshot_changed'});
- const prepared=f.inputs.prepare(f.db,f.cfg,1,{databaseId:f.databaseId,revisionId:saved.current.revisionId,kind:'video'});assert.equal(prepared.parentGenerationId,71);assert.equal(prepared.changeReason,input.changeReason);
- await f.runNative({drama_id:1,storyboard_id:1,muse_studio_database_id:f.databaseId,muse_prompt_revision_id:saved.current.revisionId},value=>f.db.prepare("INSERT INTO video_generations(id,drama_id,storyboard_id,prompt,status) VALUES(75,1,1,?,'processing')").run(value.prompt));
- f.revision(version,'newer-unrelated-revision',{videoPrompt:'Later @asset(hero)'});
- const derived=f.studio.packageTrace(f.db,f.cfg,1).videos.items.find(row=>row.generationId===75);assert.equal(derived.inputs.parentGenerationId,71);assert.equal(derived.inputs.changeReason,input.changeReason);assert.equal(derived.inputs.prompt,'Repaired @asset(hero)');
- assert.deepEqual(f.db.prepare('SELECT * FROM video_generations WHERE id<75 ORDER BY id').all(),originals);assert.deepEqual(f.db.prepare('SELECT * FROM muse_studio_prompt_revisions WHERE revision_id=?').get(original.current.revisionId),revisionBefore[0]);
- const archive=new Module(join(backend,'src/services/museProjectArchiveContent.js'));archive.filename=join(backend,'src/services/museProjectArchiveContent.js');archive.require=name=>name==='./museStudio'?f.studio:require(name);archive._compile(readFileSync(new URL('../extensions/muse-project-archive-content.cjs',import.meta.url),'utf8'),archive.filename);
- const archived=archive.exports.select(f.db,f.cfg,1,{max_rows:10000}).tables.muse_studio_prompt_revisions.find(row=>row.revision_id===saved.current.revisionId);assert.equal(archived.parent_generation_id,71);assert.equal(archived.change_reason,input.changeReason);
+test('dispatch-schema upgrade preserves prior version identities and rejects unknown future databases',{skip:!available},async t=>{
+ const f=await fixture(t),version=await f.snapshot(),saved=f.revision(version);f.db.exec('DROP TABLE muse_studio_native_dispatches;UPDATE muse_studio_schema SET version=1');assert.equal(f.inputs.schema(f.db,f.cfg),f.databaseId);assert.equal(f.db.prepare('SELECT version FROM muse_studio_schema').get().version,2);assert.equal(f.inputs.current(f.db,f.cfg,1).revisionId,saved.current.revisionId);assert.equal(f.inputs.chunk(f.db,f.cfg,version.versionId,0).sha256,version.sha256);f.db.prepare('UPDATE muse_studio_schema SET version=3').run();assert.throws(()=>f.inputs.schema(f.db,f.cfg),{code:'studio_unsupported_schema'});
 });

@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write integrations/localminidrama/cloud/README.md
+/:
+  en: 535417f781b728d4
+  zh: 57ef50e430bd7223
+/muse-cloud-studio:
+  en: f179d050228776bb
+  zh: 4f4079a09def499b
+/muse-cloud-studio/summary:
+  en: be1e7b1a45fa3b2e
+  zh: d65fc5d43e69113f
+/muse-cloud-studio/deployment:
+  en: 7fac8c16f888e624
+  zh: 4df0650a14c1a6e3
+/muse-cloud-studio/gateway-integration:
+  en: ed743a1cd701d1e2
+  zh: 0295f39ee6bab6a7
+/muse-cloud-studio/worker-lifecycle-and-storage:
+  en: 2ee2bd2650919e8f
+  zh: bd3595d1e96279ad
+/muse-cloud-studio/outbound-access-and-references:
+  en: 2367811eeded2a51
+  zh: b84ab0ca08362a0b
+/muse-cloud-studio/production-usage:
+  en: 8c79c06a1b6a6200
+  zh: e7c95fa9129b28f1
+/muse-cloud-studio/verification:
+  en: ebbca6c5b817aa56
+  zh: ee21398dc4a174ba

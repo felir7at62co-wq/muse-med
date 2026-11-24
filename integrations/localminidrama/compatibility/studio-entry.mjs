@@ -27,14 +27,14 @@ export function planStudioEntry(root, readSource = path => readFileSync(path, 'u
   patch('FilmList', (source, file) => {
     const start = source.indexOf('    <header class="header">'), end = source.indexOf('    </header>', start) + '    </header>'.length
     const header = source.slice(start, end)
-    if (start < 0 || end < 0 || createHash('sha256').update(header).digest('hex') !== '902d3d00fc9457918790b605710d182a6634f6b24c74d3e99f3e009cd5052bd0') throw Error('Muse project header does not match pinned source')
+    if (start < 0 || end < 0 || createHash('sha256').update(header).digest('hex') !== 'f8f204d9046be92c5a54940d8507be18928743df394a68d1d3eb41cfca20ee5e') throw Error('Muse project header does not match pinned source')
     source = replace(source, header, readFileSync(new URL('../extensions/muse-project-header.html', import.meta.url), 'utf8').trimEnd(), file)
     source = replace(source, 'Moon, Download', 'Moon, ArrowDown, Download', file)
     source = replace(source, '    <main class="main">', '    <main class="main">\n      <el-alert v-if="museListError" class="muse-entry-error" :title="museListError" type="error" :closable="false" show-icon><el-button text @click="loadList">重新加载</el-button></el-alert>', file)
     source = replace(source, '<div class="project-card action-card">', '<div v-if="!dramas.length && !loading && !museListError" class="project-card action-card">', file)
     source = replace(source, '            @click="openProject(d.id)"', '            role="link" tabindex="0" @keydown.enter.self="openProject(d.id)"\n            @click="openProject(d.id)"', file)
     source = replace(source, "  router.push('/drama/' + id)", "  router.push('/film/' + id)", file)
-    source = replace(source, 'function loadList() {', "const museListError = ref('')\nfunction museProjectCommand(command) {\n  const actions = { characters: () => { showCharLibrary.value = true }, scenes: () => { showSceneLibrary.value = true }, props: () => { showPropLibrary.value = true }, media: () => router.push('/media-library'), import: triggerImport, models: () => { showAiConfigDialog.value = true }, theme: toggleTheme }\n  actions[command]?.()\n}\n\nfunction loadList() {", file)
+    source = replace(source, 'function loadList() {', "const museListError = ref('')\nfunction museProjectCommand(command) {\n  const actions = { characters: () => { showCharLibrary.value = true }, scenes: () => { showSceneLibrary.value = true }, props: () => { showPropLibrary.value = true }, media: () => router.push('/media-library'), import: triggerImport, connection: () => { museLibTvVisible.value = true }, models: () => { showAiConfigDialog.value = true }, theme: toggleTheme }\n  actions[command]?.()\n}\n\nfunction loadList() {", file)
     source = replace(source, '      dramas.value = res?.items ?? []', "      museListError.value = ''\n      dramas.value = res?.items ?? []", file)
     return replace(source, '    .catch(() => {\n      dramas.value = []\n    })', "    .catch(() => {\n      museListError.value = '项目加载失败，保留上次结果。请重新加载。'\n    })", file)
   })

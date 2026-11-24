@@ -40,7 +40,7 @@ async function fixture(t,{cfg={muse_budget:{prices:[profile()]}},path}={}){
  const routes=compile(extension('muse-budget-routes.cjs'),require,{'../services/museBudget':budget});
  admission.schema(db);budget.schema(db,cfg);
  const authorize=(projectId=1,limit=100,extra={})=>budget.updateProject(db,cfg,projectId,{operation_id:randomUUID(),expected_revision:budget.readProject(db,cfg,projectId).revision,currency:'CNY',limit_minor:limit,allow_estimates:true,allow_task_envelopes:false,...extra});
- const reserve=(operationId=randomUUID(),extra={})=>budget.reserve(db,cfg,{source:'native',operation_id:operationId,project_id:1,request_sha256:hash(operationId),service:'text',provider:'fixture',model:'fixture-model',origin:'http://127.0.0.1:1',quantity:1,...extra});
+ const reserve=(operationId=randomUUID(),extra={})=>budget.reserve(db,cfg,{source:'libtv',operation_id:operationId,project_id:1,request_sha256:hash(operationId),service:'text',provider:'fixture',model:'fixture-model',origin:'http://127.0.0.1:1',quantity:1,...extra});
  async function http(handler,setup){const express=require('express'),app=express(),router=express.Router();app.use(express.json());admission.register(router,db,cfg);routes.register(router,db,cfg);if(handler)router.post('/generation/story',handler);if(setup)setup(router);app.use('/api/v1',router);const server=createServer(app);servers.push(server);const base=await listen(server);const call=async(path,body,method=body===undefined?'GET':'POST',headers={})=>{const response=await fetch(base+'/api/v1'+path,{method,headers:{'content-type':'application/json',...headers},...body===undefined?{}:{body:JSON.stringify(path.startsWith('/muse/budget')?{database_id:budget.databaseId(db,cfg),...body}:body)}});const data=await response.json();return {status:response.status,data};};call.base=base;return call;}
  return {home,db,cfg,require,budget,admission,authorize,reserve,http,statements};
 }
@@ -49,7 +49,7 @@ test('missing prices, explicit authorization, currencies and administrator ceili
  const f=await fixture(t);assert.throws(()=>f.reserve(),{code:'budget_limit_required'});f.authorize(1,100,{allow_estimates:false});assert.throws(()=>f.reserve(),{code:'budget_estimate_not_authorized'});f.authorize();assert.throws(()=>f.reserve(randomUUID(),{model:'unknown-model'}),{code:'budget_price_unknown'});assert.equal(f.budget.readProject(f.db,f.cfg,1).reserved_minor,0);
  assert.throws(()=>f.budget.updateProject(f.db,f.cfg,1,{operation_id:randomUUID(),expected_revision:2,currency:'USD',limit_minor:100,allow_estimates:true,allow_task_envelopes:false}),{code:'budget_invalid_limit'});
  assert.throws(()=>f.budget.updateProject(f.db,{muse_budget:{max_project_limit_minor:50}},2,{operation_id:randomUUID(),expected_revision:0,currency:'CNY',limit_minor:51,allow_estimates:true,allow_task_envelopes:false}),{code:'budget_invalid_limit'});
- const reduced={muse_budget:{max_project_limit_minor:50,prices:[profile()]}};assert.equal(f.budget.readProject(f.db,reduced,1).available_minor,50);assert.throws(()=>f.budget.reserve(f.db,reduced,{source:'native',operation_id:'admin-cap-enforced',project_id:1,request_sha256:hash('admin-cap'),service:'text',provider:'fixture',model:'fixture-model',origin:'http://127.0.0.1:1'}),{code:'budget_limit_exceeded'});
+ const reduced={muse_budget:{max_project_limit_minor:50,prices:[profile()]}};assert.equal(f.budget.readProject(f.db,reduced,1).available_minor,50);assert.throws(()=>f.budget.reserve(f.db,reduced,{source:'libtv',operation_id:'admin-cap-enforced',project_id:1,request_sha256:hash('admin-cap'),service:'text',provider:'fixture',model:'fixture-model',origin:'http://127.0.0.1:1'}),{code:'budget_limit_exceeded'});
  assert.throws(()=>f.budget.quote(f.db,{muse_budget:{currency:'USD'}},{project_id:1,service:'text',provider:'fixture',model:'fixture-model',origin:'http://127.0.0.1:1'}),{code:'budget_currency_changed'});
  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM muse_budget_entries').get().n,0);
 });
@@ -71,51 +71,32 @@ test('a currency change never prices a new USD project with an existing CNY owne
  f.budget.savePrice(f.db,usd,{...profile(),currency:'USD',reserve_minor:20,operation_id:randomUUID(),expected_revision:1,operator_accepted:true});assert.equal(f.budget.quote(f.db,usd,spec).reserved_minor,20);const original=f.budget.ledger(f.db,usd,1).items.find(row=>row.entry_id===old.entry_id);assert.equal(original.profile.currency,'CNY');assert.equal(original.reserved_minor,60);assert.equal(f.budget.readProject(f.db,usd,1).currency,'CNY');
 });
 
-test('historical credit budgets and prices remain readable but cannot authorize new writes',{skip:!available},async t=>{
- const legacy=profile('image',{id:'historical-price',provider:'libtv-cli',currency:'LTV',origin:'https://api.liblib.tv',reserve_minor:900});
- const f=await fixture(t,{cfg:{muse_budget:{prices:[legacy]}}}),call=await f.http();
- f.db.prepare('INSERT INTO muse_project_budgets VALUES(?,?,?,?,?,?,?)').run(2,'LTV',6900,1,0,1,new Date().toISOString());
- const before=JSON.stringify(f.db.prepare('SELECT * FROM muse_project_budgets').all());
- assert.equal((await call('/muse/budget/projects/2')).data.data.currency,'LTV');
- assert.equal((await call('/muse/budget/catalog')).data.data.items[0].active,false);
- const limit={operation_id:randomUUID(),expected_revision:1,currency:'LTV',limit_minor:7800,allow_estimates:true,allow_task_envelopes:false};
- assert.equal((await call('/muse/budget/projects/2',limit,'PUT')).data.error.code,'budget_provider_retired');
- assert.equal((await call('/muse/budget/projects/2',{...limit,currency:'CNY'},'PUT')).data.error.code,'budget_provider_retired');
- assert.equal((await call('/muse/budget/catalog/'+legacy.id,{...legacy,operation_id:randomUUID(),expected_revision:0,operator_accepted:true},'PUT')).data.error.code,'budget_invalid_price');
- const spec={project_id:2,service:'image',provider:legacy.provider,model:legacy.model,origin:legacy.origin,quantity:1};
- assert.equal((await call('/muse/budget/quote',spec)).data.error.code,'budget_provider_retired');
- assert.throws(()=>f.reserve('retired-credits-dispatch',{...spec,source:'libtv-cli'}),{code:'budget_invalid_reservation'});
- assert.equal(JSON.stringify(f.db.prepare('SELECT * FROM muse_project_budgets').all()),before);
- assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM muse_budget_entries').get().n,0);
+test('new projects select explicit LibTV credits without converting or disabling CNY prices',{skip:!available},async t=>{
+ const shared={id:'same-price-id',provider:'libtv-cli',model:'same-cli-model',origin:'https://api.liblib.tv'};
+ const cny=profile('image',{...shared,reserve_minor:42}),ltv=profile('image',{...shared,currency:'LTV',reserve_minor:900});
+ const f=await fixture(t,{cfg:{muse_budget:{prices:[cny,ltv]}}}),call=await f.http();
+ const empty=await call('/muse/budget/projects/2');assert.equal(empty.data.data.currency,'CNY');assert.equal(empty.data.data.revision,0);assert.equal(empty.data.data.limit_minor,null);
+ const authorized=await call('/muse/budget/projects/2',{operation_id:randomUUID(),expected_revision:0,currency:'LTV',limit_minor:10000,allow_estimates:true,allow_task_envelopes:true},'PUT');
+ assert.equal(authorized.status,200);assert.equal(authorized.data.data.currency,'LTV');assert.equal(authorized.data.data.available_minor,10000);f.authorize(1,100);
+ const catalog=await call('/muse/budget/catalog');assert.equal(catalog.data.data.currency,'CNY');assert.deepEqual(catalog.data.data.items.map(item=>[item.id,item.currency,item.active]),[['same-price-id','CNY',true],['same-price-id','LTV',true]]);
+ const spec={service:'image',provider:'libtv-cli',model:'same-cli-model',origin:'https://api.liblib.tv',quantity:1};
+ const creditQuote=await call('/muse/budget/quote',{...spec,project_id:2}),moneyQuote=await call('/muse/budget/quote',{...spec,project_id:1});
+ assert.equal(creditQuote.status,200);assert.equal(creditQuote.data.data.currency,'LTV');assert.equal(creditQuote.data.data.reserved_minor,900);assert.equal(moneyQuote.status,200);assert.equal(moneyQuote.data.data.currency,'CNY');assert.equal(moneyQuote.data.data.reserved_minor,42);
+ f.budget.bindNative(f.db,f.cfg,'mixed-native-operation',hash('mixed-native-operation'),'/images/generate',{drama_id:1});const native=f.budget.nativeTransport(f.db,f.cfg,'mixed-native-operation','mixed-native-call','https://api.liblib.tv/images/generations',{model:spec.model});assert.equal(native.profile.currency,'CNY');assert.equal(native.reserved_minor,42);
+ f.cfg.muse_budget.prices.push({...ltv,id:'duplicate-credit-price'});assert.equal((await call('/muse/budget/quote',{...spec,project_id:2})).data.error.code,'budget_price_ambiguous');assert.equal((await call('/muse/budget/quote',{...spec,project_id:1})).data.data.reserved_minor,42);
 });
 
-test('retired prices and reservations remain byte-identical across reopen and cannot regain a dispatch or invoice',{skip:!available},async t=>{
- const legacy=profile('image',{id:'retired-admin-price',provider:'libtv-cli',currency:'LTV',origin:'https://api.liblib.tv',reserve_minor:900});
- const f=await fixture(t,{cfg:{muse_budget:{prices:[legacy]}}});f.authorize();
- f.db.prepare('INSERT INTO muse_project_budgets VALUES(?,?,?,?,?,?,?)').run(2,'LTV',10000,1,1,1,'2026-01-01T00:00:00.000Z');
- const price={...f.budget.catalog(f.db,f.cfg).items[0],id:'retired-owner-price',configured_by:'studio-owner'};
- f.db.prepare('INSERT INTO muse_budget_prices VALUES(?,?,?,?)').run(price.id,1,JSON.stringify(price),'2026-01-01T00:00:00.000Z');
- const seed=(key,source,projectId,profile,parent=null)=>{
-  const spec={source,operation_id:key,parent_operation_id:parent,project_id:projectId,request_sha256:hash(key),service:'image',provider:profile.provider,model:profile.model,origin:profile.origin,config_id:null,quantity:1,usage_basis:null};
-  const row={entry_id:key,source,operation_id:key,parent_operation_id:parent,project_id:projectId,request_sha256:hash(key),spec_json:JSON.stringify(spec),profile_json:JSON.stringify(profile),profile_revision:'owner:1',quantity:1,reserved_minor:profile.reserve_minor,settled_minor:null,outcome:'accepted',revision:1,invoice_json:null,created_at:'2026-01-01T00:00:00.000Z',updated_at:'2026-01-01T00:00:00.000Z'};
-  f.db.prepare('INSERT INTO muse_budget_entries('+Object.keys(row).join(',')+') VALUES('+Object.keys(row).map(()=>'?').join(',')+')').run(...Object.values(row));return row;
- };
- const credit=seed('retired-credit-entry','libtv-cli',2,price),nativePrice={...price,currency:'CNY',provider:'libtv',reserve_minor:60};
- const native=seed('retired-native-entry','native',1,nativePrice,'retired-native-root');
- f.db.prepare('INSERT INTO muse_budget_intents VALUES(?,?,?)').run('retired-native-root',1,hash('retired-native-root'));
- const originalRows=f.db.prepare('SELECT * FROM muse_budget_entries ORDER BY entry_id').all(),originalPrice=f.db.prepare('SELECT * FROM muse_budget_prices WHERE id=?').get(price.id);
- assert.throws(()=>f.budget.savePrice(f.db,f.cfg,{...profile('image'),id:price.id,operation_id:randomUUID(),expected_revision:1,operator_accepted:true}),{code:'budget_provider_retired'});
- assert.throws(()=>f.budget.bindNative(f.db,f.cfg,'retired-intent-operation',hash('retired-intent-operation'),'/images/generate',{drama_id:2}),{code:'budget_provider_retired'});
- assert.throws(()=>f.budget.nativeTransport(f.db,f.cfg,'retired-native-root','retired-native-call',nativePrice.origin+'/images/generations',{model:nativePrice.model}),{code:'budget_provider_retired'});
- for(const row of [credit,native]){
-  assert.throws(()=>f.budget.outcome(f.db,f.cfg,row.source,row.operation_id,'failed'),{code:'budget_provider_retired'});
-  assert.throws(()=>f.budget.reconcile(f.db,f.cfg,row.entry_id,{operation_id:randomUUID(),expected_revision:1,amount_minor:0,source:'operator-confirmed-invoice',reference:'Synthetic invoice',final_invoice_confirmed:true}),{code:'budget_provider_retired'});
- }
- const reopened=await fixture(t,{cfg:f.cfg,path:join(f.home,'tenant.db')});
- assert.equal(reopened.budget.ledger(reopened.db,reopened.cfg,2).items[0].outcome,'accepted');
- assert.deepEqual(reopened.db.prepare('SELECT * FROM muse_budget_entries ORDER BY entry_id').all(),originalRows);
- assert.deepEqual(reopened.db.prepare('SELECT * FROM muse_budget_prices WHERE id=?').get(price.id),originalPrice);
- assert.equal(reopened.db.prepare('SELECT COUNT(*) AS n FROM muse_budget_transport_claims').get().n,0);
+test('LibTV credits reject other providers, non-CLI services and changing an existing project unit',{skip:!available},async t=>{
+ const f=await fixture(t,{cfg:{}}),call=await f.http(),credit=profile('image',{id:'credit-image',provider:'libtv-cli',currency:'LTV',origin:'https://api.liblib.tv',reserve_minor:900});
+ const writePrice=price=>call('/muse/budget/catalog/'+price.id,{...price,operation_id:randomUUID(),expected_revision:0,operator_accepted:true},'PUT');
+ assert.equal((await writePrice(credit)).status,200);
+ for(const invalid of [{...credit,id:'wrong-provider',provider:'libtv'},{...credit,id:'wrong-tts',service:'tts'},{...credit,id:'wrong-postproduction',service:'postproduction'}])assert.equal((await writePrice(invalid)).data.error.code,'budget_invalid_price');
+ f.authorize(1,100);const limit={operation_id:randomUUID(),expected_revision:0,currency:'LTV',limit_minor:10000,allow_estimates:true,allow_task_envelopes:true};assert.equal((await call('/muse/budget/projects/2',limit,'PUT')).status,200);
+ for(const [projectId,currency] of [[1,'LTV'],[2,'CNY']])assert.equal((await call('/muse/budget/projects/'+projectId,{...limit,operation_id:randomUUID(),expected_revision:1,currency},'PUT')).data.error.code,'budget_currency_changed');
+ const spec={project_id:2,service:'image',provider:'libtv-cli',model:credit.model,origin:credit.origin,quantity:1};
+ assert.equal((await call('/muse/budget/quote',{...spec,provider:'libtv'})).data.error.code,'budget_credit_provider_required');assert.equal((await call('/muse/budget/quote',{...spec,service:'tts'})).data.error.code,'budget_credit_provider_required');
+ assert.throws(()=>f.reserve('native-cannot-use-credits',{...spec,source:'native'}),{code:'budget_credit_provider_required'});assert.equal(f.budget.readProject(f.db,f.cfg,2).reserved_minor,0);
+ const stored=f.budget.catalog(f.db,f.cfg).items;assert.equal(stored.length,1);assert.equal(stored[0].currency,'LTV');assert.equal(f.budget.readProject(f.db,f.cfg,1).currency,'CNY');assert.equal(f.budget.readProject(f.db,f.cfg,2).currency,'LTV');
 });
 
 test('stale browser mutations cannot write a replacement tenant with matching project IDs and revisions',{skip:!available},async t=>{
@@ -125,36 +106,36 @@ test('stale browser mutations cannot write a replacement tenant with matching pr
  const missing=await fetch(call.base+'/api/v1/muse/budget/projects/1',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({...body,database_id:undefined})});assert.equal(missing.status,409);assert.equal(b.budget.readProject(b.db,b.cfg,1).limit_minor,100);
 });
 
-test('an approved 69 to 78 monetary increase preserves spending and replays without replacing a later budget',{skip:!available},async t=>{
- const common={provider:'jubian',currency:'CNY',origin:'https://web.jubianai.net'};
- const initial=profile('image',{...common,id:'initial-monetary-plan',model:'initial-plan',reserve_minor:6900});
- const repair=profile('image',{...common,id:'repair-monetary-image',model:'repair-image',reserve_minor:900});
+test('an approved 69 to 78 credit increase preserves spending and replays without replacing a later budget',{skip:!available},async t=>{
+ const common={provider:'libtv-cli',currency:'LTV',origin:'https://api.liblib.tv'};
+ const initial=profile('image',{...common,id:'initial-credit-plan',model:'initial-plan',reserve_minor:6900});
+ const repair=profile('image',{...common,id:'repair-credit-image',model:'repair-image',reserve_minor:900});
  const f=await fixture(t,{cfg:{muse_budget:{prices:[initial,repair]}}}),call=await f.http();
- f.authorize(1,6900,{currency:'CNY'});
- f.reserve('completed-initial-monetary-plan',{source:'native',service:'image',...common,model:initial.model});
+ f.authorize(1,6900,{currency:'LTV'});
+ f.reserve('completed-initial-credit-plan',{source:'libtv-cli',service:'image',...common,model:initial.model});
  const before=(await call('/muse/budget/projects/1')).data.data;
  const quote={project_id:1,service:'image',provider:common.provider,model:repair.model,origin:common.origin,quantity:1};
  assert.equal((await call('/muse/budget/quote',quote)).data.data.within_limit,false);
- const increase={operation_id:'approved-monetary-increase-69-to-78',expected_revision:before.revision,currency:before.currency,limit_minor:7800,allow_estimates:before.allow_estimates,allow_task_envelopes:before.allow_task_envelopes};
+ const increase={operation_id:'approved-credit-increase-69-to-78',expected_revision:before.revision,currency:before.currency,limit_minor:7800,allow_estimates:before.allow_estimates,allow_task_envelopes:before.allow_task_envelopes};
  const saved=await call('/muse/budget/projects/1',increase,'PUT');assert.equal(saved.status,200);
  assert.equal(saved.data.data.limit_minor,7800);assert.equal(saved.data.data.reserved_minor,6900);assert.equal(saved.data.data.settled_minor,0);assert.equal(saved.data.data.available_minor,900);
  assert.equal(saved.data.data.allow_task_envelopes,false);assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM muse_budget_entries').get().n,1);
  assert.equal((await call('/muse/budget/projects/2')).data.data.limit_minor,null);
  assert.equal((await call('/muse/budget/quote',quote)).data.data.within_limit,true);
- f.reserve('approved-repair-monetary-image',{source:'native',service:'image',...common,model:repair.model});
+ f.reserve('approved-repair-credit-image',{source:'libtv-cli',service:'image',...common,model:repair.model});
  assert.equal((await call('/muse/budget/projects/1')).data.data.available_minor,0);
- const stale=await call('/muse/budget/projects/1',{...increase,operation_id:'stale-monetary-increase',limit_minor:9000},'PUT');assert.equal(stale.status,409);assert.equal(stale.data.error.code,'budget_revision_conflict');
+ const stale=await call('/muse/budget/projects/1',{...increase,operation_id:'stale-credit-increase',limit_minor:9000},'PUT');assert.equal(stale.status,409);assert.equal(stale.data.error.code,'budget_revision_conflict');
  assert.deepEqual((await call('/muse/budget/projects/1',increase,'PUT')).data,saved.data);
- const next={...increase,operation_id:'approved-later-monetary-increase',expected_revision:saved.data.data.revision,limit_minor:9000};assert.equal((await call('/muse/budget/projects/1',next,'PUT')).status,200);
+ const next={...increase,operation_id:'approved-later-credit-increase',expected_revision:saved.data.data.revision,limit_minor:9000};assert.equal((await call('/muse/budget/projects/1',next,'PUT')).status,200);
  assert.deepEqual((await call('/muse/budget/projects/1',increase,'PUT')).data,saved.data);
- const current=(await call('/muse/budget/projects/1')).data.data;assert.equal(current.limit_minor,9000);assert.equal(current.reserved_minor,7800);assert.equal(current.available_minor,1200);assert.equal(current.currency,'CNY');
+ const current=(await call('/muse/budget/projects/1')).data.data;assert.equal(current.limit_minor,9000);assert.equal(current.reserved_minor,7800);assert.equal(current.available_minor,1200);assert.equal(current.currency,'LTV');
  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM muse_budget_entries').get().n,2);
 });
 
 test('budget review conditions reject new commitments and changed quotes inside the update transaction',{skip:!available},async t=>{
  const initial=profile('image',{id:'initial-review-image',reserve_minor:60}),extra=profile('image',{id:'extra-review-image',model:'extra-image',reserve_minor:9});
  const f=await fixture(t,{cfg:{muse_budget:{prices:[initial,extra]}}}),call=await f.http();f.authorize(1,100);
- const original=f.reserve('before-budget-review',{service:'image'});f.budget.outcome(f.db,f.cfg,'native',original.operation_id,'completed');
+ const original=f.reserve('before-budget-review',{service:'image'});f.budget.outcome(f.db,f.cfg,'libtv',original.operation_id,'completed');
  const reviewed=(await call('/muse/budget/projects/1')).data.data;assert.equal(reviewed.budget_review_version,1);
  const spec={service:'image',provider:'fixture',model:extra.model,origin:extra.origin,quantity:1};
  const reviewedQuote=(await call('/muse/budget/quote',{...spec,project_id:1})).data.data;
@@ -192,10 +173,10 @@ test('parallel HTTP reservations fit one budget once, reject overspending and re
 });
 
 test('uncertain outcomes are never refunds; only explicit final invoice confirmation settles a terminal original operation',{skip:!available},async t=>{
- const f=await fixture(t);f.authorize(1,200);const item=f.reserve('unknown-invoice-operation');f.budget.outcome(f.db,f.cfg,'native',item.operation_id,'unknown');let saved=f.budget.ledger(f.db,f.cfg,1).items[0];
+ const f=await fixture(t);f.authorize(1,200);const item=f.reserve('unknown-invoice-operation');f.budget.outcome(f.db,f.cfg,'libtv',item.operation_id,'unknown');let saved=f.budget.ledger(f.db,f.cfg,1).items[0];
  const invoice={operation_id:randomUUID(),expected_revision:saved.revision,amount_minor:0,source:'operator-confirmed-invoice',reference:'Synthetic final invoice',final_invoice_confirmed:true};assert.throws(()=>f.budget.reconcile(f.db,f.cfg,item.entry_id,invoice),{code:'budget_outcome_unknown'});
  assert.throws(()=>f.reserve('new-uuid-same-unknown',{request_sha256:hash(item.operation_id)}),{code:'budget_prior_operation_unresolved'});assert.equal(f.budget.readProject(f.db,f.cfg,1).reserved_minor,60);
- f.budget.outcome(f.db,f.cfg,'native',item.operation_id,'failed');saved=f.budget.ledger(f.db,f.cfg,1).items[0];assert.equal(f.budget.readProject(f.db,f.cfg,1).reserved_minor,60);
+ f.budget.outcome(f.db,f.cfg,'libtv',item.operation_id,'failed');saved=f.budget.ledger(f.db,f.cfg,1).items[0];assert.equal(f.budget.readProject(f.db,f.cfg,1).reserved_minor,60);
  assert.throws(()=>f.budget.reconcile(f.db,f.cfg,item.entry_id,{...invoice,expected_revision:saved.revision,final_invoice_confirmed:false}),{code:'budget_invoice_confirmation_required'});
  const final={...invoice,operation_id:randomUUID(),expected_revision:saved.revision,amount_minor:35};const settled=f.budget.reconcile(f.db,f.cfg,item.entry_id,final);assert.equal(settled.project.settled_minor,35);assert.equal(settled.project.reserved_minor,0);assert.equal(settled.entry.invoice.supplier_verified,false);assert.deepEqual(f.budget.reconcile(f.db,f.cfg,item.entry_id,final),settled);
  assert.equal(f.reserve(item.operation_id).dispatch_allowed,false);assert.equal(f.budget.readProject(f.db,f.cfg,1).settled_minor,35);
@@ -214,7 +195,7 @@ test('raw JSON transports and parameter retries cannot bypass native monetary ad
 
 test('an in-flight HTTP reservation owns the SQLite writer lock until its reservation commits',{skip:!available,timeout:45000},async t=>{
  const f=await fixture(t);f.authorize();f.db.exec('PRAGMA busy_timeout=0');const release=join(f.home,'release-child');
- const program=`const {createRequire}=require('node:module'),fs=require('node:fs'),http=require('node:http');const [pkg,budgetFile,file,configFile,release]=process.argv.slice(1),r=createRequire(pkg),Database=r('better-sqlite3'),db=new Database(file),budget=require(budgetFile),cfg=JSON.parse(fs.readFileSync(configFile,'utf8'));const retained=[];const prepare=db.prepare.bind(db);db.prepare=sql=>{const statement=prepare(sql);retained.push(statement);if(sql.startsWith('INSERT INTO muse_budget_entries(')){const run=statement.run.bind(statement);statement.run=(...args)=>{process.send({type:'holding'});const deadline=Date.now()+15000;while(!fs.existsSync(release)){if(Date.now()>deadline)throw Error('fixture barrier timed out');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);}return run(...args);};}return statement;};budget.schema(db,cfg);const server=http.createServer(async(req,res)=>{for await(const part of req){void part;}try{const value=budget.reserve(db,cfg,{source:'native',operation_id:'child-http-reservation',project_id:1,request_sha256:'a'.repeat(64),service:'text',provider:'fixture',model:'fixture-model',origin:'http://127.0.0.1:1',quantity:1});res.writeHead(201,{'content-type':'application/json'});res.end(JSON.stringify({reserved_minor:value.reserved_minor}));}catch(error){res.writeHead(error.status||503,{'content-type':'application/json'});res.end(JSON.stringify({code:error.code||'fixture_failed'}));}});server.listen(0,'127.0.0.1',()=>process.send({type:'ready',port:server.address().port}));process.on('message',message=>{if(message.type==='stop'){server.closeAllConnections();server.close(()=>{db.close();process.disconnect();});}});`;
+ const program=`const {createRequire}=require('node:module'),fs=require('node:fs'),http=require('node:http');const [pkg,budgetFile,file,configFile,release]=process.argv.slice(1),r=createRequire(pkg),Database=r('better-sqlite3'),db=new Database(file),budget=require(budgetFile),cfg=JSON.parse(fs.readFileSync(configFile,'utf8'));const retained=[];const prepare=db.prepare.bind(db);db.prepare=sql=>{const statement=prepare(sql);retained.push(statement);if(sql.startsWith('INSERT INTO muse_budget_entries(')){const run=statement.run.bind(statement);statement.run=(...args)=>{process.send({type:'holding'});const deadline=Date.now()+15000;while(!fs.existsSync(release)){if(Date.now()>deadline)throw Error('fixture barrier timed out');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);}return run(...args);};}return statement;};budget.schema(db,cfg);const server=http.createServer(async(req,res)=>{for await(const part of req){void part;}try{const value=budget.reserve(db,cfg,{source:'libtv',operation_id:'child-http-reservation',project_id:1,request_sha256:'a'.repeat(64),service:'text',provider:'fixture',model:'fixture-model',origin:'http://127.0.0.1:1',quantity:1});res.writeHead(201,{'content-type':'application/json'});res.end(JSON.stringify({reserved_minor:value.reserved_minor}));}catch(error){res.writeHead(error.status||503,{'content-type':'application/json'});res.end(JSON.stringify({code:error.code||'fixture_failed'}));}});server.listen(0,'127.0.0.1',()=>process.send({type:'ready',port:server.address().port}));process.on('message',message=>{if(message.type==='stop'){server.closeAllConnections();server.close(()=>{db.close();process.disconnect();});}});`;
  const configFile=join(f.home,'config.json');await writeFile(configFile,JSON.stringify(f.cfg));
  const child=spawn(process.execPath,['--input-type=commonjs','--eval',program,join(backend,'package.json'),extension('muse-budget.cjs'),join(f.home,'tenant.db'),configFile,release],{stdio:['ignore','ignore','pipe','ipc'],windowsHide:true});let diagnostics='';child.stderr.on('data',bytes=>{diagnostics+=bytes.toString();});let exitResult;const exited=new Promise(resolve=>child.once('close',(code,signal)=>{exitResult={code,signal};resolve(exitResult);}));
  owners.get(t).cleanups.push(async()=>{await writeFile(release,'release');if(child.connected)child.send({type:'stop'});const timer=setTimeout(()=>child.kill(),10000);try{await exited;}finally{clearTimeout(timer);}});
@@ -227,11 +208,11 @@ test('an in-flight HTTP reservation owns the SQLite writer lock until its reserv
 
 test('opaque Agent tasks require a separately accepted envelope and operator termination stays distinct',{skip:!available},async t=>{
  const f=await fixture(t,{cfg:{muse_budget:{prices:[profile('agent-task')]}}});f.authorize(1,200);const spec={service:'agent-task'};assert.throws(()=>f.reserve('opaque-agent-operation',spec),{code:'budget_task_envelope_not_authorized'});f.authorize(1,200,{allow_task_envelopes:true});const entry=f.reserve('opaque-agent-operation',spec);assert.equal(entry.profile.estimate_kind,'operator-task-envelope');assert.equal(entry.cannot_enforce_supplier_cap,true);assert.throws(()=>f.reserve('opaque-many-agent-ops',{...spec,quantity:2}),{code:'budget_task_envelope_not_authorized'});
- f.budget.outcome(f.db,f.cfg,'native',entry.operation_id,'operator-confirmed');const row=f.budget.ledger(f.db,f.cfg,1).items[0];assert.equal(row.outcome,'operator-confirmed');assert.equal(row.settled_minor,null);assert.equal(row.billing_verified,false);
+ f.budget.outcome(f.db,f.cfg,'libtv',entry.operation_id,'operator-confirmed');const row=f.budget.ledger(f.db,f.cfg,1).items[0];assert.equal(row.outcome,'operator-confirmed');assert.equal(row.settled_minor,null);assert.equal(row.billing_verified,false);
 });
 
-test('multi-result image reservations retain their own quantity and never inherit another transport outcome',{skip:!available},async t=>{
- const f=await fixture(t,{cfg:{muse_budget:{prices:[profile('image',{provider:'native',model:'fixture-image-model',origin:'http://127.0.0.1:1',reserve_minor:20})]}}});f.authorize(1,100);const spec={source:'native',service:'image',provider:'native',model:'fixture-image-model',origin:'http://127.0.0.1:1',quantity:3},entry=f.reserve('image-three-results-operation',spec);assert.equal(entry.reserved_minor,60);f.budget.outcome(f.db,f.cfg,'native',entry.operation_id,'unknown');const before=f.budget.ledger(f.db,f.cfg,1).items[0];assert.equal(before.outcome,'unknown');assert.equal(before.source,'native');assert.equal(f.reserve(entry.operation_id,spec).dispatch_allowed,false);assert.throws(()=>f.reserve('image-new-uuid-same-unknown',{...spec,request_sha256:hash(entry.operation_id)}),{code:'budget_prior_operation_unresolved'});assert.equal(f.budget.readProject(f.db,f.cfg,1).reserved_minor,60);
+test('schema-bounded CLI reservations retain their own quantity and never inherit another transport outcome',{skip:!available},async t=>{
+ const f=await fixture(t,{cfg:{muse_budget:{prices:[profile('image',{provider:'libtv-cli',model:'fixture-cli-model',origin:'https://www.liblib.tv',reserve_minor:20})]}}});f.authorize(1,100);const spec={source:'libtv-cli',service:'image',provider:'libtv-cli',model:'fixture-cli-model',origin:'https://www.liblib.tv',quantity:3},entry=f.reserve('cli-three-results-operation',spec);assert.equal(entry.reserved_minor,60);f.budget.outcome(f.db,f.cfg,'libtv-cli',entry.operation_id,'unknown');const before=f.budget.ledger(f.db,f.cfg,1).items[0];assert.equal(before.outcome,'unknown');assert.equal(before.source,'libtv-cli');assert.equal(f.reserve(entry.operation_id,spec).dispatch_allowed,false);assert.throws(()=>f.reserve('cli-new-uuid-same-unknown',{...spec,request_sha256:hash(entry.operation_id)}),{code:'budget_prior_operation_unresolved'});assert.equal(f.budget.readProject(f.db,f.cfg,1).reserved_minor,60);
 });
 
 test('the owner receipt distinguishes authorization, unknown holds and an operator-confirmed invoice',{skip:!available},async t=>{
@@ -253,8 +234,8 @@ test('TTS and segmented Fal reservations count their actual planned units and st
 });
 
 test('immutable inputs, monotonic schema and explicit over-budget invoices survive reopen',{skip:!available},async t=>{
- const f=await fixture(t);f.authorize();const entry=f.reserve('final-overrun-operation');assert.throws(()=>f.db.prepare('UPDATE muse_budget_entries SET reserved_minor=1').run(),/budget_input_immutable/);assert.throws(()=>f.authorize(1,40),{code:'budget_limit_below_commitments'});f.budget.outcome(f.db,f.cfg,'native',entry.operation_id,'completed');const saved=f.budget.ledger(f.db,f.cfg,1).items[0];f.budget.reconcile(f.db,f.cfg,entry.entry_id,{operation_id:randomUUID(),expected_revision:saved.revision,amount_minor:120,source:'operator-confirmed-invoice',reference:'Synthetic actual overrun',final_invoice_confirmed:true});assert.equal(f.budget.readProject(f.db,f.cfg,1).over_limit,true);assert.throws(()=>f.reserve(),{code:'budget_limit_exceeded'});
- const second=await fixture(t,{path:join(f.home,'tenant.db')});assert.equal(second.budget.readProject(second.db,second.cfg,1).settled_minor,120);assert.equal(second.reserve(entry.operation_id).dispatch_allowed,false);second.db.prepare('UPDATE muse_budget_schema SET version=3').run();const third=compile(extension('muse-budget.cjs'),second.require,{'./museAdmission':second.admission});assert.throws(()=>third.schema(second.db,second.cfg),{code:'budget_unsupported_schema'});
+ const f=await fixture(t);f.authorize();const entry=f.reserve('final-overrun-operation');assert.throws(()=>f.db.prepare('UPDATE muse_budget_entries SET reserved_minor=1').run(),/budget_input_immutable/);assert.throws(()=>f.authorize(1,40),{code:'budget_limit_below_commitments'});f.budget.outcome(f.db,f.cfg,'libtv',entry.operation_id,'completed');const saved=f.budget.ledger(f.db,f.cfg,1).items[0];f.budget.reconcile(f.db,f.cfg,entry.entry_id,{operation_id:randomUUID(),expected_revision:saved.revision,amount_minor:120,source:'operator-confirmed-invoice',reference:'Synthetic actual overrun',final_invoice_confirmed:true});assert.equal(f.budget.readProject(f.db,f.cfg,1).over_limit,true);assert.throws(()=>f.reserve(),{code:'budget_limit_exceeded'});
+ const second=await fixture(t,{path:join(f.home,'tenant.db')});assert.equal(second.budget.readProject(second.db,second.cfg,1).settled_minor,120);assert.equal(second.reserve(entry.operation_id).dispatch_allowed,false);second.db.prepare('UPDATE muse_budget_schema SET version=2').run();const third=compile(extension('muse-budget.cjs'),second.require,{'./museAdmission':second.admission});assert.throws(()=>third.schema(second.db,second.cfg),{code:'budget_unsupported_schema'});
 });
 
 test('planner installs all gates against staged source and rejects changed or repeated anchors',async t=>{
@@ -282,17 +263,12 @@ test('the real budget dialog saves owner authorization and prices, reconciles an
  assert.equal(f.budget.catalog(f.db,f.cfg).items.find(row=>row.id==='owner-video-price').reserve_minor,50);assert.doesNotMatch(await page.locator('body').innerText(),/PRIVATE PROVIDER KEY|api_key/);
  await page.getByRole('button',{name:'按最终供应商账单人工核销',exact:true}).click();await page.getByPlaceholder('最终费用金额').fill('0.35');await page.getByPlaceholder('账单/订单核对依据，不填密码或密钥').fill('Synthetic invoice reviewed in browser');await page.getByText('我已核对最终账单，明确确认此金额与依据',{exact:true}).click();await page.getByRole('button',{name:'明确核销并保留原预占记录',exact:true}).click();await page.waitForFunction(()=>document.body.textContent.includes('已人工核销 0.35'));
  assert.equal(f.budget.readProject(f.db,f.cfg,1).settled_minor,35);assert.equal(f.budget.readProject(f.db,f.cfg,1).reserved_minor,60);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);assert.deepEqual(errors,[]);
- f.db.prepare('INSERT INTO muse_project_budgets VALUES(?,?,?,?,?,?,?)').run(2,'LTV',10000,1,1,1,'2026-01-01T00:00:00.000Z');
- const legacyBefore=f.db.prepare('SELECT * FROM muse_project_budgets WHERE project_id=2').get();
- await page.goto(url+'/studio/?project=2');await page.getByText('历史积分账目仅供追溯，保留原单位和预占，不新增或修改授权，也不与人民币换算。剧变视频需要独立的人民币授权，请联系管理员。',{exact:true}).waitFor();
- assert.match(await page.locator('body').innerText(),/历史积分（只读）.*上限 100.00/);
- assert.equal(await page.getByRole('button',{name:'明确保存本项目预算授权'}).count(),0);
- await page.getByText('模型能力、价格来源与本账户估价设置',{exact:true}).click();
- assert.equal(await page.getByRole('button',{name:'保存本账户估价',exact:true}).count(),0);
- assert.equal(await page.getByPlaceholder('实际 provider，须与 API 配置完全相同').count(),0);
- assert.deepEqual(f.db.prepare('SELECT * FROM muse_project_budgets WHERE project_id=2').get(),legacyBefore);
- assert.doesNotMatch(await page.locator('body').innerText(),/LibTV|CLI|fixture-video/);
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);assert.deepEqual(errors,[]);
+ await page.goto(url+'/studio/?project=2');await page.locator('.el-form-item').filter({hasText:'预算计价单位'}).locator('.el-select').click();await page.getByRole('option',{name:'LibTV 积分',exact:true}).click();
+ await page.getByText('本项目总预算（LibTV 积分）',{exact:true}).waitFor();await page.locator('.el-form-item').filter({hasText:'本项目总预算'}).locator('input').fill('100');await page.getByText('我接受按模型预估金额预占；实际收费可能更高，且未结预占不会自动释放',{exact:true}).click();await page.getByRole('button',{name:'明确保存本项目预算授权'}).click();await page.waitForFunction(()=>document.body.textContent.includes('上限 100.00'));
+ assert.equal(f.budget.readProject(f.db,f.cfg,2).currency,'LTV');assert.equal(f.budget.readProject(f.db,f.cfg,2).limit_minor,10000);assert.equal(await page.locator('.el-form-item').filter({hasText:'预算计价单位'}).locator('input').isDisabled(),true);
+ await page.getByText('模型能力、价格来源与本账户估价设置',{exact:true}).click();const provider=page.getByPlaceholder('实际 provider，须与 API 配置完全相同');assert.equal(await provider.inputValue(),'libtv-cli');assert.equal(await provider.isDisabled(),true);
+ await page.getByPlaceholder('本账户价格标识，如 seedance-video').fill('owner-cli-credit-price');await page.getByPlaceholder('实际 model，须与派发值完全相同').fill('seedance-credit-test');await page.getByPlaceholder('每次派发/整任务的预占积分').fill('69');await page.getByPlaceholder('过期 ISO UTC 时间').fill('2099-01-01T00:00:00.000Z');await page.getByText('这是我明确接受的本账户估价与有效期，不是供应商核验后的账单',{exact:true}).click();await page.getByRole('button',{name:'保存本账户估价',exact:true}).click();await page.waitForFunction(()=>document.body.textContent.includes('seedance-credit-test'));
+ const credit=f.budget.catalog(f.db,f.cfg).items.find(row=>row.id==='owner-cli-credit-price');assert.equal(credit.currency,'LTV');assert.equal(credit.provider,'libtv-cli');assert.equal(credit.reserve_minor,6900);assert.match(await page.locator('body').innerText(),/LibTV 积分 69.00/);assert.doesNotMatch(await page.locator('body').innerText(),/fixture-video/);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);assert.deepEqual(errors,[]);
 });
 
 test('the actual global API configuration page selects a budget project for one paid text test and keeps media checks free',{skip:!available||!chromium,timeout:60000},async t=>{
