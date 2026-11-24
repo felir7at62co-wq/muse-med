@@ -22,18 +22,27 @@ kind: "package-reference"
 
 `GET /api/muse/profile` 返回版本 1 的当前账号安全资料、已分配分组和账号级部门路径，独立于 Token 存储。接口不接受查询参数，不能选择其他账号。提供的组织快照必须包含当前账号的完整成员关系路径；同步不可用或不完整时返回 `organization.status: "unavailable"`。未提供快照时，每个已绑定身份都必须具有可用且已验证的组织记录。响应不暴露凭据或其他用户，也不根据 Muse 分组或角色推断部门。
 
-`GET /api/muse.account/details` 只返回当前登录账号的身份、分组与用量，即使查询指定其他账号或管理员工作区也不改变归属。`period=all|today|7d|30d` 按北京时间选择统计范围，默认为 `30d`。`offset` 为非负整数，`limit` 为 1–100，默认 50。响应包含已知计数汇总、按模型和按日统计、逐次请求记录，以及 `{offset,limit,total,hasMore}` 分页信息。逐次请求缺失的计数保留为 null，汇总只累加供应方提供的计数。缓存输入与推理输出是相关计数的细分，不重复计入总 Token。
+`GET /api/muse/usage` 只返回当前登录账号经中转的请求及供应商回报的 token 数，按 UTC 日期分页（游标）；管理员通过 `GET /api/admin/usage` 读取选定账号。缺失的计数保持为空，合计只计入已回报的值。Muse 客户端会先请求 `GET /api/muse.account/details`，本网关不提供该接口，返回 404 后客户端改读 `/api/muse/profile` 和 `/api/muse/usage`。
 
-桌面和云端代理在响应结束后记录供应商返回的用量。桌面端不再直接调用供应商，网关因此不接收客户端用量上报，`POST /api/muse.account/usage` 已移除。已有的 `desktop-direct` 记录仍可读取，它们属于客户端上报，不是独立核验的供应商账单。
+桌面端和云端中转在响应结束后记录供应商回报的用量。桌面端从不直接调用供应商，因此网关不接受客户端上报用量，也不存在 `POST /api/muse.account/usage`。
 
-网关默认在账号文件旁写入仅所有者可访问、只追加的 `model-usage.jsonl`；也可用 `MUSE_USAGE_FILE` 指定发布目录之外的其他私密绝对路径。部署时保留此文件，每份账本只运行一个网关写入者。首条记录确定统计起点，不重建接入前历史。供应商未返回用量和旧客户端的直连调用均可能造成缺口，因此统计不等于供应商账单。记录不包含消息、生成内容、账号 Cookie 或供应商凭据。启动时拒绝损坏或不完整记录，持久化失败会让用量查询明确报错。嵌入式网关未传入已打开账本时使用独立内存存储。
+用量记录保存在私有目录 `MUSE_USAGE_ROOT`，默认是账号文件旁的 `usage`；`MUSE_USAGE_QUERY_DAYS` 限定单次查询的天数，默认 366。供管理员查看的请求元数据保存在 SQLite 文件 `MUSE_MODEL_USAGE_FILE`，默认是账号文件旁的 `model-usage/requests.sqlite`。两者都放在发布目录之外并跨部署保留，各由一个网关进程写入。记录不含消息、生成内容、账号 Cookie 或供应商凭据。供应商未回报用量时会留下缺口，因此这些合计不是供应商账单。
 
 <a id="production-source"></a>
 ## 生产源码
 
-本目录与 `../../integrations/localminidrama` 保存正式网关发布版 `20261123-r35-jubian-models` 的源码，除统一为 LF 换行外内容一致，仅有两处例外：`bot-cloud-ledger.js` 是正式环境从共享 `third_party` 目录加载的 Bot 云端账本，`bot-coordination.mjs` 改为从本目录导入它；`package.json` 声明了正式环境已安装的 `fflate`。后续网关发布应从此源码构建，不再复制旧发布目录。本目录中的账号组织协调器、仅飞书登录策略、工作台、账号数据、用量账本、公司 CLI、制作费用和剧变原生准入均为正式实现。
+本目录与 `../../integrations/localminidrama` 以正式网关发布版 `20261123-r35-jubian-models` 的源码为起点，统一为 LF 换行。`bot-cloud-ledger.js` 是正式环境从共享 `third_party` 目录加载的 Bot 云端账本，`bot-coordination.mjs` 改为从本目录导入它；`package.json` 声明了正式环境已安装的 `fflate`。这里的账号组织协调器、仅飞书登录策略、工作台、账号数据、用量账本、公司 CLI、制作费用和剧变原生准入均为正式实现。后续网关发布使用 `deploy/gateway` 下的发布脚本从此源码构建。
 
-下文部分章节和部分测试描述的是此前在本目录开发、但未进入正式环境的网关功能：DeepSeek Flash 供应商路由、剧本工坊与镜流的工作台登录、飞书登录时的部门授权、桌面隧道与手机入口、意见反馈请求编号、新版 Skill 市场界面，以及上传进行中的 ASR 状态。在逐项移植或移除之前，这些功能的测试在当前源码上会失败。`deployment/` 下的补丁工具只接受已退役的 `20261117-r24-native-company` 和 `20261117-r25-account-profile` 输入。
+此前在本目录开发的功能只在配置后启用，因此从此源码构建的发布版在运维人员显式开启前保持正式环境的行为：
+
+| 设置 | 未设置时 | 开启方式 |
+|---|---|---|
+| `MUSE_DEEPSEEK_FLASH_ROUTING` | `deepseek-official` 使用其配置的供应商，网关不做故障切换 | [DeepSeek Flash 供应商路由](#deepseek-flash-supplier-routing) |
+| `MUSE_PUBLIC_MODEL_CATALOG` | `selected`：只公开公司选定的路由和模型 | `all`：公开除内部 `jubian-gpt` 改路目标外的所有已配置供应商；其他值会阻止启动 |
+| `MUSE_WORKBENCH_LOGIN_CONFIG` | `/workbench-login` 和 `/api/workbench-login/*` 返回 404 | [工作台登录](#workbench-sign-in) |
+| 飞书登录 `organizationSync` | 登录不保存部门记录 | [飞书登录](#feishu-login) |
+
+`deployment/` 下的补丁工具只接受已退役的 `20261117-r24-native-company` 和 `20261117-r25-account-profile` 输入。
 
 ## 意见箱
 
@@ -86,7 +95,7 @@ kind: "package-reference"
 }
 ```
 
-`organizationSync` 默认为 `false`。设为 `true` 后申请 `contact:contact.base:readonly`、`contact:user.department:readonly` 和 `contact:user.department_path:readonly`，并通过[飞书官方 Contact v3 用户接口](https://open.feishu.cn/document/server-docs/contact-v3/user/get)读取当前用户。请先在飞书应用中开通并发布这些权限，再让已有用户重新登录。回调只在本次请求中使用临时用户令牌，不保存令牌。身份验证完成后，部门查询单独受 `requestTimeoutMs` 限制，查询超时记录为部门不可用，登录继续。服务关闭或回调连接断开仍会取消整个登录，阻止账号或会话提交。账号记录保存部门 ID、名称、格式化部门路径、上级部门 ID 和同步时间。缺少权限及同步不可用均有明确状态，不会覆盖成功登录；旧记录未同步时提示重新登录。部门信息是上次登录的同步快照，不是实时组织目录；租户标识不等于组织名称。
+`organizationSync` 默认为 `false`，此时登录不保存部门记录。设为 `true` 后申请 `contact:contact.base:readonly`、`contact:user.department:readonly` 和 `contact:user.department_path:readonly`，并通过[飞书官方 Contact v3 用户接口](https://open.feishu.cn/document/server-docs/contact-v3/user/get)读取当前用户。请先在飞书应用中开通并发布这些权限，再让已有用户重新登录。回调只在本次请求中使用临时用户令牌，不保存令牌。身份验证完成后，部门查询单独受 `requestTimeoutMs` 限制，查询超时记录为部门不可用，登录继续。服务关闭或回调连接断开仍会取消整个登录，阻止账号或会话提交。账号记录保存部门 ID、名称、格式化部门路径、上级部门 ID 和同步时间。缺少权限及同步不可用均有明确状态，不会覆盖成功登录；旧记录未同步时提示重新登录。部门信息是上次登录的同步快照，不是实时组织目录；租户标识不等于组织名称。
 
 `tokenEndpointVersion` 默认为 `"v3"`；`"v2"` 显式选择固定的 v2 端点以兼容。Muse 不自动回退，也不复用换取失败的授权码；选择版本后须从全新授权开始验证。[授权码文档](https://open.feishu.cn/document/authentication-management/access-token/obtain-oauth-code) 描述了 PKCE 搭配 v2 的方式；[SDK issue #230](https://github.com/larksuite/oapi-sdk-go/issues/230) 报告了 v3 返回 `20049`、v2 对照成功的情况，这不代表官方确认。
 
@@ -99,6 +108,7 @@ kind: "package-reference"
 `POST /api/muse.activity` 仅接受已登录同源客户端的 `{ "activity": "task-start" }`，为当前账号记录服务器时间。桌面端上报用户主动发起的轮次，排除子代理、自动目标、模型重试和目录刷新；不携带任务内容与本地路径。这是尽力上报的使用统计元数据，不是全部用户操作的审计；离线或请求失败时不重试、不补传。`MUSE_ACTIVITY_RATE_PER_MINUTE` 配置每账号／IP 每分钟最多接收次数（默认 120，范围 1–10000）。账号存储读取版本 1 和 2，变更时写入版本 2；切换或回滚网关前须遵循[账号升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-feishu-accounts/guide.zh.md)。
 
 <a id="shared-voice-registration"></a>
+<a id="workbench-sign-in"></a>
 ## 工作台登录
 
 剧本工坊（`script-workshop`）和镜流（`jingliu`）分别注册客户端。将 `MUSE_WORKBENCH_LOGIN_CONFIG` 指向仅文件所有者可读写的 JSON 配置文件绝对路径。以工作台标识为键，值为含 `callbackUri`（固定 HTTPS 回调地址，本机测试可用数字回环地址的 HTTP）和 `serverSecret`（生成 32 字节随机值后用 base64url 编码）的对象。未配置文件时网关关闭此组接口。每个工作台后端仅持有自己的密钥。
