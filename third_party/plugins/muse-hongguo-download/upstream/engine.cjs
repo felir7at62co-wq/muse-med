@@ -1,4 +1,4 @@
-/* GPL-3.0: https://github.com/jackotom/hongguo-drama 8d14d07b3aaf99ecbe6b3ecb8ba2d0308261845d; corresponding source: source.tar.gz */
+/* GPL-3.0: https://github.com/jackotom/hongguo-drama ea5a852f65acdc4c5b11265ca13b03d115096dc7; corresponding source: source.tar.gz */
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __commonJS = (cb, mod) => function __require() {
   try {
@@ -19778,7 +19778,7 @@ var require_playback_v5 = __commonJS({
       encoded[0] = (encoded[0] ^ encoded[1]) + sum & 255;
       return encoded;
     }
-    function medusa(query, f13, ts, who) {
+    function medusa(query, f13, ts, who, field21 = 377) {
       const flags = Buffer.alloc(8);
       const device = proto([
         [1, 1, "sint"],
@@ -19814,7 +19814,7 @@ var require_playback_v5 = __commonJS({
         [15, proto([[1, 1, "sint"], [2, 1, "sint"], [3, 1, "sint"], [5, 1, "sint"]])],
         [17, ts, "sint"],
         [20, "none"],
-        [21, 377, "sint"],
+        [21, field21, "sint"],
         [23, env],
         [24, '{"cmr":16777216,"cmr2":16777216,"un_h":11,"vpn":0,"kd":0,"dyn":"","do":1,"tk":true}']
       ]);
@@ -19900,7 +19900,7 @@ var require_playback_v5 = __commonJS({
     }
     function signPlaybackV5(input) {
       if (!plainObject(input)) throw new TypeError("V5 signing options are required");
-      const { base, values, body, now = Date.now() } = input;
+      const { base, values, body, now = Date.now(), field21 = 377 } = input;
       if (typeof base !== "string" || base.length > 8192 || /[\s?#]/.test(base)) throw new TypeError("V5 base must be an HTTPS URL without query or fragment");
       let parsed;
       try {
@@ -19912,6 +19912,7 @@ var require_playback_v5 = __commonJS({
         throw new TypeError("V5 base must use HTTPS without credentials or a custom port");
       }
       if (!Number.isSafeInteger(now) || now < 0 || Math.floor(now / 1e3) > 2147483647) throw new RangeError("V5 now must be nonnegative integer milliseconds within signed timestamp range");
+      if (!Number.isInteger(field21) || field21 < 0 || field21 > 65535) throw new RangeError("V5 field21 must be an unsigned 16-bit integer");
       const who = validatedValues(values);
       if (body !== null && !Buffer.isBuffer(body)) throw new TypeError("V5 body must be the original gzip Buffer");
       const hasBody = body !== null;
@@ -19934,7 +19935,7 @@ var require_playback_v5 = __commonJS({
         return { url: `${parsed.href}?${query}`, headers: {
           "x-khronos": String(ts),
           "x-helios": helios(ts),
-          "x-medusa": medusa(queryHash, f13, ts, who),
+          "x-medusa": medusa(queryHash, f13, ts, who, field21),
           ...hasBody ? { "x-ss-stub": bodyHash.toString("hex").toUpperCase() } : {}
         } };
       }
@@ -19964,9 +19965,11 @@ var require_app_source = __commonJS({
     var playbackRejection = null;
     var playbackEmptyRounds = 0;
     var playbackIdentityResetAt = 0;
+    var preferredPlaybackRoute = "";
     var VIDEO_API = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/";
     var VIDEO_TAB_API = "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/";
     var PLAYER_API = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/player/v1";
+    var PRELOAD_API = "https://reading.snssdk.com/novel/player/multi_video_model/preload/v1";
     var MODEL_APIS = [
       "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/video_model/v1/",
       "https://api5-normal-sinfonlinec.fqnovel.com/novel/player/video_model/v1/"
@@ -20560,7 +20563,7 @@ var require_app_source = __commonJS({
       });
       return { url, body, headers, method: "POST" };
     }
-    function playbackModelRequest(identity, videoId, base) {
+    function playbackModelRequest(identity, videoId, base, contentType = "1004") {
       const payload = JSON.stringify({
         biz_param: {
           detail_page_version: 0,
@@ -20574,7 +20577,7 @@ var require_app_source = __commonJS({
           use_server_dns: false,
           video_platform: 3
         },
-        content_type: 1004,
+        content_type: Number(contentType),
         video_id: String(videoId)
       });
       const body = gzipSync(Buffer.from(payload));
@@ -20600,6 +20603,59 @@ var require_app_source = __commonJS({
       return { ...signed, body, method: "POST", headers: {
         ...signed.headers,
         "User-Agent": "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)",
+        Accept: "application/json",
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Encoding": "gzip"
+      } };
+    }
+    function preloadRequest(identity, videoId, contentType = "1004") {
+      const payload = JSON.stringify({
+        biz_param: {
+          detail_page_version: 0,
+          device_level: 2,
+          disable_digg_stat: false,
+          disable_video_relate_book: false,
+          need_all_video_definition: true,
+          need_mp4_align: false,
+          use_os_player: false,
+          use_server_dns: false,
+          video_platform: 1024
+        },
+        mixed_video_id_map: { [contentType]: [String(videoId)] },
+        dr_scene: "preload"
+      });
+      const body = gzipSync(Buffer.from(payload));
+      const signed = signPlaybackV5({
+        base: PRELOAD_API,
+        values: {
+          aid: "8662",
+          app_name: "novelread",
+          version_code: "74532",
+          version_name: "7.4.5.32",
+          update_version_code: "74532",
+          manifest_version_code: "74532",
+          os: "android",
+          ssmix: "a",
+          channel: "update_64",
+          device_platform: "android",
+          device_type: "25053RT47C",
+          device_brand: "Redmi",
+          os_version: "16",
+          os_api: "36",
+          ac: "wifi",
+          language: "zh",
+          host_abi: "arm64-v8a",
+          iid: identity.iid,
+          cdid: identity.cdid,
+          device_id: identity.device_id
+        },
+        body,
+        now: Date.now(),
+        field21: 312
+      });
+      return { ...signed, body, method: "POST", headers: {
+        ...signed.headers,
+        "User-Agent": "okhttp/4.12.0",
         Accept: "application/json",
         "Content-Type": "application/json; charset=utf-8",
         "Content-Encoding": "gzip"
@@ -20715,15 +20771,20 @@ var require_app_source = __commonJS({
       device_id: localId()
     };
     function signedMetadataRequest(apiPath, values = {}, payload = null) {
-      if (!["/reading/distribution/category/landpage/v/", "/reading/bookapi/bookmall/cell/change/v"].includes(apiPath)) {
+      if (![
+        "/reading/distribution/category/landpage/v/",
+        "/reading/bookapi/bookmall/cell/change/v",
+        "/novel/player/album_detail/v1/"
+      ].includes(apiPath)) {
         throw new Error("\u4E0D\u652F\u6301\u7684 App \u76EE\u5F55\u63A5\u53E3");
       }
+      const device = apiPath === "/novel/player/album_detail/v1/" ? { ...metadataDevice, iid: localId(), device_id: localId() } : metadataDevice;
       const body = payload === null ? null : Buffer.from(JSON.stringify(payload));
       const khronos = Math.floor(Date.now() / 1e3), ticketBase = Date.now();
       let query, url, requestTicket;
       for (let n = 0; n < 128; n += 1) {
         requestTicket = ticketBase + n;
-        query = pythonUrlEncode({ ...values, ...metadataDevice, ts: String(khronos), _rticket: String(requestTicket) });
+        query = pythonUrlEncode({ ...values, ...device, ts: String(khronos), _rticket: String(requestTicket) });
         url = `https://api5-normal-sinfonlineb.fqnovel.com${apiPath}?${query}`;
         if (branchOf(url, body, khronos) === 0) break;
         if (n === 127) throw new Error("\u65E0\u6CD5\u751F\u6210 App \u76EE\u5F55\u8BF7\u6C42\u7B7E\u540D");
@@ -20743,7 +20804,7 @@ var require_app_source = __commonJS({
         "x-ladon": be32(khronos).toString("base64"),
         "x-argus": le32(khronos).toString("base64"),
         "x-helios": helios(khronos),
-        "x-medusa": buildMedusa(url, body, khronos, metadataDevice),
+        "x-medusa": buildMedusa(url, body, khronos, device),
         "x-tt-dt": ""
       };
       if (body) {
@@ -20920,6 +20981,16 @@ var require_app_source = __commonJS({
       normalizeDownloadQuality2(options.quality);
       vid = String(vid || "");
       if (!/^\d{1,30}$/.test(vid)) throw new Error("\u5206\u96C6\u7F16\u53F7\u65E0\u6548");
+      options = { ...options, contentType: ["1001", "1004"].includes(String(options.contentType)) ? String(options.contentType) : "1004" };
+      let sdkFailure = null;
+      const trySdk = async () => resolveSdkAppPlayUrl(vid, options, (error) => {
+        sdkFailure = error;
+      });
+      const parallelSdk = options.preferSdk && options.parallelSdk === true;
+      if (parallelSdk) {
+        const preferred = await trySdk();
+        if (preferred) return preferred;
+      }
       const previousRejection = playbackRejection;
       const pending = playbackQueue.then(async () => {
         throwIfAborted2(options.signal);
@@ -20934,21 +21005,31 @@ var require_app_source = __commonJS({
           }
         }
         throwIfAborted2(options.signal);
+        let identityRotated = false;
         try {
-          let identityRetried = false;
+          if (options.preferSdk && !parallelSdk) {
+            const preferred = await trySdk();
+            if (preferred) return preferred;
+          }
           for (; ; ) {
             try {
-              return await fetchAppPlayUrlFresh(vid, options);
+              const result = await fetchAppPlayUrlFresh(vid, options);
+              if (sdkFailure) result.sdkFailure = sdkFailure;
+              return result;
             } catch (error) {
               throwIfAborted2(options.signal);
-              if (identityRetried || error.code !== "BUSINESS_REJECTED" || Number(error.businessCode) !== 110001) throw error;
+              const empty = error.code === "EMPTY_RESPONSE";
+              const rejected = error.code === "BUSINESS_REJECTED" && Number(error.businessCode) === 110001;
+              if (identityRotated || !empty && !rejected) throw error;
+              if (empty && Date.now() - playbackIdentityResetAt < 3e4) throw error;
               playbackDevice.resetPlaybackDevice?.();
               playbackIdentityResetAt = Date.now();
               playbackEmptyRounds = 0;
-              identityRetried = true;
+              identityRotated = true;
             }
           }
         } catch (error) {
+          throwIfAborted2(options.signal);
           const retryIdentity = ["EMPTY_RESPONSE", "ETIMEDOUT", "ECONNABORTED"].includes(error.code) || error.code === "BUSINESS_REJECTED" && Number(error.businessCode) === 110001;
           if (retryIdentity) {
             playbackEmptyRounds++;
@@ -20959,6 +21040,11 @@ var require_app_source = __commonJS({
               playbackEmptyRounds = 0;
             }
           }
+          if (!options.preferSdk) {
+            const preferred = await trySdk();
+            if (preferred) return preferred;
+          }
+          if (sdkFailure) error.sdkFailure = sdkFailure;
           if ([403, 429].includes(error.status) || error.code === "BUSINESS_REJECTED" && Number(error.businessCode) !== 110001 || error.code === "DEVICE_REGISTRATION_FAILED" && ["BUSINESS_REJECTED", "HTTP_403", "HTTP_429"].includes(error.registrationFailure)) playbackRejection = error;
           throw error;
         } finally {
@@ -20980,9 +21066,10 @@ var require_app_source = __commonJS({
       }
     }
     async function fetchAppPlayUrlFresh(vid, options) {
+      const contentType = options.contentType || "1004";
       const payload = JSON.stringify({
         biz_param: { detail_page_version: 0, device_level: 1, disable_digg_stat: false, disable_video_relate_book: false, need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024 },
-        mixed_video_id_map: { "1004": [vid] },
+        mixed_video_id_map: { [contentType]: [vid] },
         dr_scene: "player"
       });
       const getIdentity = playbackDevice.getPlaybackDevice || playbackDevice.registerPlaybackDevice;
@@ -20992,21 +21079,30 @@ var require_app_source = __commonJS({
       const request = boundedSignal(options.signal, 12e3);
       const { signal } = request;
       try {
-        const routes = [
-          () => playbackRequest(payload, identity, vid),
-          () => playbackRequest(payload, identity, vid, true),
-          ...MODEL_APIS.map((base) => () => playbackModelRequest(identity, vid, base)),
-          () => videoTabRequest(identity, vid),
-          () => {
+        const candidates = [
+          { id: "preload_current", create: () => preloadRequest(identity, vid, contentType) },
+          { id: "video_tab", create: () => videoTabRequest(identity, vid) },
+          { id: "player_b", create: () => playbackRequest(payload, identity, vid) },
+          { id: "player_a", create: () => playbackRequest(payload, identity, vid, true) },
+          ...MODEL_APIS.map((base, index) => ({
+            id: `model_${index}`,
+            create: () => playbackModelRequest(identity, vid, base, contentType)
+          })),
+          { id: "legacy", create: () => {
             const legacy = playbackRequest(payload, identity, "");
             legacy.headers.Connection = "close";
             return legacy;
-          }
+          } }
         ];
-        let response, lastError;
-        for (const createRoute of routes) {
+        const preferred = candidates.find((route) => route.id === preferredPlaybackRoute);
+        const routes = preferred ? [preferred, ...candidates.filter((route) => route !== preferred)] : candidates;
+        let response, lastError, successfulRoute = "";
+        const rememberPreferredRoute = () => Promise.resolve().then(() => {
+          if (!signal.aborted && successfulRoute) preferredPlaybackRoute = successfulRoute;
+        });
+        for (const routeCandidate of routes) {
           throwIfAborted2(signal);
-          const route = createRoute();
+          const route = routeCandidate.create();
           for (let attempt = 0; attempt < 2; attempt++) {
             try {
               response = await requestJson(route.url, { method: route.method, headers: route.headers, data: route.body }, deadline, signal);
@@ -21034,7 +21130,7 @@ var require_app_source = __commonJS({
             });
             throw lastError;
           }
-          const entries2 = response.data?.["1004"] ?? response.data?.video_model_data ?? response.data;
+          const entries2 = response.data?.[contentType] ?? response.data?.video_model_data ?? response.data;
           const entry2 = entries2?.[vid];
           const candidate = typeof entry2?.video_model === "string" ? jsonBody(entry2.video_model) : entry2?.video_model;
           if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
@@ -21042,27 +21138,36 @@ var require_app_source = __commonJS({
               code: entry2?.video_model ? "INVALID_RESPONSE" : "MISSING_MODEL"
             });
           }
+          successfulRoute = routeCandidate.id;
           break;
         }
-        if (!response) throw lastError || Object.assign(new Error("App \u63A5\u53E3\u8FD4\u56DE\u7A7A\u54CD\u5E94\uFF08HTTP 200\uFF09\uFF0C\u539F\u56E0\u5C1A\u672A\u786E\u8BA4"), {
-          code: "EMPTY_RESPONSE",
-          status: 200,
-          emptyResponse: true
-        });
+        if (!response) {
+          throw lastError || Object.assign(new Error("App \u63A5\u53E3\u8FD4\u56DE\u7A7A\u54CD\u5E94\uFF08HTTP 200\uFF09\uFF0C\u539F\u56E0\u5C1A\u672A\u786E\u8BA4"), {
+            code: "EMPTY_RESPONSE",
+            status: 200,
+            emptyResponse: true
+          });
+        }
         playbackEmptyRounds = 0;
         const businessCode = Number(response.Code || response.code || 0);
         if (businessCode !== 0) throw Object.assign(new Error("App \u63A5\u53E3\u6682\u672A\u63D0\u4F9B\u672C\u96C6\u64AD\u653E\u4FE1\u606F"), {
           code: "BUSINESS_REJECTED",
           businessCode
         });
-        const entries = response.data?.["1004"] ?? response.data?.video_model_data ?? response.data;
+        const entries = response.data?.[contentType] ?? response.data?.video_model_data ?? response.data;
         const entry = entries?.[vid];
         const model = typeof entry?.video_model === "string" ? jsonBody(entry.video_model) : entry?.video_model;
         if (!model || typeof model !== "object" || Array.isArray(model)) throw Object.assign(new Error("App \u63A5\u53E3\u672A\u8FD4\u56DE\u6240\u9009\u5206\u96C6\uFF0C\u5DF2\u505C\u6B62\u53D6\u5740"), { code: entry?.video_model ? "INVALID_RESPONSE" : "MISSING_MODEL" });
         const inline = model.video_list && typeof model.video_list === "object" && Object.keys(model.video_list).length > 0;
-        const readFallback = async () => {
-          const fallback = parseFallback(model.fallback_api);
+        const readFallback = async ({ codec = "", forceCodec = "" } = {}) => {
+          let fallback = parseFallback(model.fallback_api);
           if (!fallback) throw Object.assign(new Error("App \u63A5\u53E3\u672A\u8FD4\u56DE\u672C\u96C6\u7247\u6E90\u5730\u5740"), { code: "MISSING_MODEL" });
+          if (codec) {
+            const target = new URL(fallback);
+            target.searchParams.set("codec_type", codec);
+            if (forceCodec) target.searchParams.set("force_codec", forceCodec);
+            fallback = target.href;
+          }
           const outer = await requestJson(fallback, { headers: { "User-Agent": VIDEO_UA } }, deadline, signal);
           throwIfAborted2(signal);
           if ([outer, outer.video_info].some((value) => Number(value?.Code || value?.code || 0) !== 0)) {
@@ -21073,24 +21178,52 @@ var require_app_source = __commonJS({
         if (!inline) {
           const info = await readFallback();
           throwIfAborted2(signal);
-          return parseAppPlayModel(info, vid, options, false);
+          const parsed = parseAppPlayModel(info, vid, options, false);
+          rememberPreferredRoute();
+          return parsed;
         }
         try {
-          return parseAppPlayModel(model, vid, options, true);
+          const parsed = parseAppPlayModel(model, vid, options, true);
+          rememberPreferredRoute();
+          return parsed;
         } catch (error) {
           const duration = Number(model.video_duration);
-          if (!error.incompleteEncryptionMetadata || typeof model.video_id !== "string" || !model.video_id.trim() || !Number.isFinite(duration) || duration <= 0 || !error.minimumPixels || !model.fallback_api) throw error;
-          const info = await readFallback();
-          throwIfAborted2(signal);
-          const fallbackDuration = Number(info?.video_duration);
-          if (info?.video_id !== model.video_id || !Number.isFinite(fallbackDuration) || fallbackDuration <= 0 || Math.abs(fallbackDuration - duration) > 0.5) {
-            throw Object.assign(new Error("\u5907\u7528\u7247\u6E90\u7F16\u53F7\u6216\u5B8C\u6574\u65F6\u957F\u65E0\u6CD5\u786E\u8BA4\uFF0C\u5DF2\u505C\u6B62\u53D6\u5740"), { code: "INVALID_RESPONSE" });
+          const codecFallback = ["NO_COMPATIBLE_SOURCE", "QUALITY_UNAVAILABLE"].includes(error.code);
+          if ((error.incompleteEncryptionMetadata ? !error.minimumPixels : !codecFallback) || typeof model.video_id !== "string" || !model.video_id.trim() || !Number.isFinite(duration) || duration <= 0 || !model.fallback_api) throw error;
+          const validateFallback = (info) => {
+            const fallbackDuration = Number(info?.video_duration);
+            if (info?.video_id !== model.video_id || !Number.isFinite(fallbackDuration) || fallbackDuration <= 0 || Math.abs(fallbackDuration - duration) > 0.5) {
+              throw Object.assign(new Error("\u5907\u7528\u7247\u6E90\u7F16\u53F7\u6216\u5B8C\u6574\u65F6\u957F\u65E0\u6CD5\u786E\u8BA4\uFF0C\u5DF2\u505C\u6B62\u53D6\u5740"), { code: "INVALID_RESPONSE" });
+            }
+            return info;
+          };
+          if (error.incompleteEncryptionMetadata) {
+            const info = validateFallback(await readFallback());
+            throwIfAborted2(signal);
+            const parsed = parseAppPlayModel(info, vid, options, false, true, error.minimumPixels);
+            rememberPreferredRoute();
+            return parsed;
           }
-          return parseAppPlayModel(info, vid, options, false, true, error.minimumPixels);
+          let lastError2 = error;
+          for (const attempt of [{ codec: "1" }, { codec: "0", forceCodec: "h264" }]) {
+            try {
+              const info = validateFallback(await readFallback(attempt));
+              throwIfAborted2(signal);
+              const parsed = parseAppPlayModel(info, vid, options, false);
+              rememberPreferredRoute();
+              return parsed;
+            } catch (fallbackError) {
+              lastError2 = fallbackError;
+            }
+          }
+          throw lastError2;
         }
       } finally {
         request.dispose();
       }
+    }
+    async function resolveSdkAppPlayUrl() {
+      return null;
     }
     function parseAppPlayModel(info, vid, options, inline, requireEncryptionMetadata = inline, minimumPixels = 0) {
       const requestedQuality = normalizeDownloadQuality2(options.quality);
@@ -21135,7 +21268,12 @@ var require_app_source = __commonJS({
             throw Object.assign(new Error("\u672C\u96C6\u7247\u6E90\u7F3A\u5C11\u6709\u6548\u89E3\u5BC6\u4FE1\u606F"), { code: "INVALID_RESPONSE" });
           }
           const key = spade ? deriveContentKey(spade) : null;
-          for (const candidate of [selected.item.main_url, selected.item.backup_url, ...Array.isArray(selected.item.backup_url_list) ? selected.item.backup_url_list : []]) {
+          for (const candidate of [
+            selected.item.main_url,
+            selected.item.backup_url,
+            selected.item.backup_url_1,
+            ...Array.isArray(selected.item.backup_url_list) ? selected.item.backup_url_list : []
+          ]) {
             if (typeof candidate !== "string" || !candidate) continue;
             try {
               const media = info.key_seed ? decryptSpadeUrl(candidate, Buffer.from(info.key_seed, "base64")) : cleanUrl(candidate);
@@ -21149,6 +21287,7 @@ var require_app_source = __commonJS({
                 contentKey,
                 codec: selected.codec === "bytevc1" ? "hevc" : selected.codec,
                 source: "app",
+                sourceProvider: options.sourceProvider || "official",
                 vid,
                 userAgent: inline ? PLAYBACK_UA : VIDEO_UA,
                 quality: allowLowerQuality ? selected.width && selected.height ? `${Math.min(selected.width, selected.height)}p` : "" : requestedQuality === "auto" ? selected.quality : requestedQuality,
@@ -21177,6 +21316,104 @@ var require_app_source = __commonJS({
       });
     }
     module2.exports = { fetchAppPlayUrl, signedSearchRequest, signedMetadataRequest, signedAccountRequest, parseSearchInteger, preserveLargeJsonIntegers, requestJson, SEARCH_API, SEARCH_UA };
+  }
+});
+
+// src/native/hongguo-creator-album.js
+var require_hongguo_creator_album = __commonJS({
+  "src/native/hongguo-creator-album.js"(exports2, module2) {
+    var { signedMetadataRequest, requestJson } = require_app_source();
+    var ALBUM_API = "/novel/player/album_detail/v1/";
+    var MAX_EPISODES = 2e3;
+    function albumError(message, code) {
+      return Object.assign(new Error(message), { code });
+    }
+    function text(value) {
+      return String(value == null ? "" : value).trim();
+    }
+    function safeCover(value) {
+      const url = text(value);
+      return /^https?:\/\//i.test(url) && !/\.heic(?:\?|$)/i.test(url) ? url : "";
+    }
+    function parseCreatorAlbum(payload, albumId) {
+      if (Number(payload?.code) !== 0) throw albumError("\u4E91\u7AEF\u672A\u786E\u8BA4\u5408\u96C6\u8BF7\u6C42\u6210\u529F", "ALBUM_REJECTED");
+      const album = payload?.data?.album_data;
+      const reported = text(album?.album_id_str || album?.album_id);
+      if (!album || reported !== String(albumId)) throw albumError("\u5408\u96C6\u8BE6\u60C5\u4E0E\u8BF7\u6C42\u4E0D\u4E00\u81F4", "ALBUM_IDENTITY");
+      const rows = Array.isArray(album.video_detail_list) ? album.video_detail_list : [];
+      const expected = Number(album.episode_cnt) || 0;
+      if (!rows.length || rows.length > MAX_EPISODES || payload?.data?.has_more === true || album.has_more === true || expected > 0 && expected !== rows.length) {
+        throw albumError("\u5408\u96C6\u76EE\u5F55\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u91CD\u8BD5", "ALBUM_INCOMPLETE");
+      }
+      const seen = /* @__PURE__ */ new Set();
+      const episodes = rows.map((row, index) => {
+        const vid = text(row?.series_id_str || row?.series_id);
+        if (!/^\d{1,30}$/.test(vid) || !/[1-9]/.test(vid) || Number(row?.content_type) !== 1001 || seen.has(vid)) {
+          throw albumError("\u5408\u96C6\u89C6\u9891\u6570\u636E\u65E0\u6548\uFF0C\u8BF7\u91CD\u8BD5", "ALBUM_INVALID");
+        }
+        seen.add(vid);
+        return {
+          vid,
+          vid_index: index + 1,
+          title: text(row.series_title) || `\u7B2C${index + 1}\u96C6`,
+          series_id: String(albumId),
+          series_title: text(album.title) || "\u672A\u547D\u540D\u5408\u96C6",
+          cover: safeCover(album.cover),
+          content_type: "1001",
+          web_available: true,
+          locked: false
+        };
+      });
+      return {
+        series_id: String(albumId),
+        series_title: text(album.title) || "\u672A\u547D\u540D\u5408\u96C6",
+        cover: safeCover(album.cover),
+        description: text(album.intro),
+        content_type: "1003",
+        source: "app-album",
+        total: episodes.length,
+        web_accessible_episodes: episodes.length,
+        episodes
+      };
+    }
+    async function fetchCreatorAlbum(albumId, {
+      deadline = 0,
+      request = signedMetadataRequest,
+      send = requestJson,
+      signal
+    } = {}) {
+      albumId = String(albumId || "");
+      if (!/^\d{1,30}$/.test(albumId) || !/[1-9]/.test(albumId)) {
+        throw albumError("\u5408\u96C6\u7F16\u53F7\u65E0\u6548", "ALBUM_INPUT");
+      }
+      const budget = Number(deadline) || Date.now() + 15e3;
+      if (budget <= Date.now()) throw albumError("\u5408\u96C6\u8BE6\u60C5\u8BF7\u6C42\u8D85\u65F6", "ALBUM_TIMEOUT");
+      const body = {
+        album_id: albumId,
+        series_ids: [],
+        need_video_detail_info: true,
+        biz_param: { video_platform: 3 }
+      };
+      let lastError;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (budget <= Date.now()) break;
+        const signed = request(ALBUM_API, {}, body);
+        try {
+          const payload = await send(signed.url, {
+            method: "POST",
+            headers: signed.headers,
+            data: signed.body,
+            preserveLargeIntegerFields: ["album_id", "album_id_str", "series_id", "series_id_str"]
+          }, budget, signal);
+          return parseCreatorAlbum(payload, albumId);
+        } catch (error) {
+          lastError = error;
+          if (error?.code !== "EMPTY_RESPONSE") throw error;
+        }
+      }
+      throw lastError || albumError("\u5408\u96C6\u8BE6\u60C5\u8BF7\u6C42\u8D85\u65F6", "ALBUM_TIMEOUT");
+    }
+    module2.exports = { fetchCreatorAlbum, parseCreatorAlbum, ALBUM_API };
   }
 });
 
@@ -21435,7 +21672,9 @@ async function fetchPublicFallbackPlayUrl(vid, signal) {
   const payload = response?.data;
   if (response?.status !== 200 || !payload || typeof payload !== "object" || Number(payload.base_resp?.StatusCode ?? payload.code ?? 0) !== 0) {
     const error = new Error("\u5B98\u7F51\u516C\u5F00\u515C\u5E95\u63A5\u53E3\u672A\u8FD4\u56DE\u6709\u6548\u7247\u6E90");
-    error.code = response?.status >= 400 ? `HTTP_${response.status}` : "NO_PLAYABLE_SOURCE";
+    const upstreamCode = String(payload?.error || "").trim().slice(0, 80);
+    error.code = upstreamCode === "public_fallback_unavailable" ? "PUBLIC_ACCESS_LIMITED" : response?.status >= 400 ? `HTTP_${response.status}` : "NO_PLAYABLE_SOURCE";
+    if (upstreamCode) error.upstreamCode = upstreamCode;
     throw error;
   }
   let media;
@@ -21506,6 +21745,10 @@ async function fetchPlayUrlFromWeb(vid, sid, onFailure, signal) {
     if (publicFallback) return publicFallback;
   } catch (error) {
     throwIfAborted(signal);
+    if (error.code === "PUBLIC_ACCESS_LIMITED") {
+      onFailure?.(error);
+      return null;
+    }
     lastErr = error;
   }
   for (const url of candidates) {
@@ -21669,10 +21912,24 @@ async function fetchEpisodeList(seriesId, options = {}) {
   if (String(seriesId).startsWith("custom:")) return require_custom_source().fetchEpisodeList(seriesId);
   if (String(seriesId).startsWith("hema:")) return require_hema().fetchEpisodeList(seriesId);
   if (String(seriesId).startsWith("xifan:")) return require_xifan().fetchEpisodeList(seriesId);
+  if (String(options.content_type || options.contentType || "") === "1003") {
+    return require_hongguo_creator_album().fetchCreatorAlbum(seriesId, { deadline: Date.now() + 15e3 });
+  }
   return cachedRequest(
     `episodes:${seriesId}`,
     6e4,
-    () => fetchEpisodeListFresh(seriesId, { deadline: Number(options.deadline) || 0 }),
+    async () => {
+      try {
+        return await fetchEpisodeListFresh(seriesId, { deadline: Number(options.deadline) || 0 });
+      } catch (error) {
+        if (!/^\d{1,30}$/.test(String(seriesId))) throw error;
+        try {
+          return await require_hongguo_creator_album().fetchCreatorAlbum(seriesId, { deadline: Date.now() + 5e3 });
+        } catch {
+          throw error;
+        }
+      }
+    },
     { force: options.force === true }
   );
 }
@@ -21853,8 +22110,32 @@ async function fetchPlayUrlSingle(vid, sid, options = {}) {
     if (String(vid).startsWith("xifan:") || String(sid).startsWith("xifan:")) return require_xifan().fetchPlayUrlSingle(vid, sid);
     const skipWeb = (failedWebMedia.get(String(vid)) || 0) > Date.now();
     const allowLowerQuality = options.allowLowerQuality === true && quality !== "auto";
-    const cacheKey = `play:${sid || ""}:${vid}${quality === "auto" ? "" : `:${quality}`}${skipWeb ? ":fallback" : ""}${allowLowerQuality ? ":lower-quality" : ""}`;
-    const result = await cachedRequest(cacheKey, 3e4, (signal) => quality === "auto" ? fetchPlayUrlFresh(vid, sid, skipWeb, signal) : require_app_source().fetchAppPlayUrl(String(vid), { quality, allowLowerQuality, signal }).catch(async (error) => {
+    const contentType = ["1001", "1004"].includes(String(options.content_type || options.contentType)) ? String(options.content_type || options.contentType) : "1004";
+    const sdkBatchVids = Array.isArray(options.sdkBatchVids) ? options.sdkBatchVids : void 0;
+    const sdkFresh = options.sdkFresh === true;
+    const cacheKey = `play:${sid || ""}:${vid}${quality === "auto" ? "" : `:${quality}`}${contentType === "1004" ? "" : `:type-${contentType}`}${skipWeb ? ":fallback" : ""}${allowLowerQuality ? ":lower-quality" : ""}${options.preferSdk ? ":sdk-first" : ""}${options.parallelSdk ? ":parallel-sdk" : ""}`;
+    const result = await cachedRequest(cacheKey, 3e4, (signal) => quality === "auto" ? fetchPlayUrlFresh(
+      vid,
+      sid,
+      skipWeb,
+      signal,
+      options.preferSdk === true,
+      options.parallelSdk === true,
+      contentType,
+      options.sdkPriority === true,
+      sdkBatchVids,
+      sdkFresh
+    ) : require_app_source().fetchAppPlayUrl(String(vid), {
+      quality,
+      allowLowerQuality,
+      preferSdk: options.preferSdk === true,
+      parallelSdk: options.parallelSdk === true,
+      sdkPriority: options.sdkPriority === true,
+      contentType,
+      sdkBatchVids,
+      sdkFresh,
+      signal
+    }).catch(async (error) => {
       throwIfAborted(signal);
       if (error.code === "ERR_CANCELED") throw error;
       const sources = [sourceFailure("app", error)];
@@ -21886,9 +22167,17 @@ async function fetchPlayUrlSingle(vid, sid, options = {}) {
   }
 }
 function sourceFailure(source, error) {
+  const failure = classifySourceFailure(source, error);
+  if (!error?.sdkFailure || failure.code === "ERR_CANCELED") return failure;
+  return { ...failure, sdkFailure: true, message: `${failure.message}\uFF1B${error.sdkFailure.message}` };
+}
+function classifySourceFailure(source, error) {
   const message = String(error?.message || "");
   const code = String(error?.code || "");
   if (code === "ERR_CANCELED") return { source, code, message: "\u5DF2\u53D6\u6D88 App \u7247\u6E90\u8BF7\u6C42" };
+  if (code === "PUBLIC_ACCESS_LIMITED" || code === "public_fallback_unavailable" || code === "protected_playback_unavailable") {
+    return { source, code: "PUBLIC_ACCESS_LIMITED", message: "\u5B98\u7F51\u516C\u5F00\u7247\u6E90\u4E0D\u63D0\u4F9B\u672C\u96C6\uFF0C\u9700\u5728\u5B98\u65B9 App \u89C2\u770B" };
+  }
   const networkDetails = { DNS: "DNS \u89E3\u6790\u5931\u8D25", CONNECTION: "\u8FDE\u63A5\u5931\u8D25", TLS: "TLS \u8BC1\u4E66\u6216\u63E1\u624B\u5931\u8D25" };
   const network = typeof error?.networkFailure === "string" && Object.hasOwn(networkDetails, error.networkFailure) ? { networkFailure: error.networkFailure } : {};
   if (code === "DEVICE_REGISTRATION_FAILED") {
@@ -21935,19 +22224,27 @@ function sourceFailure(source, error) {
 }
 function unavailableSources(sources, quality = "auto") {
   const names = { web: "\u7F51\u9875", app: "App", api: "\u65E7\u63A5\u53E3" };
-  const error = new Error(`\u672C\u96C6\u53D6\u6E90\u5931\u8D25${quality === "auto" ? "" : `\uFF08\u6240\u9009\u6E05\u6670\u5EA6 ${quality}\uFF0C\u672A\u964D\u7EA7\uFF09`}\uFF1A${sources.map((item) => `${names[item.source]}\uFF1A${item.message}`).join("\uFF1B")}\u3002\u8BF7\u91CD\u8BD5\u6216\u5728\u5B98\u65B9 App \u786E\u8BA4\u53EF\u64AD\u60C5\u51B5\u3002`);
+  const publicLimited = sources.some((item) => item.code === "PUBLIC_ACCESS_LIMITED");
+  const sdkFailure = sources.find((item) => item.sdkFailure);
+  const message = sdkFailure ? `\u672C\u96C6\u53D6\u6E90\u5931\u8D25${quality === "auto" ? "" : `\uFF08\u6240\u9009\u6E05\u6670\u5EA6 ${quality}\uFF0C\u672A\u964D\u7EA7\uFF09`}\uFF1A${sdkFailure.message}${publicLimited ? "\uFF1B\u5B98\u7F51\u516C\u5F00\u7247\u6E90\u4E5F\u4E0D\u63D0\u4F9B\u672C\u96C6" : ""}\u3002\u8BF7\u7A0D\u540E\u91CD\u8BD5\u6216\u5728\u5B98\u65B9 App \u786E\u8BA4\u53EF\u64AD\u60C5\u51B5\u3002` : publicLimited ? `\u5B98\u7F51\u516C\u5F00\u7247\u6E90\u4E0D\u63D0\u4F9B\u672C\u96C6\uFF0C\u5F53\u524D App \u53D6\u6E90\u4E5F\u672A\u8FD4\u56DE\u5B8C\u6574\u5730\u5740\u3002\u8BF7\u7A0D\u540E\u91CD\u8BD5\uFF1B\u82E5\u8BE5\u96C6\u53EA\u5BF9\u5B98\u65B9 App \u5F00\u653E\uFF0C\u8BF7\u5728\u5B98\u65B9 App \u89C2\u770B\u3002` : `\u672C\u96C6\u53D6\u6E90\u5931\u8D25${quality === "auto" ? "" : `\uFF08\u6240\u9009\u6E05\u6670\u5EA6 ${quality}\uFF0C\u672A\u964D\u7EA7\uFF09`}\uFF1A${sources.map((item) => `${names[item.source]}\uFF1A${item.message}`).join("\uFF1B")}\u3002\u8BF7\u91CD\u8BD5\u6216\u5728\u5B98\u65B9 App \u786E\u8BA4\u53EF\u64AD\u60C5\u51B5\u3002`;
+  const error = new Error(message);
   error.code = "SOURCE_UNAVAILABLE";
   error.sources = sources;
   return error;
 }
-async function fetchPlayUrlFresh(vid, sid, skipWeb = false, signal) {
+async function fetchPlayUrlFresh(vid, sid, skipWeb = false, signal, preferSdk = false, parallelSdk = false, contentType = "1004", sdkPriority = false, sdkBatchVids = void 0, sdkFresh = false) {
   throwIfAborted(signal);
   const sources = [];
-  const web = !skipWeb && await fetchPlayUrlFromWeb(vid, sid, (error) => sources.push(sourceFailure("web", error)), signal);
-  throwIfAborted(signal);
-  if (web && web.url) return web;
   try {
-    const result = await require_app_source().fetchAppPlayUrl(String(vid), { signal });
+    const result = await require_app_source().fetchAppPlayUrl(String(vid), {
+      preferSdk,
+      parallelSdk,
+      sdkPriority,
+      contentType,
+      sdkBatchVids,
+      sdkFresh,
+      signal
+    });
     throwIfAborted(signal);
     return result;
   } catch (error) {
@@ -21955,6 +22252,9 @@ async function fetchPlayUrlFresh(vid, sid, skipWeb = false, signal) {
     if (error.code === "ERR_CANCELED") throw error;
     sources.push(sourceFailure("app", error));
   }
+  const web = !skipWeb && await fetchPlayUrlFromWeb(vid, sid, (error) => sources.push(sourceFailure("web", error)), signal);
+  throwIfAborted(signal);
+  if (web && web.url) return web;
   const body = {
     biz_param: MODEL_BIZ_PARAM,
     dr_scene: "preload",

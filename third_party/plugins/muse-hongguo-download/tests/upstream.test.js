@@ -13,6 +13,11 @@ test('retained source and runtime match the reviewed pin and load without extern
   for (const name of ['fetchEpisodeList', 'fetchPlayUrlSingle', 'deriveKey']) assert.equal(typeof engine[name], 'function');
 });
 
+test('the bundled Node engine does not include the upstream desktop SDK helper', async () => {
+  const engine = await readFile(new URL('../upstream/engine.cjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(engine, /hongguo-sdk-playback|src\/native\/sdk-playback\.js/);
+});
+
 test('loads Electron net only in an Electron browser process', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'hongguo-electron-'));
   const engine = join(directory, 'engine.cjs');

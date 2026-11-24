@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { HongguoDownloadClient, resolveConfig } from '../src/client.js';
+import { DownloadCheckpoint } from '../src/checkpoint.js';
 import { TaskStore } from '../src/task-store.js';
 
 function command(bin, args, cwd, env) {
@@ -75,6 +76,22 @@ test('ordinary packed CLI boots through built dsh without an Agent or account su
   await store.change(taskId, () => ({ version: 1, kind: 'download', id: taskId, owner: { kind: 'cli', id: identity.id }, cwd: canonicalCwd,
     request: spec.request, sourceIdentity: spec.sourceIdentity, checkpointDirectory: spec.checkpointDirectory,
     state: 'paused', runId: previousRunId, runnerPid: null, jobId: null, revision: 0, progress: null, summary: null, createdAt: at, updatedAt: at }));
+
+  const oldTaskId = `hgt-${randomUUID().replaceAll('-', '')}`;
+  const oldIdentity = 'jackotom:8d14d07b3aaf99ecbe6b3ecb8ba2d0308261845d:auto';
+  const oldCheckpoint = new DownloadCheckpoint(spec.request.outputDir, {
+    mode: 'legacy', seriesIds: spec.request.seriesIds, episodes: null, sourceIdentity: oldIdentity,
+  }, resolveConfig());
+  const oldTask = await store.change(oldTaskId, () => ({
+    version: 1, kind: 'download', id: oldTaskId, owner: { kind: 'cli', id: identity.id }, cwd: canonicalCwd,
+    request: spec.request, sourceIdentity: oldIdentity, checkpointDirectory: oldCheckpoint.directory,
+    state: 'paused', runId: null, runnerPid: null, jobId: null, revision: 0, progress: null, summary: null, createdAt: at, updatedAt: at,
+  }));
+  const rejectedResume = await command(resolve(bin), ['--profile', 'hongguo', 'resume', oldTaskId], cwd, env);
+  assert.equal(rejectedResume.code, 1, rejectedResume.stderr);
+  assert.equal(JSON.parse(rejectedResume.stdout).code, 'task_source_changed');
+  assert.deepEqual(await store.read(oldTaskId), oldTask);
+
   const resumed = await command(resolve(bin), ['--profile', 'hongguo', 'resume', taskId], cwd, env);
   assert.equal(resumed.expired, false); assert.equal(resumed.code, 0, resumed.stderr);
   const completed = JSON.parse(resumed.stdout);

@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/hongguo-task-engine/guide.md
+/:
+  en: 4d0ad79ae180a044
+  zh: c920e924aaadfeb5
+/hongguo-download-tasks-across-engine-upgrades:
+  en: d8998f9ba6d299ed
+  zh: cc6c0f65bea2ed65
+/hongguo-download-tasks-across-engine-upgrades/change:
+  en: dc76412728659c5d
+  zh: 63e6966d67a6d245
+/hongguo-download-tasks-across-engine-upgrades/migration:
+  en: ad8ce48222d0692d
+  zh: 116c5be87f5add34

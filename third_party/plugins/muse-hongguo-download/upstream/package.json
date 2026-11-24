@@ -1,8 +1,8 @@
 {
   "name": "hongguo-drama-vendor",
-  "version": "8.0.0",
+  "version": "8.2.0",
   "type": "commonjs",
   "license": "GPL-3.0",
   "upstream": "https://github.com/jackotom/hongguo-drama",
-  "revision": "8d14d07b3aaf99ecbe6b3ecb8ba2d0308261845d"
+  "revision": "ea5a852f65acdc4c5b11265ca13b03d115096dc7"
 }

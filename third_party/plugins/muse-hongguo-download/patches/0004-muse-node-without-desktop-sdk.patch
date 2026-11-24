@@ -1,0 +1,38 @@
+--- a/src/native/app-source.js
++++ b/src/native/app-source.js
+@@ -10,7 +10,6 @@
+ const { gzipSync } = require('node:zlib');
+ const { setTimeout: delay } = require('node:timers/promises');
+ const playbackDevice = require('./playback-device');
+-const sdkPlayback = require('./sdk-playback');
+ const { signPlayer } = require('./playback-signature');
+ const { signPlaybackV5 } = require('./playback-v5');
+ const { abortError, throwIfAborted, boundedSignal, networkFailure } = require('./request-signal');
+@@ -711,24 +710,9 @@
+     }
+ }
+
+-async function resolveSdkAppPlayUrl(vid, options, onFailure) {
+-    const sdkResult = await sdkPlayback.resolveSdkPlayback(vid, {
+-        signal: options.signal, contentType: options.contentType, onError: onFailure,
+-        priority: options.sdkPriority === true,
+-        batchVids: options.sdkBatchVids,
+-        fresh: options.sdkFresh === true,
+-    });
+-    throwIfAborted(options.signal);
+-    if (!sdkResult) return null;
+-    try {
+-        const parsed = parseAppPlayModel(sdkResult.model, vid, { ...options, sourceProvider: 'sdk' }, false);
+-        parsed.userAgent = sdkResult.userAgent;
+-        for (const variant of parsed.variants || []) variant.userAgent = sdkResult.userAgent;
+-        return parsed;
+-    } catch (error) {
+-        onFailure?.({ code: error.code || 'SDK_INVALID_RESPONSE', message: error.message });
+-        return null;
+-    }
++// The Muse plugin uses a managed Node runtime and has no upstream desktop SDK helper.
++async function resolveSdkAppPlayUrl() {
++    return null;
+ }
+
+ function parseAppPlayModel(info, vid, options, inline, requireEncryptionMetadata = inline, minimumPixels = 0) {
