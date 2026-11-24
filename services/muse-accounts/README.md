@@ -55,7 +55,7 @@ Clients may include a `requestId` of 1–128 ASCII characters, starting with a l
 
 `MUSE_MARKET_CONFIG` enables `/market`, its same-origin assets and `/api/market/v1/*`; omission returns HTTP 404 for those routes. Set it to an absolute, owner-only regular JSON file outside the release. The gateway forwards market traffic to a separately configured loopback catalog without starting a workspace agent. The [market package](../../packages/host/muse-market/README.md) owns publication validation, approval, download and local installation.
 
-All seven policy fields are required; unknown fields and invalid values fail startup:
+`upstream`, `secretFile`, `archiveBytes` and `requestTimeoutMs` are required. `jsonRequestBytes` (default 16384), `jsonResponseBytes` (default 64 MiB) and `requestRatePerMinute` (default 120) are optional, and so is `web`: `"bots-and-skills"` (default) serves the production Bot and Skills page, `"skills"` serves the Skill page described below, which needs the built market package's browser module beside the release and a catalog that answers `/me` with `accountId`. A relative `MUSE_MARKET_CONFIG`, unknown fields and invalid values fail startup:
 
 ```json
 {

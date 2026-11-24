@@ -55,7 +55,7 @@ kind: "package-reference"
 
 `MUSE_MARKET_CONFIG` 启用 `/market`、同源网页资源和 `/api/market/v1/*`；省略时这些路由返回 HTTP 404。将它设为发布目录之外、绝对路径且仅所有者可读的普通 JSON 文件。网关将市场请求转发给单独配置的回环目录服务，不启动工作区 Agent。[市场包](../../packages/host/muse-market/README.zh.md) 定义发布物校验、审核、下载和本地安装。
 
-以下七个策略字段均必填；未知字段或无效值会使启动失败：
+`upstream`、`secretFile`、`archiveBytes` 和 `requestTimeoutMs` 必填。`jsonRequestBytes`（默认 16384）、`jsonResponseBytes`（默认 64 MiB）和 `requestRatePerMinute`（默认 120）可选；`web` 也可选：`"bots-and-skills"`（默认）提供正式环境的 Bot 与 Skill 页面，`"skills"` 提供下文所述的 Skill 页面，后者需要发布目录旁有构建好的市场包浏览器模块，并且目录服务在 `/me` 中返回 `accountId`。`MUSE_MARKET_CONFIG` 为相对路径、出现未知字段或无效值时，启动失败：
 
 ```json
 {
