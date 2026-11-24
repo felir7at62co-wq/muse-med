@@ -489,5 +489,32 @@ class SlotsTest(unittest.TestCase):
             self.assertEqual(sorted(path.name for path in (root / "state").glob("active*.json")), [])
 
 
+class ChildTest(unittest.TestCase):
+    def test_the_worker_child_gets_the_sdk_path_for_its_selection_review(self):
+        import getpass
+        import grp
+        import os
+        import subprocess
+        with TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            save(root / "worker.json", {"stateRoot": str(root / "worker-state")})
+            group = grp.getgrgid(os.getgid()).gr_name
+            calls = []
+
+            def run(command, **options):
+                calls.append(command)
+                return subprocess.CompletedProcess(command, 0, stdout='{"ok": true}\n', stderr="")
+            cfg = {"stateRoot": str(root / "state"), "workspaceRoot": str(root / "workspace"), "workerId": WORKER,
+                   "workerConfig": str(root / "worker.json"), "workerUser": getpass.getuser(), "workerHome": str(root),
+                   "workerPython": "/usr/bin/python3", "workerApp": str(root), "workerPythonPath": "/opt/source/python/sdk/src",
+                   "batchSize": 10, "pollSeconds": 0.01}
+            production = Production(cfg, FakeStation(), FakeMuse(lambda *_: None), run=run)
+            if group != getpass.getuser():
+                self.skipTest("chown to the worker user needs a group of the same name")
+            production.child(KEY, "download", {"title": "盛夏芬德拉"}, {}, 60)
+            self.assertIn("PYTHONPATH=/opt/source/python/sdk/src", calls[0])
+            self.assertEqual(calls[0][calls[0].index("env") + 1], f"HOME={root}")
+
+
 if __name__ == "__main__":
     unittest.main()

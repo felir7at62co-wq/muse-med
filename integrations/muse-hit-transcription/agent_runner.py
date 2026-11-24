@@ -733,7 +733,9 @@ class Production:
         user = self.cfg["workerUser"]
         for path in (directory.parent, directory, directory / "series.json"):
             shutil.chown(path, user, user)
-        result = self.run(["runuser", "-u", user, "--", "env", f"HOME={self.cfg['workerHome']}", self.cfg["workerPython"], "-B",
+        # The worker's selection review imports the Muse Python SDK from the source tree (`workerPythonPath`).
+        env = [f"HOME={self.cfg['workerHome']}"] + ([f"PYTHONPATH={self.cfg['workerPythonPath']}"] if self.cfg.get("workerPythonPath") else [])
+        result = self.run(["runuser", "-u", user, "--", "env", *env, self.cfg["workerPython"], "-B",
                            str(Path(self.cfg["workerApp"]) / "worker.py"),
                            self.cfg["workerConfig"], "--child", key, action],
                           cwd=self.cfg["workerApp"], capture_output=True, text=True, timeout=timeout)
