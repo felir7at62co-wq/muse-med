@@ -15,10 +15,11 @@ const usage={version:1,coverage:{transport:'relay-only',direct:'unobserved'},fro
  ],nextCursor:'next-page',health:{state:'ok'}}
 const archives={items:[{version:1,deviceId:'11111111-1111-4111-8111-111111111111',sessionId:'my-session',digest:'b'.repeat(64),
  storedAt:'2026-11-12T02:03:04.000Z',eventCount:3,attachments:[{sha256:'c'.repeat(64),sizeBytes:12,mediaType:'image/png'}]}],nextCursor:null}
-const studio={version:1,scope:'studio-native',accountId,from:'2026-10-14',to:'2026-11-12',status:'recorded',billingVerified:false,
- summary:{operations:2,states:{authorized:0,reserved:0,accepted:0,completed:1,failed:0,unknown:1},reportedUsageOperations:1,unreportedUsageOperations:1,usageErrorOperations:0,supplierReports:1,inputTokens:25,outputTokens:null,totalTokens:null,
-  tokenCoverage:{input:{reportedReports:1,unreportedReports:0,overflow:false},output:{reportedReports:0,unreportedReports:1,overflow:false},total:{reportedReports:0,unreportedReports:1,overflow:false}},resources:{images:1,videos:0,tasks:1}},
- items:[{operationId:'native-private-operation',kind:'image',state:'completed',createdAt:'2026-11-12T03:00:00.000Z',updatedAt:'2026-11-12T03:00:01.000Z',httpStatus:201,errorCode:null,usageStatus:'reported',supplierReports:1,inputTokens:25,outputTokens:null,totalTokens:null,resources:{images:1,videos:0,tasks:1}}],nextCursor:'native-next-page',health:{state:'ok',invalidUsageReports:0}}
+const budget=(entries,settledEntries,reservedMinor,heldMinor,settledMinor)=>({currency:'CNY',entries,unsettledEntries:entries-settledEntries,settledEntries,reservedMinor,heldMinor,settledMinor,overflow:false,overflows:{reservedMinor:false,heldMinor:false,settledMinor:false}})
+const studio={version:2,scope:'studio-all',accountId,from:'2026-10-14',to:'2026-11-12',status:'recorded',billingVerified:false,coveredSources:['native','tts'],
+ summary:{operations:2,states:{authorized:0,reserved:0,accepted:0,completed:1,failed:0,unknown:1,'operator-confirmed':0,'awaiting-review':0},sources:{native:2,tts:0,fal:0,libtv:0,'libtv-cli':0},reportedUsageOperations:1,unreportedUsageOperations:1,usageErrorOperations:0,supplierReports:1,inputTokens:25,outputTokens:null,totalTokens:null,
+  tokenCoverage:{input:{reportedReports:1,unreportedReports:0,overflow:false},output:{reportedReports:0,unreportedReports:1,overflow:false},total:{reportedReports:0,unreportedReports:1,overflow:false}},resources:{images:1,videos:0,audios:0,tasks:1},budgetTotals:[budget(2,1,240,120,80)]},
+ items:[{operationId:'native-private-operation',source:'native',kind:'image',state:'completed',recordedState:'completed',createdAt:'2026-11-12T03:00:00.000Z',updatedAt:'2026-11-12T03:00:01.000Z',httpStatus:201,errorCode:null,usageStatus:'reported',supplierReports:1,inputTokens:25,outputTokens:null,totalTokens:null,resources:{images:1,videos:0,audios:0,tasks:1},budgetTotals:[budget(1,1,120,0,80)]}],nextCursor:'native-next-page',health:{state:'ok',invalidUsageReports:0}}
 function studioResponse(path,value=studio){const query=new URL(path,'https://muse.fixture.test').searchParams;return Response.json({...value,from:query.get('from')??value.from,to:query.get('to')??value.to,accountId:query.get('accountId')??value.accountId});}
 
 function fixture(t,admin=false,respond=path=>path.startsWith('/api/admin/accounts')?Response.json({version:1,items:[{id:accountId,username:'writer'}]})
@@ -119,7 +120,9 @@ test('studio usage keeps supplier nulls, coverage, native states and resource co
  const f=fixture(t);await f.until(()=>f.root.querySelector('[data-studio-items] tr'));
  assert.equal(f.root.querySelector('[data-usage-summary] dd').textContent,'2');assert.match(f.root.querySelector('[data-studio-summary]').textContent,/已回报输入 token25/);assert.doesNotMatch(f.root.querySelector('[data-studio-summary]').textContent,/37/);
  assert.deepEqual(rows(f.root,'[data-studio-items]')[0].slice(3,6),['25','未回报','未回报']);assert.match(f.root.querySelector('[data-studio-coverage]').textContent,/输出字段：0 次回报、1 次缺失.*不推算缺失总 token/);
- assert.match(f.root.querySelector('[data-studio-state-summary]').textContent,/结果未知 1.*图片 1 · 视频 0 · 任务 1/);assert.match(f.root.querySelector('[data-studio-usage]').textContent,/独立 TTS、Fal 后期.*未纳入/);
+ assert.match(f.root.querySelector('[data-studio-state-summary]').textContent,/结果未知 1.*图片 1 · 视频 0 · 音频 0 · 任务 1（不是成功成片数）/);assert.match(f.root.querySelector('[data-studio-usage]').textContent,/不与上方中转用量相加/);
+ assert.equal(f.root.querySelector('[data-studio-sources]').textContent,'渠道记录：原生生成 2 · 独立配音 0 · 视频后期 0（尚未接入） · LibTV API 0（尚未接入） · LibTV CLI 0（尚未接入）');
+ assert.equal(f.root.querySelector('[data-studio-budget]').textContent,'CNY：预占 2.40，待核销 1.20，已核销 0.80。金额来自预算账本；预占不是已扣费用，核销不是已验证的供应商账单。');
 })
 
 test('admin requires a selected account and late Alice replies cannot appear after selecting Bob',async t=>{
@@ -142,9 +145,12 @@ test('studio pagination retains its own accepted UTC query and date edits clear 
 })
 
 test('unconfigured, missing, old and unreadable studio databases never become a zero-history assertion',async t=>{
- let mode='no-database';const f=fixture(t,false,path=>{if(!path.includes('studio-usage'))return path.includes('session-archives')?Response.json(archives):Response.json(usage);if(mode==='unconfigured')return Response.json({error:{code:'studio_usage_not_configured'}},{status:503});if(mode==='error')return new Response(null,{status:503});return studioResponse(path,{...studio,status:mode,items:[],nextCursor:null})});
- await f.until(()=>f.root.querySelector('[data-studio-notice]').textContent.includes('尚无制作平台数据库'));assert.equal(f.root.querySelector('[data-studio-summary]').children.length,0);
- for(const[value,text]of [['not-instrumented','尚未接入'],['unconfigured','尚未配置'],['error','读取失败']]){mode=value;f.root.querySelector('[data-studio-refresh]').click();await f.until(()=>f.root.querySelector('[data-studio-notice]').textContent.includes(text));assert.equal(f.root.querySelector('[data-studio-summary]').children.length,0);assert.equal(f.root.querySelector('[data-studio-items]').children.length,0)}
+ const zero=value=>Object.fromEntries(Object.keys(value).map(key=>[key,0])),coverage={reportedReports:0,unreportedReports:0,overflow:false};
+ const empty={...studio.summary,operations:0,states:zero(studio.summary.states),sources:zero(studio.summary.sources),reportedUsageOperations:0,unreportedUsageOperations:0,supplierReports:0,inputTokens:null,tokenCoverage:{input:coverage,output:coverage,total:coverage},resources:zero(studio.summary.resources),budgetTotals:[]};
+ let mode='no-database';const f=fixture(t,false,path=>{if(!path.includes('studio-usage'))return path.includes('session-archives')?Response.json(archives):Response.json(usage);if(mode==='unconfigured')return Response.json({error:{code:'studio_usage_not_configured'}},{status:503});if(mode==='error')return new Response(null,{status:503});return studioResponse(path,{...studio,status:mode,coveredSources:[],summary:empty,items:[],nextCursor:null})});
+ const blank=()=>['[data-studio-coverage]','[data-studio-state-summary]','[data-studio-sources]','[data-studio-budget]'].every(selector=>f.root.querySelector(selector).textContent==='');
+ await f.until(()=>f.root.querySelector('[data-studio-notice]').textContent.includes('尚无制作平台数据库'));assert.equal(f.root.querySelector('[data-studio-summary]').children.length,0);assert.ok(blank());
+ for(const[value,text]of [['not-instrumented','尚未接入'],['unconfigured','尚未配置'],['error','读取失败']]){mode=value;f.root.querySelector('[data-studio-refresh]').click();await f.until(()=>f.root.querySelector('[data-studio-notice]').textContent.includes(text));assert.equal(f.root.querySelector('[data-studio-summary]').children.length,0);assert.equal(f.root.querySelector('[data-studio-items]').children.length,0);assert.ok(blank())}
 })
 
 test('studio replies expose only metadata and refuse unsafe token totals',async t=>{
