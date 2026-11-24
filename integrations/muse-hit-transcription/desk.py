@@ -18,17 +18,20 @@ import grp
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socketserver
 import stat
 import sys
 import threading
 import time
+from uuid import uuid4
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from agent_runner import MuseCloud, Production, check_episode  # noqa: E402
-from common import WorkError, digest, read, save, series_id  # noqa: E402
+from common import WorkError, digest, download_retry_generation, read, save, series_id  # noqa: E402
+from native import download_error  # noqa: E402
 from station import ACTIVE, Lease, Station, StationError  # noqa: E402
 
 OPERATIONS = ("reserve", "claim", "status", "publish", "release")
@@ -92,7 +95,8 @@ def compactions(lines):
         if event.get("type") == "compaction/end":
             found.append(event.get("time"))
     return found
-HOLDING = ("preparing", "ready")
+HOLDING = ("preparing", "ready", "stopping")
+PREPARATION_JOIN_SECONDS = 30
 MAX_REQUEST = 16 * 1024
 #: Episodes listed one by one in a status reply; the rest are counted.
 STATUS_ROWS = 20
@@ -104,14 +108,28 @@ def work_key(value):
     return series_id(value.strip().removeprefix("hongguo:"))
 
 
+class Preparation:
+    """The lease and cancellation owned by one preparation thread."""
+
+    def __init__(self, lease):
+        self.lease = lease
+        self.stop = threading.Event()
+
+    def check(self):
+        if self.stop.is_set():
+            raise WorkError("PREPARATION_STOPPED", "原片准备已停止")
+        self.lease.check()
+
+
 class Desk:
     def __init__(self, cfg, station, muse, run=None):
         self.cfg, self.station, self.muse = cfg, station, muse
         self.production = Production(cfg, station, muse, **({"run": run} if run else {}))
         self.root = Path(cfg["stateRoot"])
         self.worker = cfg.get("deskWorkerId", cfg["workerId"])
-        self.leases, self.threads = {}, {}
+        self.leases, self.threads, self.preparations = {}, {}, {}
         self.lock = threading.RLock()
+        self.closing = False
 
     # --- state ---
 
@@ -174,6 +192,8 @@ class Desk:
         if not isinstance(name, str) or not name.strip():
             raise WorkError("INVALID_BOT", "写明交给哪个转写 Bot，例如 转写1")
         with self.lock:
+            if self.closing:
+                raise WorkError("DESK_UNAVAILABLE", "转写工作台正在停止")
             desk = self.load(key)
             if desk and desk.get("state") in HOLDING:
                 if desk.get("bot") != name:
@@ -196,9 +216,12 @@ class Desk:
                     job.get("workerId") != self.worker or not isinstance(claim.get("lease"), str) or len(claim["lease"]) < 16):
                 raise WorkError("NOT_CLAIMED", f"数据站没有把这部剧交给工作台（状态 {(job or {}).get('state')}）")
             work = claim.get("work") or {}
+            retry_generation = download_retry_generation(job, (desk or {}).get("retryGeneration"))
             desk = {"seriesId": key, "title": work.get("title") or key, "episodes": work.get("episodes"), "bot": name,
                     "botId": bot["id"], "state": "preparing", "claimedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "work": work, "review": claim.get("review") or {}, "model": bot.get("model"), "usageAtClaim": self.bot_usage(bot["id"])}
+            if retry_generation is not None:
+                desk["retryGeneration"] = retry_generation
             self.save(key, desk)
             self.hold(key, claim["lease"])
             self.log(event="claimed", series=key, title=desk["title"], bot=name)
@@ -211,50 +234,61 @@ class Desk:
         self.leases[key] = lease
 
     def start_preparing(self, key):
-        thread = threading.Thread(target=self.prepare, args=(key,), name=f"prepare-{key}", daemon=True)
+        preparation = Preparation(self.leases[key])
+        thread = threading.Thread(target=self.prepare, args=(key, preparation), name=f"prepare-{key}", daemon=True)
+        self.preparations[key] = preparation
         self.threads[key] = thread
         thread.start()
 
-    def prepare(self, key):
+    def prepare(self, key, preparation):
         """Selection review when the station asks for it, the complete series, its workspace, the Bot's folder."""
         desk = self.load(key)
-        lease = self.leases.get(key)
-        if lease is None:
-            return
+        lease = preparation.lease
+        check = preparation.check
         try:
+            check()
             state = self.production.load_state(key, {"work": desk["work"]})
             state.pop("outcome", None)
             state.pop("reason", None)
+            if desk.get("retryGeneration") is not None:
+                state["retryGeneration"] = desk["retryGeneration"]
             review = desk.get("review") or {}
             if review.get("required") and not state.get("reviewed"):
                 lease.update(state="downloading", message="复核剧目是否符合选材方向")
-                result = self.production.child(key, "review", desk["work"], review, self.cfg.get("reviewTimeoutSeconds", 1800))
+                result = self.production.child(key, "review", desk["work"], review,
+                                               self.cfg.get("reviewTimeoutSeconds", 1800), check=check)
                 if result["decision"] == "reject":
-                    self.station.reject(key, lease.value, result["reason"])
-                    return self.finish(key, "rejected", reason=result["reason"])
+                    with self.lock:
+                        check()
+                        self.station.reject(key, lease.value, result["reason"])
+                        return self.finish(key, "rejected", reason=result["reason"])
                 if result["decision"] != "accept":
                     raise WorkError("SELECTION_REVIEW", "选材资料不足：" + str(result.get("reason")))
                 state["reviewed"] = True
                 self.production.save_state(key, state)
+            check()
             lease.update(state="downloading", message=f"准备原片，交给 {desk['bot']}")
-            media = self.production.media(key, desk["work"], review, state)
-            workspace = self.production.place(key, desk["title"], media, state)
-            if (self.load(key) or {}).get("state") != "preparing":
-                return  # handed back while the series was being prepared; the Bot keeps its folder
-            self.muse.bot("update-bot", {"id": desk["botId"], "workDir": str(workspace)})
-            lease.update(state="transcribing", episode=0, totalEpisodes=len(media), message=f"{desk['bot']} 转写中")
+            media = self.production.media(key, desk["work"], review, state, check=check)
+            workspace = self.production.place(key, desk["title"], media, state, check=check)
             with self.lock:
+                check()
                 desk = self.load(key)
-                if desk.get("state") != "preparing":
+                if self.preparations.get(key) is not preparation or desk.get("state") != "preparing":
                     return
+                self.muse.bot("update-bot", {"id": desk["botId"], "workDir": str(workspace)})
+                lease.update(state="transcribing", episode=0, totalEpisodes=len(media), message=f"{desk['bot']} 转写中")
                 desk.update(state="ready", workspace=str(workspace), episodes=len(media), readyAt=time.strftime("%Y-%m-%d %H:%M:%S"))
                 desk.pop("error", None)
                 self.save(key, desk)
             self.log(event="ready", series=key, workspace=str(workspace), bot=desk["bot"])
         except Exception as error:  # noqa: BLE001 - any failure is recorded on the drama for the Bots to see
+            code = getattr(error, "code", None) or type(error).__name__
             with self.lock:
                 desk = self.load(key)
-                desk["error"] = {"code": getattr(error, "code", None) or type(error).__name__, "message": str(error)[:400],
+                if (self.preparations.get(key) is not preparation or desk.get("state") not in ("preparing", "stopping") or
+                        preparation.stop.is_set() and code != "PREPARATION_STOP_UNCONFIRMED"):
+                    return
+                desk["error"] = {"code": code, "message": str(error)[:400],
                                  "at": time.strftime("%Y-%m-%d %H:%M:%S")}
                 self.save(key, desk)
             self.log(event="prepare-failed", series=key, code=desk["error"]["code"], message=desk["error"]["message"])
@@ -266,6 +300,8 @@ class Desk:
             row["error"] = desk["error"]
         if desk.get("state") == "preparing":
             row["note"] = "正在准备原片（新剧下载可能要几小时）；state 变成 ready 后再派单。"
+        elif desk.get("state") == "stopping":
+            row["note"] = "正在确认原片准备已停止，仍保留任务；用原退回原因再次调用 drama_release 核对。"
         return row
 
     def status(self, args):
@@ -276,6 +312,10 @@ class Desk:
         reply = self.summary(desk)
         lease = self.leases.get(key)
         reply["lease"] = "held" if lease and not lease.fault else ("lost" if lease else "none")
+        if desk.get("state") in ("preparing", "stopping", "released"):
+            progress = self.download_progress(key)
+            if progress is not None:
+                reply["downloadProgress"] = progress
         if desk.get("state") != "ready":
             return reply
         workspace, total = Path(desk["workspace"]), desk["episodes"]
@@ -301,6 +341,30 @@ class Desk:
             except WorkError:
                 reply["lease"] = "lost"
         return reply
+
+    def download_progress(self, key):
+        """Read the latest worker snapshot without starting or verifying a download."""
+        root = self.production.worker_cfg.get("stateRoot")
+        if not root:
+            return None
+        try:
+            value = read(Path(root) / key / "download" / "progress.json")
+        except (OSError, ValueError, WorkError):
+            return None
+        if not isinstance(value, dict) or value.get("stage") not in ("catalog", "download", "waiting_retry", "complete", "needs_attention"):
+            return None
+        total, verified, missing = value.get("totalEpisodes"), value.get("verifiedEpisodes"), value.get("missingEpisodes")
+        if total is not None and (type(total) is not int or not 1 <= total <= 1000):
+            return None
+        if not ((verified is None and missing is None) or
+                (total is not None and type(verified) is int and 0 <= verified <= total and
+                 isinstance(missing, list) and len(missing) == total - verified and
+                 all(type(number) is int and 1 <= number <= total for number in missing) and len(set(missing)) == len(missing))):
+            return None
+        progress = {"stage": value["stage"], "totalEpisodes": total, "verifiedEpisodes": verified, "missingEpisodes": missing}
+        if isinstance(value.get("error"), dict):
+            progress["error"] = download_error(value["error"])
+        return progress
 
     def usage(self, desk, done):
         """Model tokens the Bot used since it took this drama (it holds one drama at a time), in all and per episode
@@ -356,23 +420,80 @@ class Desk:
             raise WorkError("INVALID_REASON", "写明退回原因，用户会在储备看板上看到")
         with self.lock:
             desk = self.load(key)
+            if desk and desk.get("state") == "released":
+                return self.summary(desk)
             if desk is None or desk.get("state") not in HOLDING:
                 raise WorkError("NOT_HELD", "工作台没有在做这部剧")
             lease = self.leases.get(key)
-            if lease is None:
-                raise WorkError("LEASE_UNCONFIRMED", "工作台没有这部剧的租约；稍后再试")
-            lease.check()
-            self.station.attention(key, lease.value, "BOT_RELEASED", reason.strip()[:400])
+            if desk.get("state") != "stopping":
+                if lease is None:
+                    raise WorkError("LEASE_UNCONFIRMED", "工作台没有这部剧的租约；稍后再试")
+                desk.update(state="stopping", reason=reason.strip()[:400], releaseId=uuid4().hex[:24])
+                self.save(key, desk)
+            release_id = desk.get("releaseId")
+            if not isinstance(release_id, str) or re.fullmatch(r"[0-9a-f]{24}", release_id) is None:
+                raise WorkError("RELEASE_UNCONFIRMED", "退回编号缺失或无效，需人工核查")
+            preparation = self.preparations.get(key)
+            thread = self.threads.get(key)
+            if preparation is not None:
+                preparation.stop.set()
+        if thread is not None:
+            thread.join(PREPARATION_JOIN_SECONDS)
+        with self.lock:
+            desk = self.load(key)
+            if desk.get("state") == "released":
+                return self.summary(desk)
+            if (desk.get("releaseId") != release_id or self.leases.get(key) is not lease or
+                    self.preparations.get(key) is not preparation):
+                raise WorkError("LEASE_UNCONFIRMED", "退回对应的原租约已变更")
+            if thread is not None and thread.is_alive():
+                return self.summary(desk)
+            if (desk.get("error") or {}).get("code") == "PREPARATION_STOP_UNCONFIRMED":
+                raise WorkError("PREPARATION_STOP_UNCONFIRMED", "无法确认先前执行器已停止，已保留任务")
+            receipt = self.root / key / f"release-{release_id}.json"
+            if receipt.exists():
+                saved = read(receipt)
+                if (receipt.stat().st_mode & 0o077 or not isinstance(saved, dict) or saved.get("releaseId") != release_id or
+                        not isinstance(saved.get("lease"), str) or len(saved["lease"]) < 16):
+                    raise WorkError("RELEASE_UNCONFIRMED", "退回凭据与当前任务不符")
+                value = saved["lease"]
+            elif lease is not None:
+                value = lease.value
+                save(receipt, {"releaseId": release_id, "lease": value})
+            else:
+                raise WorkError("PREPARATION_STOP_UNCONFIRMED", "重启前未记录执行器停止确认，需人工核查")
+            reason = desk["reason"]
+            self.release_station(key, value, f"BOT_RELEASED:{release_id}", reason)
             save(self.root / key / "station-outcome.json", {"workId": key, "state": "needs-attention"})
-            return self.finish(key, "released", reason=reason.strip()[:400])
+            result = self.finish(key, "released", reason=reason)
+            receipt.unlink(missing_ok=True)
+            return result
+
+    def release_station(self, key, lease_value, stage, reason):
+        """Release the original lease, reconciling a reply that could have been lost."""
+        try:
+            result = self.station.attention(key, lease_value, stage, reason)
+        except StationError:
+            job = self.station.job(key)
+            if (job.get("state") == "needs-attention" and job.get("workId") == "hongguo:" + key and
+                    job.get("workerId") == self.worker and (job.get("lastError") or {}).get("stage") == stage and
+                    (job.get("lastError") or {}).get("reason") == reason):
+                return
+            raise
+        if result.get("state") != "needs-attention":
+            raise WorkError("RELEASE_UNCONFIRMED", "数据站未确认退回，已保留任务")
 
     def finish(self, key, outcome, reason=None):
+        self.preparations.pop(key, None)
+        self.threads.pop(key, None)
         lease = self.leases.pop(key, None)
         if lease is not None:
             lease.__exit__(None, None, None)
         with self.lock:
             desk = self.load(key)
             desk.update(state=outcome, finishedAt=time.strftime("%Y-%m-%d %H:%M:%S"))
+            if outcome == "released":
+                desk.pop("error", None)
             if reason:
                 desk["reason"] = reason
             self.save(key, desk)
@@ -382,13 +503,29 @@ class Desk:
     def resume(self):
         """After a restart, claim every held drama again (the station returns the same lease) and go on preparing."""
         for desk in self.dramas():
-            if desk.get("state") not in HOLDING:
-                continue
             key = desk["seriesId"]
+            if desk.get("state") == "stopping":
+                try:
+                    self.release({"work_id": key, "reason": desk["reason"]})
+                except (WorkError, StationError, OSError, ValueError) as error:
+                    desk["error"] = {"code": getattr(error, "code", None) or type(error).__name__,
+                                     "message": str(error)[:400]}
+                    self.save(key, desk)
+                    self.log(event="release-pending", series=key, code=desk["error"]["code"])
+                continue
+            if (desk.get("state") not in ("preparing", "ready") or
+                    (desk.get("error") or {}).get("code") == "PREPARATION_STOP_UNCONFIRMED"):
+                continue
             try:
                 claim = self.station.claim(self.worker, key)
-                if (claim.get("job") or {}).get("workerId") != self.worker or not isinstance(claim.get("lease"), str):
+                job = claim.get("job") or {}
+                if (job.get("workId") != "hongguo:" + key or job.get("workerId") != self.worker or
+                        job.get("state") not in ACTIVE or not isinstance(claim.get("lease"), str)):
                     raise WorkError("NOT_CLAIMED", "数据站没有确认工作台仍持有这部剧")
+                generation = download_retry_generation(job, desk.get("retryGeneration"))
+                if generation is not None and generation != desk.get("retryGeneration"):
+                    desk["retryGeneration"] = generation
+                    self.save(key, desk)
                 self.hold(key, claim["lease"])
                 if desk.get("state") == "preparing":
                     self.start_preparing(key)
@@ -501,8 +638,19 @@ class Desk:
         return getattr(self, operation)(args)
 
     def close(self):
-        for key in list(self.leases):
-            self.leases.pop(key).__exit__(None, None, None)
+        with self.lock:
+            self.closing = True
+            for preparation in self.preparations.values():
+                preparation.stop.set()
+            threads = list(self.threads.values())
+        deadline = time.monotonic() + PREPARATION_JOIN_SECONDS
+        for thread in threads:
+            thread.join(max(0, deadline - time.monotonic()))
+        with self.lock:
+            leases = list(self.leases.values())
+            self.leases.clear()
+        for lease in leases:
+            lease.__exit__(None, None, None)
 
 
 def quality_by_phase(desk):

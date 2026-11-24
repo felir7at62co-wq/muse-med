@@ -83,6 +83,16 @@ def grant_attempts(path, per_round):
         save(path, {**record, "attemptLimit": record["attempt"] + per_round})
 
 
+def download_retry_generation(job, previous=None):
+    """Identify the first claim after a member requeues a failed station job."""
+    queued = job.get("queuedAt")
+    requester = job.get("requestedBy")
+    if (type(job.get("attempts")) is int and job["attempts"] == 1 and isinstance(job.get("lastError"), dict) and
+            isinstance(requester, str) and requester and isinstance(queued, str) and queued):
+        return queued
+    return previous if isinstance(previous, str) and previous else None
+
+
 def freeze(path, text):
     """Keep the original contents when a worker revisits a stage."""
     if path.exists() and (path.resolve() != path or path.read_text(encoding="utf-8") != text):
@@ -113,23 +123,32 @@ def text_hash(text):
 
 def stop_group(process):
     """Interrupt the native application and wait for its process group to exit."""
-    if process.poll() is not None:
-        return
     try:
         os.killpg(process.pid, signal.SIGINT)
     except ProcessLookupError:
         # No member of the group remains to signal.
         process.wait()
         return
+    forced = False
     try:
         process.wait(timeout=20)
     except subprocess.TimeoutExpired:
+        forced = True
+    try:
+        os.killpg(process.pid, 0)
+    except ProcessLookupError:
+        # The leader and any members sharing its process group have exited.
+        pass
+    else:
+        forced = True
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             # The native application exited during the signal attempt.
             pass
-        process.wait()
+    process.wait()
+    if forced or process.returncode < 0:
+        raise WorkError("PREPARATION_STOP_UNCONFIRMED", "执行器需要强制停止，无法确认子进程已清理")
 
 
 def command(argv, cwd, env, output, errors, deadline_seconds, check_running):

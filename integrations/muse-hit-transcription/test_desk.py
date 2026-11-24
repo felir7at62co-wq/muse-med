@@ -5,10 +5,12 @@ from tempfile import TemporaryDirectory
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import desk_mcp
 from common import WorkError, digest, save
 from desk import Desk, Handler, Server
+from station import StationError
 from test_agent_runner import KEY, SECOND, WORKER, ManyStation, write_episode
 
 
@@ -150,27 +152,117 @@ class DeskTest(DeskCase):
         workspace = Path(self.ready(KEY)["workspace"])
         write_episode(workspace, 1)
         self.assertEqual(self.desk.release({"work_id": KEY, "reason": "第 2 集原片损坏"})["state"], "released")
-        self.assertEqual(self.station.calls[-1], ("attention", "BOT_RELEASED", "第 2 集原片损坏"))
+        operation, stage, reason = self.station.calls[-1]
+        self.assertEqual((operation, reason), ("attention", "第 2 集原片损坏"))
+        self.assertRegex(stage, r"^BOT_RELEASED:[0-9a-f]{24}$")
         self.assertTrue((workspace / "episodes" / "第1集.md").is_file())
         self.assertEqual(json.loads((self.root / "state" / KEY / "station-outcome.json").read_text())["state"], "needs-attention")
         self.assertEqual(self.desk.claim({"work_id": SECOND, "bot": "转写1"})["state"], "preparing")
 
-    def test_a_drama_handed_back_while_it_is_prepared_never_becomes_ready(self):
+    def test_release_waits_until_the_owned_preparation_has_stopped(self):
         started, finish = threading.Event(), threading.Event()
         original = self.desk.production.media
 
-        def slow_media(*args):
+        def slow_media(*args, check):
             started.set()
             finish.wait(5)
-            return original(*args)
+            check()
+            self.fail("preparation continued after cancellation")
         self.desk.production.media = slow_media
         self.desk.claim({"work_id": KEY, "bot": "转写1"})
         self.assertTrue(started.wait(5))
-        self.assertEqual(self.desk.release({"work_id": KEY, "reason": "下载工具在修"})["state"], "released")
+        with patch("desk.PREPARATION_JOIN_SECONDS", 0):
+            self.assertEqual(self.desk.release({"work_id": KEY, "reason": "下载工具在修"})["state"], "stopping")
+        self.assertNotIn("attention", [call[0] for call in self.station.calls])
+        with self.assertRaises(WorkError) as held:
+            self.desk.claim({"work_id": KEY, "bot": "转写2"})
+        self.assertEqual(held.exception.code, "ALREADY_ASSIGNED")
         finish.set()
-        self.desk.threads[KEY].join(5)
+        self.assertEqual(self.desk.release({"work_id": KEY, "reason": "下载工具在修"})["state"], "released")
         self.assertEqual(self.desk.status({"work_id": KEY})["state"], "released")
         self.assertEqual(self.bots.updates, [])
+        self.desk.production.media = original
+        self.desk.claim({"work_id": KEY, "bot": "转写2"})
+        self.assertEqual(self.ready(KEY)["state"], "ready")
+        self.assertEqual([row["id"] for row in self.bots.updates], ["bot-2"])
+
+    def test_unconfirmed_worker_cleanup_keeps_the_lease(self):
+        running, finish = threading.Event(), threading.Event()
+
+        def unconfirmed(*args, check):
+            running.set()
+            finish.wait(5)
+            raise WorkError("PREPARATION_STOP_UNCONFIRMED", "执行器状态不明")
+
+        self.desk.production.media = unconfirmed
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        self.assertTrue(running.wait(5))
+        finish.set()
+        with self.assertRaises(WorkError) as blocked:
+            self.desk.release({"work_id": KEY, "reason": "暂停"})
+        self.assertEqual(blocked.exception.code, "PREPARATION_STOP_UNCONFIRMED")
+        self.assertEqual(self.desk.status({"work_id": KEY})["state"], "stopping")
+        self.assertNotIn("attention", [call[0] for call in self.station.calls])
+
+    def test_restart_reconciles_only_the_release_with_the_saved_identity(self):
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        self.ready(KEY)
+        used = []
+
+        def attention(key, lease, stage, reason):
+            used.append((key, lease, stage))
+            raise StationError(None)
+
+        reason = "原片错误"
+        row = {"workId": "hongguo:" + KEY, "workerId": WORKER, "state": "needs-attention",
+               "lastError": {"stage": "BOT_RELEASED:000000000000000000000000", "reason": reason}}
+        self.station.attention = attention
+        self.station.job = lambda _: row
+        stale_receipt = self.root / "state" / KEY / ("release-" + "0" * 24 + ".json")
+        save(stale_receipt, {"releaseId": "0" * 24, "lease": "old-lease-0123456789"})
+        with self.assertRaises(StationError):
+            self.desk.release({"work_id": KEY, "reason": reason})
+        self.assertEqual(self.desk.status({"work_id": KEY})["state"], "stopping")
+        receipt = self.root / "state" / KEY / f"release-{self.desk.load(KEY)['releaseId']}.json"
+        self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+        row["lastError"]["stage"] = used[0][2]
+        self.desk.close()
+        again = Desk(self.cfg, self.station, self.bots)
+        self.addCleanup(again.close)
+        with patch.object(self.station, "claim", wraps=self.station.claim) as claim:
+            again.resume()
+            claim.assert_not_called()
+        self.assertEqual(again.status({"work_id": KEY})["state"], "released")
+        self.assertFalse(receipt.exists())
+        self.assertEqual(used[0], used[1])
+
+    def test_a_restart_without_a_cleanup_receipt_leaves_handoff_blocked(self):
+        self.desk.claim({"work_id": KEY, "bot": "转写1"})
+        self.ready(KEY)
+        self.desk.close()
+        record = self.desk.load(KEY)
+        record.update(state="stopping", reason="准备进程未确认", releaseId="a" * 24)
+        self.desk.save(KEY, record)
+        again = Desk(self.cfg, self.station, self.bots)
+        self.addCleanup(again.close)
+        again.resume()
+        status = again.status({"work_id": KEY})
+        self.assertEqual(status["state"], "stopping")
+        self.assertEqual(status["error"]["code"], "PREPARATION_STOP_UNCONFIRMED")
+        self.assertNotIn("attention", [call[0] for call in self.station.calls])
+
+    def test_status_reports_only_the_sanitized_worker_download_snapshot(self):
+        worker = self.root / "worker"
+        self.desk.production.worker_cfg["stateRoot"] = str(worker)
+        path = worker / KEY / "download" / "progress.json"
+        path.parent.mkdir(parents=True)
+        save(path, {"stage": "waiting_retry", "totalEpisodes": 3, "verifiedEpisodes": 2, "missingEpisodes": [3],
+                    "error": {"code": "network", "upstreamCode": "TIMEOUT", "message": "private upstream data"}})
+        for state in ("preparing", "released"):
+            self.desk.save(KEY, {"seriesId": KEY, "state": state})
+            progress = self.desk.status({"work_id": KEY})["downloadProgress"]
+            self.assertEqual(progress, {"stage": "waiting_retry", "totalEpisodes": 3, "verifiedEpisodes": 2,
+                                        "missingEpisodes": [3], "error": {"code": "network", "upstreamCode": "TIMEOUT"}})
 
     def test_a_restarted_desk_claims_its_dramas_again_and_keeps_their_leases(self):
         self.desk.claim({"work_id": KEY, "bot": "转写1"})

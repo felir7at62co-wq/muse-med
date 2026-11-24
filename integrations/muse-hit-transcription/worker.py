@@ -2,18 +2,20 @@
 
 import argparse
 import fcntl
+import fcntl
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import signal
+from select import select
 import sys
 from threading import Event
 import traceback
 from uuid import uuid4
 
-from common import (WorkError, attempts_left, canonical_json, command, digest, freeze, grant_attempts, read, save, series_id,
+from common import (WorkError, attempts_left, canonical_json, command, digest, download_retry_generation, freeze, grant_attempts, read, save, series_id,
                     sync_directory, under)
 from native import accepted, acquire_media, child_action, episode_workspace, sdk, scope_patch, title_key
 from station import ACTIVE, TERMINAL, Lease, Station, StationError, station_url
@@ -227,7 +229,11 @@ class Worker:
                 raise WorkError("SOURCE_CHANGED", "先前任务与本次领取的剧目不一致")
             work, review = original["work"], original["review"]
         else:
-            save(proof, {"seriesId": key, "work": work, "review": review})
+            original = {"seriesId": key, "work": work, "review": review}
+        retry_generation = download_retry_generation(claim.get("job") or {}, original.get("retryGeneration"))
+        if retry_generation is not None:
+            original["retryGeneration"] = retry_generation
+        save(proof, original)
         if review["required"]:
             lease.update(state="downloading", message="复核剧目是否符合选材方向")
             self.start_child(directory, "review", self.cfg["reviewTimeoutSeconds"], lease)
@@ -238,7 +244,8 @@ class Worker:
                 raise WorkError("SELECTION_REVIEW", "选材资料不足：" + result["reason"])
 
         lease.update(state="downloading", message="核对红果目录和全集文件")
-        source = acquire_media(self.cfg, directory, key, work, lambda: self.guard(lease))
+        retry = {} if retry_generation is None else {"retry_generation": retry_generation}
+        source = acquire_media(self.cfg, directory, key, work, lambda: self.guard(lease), **retry)
         for row in source["media"]:
             n = row["index"]
             if accepted(directory, row):
@@ -288,6 +295,8 @@ class Worker:
             except StationError:
                 raise
             except WorkError as error:
+                if error.code == "PREPARATION_STOP_UNCONFIRMED":
+                    raise
                 lease.check()
                 result = self.station.attention(key, lease.value, error.code, str(error))["state"]
             if result not in TERMINAL:
@@ -296,11 +305,30 @@ class Worker:
         return True
 
 
-def child(cfg, root, key, action):
+def check_parent():
+    """The supervising parent keeps stdin open and never sends data."""
+    readable, _, _ = select([sys.stdin], [], [], 0)
+    if readable:
+        raise WorkError("PREPARATION_STOPPED", "原片准备已停止")
+
+
+def child(cfg, root, key, action, owner_pipe=False):
     """Record completion or a visible native check failure without exposing raw input."""
     directory = root / series_id(key)
     try:
-        child_action(cfg, directory, action)
+        if owner_pipe:
+            check_parent()
+            fd = os.open(directory / ".preparation.lock", os.O_CREAT | os.O_NOFOLLOW | os.O_RDWR, 0o600)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as error:
+                    raise WorkError("PREPARATION_STOP_UNCONFIRMED", "上一次执行器还在退出，已保留任务") from error
+                child_action(cfg, directory, action, check_parent)
+            finally:
+                os.close(fd)
+        else:
+            child_action(cfg, directory, action)
     except WorkError as error:
         emit({"ok": False, "code": error.code, "message": str(error)})
         return 1
@@ -325,11 +353,12 @@ def main():
     mode.add_argument("--once", action="store_true")
     mode.add_argument("--run", action="store_true")
     mode.add_argument("--child", nargs=2, help=argparse.SUPPRESS)
+    parser.add_argument("--owner-pipe", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     cfg = load_config(args.config.resolve())
     root = Path(cfg["stateRoot"])
     if args.child:
-        return child(cfg, root, *args.child)
+        return child(cfg, root, *args.child, owner_pipe=args.owner_pipe)
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     station = Station(cfg["stationBase"], cfg["stationTokenFile"], cfg["requestTimeoutSeconds"])
     if args.inspect:

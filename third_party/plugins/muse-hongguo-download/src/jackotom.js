@@ -10,7 +10,15 @@ const sourceNames = { web: '网页', app: 'App', api: '旧接口' };
 function sourceFailures(info) {
   const list = Array.isArray(info?.sources) ? info.sources : [];
   return list.filter(item => Object.hasOwn(sourceNames, item?.source) && /^[A-Z][A-Z0-9_]{0,39}$/.test(String(item?.code ?? '')))
-    .slice(0, 6).map(item => ({ source: item.source, code: String(item.code) }));
+    .slice(0, 6).map(item => {
+      const row = { source: item.source, code: String(item.code) };
+      const registrationFailure = item.registrationFailure;
+      if (item.source === 'app' && typeof registrationFailure === 'string'
+          && /^(?:TIMEOUT|NETWORK_ERROR|EMPTY_RESPONSE|INVALID_RESPONSE|BUSINESS_REJECTED|SECURITY_BLOCKED|HTTP_[3-5]\d{2})$/.test(registrationFailure)) {
+        return { ...row, registrationFailure };
+      }
+      return row;
+    });
 }
 
 /**

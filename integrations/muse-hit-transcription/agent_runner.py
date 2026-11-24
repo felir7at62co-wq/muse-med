@@ -27,16 +27,55 @@ import traceback
 import unicodedata
 import uuid
 from threading import Event
+from tempfile import TemporaryFile
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from common import WorkError, digest, read, save, series_id  # noqa: E402
+from common import WorkError, digest, download_retry_generation, read, save, series_id  # noqa: E402
 from station import ACTIVE, Lease, Station, StationError  # noqa: E402
 from worker import choose_candidate, exclusions, resumable  # noqa: E402
 
 
 class Interrupted(Exception):
     """The runner was asked to stop; the claimed series stays active for the next start."""
+
+
+def run_preparation(argv, *, cwd, timeout, check):
+    """Close the worker's owner pipe on cancellation and wait for its cleanup receipt."""
+    check()
+    with TemporaryFile(mode="w+", encoding="utf-8") as stdout, TemporaryFile(mode="w+", encoding="utf-8") as stderr:
+        with subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr) as child:
+            deadline = time.monotonic() + timeout
+            stopped = None
+            while child.poll() is None:
+                if stopped is None:
+                    try:
+                        check()
+                        if time.monotonic() >= deadline:
+                            raise WorkError("PROCESS_TIMEOUT", "原片准备超时，正在等待执行器停止")
+                    except (WorkError, Interrupted) as error:
+                        stopped = error
+                        child.stdin.close()
+                try:
+                    child.wait(timeout=0.25)
+                except subprocess.TimeoutExpired:
+                    continue
+            stdout.seek(0)
+            stderr.seek(0)
+            result = subprocess.CompletedProcess(argv, child.returncode, stdout.read(), stderr.read())
+    lines = [line for line in result.stdout.splitlines() if line.strip().startswith("{")]
+    try:
+        receipt = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        receipt = None
+    if (not isinstance(receipt, dict) or type(receipt.get("ok")) is not bool or
+            result.returncode != (0 if receipt["ok"] else 1) or
+            receipt.get("code") == "PREPARATION_STOP_UNCONFIRMED"):
+        raise WorkError("PREPARATION_STOP_UNCONFIRMED", "执行器退出未确认清理，已保留任务")
+    if stopped is not None:
+        raise stopped
+    check()
+    return result
 
 
 # ---------- cloud Muse ----------
@@ -442,7 +481,7 @@ def own_requeued(snapshot, root, cfg):
 class Production:
     """Claim, prepare, hand to agents batch by batch, check, publish; one series per slot, `dramasAtOnce` slots."""
 
-    def __init__(self, cfg, station, muse, run=subprocess.run):
+    def __init__(self, cfg, station, muse, run=run_preparation):
         self.cfg, self.station, self.muse, self.run = cfg, station, muse, run
         self.root = Path(cfg["stateRoot"])
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -596,6 +635,9 @@ class Production:
                 return True
             save(self.active, {"workId": key})
         state = self.load_state(key, claim)
+        retry_generation = download_retry_generation(job, state.get("retryGeneration"))
+        if retry_generation is not None:
+            state["retryGeneration"] = retry_generation
         self.save_state(key, state)
         self.write_status("claimed", state=state)
         self.log(event="claimed", series=key, title=state["title"])
@@ -605,7 +647,7 @@ class Production:
             except (Interrupted, StationError):
                 raise
             except WorkError as error:
-                if error.code in ("LEASE_UNCONFIRMED", "MUSE_UNAVAILABLE"):
+                if error.code in ("LEASE_UNCONFIRMED", "MUSE_UNAVAILABLE", "PREPARATION_STOP_UNCONFIRMED"):
                     raise
                 lease.check()
                 outcome = self.station.attention(key, lease.value, error.code, str(error))["state"]
@@ -624,7 +666,8 @@ class Production:
         title = state["title"]
         if review.get("required") and not state.get("reviewed"):
             lease.update(state="downloading", message="复核剧目是否符合选材方向")
-            result = self.child(key, "review", work, review, self.cfg.get("reviewTimeoutSeconds", 1800))
+            result = self.child(key, "review", work, review, self.cfg.get("reviewTimeoutSeconds", 1800),
+                                check=lambda: self.check_preparation(lease))
             if result["decision"] == "reject":
                 return self.station.reject(key, lease.value, result["reason"])["state"]
             if result["decision"] != "accept":
@@ -633,8 +676,9 @@ class Production:
             self.save_state(key, state)
         lease.update(state="downloading", message="核对红果目录和全集文件")
         self.write_status("preparing")
-        media = self.media(key, work, review, state)
-        workspace = self.place(key, title, media, state)
+        check = lambda: self.check_preparation(lease)
+        media = self.media(key, work, review, state, check=check)
+        workspace = self.place(key, title, media, state, check=check)
         total, size = len(media), self.cfg["batchSize"]
         for first in range(1, total + 1, size):
             last = min(first + size - 1, total)
@@ -677,14 +721,22 @@ class Production:
             return [{key_: row[key_] for key_ in ("index", "path", "bytes", "sha256", "durationSeconds")} for row in media]
         return None
 
-    def media(self, key, work, review, state):
+    def check_preparation(self, lease):
+        if self.stop.is_set():
+            raise Interrupted()
+        lease.check()
+
+    def media(self, key, work, review, state, *, check=lambda: None):
+        check()
         if state.get("media"):
             return state["media"]
         media = self.cached_media(key, work.get("episodes"))
         if media is None:
-            self.child(key, "download", work, review, self.cfg.get("downloadTimeoutSeconds", 6 * 3600))
+            self.child(key, "download", work, review, self.cfg.get("downloadTimeoutSeconds", 6 * 3600), check=check,
+                       retry_generation=state.get("retryGeneration"))
             source = read(Path(self.worker_cfg["stateRoot"]) / key / "source.json")
             media = self.cached_media_from(source)
+        check()
         state["media"] = media
         self.save_state(key, state)
         return media
@@ -698,14 +750,16 @@ class Production:
                          "durationSeconds": row["durationSeconds"]})
         return rows
 
-    def place(self, key, title, media, state):
+    def place(self, key, title, media, state, *, check=lambda: None):
         """The series workspace in cloud Muse with its original videos as 原片/NNNN.mp4."""
+        check()
         safe = re.sub(r"[\\/:*?\"<>|\s]+", "", title)[:40] or key
         workspace = Path(self.cfg["workspaceRoot"]) / f"{safe}-{key}"
         originals = workspace / "原片"
         originals.mkdir(parents=True, exist_ok=True)
         owner = self.cfg.get("workspaceOwner")
         for row in media:
+            check()
             target = originals / f"{row['index']:04d}.mp4"
             if not target.is_file() or target.stat().st_size != row["bytes"]:
                 shutil.copyfile(row["path"], target)
@@ -715,6 +769,7 @@ class Production:
         if owner:
             for path in (Path(self.cfg["workspaceRoot"]), workspace, originals):
                 shutil.chown(path, owner, owner)
+        check()
         state["workspace"] = str(workspace)
         self.save_state(key, state)
         return workspace
@@ -725,11 +780,15 @@ class Production:
         if self.worker_cfg.get("stateRoot"):
             shutil.rmtree(Path(self.worker_cfg["stateRoot"]) / key / "download" / "downloads", ignore_errors=True)
 
-    def child(self, key, action, work, review, timeout):
+    def child(self, key, action, work, review, timeout, *, check=lambda: None, retry_generation=None):
         """Run one worker child action under the worker account and return its result."""
+        check()
         directory = Path(self.worker_cfg["stateRoot"]) / key
         directory.mkdir(parents=True, exist_ok=True)
-        save(directory / "series.json", {"seriesId": key, "work": work, "review": review})
+        context = {"seriesId": key, "work": work, "review": review}
+        if retry_generation is not None:
+            context["retryGeneration"] = retry_generation
+        save(directory / "series.json", context)
         user = self.cfg["workerUser"]
         for path in (directory.parent, directory, directory / "series.json"):
             shutil.chown(path, user, user)
@@ -737,8 +796,8 @@ class Production:
         env = [f"HOME={self.cfg['workerHome']}"] + ([f"PYTHONPATH={self.cfg['workerPythonPath']}"] if self.cfg.get("workerPythonPath") else [])
         result = self.run(["runuser", "-u", user, "--", "env", *env, self.cfg["workerPython"], "-B",
                            str(Path(self.cfg["workerApp"]) / "worker.py"),
-                           self.cfg["workerConfig"], "--child", key, action],
-                          cwd=self.cfg["workerApp"], capture_output=True, text=True, timeout=timeout)
+                           self.cfg["workerConfig"], "--child", key, action, "--owner-pipe"],
+                          cwd=self.cfg["workerApp"], timeout=timeout, check=check)
         lines = [line for line in (result.stdout or "").splitlines() if line.strip().startswith("{")]
         outcome = json.loads(lines[-1]) if lines else {"ok": False, "code": "CHILD_FAILED", "message": (result.stderr or "")[-300:]}
         if not outcome.get("ok"):

@@ -3,15 +3,16 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
+import sys
 from tempfile import TemporaryDirectory
 import threading
 import time
 import unittest
 
 import agent_runner
-from agent_runner import (RESUME, Control, Production, batch_prompt, check_episode, follow_up_prompt, run, tool_results,
+from agent_runner import (RESUME, Control, Production, batch_prompt, check_episode, follow_up_prompt, run, run_preparation, tool_results,
                           turn_outcome, unix_timestamp)
-from common import WorkError, digest, save
+from common import WorkError, digest, download_retry_generation, save
 
 KEY = "7550544718799588376"
 WORKER = "muse-agent-test"
@@ -490,6 +491,57 @@ class SlotsTest(unittest.TestCase):
 
 
 class ChildTest(unittest.TestCase):
+    def test_preparation_waits_for_child_to_reap_the_downloader_after_owner_pipe_closes(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            started, stopped = root / "started", root / "stopped"
+            downloader = """
+import pathlib, signal, sys, time
+def stop(*_):
+    pathlib.Path("stopped").touch()
+    sys.exit(0)
+signal.signal(signal.SIGINT, stop)
+pathlib.Path("started").touch()
+time.sleep(8)
+"""
+            worker = """
+import json, os, pathlib, sys
+sys.path.insert(0, sys.argv[1])
+from common import WorkError, command
+from worker import check_parent
+try:
+    command([sys.executable, "-c", sys.argv[2]], pathlib.Path.cwd(), os.environ,
+            pathlib.Path("stdout"), pathlib.Path("stderr"), 10, check_parent)
+except WorkError as error:
+    print(json.dumps({"ok": False, "code": error.code}))
+    sys.exit(1)
+print(json.dumps({"ok": True}))
+"""
+
+            def check():
+                if started.exists():
+                    raise WorkError("TEST_CANCEL", "test cancellation")
+
+            with self.assertRaises(WorkError) as cancelled:
+                run_preparation([sys.executable, "-B", "-c", worker, str(Path(__file__).resolve().parent), downloader],
+                                cwd=root, timeout=10, check=check)
+            self.assertEqual(cancelled.exception.code, "TEST_CANCEL")
+            self.assertTrue(stopped.exists())
+
+    def test_preparation_rejects_a_worker_exit_without_a_cleanup_receipt(self):
+        with self.assertRaises(WorkError) as uncertain:
+            run_preparation([sys.executable, "-c", "raise SystemExit(2)"], cwd=Path.cwd(), timeout=5,
+                            check=lambda: None)
+        self.assertEqual(uncertain.exception.code, "PREPARATION_STOP_UNCONFIRMED")
+
+    def test_only_an_explicit_station_requeue_grants_a_new_download_generation(self):
+        entry = {"attempts": 1, "queuedAt": "2026-11-24T12:00:00.000Z", "requestedBy": "member"}
+        self.assertIsNone(download_retry_generation(entry))
+        entry["lastError"] = {"stage": "DOWNLOAD", "reason": "previous attempt failed"}
+        self.assertEqual(download_retry_generation(entry), entry["queuedAt"])
+        self.assertEqual(download_retry_generation({**entry, "attempts": 2}, "previous"), "previous")
+        self.assertIsNone(download_retry_generation({**entry, "attempts": True}))
+
     def test_the_worker_child_gets_the_sdk_path_for_its_selection_review(self):
         import getpass
         import grp

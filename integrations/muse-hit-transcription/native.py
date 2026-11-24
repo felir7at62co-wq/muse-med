@@ -1,5 +1,7 @@
 """Run verified Hongguo downloads and the native Muse episode workflow."""
 
+from hashlib import sha256
+from heapq import nlargest
 import json
 import math
 import os
@@ -115,20 +117,26 @@ def verified_media(download, manifest, key, title, expected):
             row["episodeCount"] != expected or row.get("downloadedEpisodeCount") != expected or
             not isinstance(files, list) or len(files) != expected):
         raise WorkError("INCOMPLETE_MEDIA", "原片未下载齐全")
-    checked = []
-    for number, episode in enumerate(files, 1):
-        src = under(download, episode["path"])
-        length = episode.get("durationSeconds")
-        if (type(episode.get("index")) is not int or episode["index"] != number or src.suffix.lower() != ".mp4" or
-                type(length) not in (int, float) or not math.isfinite(length) or not 0 < length <= 18_000 or
-                episode.get("fullDecodeChecked") is not True or
-                episode.get("validationLevel") != "ffprobe-full-decode-sha256" or
-                src.stat().st_size <= 0 or src.stat().st_size != episode.get("bytes") or digest(src) != episode.get("sha256")):
-            raise WorkError("MEDIA_INTEGRITY", f"第 {number} 集原片或下载校验有缺口")
-        checked.append({k: episode[k] for k in ("index", "path", "bytes", "sha256", "durationSeconds")})
+    checked = [verified_episode(download, episode, number) for number, episode in enumerate(files, 1)]
     if len({episode["path"] for episode in checked}) != expected:
         raise WorkError("MEDIA_INTEGRITY", "全集包含重复的原片路径")
     return checked
+
+
+def verified_episode(download, episode, number):
+    """Check a downloader receipt against the original video on disk."""
+    if not isinstance(episode, dict) or not isinstance(episode.get("path"), str):
+        raise WorkError("MEDIA_INTEGRITY", f"第 {number} 集缺少原片校验记录")
+    src = under(download, episode["path"])
+    length = episode.get("durationSeconds")
+    if (type(episode.get("index")) is not int or episode["index"] != number or src.suffix.lower() != ".mp4" or
+            type(length) not in (int, float) or not math.isfinite(length) or not 0 < length <= 18_000 or
+            episode.get("fullDecodeChecked") is not True or
+            episode.get("validationLevel") != "ffprobe-full-decode-sha256" or
+            type(episode.get("bytes")) is not int or episode["bytes"] <= 0 or
+            src.stat().st_size != episode["bytes"] or digest(src) != episode.get("sha256")):
+        raise WorkError("MEDIA_INTEGRITY", f"第 {number} 集原片或下载校验有缺口")
+    return {k: episode[k] for k in ("index", "path", "bytes", "sha256", "durationSeconds")}
 
 
 def env_for(config, home):
@@ -162,72 +170,352 @@ def pause(seconds, check):
         sleep(min(1, max(0, finish - monotonic())))
 
 
-def acquire_media(config, directory, key, work, check):
+DOWNLOAD_TASK_ID = re.compile(r"hgt-[a-f0-9]{32}")
+DOWNLOAD_RUN_ID = re.compile(r"hgr-[a-f0-9]{32}")
+DOWNLOAD_COMMAND_RECEIPT = re.compile(r"(?:download|retry)-[a-f0-9]{10}\.json")
+SOURCE_CODES = re.compile(
+    r"(?:HTTP_[3-5]\d{2}|TIMEOUT|ETIMEDOUT|NETWORK_ERROR|EMPTY_RESPONSE|INVALID_RESPONSE|"
+    r"BUSINESS_REJECTED|SECURITY_BLOCKED|DEVICE_REGISTRATION_FAILED|PREVIEW_ONLY|LOCKED|"
+    r"NO_PLAY_URL|NO_PLAYABLE_SOURCE|NO_COMPATIBLE_SOURCE|MISSING_MODEL|SOURCE_UNAVAILABLE|"
+    r"QUALITY_UNAVAILABLE|PUBLIC_ACCESS_LIMITED|ERR_CANCELED)"
+)
+TRANSIENT_CODES = {"network", "incomplete_response", "incomplete_media", "task_interrupted", "task_admission_failed"}
+ACCESS_REFUSALS = {"BUSINESS_REJECTED", "SECURITY_BLOCKED", "LOCKED", "HTTP_401", "HTTP_403", "HTTP_429"}
+
+
+def download_error(result):
+    """Keep structured diagnostics without raw error messages or provider addresses."""
+    value = result.get("code")
+    error = {"code": value if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", value)
+             else "unconfirmed_result"}
+    if result.get("sourceStage") in ("catalog", "video_model"):
+        error["sourceStage"] = result["sourceStage"]
+    if type(result.get("retryable")) is bool:
+        error["retryable"] = result["retryable"]
+    value = result.get("upstreamCode")
+    if (type(value) is int and 0 <= value <= 99999999) or (isinstance(value, str) and SOURCE_CODES.fullmatch(value)):
+        error["upstreamCode"] = value
+    value = result.get("httpStatus")
+    if type(value) is int and 300 <= value <= 599:
+        error["httpStatus"] = value
+    rows = result.get("sourceFailures")
+    if isinstance(rows, list):
+        failures = []
+        for row in rows[:6]:
+            if not isinstance(row, dict) or row.get("source") not in ("app", "web", "api"):
+                continue
+            code = row.get("code")
+            if not isinstance(code, str) or not SOURCE_CODES.fullmatch(code):
+                continue
+            failure = {"source": row["source"], "code": code}
+            value = row.get("registrationFailure")
+            if row["source"] == "app" and isinstance(value, str) and SOURCE_CODES.fullmatch(value):
+                failure["registrationFailure"] = value
+            failures.append(failure)
+        if failures:
+            error["sourceFailures"] = failures
+    return error
+
+
+def retryable_download(error, requeued):
+    """Decide whether a stopped downloader task can be retried under this lease."""
+    code = error["code"]
+    if code == "source_unavailable":
+        if error.get("upstreamCode") in ACCESS_REFUSALS or any(
+            row[field] in ACCESS_REFUSALS and (row["source"] == "app" or row[field] in ("LOCKED", "SECURITY_BLOCKED"))
+            for row in error.get("sourceFailures", []) for field in ("code", "registrationFailure") if field in row
+        ):
+            return False
+        return error.get("retryable") is True or requeued
+    if error.get("retryable") is False:
+        return False
+    if code == "http_error":
+        status = error.get("httpStatus", 0)
+        return status in (408, 429) or 500 <= status <= 599
+    return code in TRANSIENT_CODES
+
+
+def download_task_error(download, task, summary, last_result):
+    """Recover diagnostics from a bounded set of foreground receipts for exactly this run."""
+    error = download_error(summary)
+    run_id = task.get("runId")
+    if not isinstance(run_id, str) or not DOWNLOAD_RUN_ID.fullmatch(run_id):
+        return error
+
+    def matches(result):
+        return (isinstance(result, dict) and result.get("taskId") == task["id"] and result.get("runId") == run_id
+                and result.get("code") == error["code"])
+
+    if matches(last_result):
+        return download_error(last_result)
+    if error["code"] not in ("source_unavailable", "http_error"):
+        return error
+
+    def candidates(entries):
+        for entry in entries:
+            if DOWNLOAD_COMMAND_RECEIPT.fullmatch(entry.name) and entry.is_file(follow_symlinks=False):
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                if info.st_size <= 1024 * 1024:
+                    yield info.st_mtime_ns, entry.name
+
+    recovered = None
+    with os.scandir(download) as entries:
+        latest = nlargest(16, candidates(entries))
+    for _, name in latest:
+        try:
+            result = read(download / name)
+        except (OSError, ValueError, WorkError):
+            continue
+        if matches(result) and result.get("ok") is False:
+            candidate = download_error(result)
+            if recovered is not None and recovered != candidate:
+                return {"code": "conflicting_result"}
+            recovered = candidate
+    return recovered or error
+
+
+def download_attempts(path):
+    """Read the original attempt budget and any already consumed human requeue markers."""
+    attempts = read(path) if path.exists() else {"attempts": 0, "retryAt": 0}
+    if not isinstance(attempts, dict):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载尝试记录无效，已保留")
+    used, retry_at, limit = attempts.get("attempts"), attempts.get("retryAt"), attempts.get("attemptLimit")
+    markers = attempts.get("retryGenerations", [])
+    if (type(used) is not int or used < 0 or type(retry_at) not in (int, float) or not math.isfinite(retry_at) or retry_at < 0
+            or limit is not None and (type(limit) is not int or limit < used)
+            or not isinstance(markers, list) or not all(valid_retry_generation(item) for item in markers)
+            or len(markers) != len(set(markers))):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载尝试记录无效，已保留")
+    return attempts
+
+
+def valid_retry_generation(value):
+    """Accept the authenticated station requeue's ISO UTC timestamp."""
+    return isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", value)
+
+
+def download_task(listing, download, output, key, quality, mode, attempts):
+    """Require the one CLI-owned task and its original request before any mutation."""
+    tasks = listing.get("tasks")
+    if listing.get("ok") is not True or not isinstance(tasks, list) or len(tasks) > 1:
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载任务身份不明确，已保留目录")
+    task = tasks[0] if tasks else None
+    if task is None and "taskId" not in attempts:
+        return None
+    if not isinstance(task, dict):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "原下载任务未确认，已保留目录")
+    request = task.get("request")
+    task_id = task.get("id")
+    if (not isinstance(task_id, str) or not DOWNLOAD_TASK_ID.fullmatch(task_id)
+            or attempts.get("taskId", task_id) != task_id
+            or task.get("cwd") != str(download) or not isinstance(request, dict)
+            or request.get("seriesIds") != [key] or request.get("episodes") is not None
+            or request.get("outputDir") != str(output) or request.get("quality") != quality
+            or request.get("sourceMode") not in ("legacy", "public", "manifest")
+            or mode is not None and mode != request["sourceMode"]):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "旧下载与当前全集请求不一致")
+    return task
+
+
+def retained_episodes(output, path, mode, key, title, count, check):
+    """Return verified indexes from the stopped task's bound checkpoint, if known."""
+    if path is None:
+        return None
+    if not isinstance(path, str):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载进度没有可信的保存目录")
+    checkpoint = Path(path)
+    if (checkpoint.parent != output or checkpoint.resolve() != checkpoint
+            or not re.fullmatch(r"hongguo-[a-f0-9]{32}", checkpoint.name)):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载进度不在原任务目录")
+    state = read(under(output, checkpoint / "resume-state.json"))
+    request = state.get("request", {}) if isinstance(state, dict) else {}
+    identity = request.get("sourceIdentity") if isinstance(request, dict) else None
+    expected = {"mode": mode, "seriesIds": [key], "episodes": None, "sourceIdentity": identity}
+    checkpoint_id = sha256(json.dumps(expected, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()[:32]
+    if (not isinstance(state, dict) or type(state.get("version")) is not int or state["version"] != 1 or request != expected
+            or identity is not None and not isinstance(identity, str) or checkpoint.name != "hongguo-" + checkpoint_id):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载进度与原任务不一致")
+    plans, completed = state.get("plans"), state.get("completed")
+    if not isinstance(plans, list) or len(plans) != 1 or not isinstance(plans[0], dict) or not isinstance(completed, list):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载进度缺少原始目录")
+    plan = plans[0]
+    episodes = plan.get("episodes")
+    if (plan.get("seriesId") != key or title_key(plan.get("title")) != title_key(title) or not isinstance(episodes, list)
+            or type(plan.get("episodeCount")) is not int or plan["episodeCount"] != count or len(episodes) != count):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载进度的剧目或集数与原任务不一致")
+    original = {}
+    for number, episode in enumerate(episodes, 1):
+        vid = episode.get("vid") if isinstance(episode, dict) else None
+        if not isinstance(vid, str) or not vid or vid in original or type(episode.get("index")) is not int or episode["index"] != number:
+            raise WorkError("DOWNLOAD_OWNERSHIP", "下载进度的集号与原任务不一致")
+        original[vid] = number
+    checked, paths = set(), set()
+    for item in completed:
+        check()
+        vid = item.get("vid") if isinstance(item, dict) else None
+        number = original.get(vid) if isinstance(vid, str) else None
+        if number is None or number in checked or item.get("seriesId") != key:
+            raise WorkError("DOWNLOAD_OWNERSHIP", "下载进度的已完成集与原任务不一致")
+        media = verified_episode(output, item.get("episode"), number)
+        checked.add(number)
+        paths.add(media["path"])
+    if len(checked) != len(paths):
+        raise WorkError("MEDIA_INTEGRITY", "已下载集包含重复的原片路径")
+    return checked
+
+
+def download_progress(path, stage, count, checked, error, check):
+    """Publish only batch state, verified episode numbers and safe error metadata."""
+    missing = None if checked is None else sorted(set(range(1, count + 1)) - set(checked))
+    progress = {"stage": stage, "totalEpisodes": count,
+                "verifiedEpisodes": None if checked is None else len(checked), "missingEpisodes": missing}
+    if error is not None:
+        progress["error"] = error
+    check()
+    save(path, progress)
+    return missing
+
+
+def stopped_download(progress, count, checked, error, check, exhausted=False):
+    """Stop on an unresolved download and keep enough evidence for intervention."""
+    missing = download_progress(progress, "needs_attention", count, checked, error, check)
+    reason = "全集下载重试已用完" if exhausted else "红果下载需要处理"
+    if missing:
+        shown = "、".join(str(number) for number in missing[:20])
+        reason += f"，缺第 {shown} 集" + (f"等 {len(missing)} 集" if len(missing) > 20 else "")
+    raise WorkError("HONGGUO_DOWNLOAD", f"{reason}（{error['code']}），已保留原任务和已校验集")
+
+
+def acquire_media(config, directory, key, work, check, *, retry_generation=None):
     """Resolve the catalog, resume its one download task and freeze all input media."""
     download = directory / "download"
     download.mkdir(exist_ok=True)
+    if download.resolve() != download:
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载目录已变化，已保留原任务")
+    progress = download / "progress.json"
+    try:
+        return acquire_download(config, directory, download, progress, key, work, check, retry_generation)
+    except WorkError as error:
+        if error.code != "HONGGUO_DOWNLOAD":
+            download_progress(progress, "needs_attention", None, None, {"code": error.code}, check)
+        raise
+
+
+def acquire_download(config, directory, download, progress, key, work, check, retry_generation):
+    """Bind one full-series request and its attempt budget to the download directory."""
     plan = directory / "source.json"
     if plan.exists():
         source = read(plan)
+        expected_count = work.get("episodes")
+        if (not isinstance(source, dict) or source.get("seriesId") != key or type(source.get("episodes")) is not int
+                or expected_count is not None and expected_count != source["episodes"]
+                or not isinstance(source.get("manifest"), str)):
+            raise WorkError("SOURCE_CHANGED", "原片清单与前次转写绑定不一致")
         manifest = under(download, source["manifest"])
         media = verified_media(download, manifest, key, work["title"], source["episodes"])
         if source["media"] != media:
             raise WorkError("SOURCE_CHANGED", "原片清单与前次转写绑定不一致")
+        download_progress(progress, "complete", len(media), range(1, len(media) + 1), None, check)
         return source
 
     catalog = download / "catalog.json"
     if not catalog.exists():
-        row = one_series(hongguo(config, download, ["info", "--series", key], check), key, work["title"])
-        save(catalog, {"seriesId": key, "title": row["title"], "episodeCount": row["episodeCount"]})
+        download_progress(progress, "catalog", None, None, None, check)
+        result = hongguo(config, download, ["info", "--series", key], check)
+        if not result["ok"]:
+            stopped_download(progress, None, None, download_error(result), check)
+        row = one_series(result, key, work["title"])
+        check()
+        save(catalog, {"seriesId": key, "title": row["title"], "episodeCount": row["episodeCount"],
+                       "sourceMode": result.get("sourceMode")})
     catalog_row = read(catalog)
-    count = catalog_row["episodeCount"]
-    if catalog_row["seriesId"] != key or title_key(catalog_row["title"]) != title_key(work["title"]):
+    if (not isinstance(catalog_row, dict) or catalog_row.get("seriesId") != key
+            or title_key(catalog_row.get("title")) != title_key(work["title"])):
         raise WorkError("SOURCE_MISMATCH", "先前的红果目录属于其他剧目")
+    count = catalog_row.get("episodeCount")
+    if type(count) is not int or not 1 <= count <= 1000:
+        raise WorkError("SOURCE_CATALOG", "红果全集集数未知")
     if work.get("episodes") is not None and work["episodes"] != count:
         raise WorkError("SOURCE_COUNT", "数据站与红果原片的总集数不一致")
     if count > config["maxEpisodesPerSeries"]:
         raise WorkError("EPISODE_SCOPE", f"本剧共 {count} 集，超出本次配置的转写范围")
 
     attempts_file = download / "attempts.json"
-    attempts = read(attempts_file) if attempts_file.exists() else {"attempts": 0, "retryAt": 0}
+    attempts = download_attempts(attempts_file)
+    if retry_generation is not None and not valid_retry_generation(retry_generation):
+        raise WorkError("DOWNLOAD_OWNERSHIP", "重新入队标记无效，已保留下载任务")
     output = download / "downloads"
+    if output.resolve() != output:
+        raise WorkError("DOWNLOAD_OWNERSHIP", "下载输出目录已变化，已保留原任务")
     while True:
         listing = hongguo(config, download, ["jobs"], check)
-        tasks = listing.get("tasks")
-        if not listing["ok"] or not isinstance(tasks, list) or len(tasks) > 1:
-            raise WorkError("DOWNLOAD_OWNERSHIP", "下载任务身份不明确，已保留目录")
-        task = tasks[0] if tasks else None
+        task = download_task(listing, download, output, key, config["quality"], catalog_row.get("sourceMode"), attempts)
+        checked = error = None
+        markers = attempts.get("retryGenerations", [])
+        requeued = retry_generation is not None and retry_generation not in markers
+        last_result = attempts.get("lastResult")
         if task:
-            request = task.get("request", {})
-            if (task.get("cwd") != str(download) or request.get("seriesIds") != [key] or
-                    request.get("episodes") is not None or Path(request.get("outputDir", "")).resolve() != output or
-                    request.get("quality") != config["quality"]):
-                raise WorkError("DOWNLOAD_OWNERSHIP", "旧下载与当前全集请求不一致")
             summary = task.get("summary") or {}
-            if task["state"] == "completed" and summary.get("complete") is True:
-                manifest = under(download, Path(summary["path"]) / "download-manifest.json")
-                media = verified_media(download, manifest, key, work["title"], count)
+            if not isinstance(summary, dict):
+                raise WorkError("DOWNLOAD_OWNERSHIP", "原下载任务回执无效")
+            state = task.get("state")
+            if state == "completed" and summary.get("complete") is True and isinstance(summary.get("path"), str):
+                manifest = under(output, Path(summary["path"]) / "download-manifest.json")
+                media = verified_media(output, manifest, key, work["title"], count)
                 source = {"seriesId": key, "title": work["title"], "manifest": str(manifest), "episodes": count,
                           "media": media, "downloadTaskId": task["id"]}
+                check()
                 save(plan, source)
+                download_progress(progress, "complete", count, range(1, count + 1), None, check)
                 return source
-            if task["state"] not in ("partial", "failed", "paused", "interrupted"):
+            if state == "blocked":
+                stopped_download(progress, count, None, {"code": "cleanup_unconfirmed"}, check)
+            if state not in ("partial", "failed", "paused", "interrupted", "cancelled"):
                 raise WorkError("DOWNLOAD_OWNERSHIP", "原下载还在运行或结果未确认")
-            if not re.fullmatch(r"hgt-[a-z0-9]{32}", task["id"]):
-                raise WorkError("DOWNLOAD_OWNERSHIP", "旧下载编号不可信")
-            if summary.get("code") and any(word in summary["code"] for word in ("auth", "license", "source_changed", "cleanup", "permission")):
-                raise WorkError("HONGGUO_DOWNLOAD", "红果下载需要处理来源、权限或未退出进程")
+            checked = retained_episodes(output, summary.get("path"), task["request"]["sourceMode"], key, work["title"], count, check)
+            error = download_task_error(download, task, summary, last_result)
             args = ["retry", task["id"]]
         else:
+            if attempts["attempts"] > 0:
+                if not isinstance(last_result, dict) or last_result.get("taskId") is not None:
+                    raise WorkError("DOWNLOAD_OWNERSHIP", "先前下载任务未确认，已保留目录")
+                error = download_error(last_result)
             args = ["download", "--series", key, "--quality", config["quality"], "--output", "downloads"]
-        if attempts["attempts"] >= config["downloadAttempts"]:
-            raise WorkError("HONGGUO_DOWNLOAD", "全集下载仍有缺集，已保留原任务和成功集数")
+        if error is not None and not retryable_download(error, requeued):
+            stopped_download(progress, count, checked, error, check)
+        limit = attempts.get("attemptLimit", config["downloadAttempts"])
+        if requeued:
+            limit = attempts["attempts"] + config["downloadAttempts"]
+        if attempts["attempts"] >= limit:
+            stopped_download(progress, count, checked, error or {"code": "attempts_exhausted"}, check, exhausted=True)
         if attempts["retryAt"] > time():
+            download_progress(progress, "waiting_retry", count, checked, error, check)
             pause(attempts["retryAt"] - time(), check)
+        download_progress(progress, "download", count, checked, error, check)
+        if requeued:
+            attempts.update(attemptLimit=limit, retryGenerations=[*markers, retry_generation])
+        if task:
+            attempts["taskId"] = task["id"]
         attempts["attempts"] += 1
         attempts["retryAt"] = time() + config["downloadCooldownSeconds"]
+        attempts.pop("lastResult", None)
+        check()
         save(attempts_file, attempts)
-        hongguo(config, download, args, check)
+        result = hongguo(config, download, args, check)
+        if not result["ok"]:
+            result_task_id, run_id = result.get("taskId"), result.get("runId")
+            if (isinstance(result_task_id, str) and DOWNLOAD_TASK_ID.fullmatch(result_task_id)
+                    and (task is None or result_task_id == task["id"])
+                    and isinstance(run_id, str) and DOWNLOAD_RUN_ID.fullmatch(run_id)):
+                attempts["taskId"] = result_task_id
+                attempts["lastResult"] = {**download_error(result), "taskId": result_task_id, "runId": run_id}
+            elif task is None and result_task_id is None:
+                attempts["lastResult"] = download_error(result)
+            check()
+            save(attempts_file, attempts)
 
 
 def scope_patch(config, workspace, video, references, path, review=False):
@@ -451,13 +739,18 @@ def episode_records(workspace, label):
     return qa, people
 
 
-def child_action(config, directory, action):
+def child_action(config, directory, action, check=lambda: None):
     """Entrypoint for subprocess work under the parent's lease."""
+    check()
     data = read(directory / "series.json")
     if action == "review":
-        save(directory / "review-result.json", review_candidate(config, directory, data["work"], data["review"]))
+        result = review_candidate(config, directory, data["work"], data["review"])
+        check()
+        save(directory / "review-result.json", result)
     elif action == "download":
         # The agent runner holds the lease in its own process; this child only fetches and freezes the media.
-        acquire_media(config, directory, data["seriesId"], data["work"], lambda: None)
+        retry = {} if "retryGeneration" not in data else {"retry_generation": data["retryGeneration"]}
+        acquire_media(config, directory, data["seriesId"], data["work"], check, **retry)
+        check()
     else:
         run_episode(config, directory, read(directory / "source.json"), int(action))
