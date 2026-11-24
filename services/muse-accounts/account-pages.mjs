@@ -19,6 +19,26 @@ export function renderAccountIdentity({account,feishuEnabled,feishuAppType,escap
  return `<section aria-label="飞书身份"><h2>飞书身份</h2>${feishuAppType==='custom'?'<p>仅限本企业应用可用范围内的成员。</p>':''}${entries?`<p>已绑定飞书账号。</p><ul>${entries}</ul>`:'<p>尚未绑定飞书账号。</p>'}${account.passwordLogin===false?'<p>此账号使用飞书登录，尚未设置密码。</p>':''}${feishuEnabled?`<form action="/auth/feishu/bind" method="post"><button>${identities.length?'绑定其他飞书账号':'绑定飞书账号'}</button></form><small>绑定后继续使用当前 Muse 账号及其工作间；账号权限保持不变。</small>`:'<small>飞书登录暂未启用。</small>'}</section>`;
 }
 
+function organizationDetails(organization,identities,escape){
+ if(organization.status==='available'){
+  const person=(organization.jobTitle?'<p>职位：'+escape(organization.jobTitle)+'</p>':'')+(organization.managerName?'<p>上级：'+escape(organization.managerName)+'</p>':'');
+  return (organization.departments.length?'<ul>'+organization.departments.map(department=>'<li>'+escape(department.path||department.name)+'<small>部门标识：'+escape(department.id)+'</small></li>').join('')+'</ul>':'<p>飞书未返回部门信息。</p>')+person+'<small>同步时间：'+time(organization.updatedAt,escape)+'</small>';
+ }
+ const states=new Set(identities.map(identity=>identity.organization?.status));
+ if(states.has('permission-required'))return '<p>尚未开放飞书部门权限，请联系管理员后重新使用飞书登录。</p>';
+ if(states.has('unavailable'))return '<p>本次未能同步飞书部门，可重新使用飞书登录重试。</p>';
+ return '<p>部门信息尚未同步。</p>';
+}
+
+/** Render the owner's assigned Muse groups and Feishu departments without exposing other accounts.
+ * @param {object} options Version 1 profile from account-profile.mjs and the gateway HTML escape function.
+ * @returns {string} Account-page sections; the department section appears only for accounts with a bound Feishu identity.
+ */
+export function renderAccountDetails({profile,escape}){
+ const {groups,organization}=profile,identities=profile.account.feishuIdentities;
+ return `<section aria-label="我的分组"><h2>我的分组</h2>${groups.length?`<ul>${groups.map(group=>`<li><strong>${escape(group.name)}</strong><p>${escape(group.description||'暂无分组说明')}</p><small>分组标识：${escape(group.id)}</small></li>`).join('')}</ul>`:'<p>暂未分配分组，请联系管理员。</p>'}<small>Muse 分组由管理员分配；飞书组织标识见下方身份信息，分组不代表额外授权。</small></section>${identities.length?`<section aria-label="飞书部门"><h2>飞书部门</h2>${organizationDetails(organization,identities,escape)}</section>`:''}`;
+}
+
 function stamp(value){return typeof value==='string'?Date.parse(value):NaN;}
 function shortTime(value,escape){
  const milliseconds=stamp(value);

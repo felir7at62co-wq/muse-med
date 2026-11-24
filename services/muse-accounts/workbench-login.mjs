@@ -105,7 +105,7 @@ export function createWorkbenchLogin({ clients, publicOrigin, session, sessionSt
     reply(res, 200, page(title, body, true), {
       'content-type': 'text/html; charset=utf-8',
       'referrer-policy': referrerPolicy,
-      'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      'content-security-policy': "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     })
   }
   async function browser(req, res, url) {

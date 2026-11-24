@@ -61,7 +61,9 @@ async function fixture(t, options = {}) {
     assert.equal(page.status, 200)
     assert.equal(page.headers.get('cache-control'), 'no-store')
     assert.equal(page.headers.get('referrer-policy'), 'same-origin')
+    assert.match(page.headers.get('content-security-policy'), /style-src 'self' 'unsafe-inline'/)
     const html = await page.text()
+    assert.match(html, /href="\/assets\/site-shell\.css"/)
     assert.match(html, /writer/)
     return { attempt: pending.attempt, nonce: html.match(/name="nonce" value="([^"]+)"/)[1], decision: 'approve' }
   }

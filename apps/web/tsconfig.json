@@ -162,7 +162,6 @@
     "tests/models-settings.e2e.ts",
     "tests/model-browser-case.ts",
     "tests/muse-personal-models.e2e.ts",
-    "tests/muse-user-details.e2e.ts",
     "tests/muse-user-legacy-details.e2e.ts",
     "tests/deepseek-messages-settings.e2e.ts",
     "tests/model-badge.e2e.ts",

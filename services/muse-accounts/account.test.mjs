@@ -51,7 +51,7 @@ test('workspace mutations blocked before upstream, normal follow and session com
 test('administrator must use original password to change own password',async t=>{
  const f=await fixture(t),{cookie}=await f.login('admin'),admin=f.store.list().find(a=>a.admin);
  const page=await (await f.req('/admin',{headers:{cookie}})).text();
- const row=page.match(/<tr><td>admin[\s\S]*?<\/tr>/)?.[0];assert.ok(row);assert.doesNotMatch(row,/action="\/admin\/reset"/);assert.match(row,/href="\/account"/);
+ const row=page.match(/<tr data-current-account="true">[\s\S]*?<\/tr>/)?.[0];assert.ok(row);assert.match(row,/>admin</);assert.doesNotMatch(row,/action="\/admin\/reset"/);assert.match(row,/href="\/account"/);
  assert.equal((await f.post('/admin/reset',cookie,{id:admin.id,password:'bypass'})).status,400);
  assert.ok(await f.store.authenticate('admin','old'));
  const person=f.store.list().find(a=>!a.admin);assert.equal((await f.post('/admin/reset',cookie,{id:person.id,password:'changed'})).status,303);assert.ok(await f.store.authenticate('person','changed'));

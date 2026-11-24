@@ -177,7 +177,7 @@ test('verified personal profiles with absent or null optional fields work and se
  for(const optional of [{},{tenant_key:null,union_id:null,avatar_url:null}]){
   const f=await fixture(t);f.setProfile({open_id:'ou_personal',name:'个人用户',email:'not-an-identity@example.test',mobile:'not-collected',...optional});
   assert.equal((await f.callback(await f.start())).status,200);
-  assert.deepEqual(f.resolved[0].value,{appId:config.appId,openId:'ou_personal',name:'个人用户',organization:{status:'permission-required',syncedAt:new Date(f.now()).toISOString(),departments:[]}});
+  assert.deepEqual(f.resolved[0].value,{appId:config.appId,openId:'ou_personal',name:'个人用户'});
  }
 });
 

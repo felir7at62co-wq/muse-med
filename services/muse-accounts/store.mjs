@@ -11,16 +11,28 @@ function name(value){if(typeof value!=='string')throw Error('用户名格式不�
 function password(value){if(typeof value!=='string'||value.length<1||value.length>128)throw Error('密码须为 1–128 位');return value;}
 async function hash(value){const salt=randomBytes(24).toString('hex');return {salt,hash:(await scrypt(password(value),salt,64)).toString('hex')};}
 const hasPassword=a=>typeof a.salt==='string'&&typeof a.hash==='string';
-const publicIdentity=({appId,tenantKey=null,openId,unionId,name,avatarUrl,boundAt,lastLoginAt})=>({appId,tenantKey,openId,...unionId!==undefined?{unionId}:{},name,...avatarUrl!==undefined?{avatarUrl}:{},boundAt,lastLoginAt});
+const publicIdentity=({appId,tenantKey=null,openId,unionId,name,avatarUrl,boundAt,lastLoginAt,organization})=>({appId,tenantKey,openId,...unionId!==undefined?{unionId}:{},name,...avatarUrl!==undefined?{avatarUrl}:{},boundAt,lastLoginAt,...organization===undefined?{}:{organization:validateOrganization(organization)}});
 const publicRecord=a=>a?(({id,username,admin,disabled,createdAt,revision,lastLoginAt=null,lastActivityAt=null,feishuIdentities=[],groups=[]})=>({id,username,admin,disabled,createdAt,revision,passwordLogin:hasPassword(a),lastLoginAt,lastActivityAt,feishuIdentities:feishuIdentities.map(publicIdentity),groups:accountGroups(groups)}))(a):null;
 function reject(code,message){throw Object.assign(Error(message),{code});}
 const externalId=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,256}$/.test(value);
 const instant=value=>typeof value==='string'&&Number.isFinite(new Date(value).getTime())&&new Date(value).toISOString()===value;
+function validateOrganization(value){
+ const label=(item,max)=>typeof item==='string'&&item.length>0&&item.length<=max&&!/[\x00-\x1f\x7f-\x9f]/.test(item);
+ if(!value||!['available','permission-required','unavailable'].includes(value.status)||!instant(value.syncedAt)||!Array.isArray(value.departments)||value.departments.length>100
+  ||value.status!=='available'&&value.departments.length>0)reject('FEISHU_PROFILE_INVALID','Invalid Feishu organization profile');
+ const departments=value.departments.map(department=>{
+  if(!department||!externalId(department.id)||!label(department.name,200)||!label(department.path,20000)||!Array.isArray(department.pathIds)||department.pathIds.length>100||department.pathIds.some(id=>!externalId(id)))reject('FEISHU_PROFILE_INVALID','Invalid Feishu department');
+  return {id:department.id,name:department.name,path:department.path,pathIds:[...department.pathIds]};
+ });
+ if(new Set(departments.map(department=>department.id)).size!==departments.length)reject('FEISHU_PROFILE_INVALID','Duplicate Feishu department');
+ return {status:value.status,syncedAt:value.syncedAt,departments};
+}
 function feishuProfile(value){
  if(!value||!externalId(value.appId)||!externalId(value.openId)||value.tenantKey!=null&&!externalId(value.tenantKey)
   ||value.unionId!==undefined&&!externalId(value.unionId)||typeof value.name!=='string'||!value.name.trim()||value.name.length>200||/[\x00-\x1f\x7f-\x9f]/.test(value.name))reject('FEISHU_PROFILE_INVALID','Invalid Feishu identity profile');
  const profile={appId:value.appId,tenantKey:value.tenantKey??null,openId:value.openId,name:value.name};
  if(value.unionId!==undefined)profile.unionId=value.unionId;
+ if(value.organization!==undefined)profile.organization=validateOrganization(value.organization);
  if(value.avatarUrl!==undefined){
   let avatar;try{avatar=new URL(value.avatarUrl);}catch{reject('FEISHU_PROFILE_INVALID','Invalid Feishu avatar URL');}
   if(typeof value.avatarUrl!=='string'||value.avatarUrl.length>2048||avatar.protocol!=='https:'||avatar.username||avatar.password||avatar.hash)reject('FEISHU_PROFILE_INVALID','Invalid Feishu avatar URL');

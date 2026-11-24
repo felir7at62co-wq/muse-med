@@ -10,7 +10,11 @@ function fixture(overrides={}){
  const admin=account('administrator',{admin:true,username:'ylk'});
  return {accounts:[admin],session:{id:admin.id,account:admin},devicesOf:()=>[],adminCentre:false,adminHosts:{},now:Date.parse('2026-10-26T00:30:00.000Z'),feishuEnabled:true,escape,page:(title,body)=>`<!doctype html><title>${escape(title)}</title><main>${body}</main>`,environment:'production',...overrides};
 }
-const totals=html=>[...html.match(/<section aria-label="使用概览">[\s\S]*?<\/section>/)[0].matchAll(/<strong>(\d+)<\/strong>/g)].map(match=>Number(match[1]));
+/** Production's overview cards as [accounts, enabled, disabled, administrators, online accounts, online desktops, Feishu-bound, today, 7 days]. */
+const totals=html=>{
+ const section=html.match(/<section aria-label="使用概览" class="overview">[\s\S]*?<\/section>/)[0],count=pattern=>Number(section.match(pattern)[1]);
+ return [count(/data-stat="accounts">(\d+)</),count(/正常 (\d+)/),count(/已停用 (\d+)/),count(/管理员 (\d+)/),count(/data-stat="online">(\d+)</),count(/已连接桌面 (\d+) 台/),count(/data-stat="feishu">(\d+)</),count(/data-stat="today">(\d+)</),count(/近 7 天使用 (\d+)/)];
+};
 
 test('account identity renders escaped verified names and organizations without external avatars',()=>{
  const html=renderAccountIdentity({account:account('writer',{passwordLogin:false,feishuIdentities:[identity({name:'<img src=x onerror=alert(1)>',tenantKey:'tenant"<&',avatarUrl:'https://external.example.test/private-avatar.png'})]}),feishuEnabled:true,escape});
@@ -73,11 +77,11 @@ test('existing self protection, password reset and elevated management forms rem
 test('administrator table escapes identity and account text without exposing unknown credential fields',()=>{
  const options=fixture();options.accounts.push(account('row"<&',{username:'<script>alert(1)</script>',feishuIdentities:[identity({name:'<b>name</b>',tenantKey:'tenant<script>',accessToken:'synthetic-secret'})]}));
  const html=renderAdminAccounts(options);
- assert.match(html,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/);assert.match(html,/&lt;b&gt;name&lt;\/b&gt;/);assert.match(html,/tenant&lt;script&gt;/);
+ assert.match(html,/&lt;script&gt;alert\(1\)&lt;\/script&gt;/);assert.match(html,/&lt;b&gt;name&lt;\/b&gt;/);assert.doesNotMatch(html,/tenant/);
  assert.match(html,/value="row&quot;&lt;&amp;"/);assert.doesNotMatch(html,/<script|synthetic-secret/);
 });
 
 test('the current Feishu-only administrator has no unusable password-change link',()=>{
  const options=fixture();options.accounts[0].passwordLogin=false;
- const html=renderAdminAccounts(options);assert.match(html,/<td>飞书登录<\/td>/);assert.doesNotMatch(html,/href="\/account">修改密码/);
+ const html=renderAdminAccounts(options);assert.match(html,/<p class="action-note">当前账号使用飞书登录<\/p>/);assert.doesNotMatch(html,/href="\/account">修改密码/);
 });

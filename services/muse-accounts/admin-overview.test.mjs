@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {fixture} from './desktop-test-fixture.mjs';
 
+/** Overview cards as [accounts, enabled, disabled, administrators, online accounts, online desktops, Feishu-bound, today, 7 days]. */
 function overview(markup){
- const section=markup.match(/<section aria-label="使用概览">[\s\S]*?<\/section>/)?.[0];
+ const section=markup.match(/<section aria-label="使用概览" class="overview">[\s\S]*?<\/section>/)?.[0];
  assert.ok(section,'Administrator page includes usage totals');
- return [...section.matchAll(/<strong>(\d+)<\/strong>/g)].map(match=>Number(match[1]));
+ const count=pattern=>Number(section.match(pattern)[1]);
+ return [count(/data-stat="accounts">(\d+)</),count(/正常 (\d+)/),count(/已停用 (\d+)/),count(/管理员 (\d+)/),count(/data-stat="online">(\d+)</),count(/已连接桌面 (\d+) 台/),count(/data-stat="feishu">(\d+)</),count(/data-stat="today">(\d+)</),count(/近 7 天使用 (\d+)/)];
 }
 
 test('only administrators see account totals and live desktops are deduplicated by account',async t=>{
