@@ -78,7 +78,8 @@ for(const launch of ['factory','executable'])test(`desktop ${launch} preserves e
  };
  const ac=await login('alice'),bc=await login('bob'),administrator=await login('ylk');
  const request=(path,cookie,{method='GET',body}={})=>fetch(base+path,{method,headers:{origin,cookie},body:body&&new URLSearchParams(body),redirect:'manual'});
- assert.match(await(await request('/',ac)).text(),/您的电脑上的 Muse 未启动/);
+ assert.equal((await request('/',ac)).headers.get('location'),'/workbench');
+ assert.match(await(await request('/computers',ac)).text(),/您的电脑上的 Muse 未启动/);
  assert.deepEqual(starts,[]);assert.deepEqual(touches,[]);
  assert.equal((await request('/admin/control/open',administrator,{method:'POST',body:{target:alice.id}})).status,403);
  assert.equal((await request('/admin/control/unlock',ac,{method:'POST',body:{password:'test-elevation-password'}})).status,403);

@@ -1,4 +1,4 @@
-/** Real gateway delivery of the independent market document and its public assets. */
+/** Real gateway delivery of the opt-in Skill publication document and its public assets. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -15,7 +15,8 @@ test('market assets are same-origin, credential-free and bounded by the active p
  const root=await mkdtemp(join(tmpdir(),'muse-market-assets-')),servers=[];let market;let upstreamRequests=0;
  t.after(async()=>{await market?.close();for(const server of servers.reverse())await close(server);await rm(root,{recursive:true,force:true});});
  const upstream=http.createServer((_req,res)=>{upstreamRequests++;res.end('{}');});servers.push(upstream);const target=await listen(upstream),secretFile=join(root,'secret');await writeFile(secretFile,'r'.repeat(48),{mode:0o600});
- const policy={upstream:target,secretFile,archiveBytes:1024,jsonRequestBytes:2048,jsonResponseBytes:4096,requestTimeoutMs:5000,requestRatePerMinute:1000};market=await createMarketProxy(policy);
+ // The Skill publication page is opt-in; the default page is the Bot and Skill catalog production serves.
+ const policy={upstream:target,secretFile,archiveBytes:1024,jsonRequestBytes:2048,jsonResponseBytes:4096,requestTimeoutMs:5000,requestRatePerMinute:1000,web:'skills'};market=await createMarketProxy(policy);
  const store=await openStore(join(root,'accounts.json')),server=createAccountServer({store,market,workspaceMode:'desktop',runtime:{ensure:async()=>{throw Error('Assets must not start a tenant');}}});servers.push(server);const origin=await listen(server);
  const request=(path,options)=>fetch(origin+path,{redirect:'manual',...options});
  const page=await request('/market');assert.equal(page.status,200);const html=await page.text();assert.match(html,/<script type="module" src="\/market\/client\.js"><\/script>/u);assert.match(html,/<link rel="stylesheet" href="\/market\/style\.css">/u);assert.match(page.headers.get('content-security-policy'),/script-src 'self'/u);assert.doesNotMatch(html,/<script[^>]*>[^<]+/u);

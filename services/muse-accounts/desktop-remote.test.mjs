@@ -20,8 +20,10 @@ async function fixture(t){
  const cookie=login.headers.get('set-cookie').split(';')[0];return {base,origin,cookie,account,store,cloudStarts:()=>cloudStarts};
 }
 
-test('desktop website login opens an offline Muse page without starting a cloud agent',async t=>{
- const f=await fixture(t);const response=await fetch(f.base+'/',{headers:{cookie:f.cookie}});
+test('desktop website login opens the workbench and an offline computer list without starting a cloud agent',async t=>{
+ const f=await fixture(t);const home=await fetch(f.base+'/',{headers:{cookie:f.cookie},redirect:'manual'});
+ assert.equal(home.status,303);assert.equal(home.headers.get('location'),'/workbench');
+ const response=await fetch(f.base+'/computers',{headers:{cookie:f.cookie}});
  assert.equal(response.status,200);assert.match(await response.text(),/您的电脑上的 Muse 未启动/);assert.equal(f.cloudStarts(),0);
 });
 

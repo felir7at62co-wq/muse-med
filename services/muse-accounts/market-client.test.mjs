@@ -1,20 +1,23 @@
-/** Source HTTP owner: node --import tsx/esm --test services/muse-accounts/market-client.test.mjs. */
+/** Source HTTP owner: the browser client against the Cordis cloud Skill host built from workspace TypeScript sources. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import {mkdtemp,writeFile,rm,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import {Context} from '@deepseek-ai/cordis';
-import WebServer from '../../packages/host/webserver/src/index.ts';
-import * as CloudHost from '../../packages/host/muse-market/src/cloud-host.ts';
-import * as protocol from '../../packages/host/muse-market/src/cloud-values.ts';
-import {createMarketPackage} from '../../packages/host/muse-market/src/package.ts';
+import {fileURLToPath} from 'node:url';
+import {register} from 'tsx/esm/api';
 import {createMarketBrowserClient,createUploadAttempt,marketWebPolicy} from './market-client.js';
 import {createMarketProxy} from './market-proxy.mjs';
 import {createAccountServer} from './gateway.mjs';
 import {openStore} from './store.mjs';
 
+// Plain `node --test` has no TypeScript path mapping; tsx resolves workspace packages to their sources through the repository tsconfig.
+register({tsconfig:fileURLToPath(new URL('../../tsconfig.json',import.meta.url))});
+const [{Context},{default:WebServer},CloudHost,protocol,{createMarketPackage}]=await Promise.all([
+ import('@deepseek-ai/cordis'),import('../../packages/host/webserver/src/index.ts'),import('../../packages/host/muse-market/src/cloud-host.ts'),
+ import('../../packages/host/muse-market/src/cloud-values.ts'),import('../../packages/host/muse-market/src/package.ts'),
+]);
 const listen=server=>new Promise(resolve=>server.listen(0,'127.0.0.1',()=>resolve('http://127.0.0.1:'+server.address().port)));
 async function close(server){server.closeAllConnections();if(server.listening)await new Promise(resolve=>server.close(resolve));}
 const limits={archiveBytes:1048576,expandedBytes:2097152,fileCount:32,recordBytes:1048576};

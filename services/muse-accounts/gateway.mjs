@@ -8,7 +8,7 @@ import {loadProductionFees} from './production-fees.mjs';
 import {productionFeeRoute} from './production-fee-http.mjs';
 import {createNativeJubianHttp} from './native-jubian-http.mjs';
 import {loadNativeJubianAdmission} from './native-jubian-config.mjs';
-import {loadMarket,marketPage} from './market.mjs';
+import {loadMarket,marketRoute} from './market.mjs';
 import {renderSitePage} from './site-shell.mjs';
 import http from 'node:http';
 import {createDesktopLogin} from './desktop-login.mjs';
@@ -156,33 +156,15 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  const desktopLogin=createDesktopLogin({...desktopLoginOptions,publicOrigin,store,sessionStore,sessionTtlMs,cookieName,session,originOK,rate,form,reply,html,page,loginPage:renderLoginPage,escape,feishuEnabled:!!feishuLoginOptions.config,feeIssuers:productionFees,now});
  const feishuLogin=createFeishuLogin({...feishuLoginOptions,publicOrigin,environment,store,session,sessionStore,sessionTtlMs,cookieName,originOK,rate,form,reply,page,returnPath:desktopLogin.returnPath,desktopConsent:desktopLogin,now,allowAccount:account=>!devOnlyAdmin||account.admin});
  const workbenchLogin=createWorkbenchLogin({clients:workbenchClients,publicOrigin,session,sessionStore,store,now,rate,form,reply,page,escape,cookieName});
- const server=http.createServer(async(req,res)=>{try{
+ const server=httpServer??http.createServer();
+ server.on('request',async(req,res)=>{try{
   if(!req.url.startsWith('/')||req.url.startsWith('//')){reply(res,400);return;}
   const mount=workspaceMode==='desktop'?desktopRoute(req.url):null,path=new URL(mount?.path??req.url,'http://localhost').pathname;
   if(!mount&&await workbenchLogin(req,res,path))return;
   if(await feishuLogin.handle(req,res,path))return;
   if(await desktopLogin.handle(req,res,path))return;
   if(asrStorage&&await asrStorage.handle(req,res))return;
-  if(!mount&&(path==='/market'||path.startsWith('/market/')||path.startsWith('/api/market/'))){
-   if(!market){reply(res,404);return;}
-   if(!originOK(req,!['GET','HEAD'].includes(req.method))){reply(res,403);return;}
-   if(!rate(req,'market',120)){reply(res,429,JSON.stringify({error:'rate-limited'}),{'content-type':'application/json','retry-after':'60'});return;}
-   if(req.method==='GET'&&path==='/market'){reply(res,200,marketPage,{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;}
-   if(req.method==='GET'&&['/market/client.js','/market/style.css'].includes(path)){reply(res,200,await readFile(new URL(path.endsWith('.js')?'./market-client.js':'./market.css',import.meta.url)),{'content-type':path.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8'});return;}
-   if(path.startsWith('/api/market/v1/')){
-    const current=session(req);let prepared;
-    if(path==='/api/market/v1/publishers'&&req.method==='POST'){
-     if(!current?.account.admin){req.resume();reply(res,current?403:401,JSON.stringify({error:current?'admin-required':'login-required'}),{'content-type':'application/json'});return;}
-     const chunks=[];let size=0;
-     for await(const chunk of req.iterator({destroyOnReturn:false})){size+=chunk.length;if(size>16384){req.resume();reply(res,413);return;}chunks.push(chunk);}
-     prepared=Buffer.concat(chunks);let invitation;try{invitation=JSON.parse(prepared.toString('utf8'));}catch{reply(res,400);return;}
-     const member=invitation&&validId(invitation.accountId)&&store.get(invitation.accountId);
-     if(!member||member.disabled){reply(res,400,JSON.stringify({error:'invalid-publisher-account'}),{'content-type':'application/json'});return;}
-    }
-    await market.handle(req,res,current?current.account:null,prepared);return;
-   }
-   reply(res,404);return;
-  }
+  if(!mount&&await marketRoute(req,res,{market,path,currentSession:()=>session(req),originOK:required=>originOK(req,required),rate:limit=>rate(req,'market',limit),store,reply,admissionStopped}))return;
   if(['/assets/admin-accounts.css','/assets/site-shell.css'].includes(path)){
    if(!['GET','HEAD'].includes(req.method)){reply(res,405,'',{allow:'GET, HEAD'});return;}
    const content=await readFile(new URL(path.endsWith('site-shell.css')?'./site-shell.css':'./admin-accounts.css',import.meta.url));
@@ -469,13 +451,13 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   if(workspaceMode==='desktop'&&!context){
    if(!mount&&path==='/'&&req.method==='GET'){reply(res,303,'',{location:'/workbench'});return;}
    if(await maintenance()){reply(res,503,'Muse 正在维护，请稍后重试。',{'retry-after':'30'});return;}
-   const devices=desktopRelay.devices(s),available=devices.filter(device=>device.state==='online');
+   const devices=desktopRelay.devices(s),available=devices.filter(device=>device.state==='online'),mobile=new URL(req.url,publicOrigin).searchParams.get('mobile')==='1';
    if(!mount&&path==='/computers'&&req.method==='GET'){
-    reply(res,200,page('选择电脑',desktopPicker(devices),false,{active:'computers',admin:s.account.admin,username:s.account.username}),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;
+    reply(res,200,page('选择电脑',desktopPicker(devices,undefined,{mobile}),false,{active:'computers',admin:s.account.admin,username:s.account.username}),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;
    }
    if(await desktopRelay.forward(req,res,s))return;
    if(path==='/'&&req.method==='GET'){
-    reply(res,200,page('选择电脑',desktopPicker(devices,mount?.deviceId),false,{active:'computers',admin:s.account.admin,username:s.account.username}),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
+    reply(res,200,page('选择电脑',desktopPicker(devices,mount?.deviceId,{mobile}),false,{active:'computers',admin:s.account.admin,username:s.account.username}),{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});
    }else reply(res,503,JSON.stringify({error:!mount&&available.length>1?'desktop-selection-required':'desktop-offline',message:!mount&&available.length>1?'请先选择要操作的电脑':'您的电脑上的 Muse 未启动'}),{'content-type':'application/json; charset=utf-8','retry-after':'5'});
    return;
   }

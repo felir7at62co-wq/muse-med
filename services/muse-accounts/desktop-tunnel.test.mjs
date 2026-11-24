@@ -10,15 +10,16 @@ import {fixture} from './desktop-test-fixture.mjs';
 
 test('website forwards the same desktop, private settings, binary uploads and video ranges',async t=>{
  const f=await fixture(t),upload=Buffer.alloc(190000,72),video=Buffer.alloc(155000,91);let mutations=0;
- await f.desktop(f.alice,async(req,res)=>{
+ const alice=await f.desktop(f.alice,async(req,res)=>{
   assert.equal(req.headers.cookie,'host=local-private');assert.equal(req.headers.origin,`http://127.0.0.1:${req.socket.localPort}`);
   if(req.url==='/api/video'){assert.equal(req.headers.range,'bytes=100-155099');res.writeHead(206,{'content-type':'video/mp4','content-range':'bytes 100-155099/300000','content-length':video.length});res.end(video);}
   else if(req.url==='/api/settings/mutate'){mutations++;const chunks=[];for await(const c of req)chunks.push(c);assert.deepEqual(Buffer.concat(chunks),upload);res.end('desktop settings saved');}
   else res.end('ALICE DESKTOP SESSION');
  });
- await f.desktop(f.bob,(_req,res)=>res.end('BOB DESKTOP SESSION'));
- assert.equal(await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text(),'ALICE DESKTOP SESSION');
- assert.equal(await(await fetch(f.base+'/',{headers:{cookie:f.bob}})).text(),'BOB DESKTOP SESSION');
+ const bob=await f.desktop(f.bob,(_req,res)=>res.end('BOB DESKTOP SESSION'));
+ // The gateway home is the workbench; each computer's entry page is its mounted URL.
+ assert.equal(await(await fetch(`${f.base}/desktop/${alice.deviceId}/`,{headers:{cookie:f.alice}})).text(),'ALICE DESKTOP SESSION');
+ assert.equal(await(await fetch(`${f.base}/desktop/${bob.deviceId}/`,{headers:{cookie:f.bob}})).text(),'BOB DESKTOP SESSION');
  const mutation=await fetch(f.base+'/api/settings/mutate',{method:'POST',headers:{cookie:f.alice,origin:f.origin},body:upload});assert.equal(await mutation.text(),'desktop settings saved');assert.equal(mutations,1);
  const result=await fetch(f.base+'/api/video',{headers:{cookie:f.alice,range:'bytes=100-155099'}});assert.equal(result.status,206);assert.equal(result.headers.get('content-range'),'bytes 100-155099/300000');assert.deepEqual(Buffer.from(await result.arrayBuffer()),video);
  assert.equal(result.headers.get('set-cookie'),null);
@@ -39,7 +40,7 @@ test('remote mux retains its desktop Host authority and streams real WebSocket f
 test('two computers remain connected independently and password reset revokes both',async t=>{
  const f=await fixture(t),first=await f.desktop(f.alice,(_req,res)=>res.end('first desktop'));
  const second=await f.desktop(f.alice,(_req,res)=>res.end('second desktop'));
- assert.match(await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text(),/选择电脑/);
+ assert.match(await(await fetch(f.base+'/computers',{headers:{cookie:f.alice}})).text(),/选择电脑/);
  for(const [device,text] of [[first,'first desktop'],[second,'second desktop']])assert.equal(await(await fetch(`${f.base}/desktop/${device.deviceId}/`,{headers:{cookie:f.alice}})).text(),text);
  const id=f.store.list().find(a=>a.username==='alice').id;await f.store.resetPassword(id,'new-password');
  const response=await fetch(f.base+'/api/desktop/status',{headers:{cookie:f.alice},redirect:'manual'});assert.equal(response.status,303);
@@ -67,26 +68,26 @@ test('only a complete unencoded entry page gains the private desktop presence ob
   }
   res.writeHead(req.headers.range?206:200,{'content-type':'text/html','content-length':Buffer.byteLength(body),etag:'original'});res.end(body);
  });
- const response=await fetch(f.base+'/',{headers:{cookie:f.alice}});
+ const entry=`${f.base}/desktop/${desktop.deviceId}/`,response=await fetch(entry,{headers:{cookie:f.alice}});
  assert.equal(response.headers.get('content-length'),null);assert.equal(response.headers.get('etag'),null);
  assert.equal(await response.text(),body+`<script src="/desktop/${desktop.deviceId}/desktop-presence.js" data-name="电脑 · ${desktop.deviceId.slice(0,8)}"></script>`);
- const head=await fetch(f.base+'/',{method:'HEAD',headers:{cookie:f.alice}});assert.equal(head.headers.get('content-length'),String(Buffer.byteLength(body)));
- const range=await fetch(f.base+'/',{headers:{cookie:f.alice,range:'bytes=0-99'}});assert.equal(range.status,206);assert.equal(await range.text(),body);
- const encoded=await fetch(f.base+'/?compressed=1',{headers:{cookie:f.alice}});assert.equal(encoded.headers.get('etag'),'encoded');assert.equal(encoded.headers.get('content-length'),String(gzipSync(body).length));assert.equal(await encoded.text(),body);
+ const head=await fetch(entry,{method:'HEAD',headers:{cookie:f.alice}});assert.equal(head.headers.get('content-length'),String(Buffer.byteLength(body)));
+ const range=await fetch(entry,{headers:{cookie:f.alice,range:'bytes=0-99'}});assert.equal(range.status,206);assert.equal(await range.text(),body);
+ const encoded=await fetch(entry+'?compressed=1',{headers:{cookie:f.alice}});assert.equal(encoded.headers.get('etag'),'encoded');assert.equal(encoded.headers.get('content-length'),String(gzipSync(body).length));assert.equal(await encoded.text(),body);
  const script=await fetch(f.base+'/desktop-presence.js',{headers:{cookie:f.alice}});assert.equal(script.status,200);assert.match(await script.text(),/您的电脑上的 Muse 未启动/);
  assert.equal((await fetch(f.base+'/desktop-presence.js',{redirect:'manual'})).status,303);
 });
 
 test('closing a browser response detaches its stream without cancelling or repeating desktop work',async t=>{
  const f=await fixture(t);let submits=0,closed;const detached=new Promise(r=>closed=r);
- await f.desktop(f.alice,(req,res)=>{if(req.url==='/api/job/submit'){submits++;res.writeHead(200,{'content-type':'text/event-stream'});res.write('data: task accepted\n\n');res.once('close',closed);}else res.end('agent keeps working');});
+ const desktop=await f.desktop(f.alice,(req,res)=>{if(req.url==='/api/job/submit'){submits++;res.writeHead(200,{'content-type':'text/event-stream'});res.write('data: task accepted\n\n');res.once('close',closed);}else res.end('agent keeps working');});
  const controller=new AbortController(),r=await fetch(f.base+'/api/job/submit',{method:'POST',headers:{cookie:f.alice,origin:f.origin},signal:controller.signal});await r.body.getReader().read();controller.abort();await detached;
- assert.equal(submits,1);assert.equal(await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text(),'agent keeps working');
+ assert.equal(submits,1);assert.equal(await(await fetch(`${f.base}/desktop/${desktop.deviceId}/`,{headers:{cookie:f.alice}})).text(),'agent keeps working');
 });
 
 test('an aborted Host response ends its browser stream while the desktop stays online',async t=>{
  const f=await fixture(t);let hostResponse;
- await f.desktop(f.alice,(req,res)=>{
+ const desktop=await f.desktop(f.alice,(req,res)=>{
   if(req.url==='/api/stream'){hostResponse=res;res.writeHead(200,{'content-type':'text/event-stream'});res.write('data: first\n\n');}
   else res.end('desktop still available');
  });
@@ -94,7 +95,7 @@ test('an aborted Host response ends its browser stream while the desktop stays o
  const reader=response.body.getReader();assert.equal(Buffer.from((await reader.read()).value).toString(),'data: first\n\n');
  const ended=reader.read();hostResponse.destroy();await assert.rejects(ended,/terminated/);
  assert.deepEqual(await(await fetch(f.base+'/api/desktop/status',{headers:{cookie:f.alice}})).json(),{state:'online'});
- assert.equal(await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text(),'desktop still available');
+ assert.equal(await(await fetch(`${f.base}/desktop/${desktop.deviceId}/`,{headers:{cookie:f.alice}})).text(),'desktop still available');
 });
 
 test('a refused native WebSocket upgrade leaves other desktop requests connected',async t=>{
@@ -106,7 +107,7 @@ test('a refused native WebSocket upgrade leaves other desktop requests connected
  t.after(async()=>{if(browser.readyState===WebSocket.CLOSED)return;const closed=new Promise(resolve=>browser.once('close',resolve));browser.terminate();await closed;});
  const [,response]=await once(browser,'unexpected-response');assert.equal(response.statusCode,503);response.destroy();
  assert.deepEqual(await(await fetch(f.base+'/api/desktop/status',{headers:{cookie:f.alice}})).json(),{state:'online'});
- assert.equal(await(await fetch(f.base+'/',{headers:{cookie:f.alice}})).text(),'desktop still available');
+ assert.equal(await(await fetch(`${f.base}/desktop/${d.deviceId}/`,{headers:{cookie:f.alice}})).text(),'desktop still available');
 });
 
 test('two tabs route mutations and streams to their selected computer and reject another account device',async t=>{
