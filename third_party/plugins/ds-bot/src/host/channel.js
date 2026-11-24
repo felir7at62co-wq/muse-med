@@ -280,10 +280,11 @@ export function install(rt) {
       else delete state.prefs.memoryAutoRecall
     }
     if (body.animatedAvatars !== undefined) {
-      // Muse: off unless turned on, stored like `thinking`. Turning it off also drops a
-      // `false` that an earlier build stored.
-      if (body.animatedAvatars === true) state.prefs.animatedAvatars = true
-      else if (body.animatedAvatars === false || body.animatedAvatars === null) delete state.prefs.animatedAvatars
+      // Muse: on unless turned off, stored like `enterToSend`: only `false` is kept. Turning
+      // it on also drops a `true` stored while off was the default; a value this version does
+      // not know changes nothing.
+      if (body.animatedAvatars === false) state.prefs.animatedAvatars = false
+      else if (body.animatedAvatars === true || body.animatedAvatars === null) delete state.prefs.animatedAvatars
     }
     if (body.memoryLimits !== undefined) {
       const sizes = Object.entries(body.memoryLimits ?? {}).filter(([scope, size]) => MEMORY_LIMIT_SCOPES.has(scope) && Number.isInteger(size) && size >= MEMORY_LIMIT_MIN && size <= MEMORY_LIMIT_MAX)

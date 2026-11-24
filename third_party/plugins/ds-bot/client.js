@@ -20717,7 +20717,7 @@ var AVATAR_DEFINITIONS = {
 
 // src/client/animated-avatar.js
 var import_react3 = require("react");
-var animatedAvatarsOn = (prefs) => prefs?.animatedAvatars === true;
+var animatedAvatarsOn = (prefs) => prefs?.animatedAvatars !== false;
 var LIVE_TILES = 4;
 var tileAvatar = (prefs, index) => !animatedAvatarsOn(prefs) ? void 0 : index < LIVE_TILES ? "live" : "still";
 var DRAWN_ONLY = "muse-spider";
@@ -46647,7 +46647,7 @@ function MotionSection({ roster, actions, run: run2 }) {
         }
       }, t(label))))
     ),
-    // Muse: off by default; on, the Main Bot tiles and the details page draw animated avatars.
+    // Muse: on by default; off, the Main Bot tiles and the details page draw the drawn marks again.
     (0, import_react67.createElement)(
       SetRow,
       { label: t("Animated avatars") },

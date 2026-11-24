@@ -1,5 +1,5 @@
-// Muse: the animated avatars (src/client/animated-avatar.js), off until their switch is turned
-// on: the seven default characters as open-bot-avatar definitions, what the wrapper hands the
+// Muse: the animated avatars (src/client/animated-avatar.js), on until their switch is turned
+// off: the seven default characters as open-bot-avatar definitions, what the wrapper hands the
 // package, and where the drawn mark stays: everywhere while the switch is off, and on the Muse
 // spider, a picture and the other characters when it is on.
 import assert from 'node:assert/strict'
@@ -245,16 +245,18 @@ test('the options name the Bot, paint the eyes like the surface and leave pettin
   assert.equal(client.avatarOptions(avatar, { ...page, effects: 'reduced' }).reducedMotion, true)
 })
 
-test('the switch is off until it is turned on, and then only the first Main Bot tiles move', () => {
+test('the switch is on until it is turned off, and only the first Main Bot tiles move', () => {
   const { client } = load()
-  // A team that never set it, and the `false` an earlier build stored for off.
-  for (const prefs of [undefined, {}, { animatedAvatars: false }, { animatedAvatars: null }, { animatedAvatars: 'true' }, { animatedAvatars: 1 }]) {
-    assert.equal(client.animatedAvatarsOn(prefs), false, JSON.stringify(prefs))
-    assert.deepEqual([0, 4].map(index => client.tileAvatar(prefs, index)), [undefined, undefined], JSON.stringify(prefs))
+  // On: a team with no key (the default), the `true` stored while off was the default, and
+  // anything else that is not an explicit off.
+  for (const prefs of [undefined, {}, { animatedAvatars: true }, { animatedAvatars: null }, { animatedAvatars: 'false' }, { animatedAvatars: 0 }]) {
+    assert.equal(client.animatedAvatarsOn(prefs), true, JSON.stringify(prefs))
+    assert.deepEqual([0, 3, 4, 9].map(index => client.tileAvatar(prefs, index)), ['live', 'live', 'still', 'still'], JSON.stringify(prefs))
   }
-  const on = { animatedAvatars: true }
-  assert.equal(client.animatedAvatarsOn(on), true)
-  assert.deepEqual([0, 3, 4, 9].map(index => client.tileAvatar(on, index)), ['live', 'live', 'still', 'still'])
+  // Off: only a stored `false`, whichever build wrote it.
+  const off = { animatedAvatars: false }
+  assert.equal(client.animatedAvatarsOn(off), false)
+  assert.deepEqual([0, 4].map(index => client.tileAvatar(off, index)), [undefined, undefined])
 })
 
 test('a picture, the Muse spider and a character with no definition have nothing to animate', () => {
@@ -415,36 +417,35 @@ const isLive = node => classesOf(node).includes('bt-mark-live') || node.type ===
 
 test('with the switch off a tile and a details page draw the marks they drew before, and the package is never asked', () => {
   const bots = [...DEFAULT_SHAPES.map(shape => botOf(shape)), SPIDER_BOT, PICTURE_BOT, botOf('whale')]
-  // A team that never touched the switch, and the `false` an earlier build stored.
-  for (const prefs of [undefined, {}, { animatedAvatars: false }]) {
-    const page = load()
-    const { BotAvatar, DetailsAvatar, tileAvatar, animatedAvatarsOn } = page.client
-    const h = page.react.createElement
-    for (const bot of bots) {
-      // The tile as sidebar.js builds it, beside the avatar it built before the animated avatars.
-      const tile = page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu', animated: tileAvatar(prefs, 0) }))
-      assert.equal(written(tile), written(page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu' }))), bot.id)
-      // The details page as details-drawer.js builds it, beside what DetailsAvatar returned before.
-      const details = page.mount(h(DetailsAvatar, { bot, main: true, running: true, activity: 'thinking', awaitingInput: false, animated: animatedAvatarsOn(prefs) }))
-      if (bot !== SPIDER_BOT) {
-        assert.equal(written(details), written(page.mount(h(BotAvatar, { bot, size: 64, main: true, state: 'thinking', badge: false, gaze: true, pokeable: true }))), bot.id)
-      }
-      for (const tree of [tile, details]) {
-        assert.deepEqual(find(tree, isLive), [], bot.id)
-        // The drawing is the character's own markup, from characters.js.
-        if (bot !== PICTURE_BOT) assert.equal(drawingOf(tree), characterMarkup(bot.avatar.shape, 'cyan'), bot.id)
-      }
+  // Off is a stored `false` and nothing else.
+  const prefs = { animatedAvatars: false }
+  const page = load()
+  const { BotAvatar, DetailsAvatar, tileAvatar, animatedAvatarsOn } = page.client
+  const h = page.react.createElement
+  for (const bot of bots) {
+    // The tile as sidebar.js builds it, beside the avatar it built before the animated avatars.
+    const tile = page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu', animated: tileAvatar(prefs, 0) }))
+    assert.equal(written(tile), written(page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu' }))), bot.id)
+    // The details page as details-drawer.js builds it, beside what DetailsAvatar returned before.
+    const details = page.mount(h(DetailsAvatar, { bot, main: true, running: true, activity: 'thinking', awaitingInput: false, animated: animatedAvatarsOn(prefs) }))
+    if (bot !== SPIDER_BOT) {
+      assert.equal(written(details), written(page.mount(h(BotAvatar, { bot, size: 64, main: true, state: 'thinking', badge: false, gaze: true, pokeable: true }))), bot.id)
     }
-    assert.equal(page.mounts.length, 0)
+    for (const tree of [tile, details]) {
+      assert.deepEqual(find(tree, isLive), [], bot.id)
+      // The drawing is the character's own markup, from characters.js.
+      if (bot !== PICTURE_BOT) assert.equal(drawingOf(tree), characterMarkup(bot.avatar.shape, 'cyan'), bot.id)
+    }
   }
+  assert.equal(page.mounts.length, 0)
 })
 
 test('with the switch on the seven default characters are the package\'s avatars, on a tile and on the details page', () => {
   const page = load()
   const { BotAvatar, DetailsAvatar, AnimatedAvatar, tileAvatar, animatedAvatarsOn } = page.client
   const h = page.react.createElement
-  const prefs = { animatedAvatars: true }
-  for (const shape of DEFAULT_SHAPES) {
+  // On: a team that never touched the switch (with and without preferences), and a stored `true`.
+  for (const [prefs, shape] of [undefined, {}, { animatedAvatars: true }].flatMap(prefs => DEFAULT_SHAPES.map(shape => [prefs, shape]))) {
     const bot = botOf(shape)
     page.mounts.length = 0
     const tile = page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu', animated: tileAvatar(prefs, 0) }))
@@ -466,7 +467,9 @@ test('with the switch on a spider Bot still renders the vector spider, in the Bo
   const page = load()
   const { BotAvatar, BotMark, DetailsAvatar, tileAvatar, animatedAvatarsOn } = page.client
   const h = page.react.createElement
-  const prefs = { animatedAvatars: true }
+  // The default: no key stored.
+  const prefs = {}
+  assert.equal(animatedAvatarsOn(prefs), true)
   const spiderIn = paint => `<path d="${SPIDER.body}" fill="${paint}"/>`
   for (const [bot, paint] of [[SPIDER_BOT, 'var(--bt-ink-cyan)'], [botOf('muse-spider', { color: 'violet' }), SPIDER.base], [botOf('muse-spider', { color: '#418fae' }), '#418fae']]) {
     // Every tile place, moving and still.
@@ -561,10 +564,10 @@ test('Settings → Bots has one switch for the animated avatars, with no hint', 
     }))
     return { calls, switches: find(tree, node => node.props?.role === 'switch' && node.props['aria-label'] === 'Animated avatars'), tree }
   }
-  // A team that never touched it sees the switch off.
+  // A team that never touched it sees the switch on.
   const first = dialog({})
   assert.equal(first.switches.length, 1)
-  assert.equal(first.switches[0].props['aria-checked'], false)
+  assert.equal(first.switches[0].props['aria-checked'], true)
   // Its row sits in the Animation card under Bot animation, and says nothing more than its label.
   const [row] = find(first.tree, node => classesOf(node).includes('bt-set-row') && find(node, child => child === first.switches[0]).length === 1)
   assert.equal(text(row), 'Animated avatars')
@@ -572,16 +575,17 @@ test('Settings → Bots has one switch for the animated avatars, with no hint', 
   const [card] = find(first.tree, node => classesOf(node).includes('bt-set-card') && find(node, child => child === row).length === 1)
   assert.deepEqual(find(card, node => classesOf(node).includes('bt-set-row')).map(text).map(label => label.replace(/Quiet.*$/, '')), ['Bot animation', 'Animated avatars'])
   first.switches[0].props.onClick()
-  assert.deepEqual(plain(first.calls), [{ animatedAvatars: true }])
-  const on = dialog({ animatedAvatars: true })
-  assert.equal(on.switches[0].props['aria-checked'], true)
-  on.switches[0].props.onClick()
-  assert.deepEqual(plain(on.calls), [{ animatedAvatars: false }])
-  // The `false` an earlier build stored shows as off, and one click turns it on.
-  const stored = dialog({ animatedAvatars: false })
-  assert.equal(stored.switches[0].props['aria-checked'], false)
+  assert.deepEqual(plain(first.calls), [{ animatedAvatars: false }])
+  // A stored `false` shows as off, and one click turns it on.
+  const off = dialog({ animatedAvatars: false })
+  assert.equal(off.switches[0].props['aria-checked'], false)
+  off.switches[0].props.onClick()
+  assert.deepEqual(plain(off.calls), [{ animatedAvatars: true }])
+  // The `true` stored while off was the default shows as on, and one click turns it off.
+  const stored = dialog({ animatedAvatars: true })
+  assert.equal(stored.switches[0].props['aria-checked'], true)
   stored.switches[0].props.onClick()
-  assert.deepEqual(plain(stored.calls), [{ animatedAvatars: true }])
+  assert.deepEqual(plain(stored.calls), [{ animatedAvatars: false }])
 })
 
 test('the host of an animated avatar takes no pointer inside, and its tile keeps the name on top', () => {

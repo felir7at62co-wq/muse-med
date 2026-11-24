@@ -146,7 +146,7 @@ test('the client channel answers from the saved state', async (t) => {
     version: 1,
     mainBotId: 'm1',
     revision: 4,
-    // Muse: what a build that had the animated avatars on by default stored for off.
+    // Muse: the animated avatars switched off.
     prefs: { animatedAvatars: false },
     bots: {
       m1: { id: 'm1', name: 'Chief', role: 'Chief of Staff', lab: 'deepseek', appliedModel: 'ollama/deepseek-v4.1-flash', instructions: '', createdAt: 1 },
@@ -203,17 +203,18 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: true })).value, false)
   await call('set-prefs', { enterToSend: false })
   assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: null })).value, false)
-  // Muse: the animated avatars are off by default; only switching them on is stored. The
-  // `false` the saved team carries loads as it is, reads as off, and goes with the next off.
+  // Muse: the animated avatars are on by default; only switching them off is stored. The
+  // `false` the saved team carries loads as it is, and switching on removes it.
   assert.equal((await call('state')).value.prefs.animatedAvatars, false)
   assert.equal((await call('set-prefs', {})).value.animatedAvatars, false)
-  assert.equal((await call('set-prefs', { animatedAvatars: true })).value.animatedAvatars, true)
-  assert.equal((await call('state')).value.prefs.animatedAvatars, true)
-  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: false })).value, false)
-  await call('set-prefs', { animatedAvatars: true })
-  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: null })).value, false)
+  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: true })).value, false)
+  assert.equal('animatedAvatars' in (await call('state')).value.prefs, false)
+  assert.equal((await call('set-prefs', { animatedAvatars: false })).value.animatedAvatars, false)
+  assert.equal((await call('state')).value.prefs.animatedAvatars, false)
   // A value this version does not know changes nothing.
-  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: 'on' })).value, false)
+  assert.equal((await call('set-prefs', { animatedAvatars: 'on' })).value.animatedAvatars, false)
+  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: null })).value, false)
+  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: 'off' })).value, false)
   // A refusal from the team code keeps its message for the user.
   assert.deepEqual((await call('delete-bot', { id: 'nobody' })).error, { code: 'bot/refused', message: 'Unknown Bot', details: {} })
   // Off the Desktop profile there are no Bot browsers.
@@ -233,6 +234,18 @@ const TEAM = {
   exchangeTurns: {},
   questions: {},
 }
+
+test('a `true` stored for the animated avatars while off was the default stays until the next write', async (t) => {
+  const { call, stop } = start({ ...TEAM, prefs: { animatedAvatars: true } })
+  t.after(stop)
+  // It loads as it is and another preference leaves it alone: the client reads it as on.
+  assert.equal((await call('state')).value.prefs.animatedAvatars, true)
+  assert.equal((await call('set-prefs', { motion: 'lively' })).value.animatedAvatars, true)
+  // Switching on again stores nothing, which is on; off stores `false`.
+  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: true })).value, false)
+  assert.equal((await call('set-prefs', { animatedAvatars: false })).value.animatedAvatars, false)
+  assert.equal((await call('state')).value.prefs.animatedAvatars, false)
+})
 
 test('in the Desktop profile read_browser is the last tool and reads through the window', async (t) => {
   const { ctx, call, stop } = start(TEAM, { services: { profileContext: { name: 'desktop' } } })

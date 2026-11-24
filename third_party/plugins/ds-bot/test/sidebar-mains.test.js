@@ -149,7 +149,7 @@ test('one Main Bot is the single tile it was: avatar, name and label', () => {
   assert.match(scripts.type(scripts.props).props['aria-label'], /Pinned/)
 })
 
-test('the Main Bot tiles draw animated avatars only once the switch is on, and rows never do', () => {
+test('the Main Bot tiles draw animated avatars unless the switch is off, and rows never do', () => {
   const mains = ['chief', 'scripts', 'ops', 'editor', 'writer']
   const avatarOf = (row) => {
     const root = row.type(row.props)
@@ -159,29 +159,29 @@ test('the Main Bot tiles draw animated avatars only once the switch is on, and r
   }
   const animatedOf = rows => rows.map(row => avatarOf(row).props.animated)
   const drawn = tree => JSON.stringify(expand(tree), (key, value) => (typeof value === 'function' ? '[function]' : value)).replace(/bt-mark-\d+/g, 'bt-mark-N')
-  // A team that never touched the switch, and the `false` an earlier build stored for off.
-  for (const prefs of [undefined, {}, { animatedAvatars: false }]) {
-    const column = openColumn({ ...team(mains), ...(prefs === undefined ? {} : { prefs }) })
-    assert.deepEqual(animatedOf(column.tileRows), [undefined, undefined, undefined, undefined, undefined])
-    assert.deepEqual(animatedOf(column.listRows), [undefined])
-    for (const row of column.tileRows) {
-      // The tile's avatar draws what the avatar drew before the animated avatars: the same
-      // elements as BotAvatar given the tile's own five props.
-      const avatar = avatarOf(row)
-      const { bot, size, state, main, im } = avatar.props
-      assert.deepEqual([size, main], [60, true])
-      assert.equal(drawn(avatar), drawn(react.createElement(BotAvatar, { bot, size, state, main, im })))
-      assert.doesNotMatch(drawn(avatar), /bt-mark-live|canvas/)
-    }
+  // A team that never touched the switch, and the `true` stored while off was the default:
+  // the first four tiles move; a fifth is one still picture, so the row never runs more canvases.
+  for (const prefs of [undefined, {}, { animatedAvatars: true }]) {
+    const on = openColumn({ ...team(mains), ...(prefs === undefined ? {} : { prefs }) })
+    assert.deepEqual(animatedOf(on.tileRows), ['live', 'live', 'live', 'live', 'still'])
+    assert.deepEqual(animatedOf(on.listRows), [undefined])
+    // On the rail a Main Bot is a row, and keeps the drawn mark.
+    const rail = walk(sidebar({ ...team(mains), ...(prefs === undefined ? {} : { prefs }) }, 'rail'), isBotRow)
+    assert.equal(rail.length > 0, true)
+    assert.deepEqual(animatedOf(rail), rail.map(() => undefined))
   }
-  // Switched on, the first four tiles move; a fifth is one still picture, so the row never runs more canvases.
-  const on = openColumn({ ...team(mains), prefs: { animatedAvatars: true } })
-  assert.deepEqual(animatedOf(on.tileRows), ['live', 'live', 'live', 'live', 'still'])
-  assert.deepEqual(animatedOf(on.listRows), [undefined])
-  // On the rail a Main Bot is a row, and keeps the drawn mark.
-  const rail = walk(sidebar({ ...team(mains), prefs: { animatedAvatars: true } }, 'rail'), isBotRow)
-  assert.equal(rail.length > 0, true)
-  assert.deepEqual(animatedOf(rail), rail.map(() => undefined))
+  // Switched off, every tile's avatar draws what it drew before the animated avatars: the same
+  // elements as BotAvatar given the tile's own five props.
+  const off = openColumn({ ...team(mains), prefs: { animatedAvatars: false } })
+  assert.deepEqual(animatedOf(off.tileRows), [undefined, undefined, undefined, undefined, undefined])
+  assert.deepEqual(animatedOf(off.listRows), [undefined])
+  for (const row of off.tileRows) {
+    const avatar = avatarOf(row)
+    const { bot, size, state, main, im } = avatar.props
+    assert.deepEqual([size, main], [60, true])
+    assert.equal(drawn(avatar), drawn(react.createElement(BotAvatar, { bot, size, state, main, im })))
+    assert.doesNotMatch(drawn(avatar), /bt-mark-live|canvas/)
+  }
 })
 
 test('a team with no Main Bot yet draws no tile row', () => {

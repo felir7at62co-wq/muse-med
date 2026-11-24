@@ -251,7 +251,7 @@ function MotionSection({ roster, actions, run }) {
         key: id, type: 'button', 'aria-pressed': motion === id,
         onClick: () => { if (motion !== id) run(actions.setPrefs({ motion: id })) },
       }, t(label))))),
-    // Muse: off by default; on, the Main Bot tiles and the details page draw animated avatars.
+    // Muse: on by default; off, the Main Bot tiles and the details page draw the drawn marks again.
     h(SetRow, { label: t('Animated avatars') },
       h(Switch, { label: t('Animated avatars'), on: animatedAvatarsOn(roster.prefs), onChange: animatedAvatars => run(actions.setPrefs({ animatedAvatars })) })))
 }

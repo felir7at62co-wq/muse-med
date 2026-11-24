@@ -1,4 +1,4 @@
-// Muse: animated avatars, off until Settings → Bots → Animation turns them on. open-bot-avatar
+// Muse: animated avatars, on until Settings → Bots → Animation turns them off. open-bot-avatar
 // draws a character from one outline and an eye pair (avatar-definitions.js) and moves it for
 // what the Bot is doing. It shows in two places, the Main Bot tiles of the sidebar and the avatar
 // of a Bot's details page; a Bot with a picture, the Muse spider and every other character keep
@@ -12,9 +12,11 @@ import { effectsTier } from './motion.js'
 /**
  * Whether the animated avatars are on (Settings → Bots → Animation).
  * @param {object | undefined} prefs - The team preferences.
- * @returns {boolean} True only when the switch was turned on; a team that never set it has the drawn marks.
+ * @returns {boolean} True unless the switch was turned off. The stored `animatedAvatars` reads:
+ *   no key, on (the default; also a team that turned it on and off again while off was the
+ *   default, which left no key); `true`, on (stored while off was the default); `false`, off.
  */
-export const animatedAvatarsOn = prefs => prefs?.animatedAvatars === true
+export const animatedAvatarsOn = prefs => prefs?.animatedAvatars !== false
 
 // A live avatar repaints its own canvas every frame, so only the first Main Bot tiles move.
 // With the avatar of the details page that is five canvases at most.
