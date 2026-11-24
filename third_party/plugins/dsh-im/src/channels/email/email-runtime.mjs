@@ -1,3 +1,4 @@
+import { textExternalChannel } from '../shared/text-external.mjs';
 import { extractConnectionEvidence, createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';
 import { sendRememberedConnectionTest } from '../shared/connection-test.mjs';
 import {
@@ -309,6 +310,7 @@ export function createEmailRuntimeStatus() {
 }
 
 export class EmailRuntime {
+  #external;
   #config;
   #token;
   #harness;
@@ -346,7 +348,10 @@ export class EmailRuntime {
     // default exists for direct construction (tests) and assumes IMAP/SMTP.
     createApi = (options) => new EmailApi(options),
     credential = null, onTokensRefreshed = null, createTransport = null,
+    external,
   }) {
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
     // `token` is absent for a transport that authenticates another way: the
     // Agent mailbox lets agently-cli hold the credentials in the system
     // keychain, so requiring one here blocked it from ever starting.
@@ -415,8 +420,10 @@ export class EmailRuntime {
     this.#status.connectionState = 'connecting';
     this.#abortController = new AbortController();
     try {
-      await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
-      this.#status.harnessReachable = true;
+      if (!this.#external) {
+        await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
+        this.#status.harnessReachable = true;
+      }
       const api = this.#createApi({
         config: {
           address: this.#config.platformId,
@@ -461,7 +468,12 @@ export class EmailRuntime {
         }
       }
       const client = new EmailBotClient(api, this.#abortController.signal);
-      this.#bridge = new EmailHarnessBridge({
+      this.#bridge = this.#external ? this.#external.createBridge({
+        ...textExternalChannel({ channel: 'email', bot: client }),
+        status: this.#status,
+        logger: this.#logger,
+        signal: this.#abortController.signal,
+      }) : new EmailHarnessBridge({
         bot: client,
         harness: this.#harness,
         state: this.#state,

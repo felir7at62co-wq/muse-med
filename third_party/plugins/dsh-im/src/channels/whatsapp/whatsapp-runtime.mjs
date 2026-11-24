@@ -1,3 +1,4 @@
+import { textExternalChannel } from '../shared/text-external.mjs';
 import { captureGroupHistory, groupHistoryEntry } from '../shared/group-history.mjs';
 import { createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';
 import { createHash, randomBytes } from 'node:crypto';
@@ -720,6 +721,7 @@ export function createWhatsappRuntimeStatus() {
 }
 
 export class WhatsappRuntime {
+  #external;
   #config;
   #authDir;
   #harness;
@@ -753,7 +755,10 @@ export class WhatsappRuntime {
     connectTimeoutMs = 30_000,
     mediaUploadTimeoutMs = WHATSAPP_MEDIA_UPLOAD_TIMEOUT_MS,
     createSession = createWhatsappWebSession,
+    external,
   }) {
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
     if (!config || !authDir || !harness || !state || typeof createSession !== 'function') {
       throw new TypeError('WhatsappRuntime requires config, auth directory, Harness, state, and session factory');
     }
@@ -793,8 +798,10 @@ export class WhatsappRuntime {
     this.#status.startedAt = new Date().toISOString();
     this.#status.connectionState = 'connecting';
     this.#status.lastError = null; this.#status.error = null; this.#diagnostics.clear();
-    await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
-    this.#status.harnessReachable = true;
+    if (!this.#external) {
+      await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
+      this.#status.harnessReachable = true;
+    }
     const controller = new AbortController();
     this.#abortController = controller;
     const outboundIds = new RecentWhatsappOutboundIds();
@@ -882,7 +889,12 @@ export class WhatsappRuntime {
         logger: this.#logger,
       });
       this.#client = client;
-      this.#bridge = new WhatsappHarnessBridge({
+      this.#bridge = this.#external ? this.#external.createBridge({
+        ...textExternalChannel({ channel: 'whatsapp', bot: client }),
+        status: this.#status,
+        logger: this.#logger,
+        signal: controller.signal,
+      }) : new WhatsappHarnessBridge({
         bot: client,
         harness: this.#harness,
         state: this.#state,

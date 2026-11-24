@@ -40248,8 +40248,8 @@ function PhonePage({ roster, actions, Section: Section2, Row: Row4 }) {
 // src/client/im-page.js
 var import_react58 = require("react");
 var import_react_dom10 = require("react-dom");
-var BRAND = { telegram: "telegram", weixin: "wechat", qq: "qq", discord: "discord", slack: "slack" };
-var MONO = { feishu: "飞", dingtalk: "钉", wecom: "企", "wecom-app": "企", email: "@" };
+var BRAND = { telegram: "telegram", weixin: "wechat", qq: "qq", discord: "discord", slack: "slack", email: "mail" };
+var MONO = { feishu: "飞", dingtalk: "钉", wecom: "企", "wecom-app": "企" };
 var GUIDES = {
   telegram: {
     link: ["https://t.me/BotFather", "BotFather"],

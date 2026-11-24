@@ -1,3 +1,4 @@
+import { textExternalChannel } from '../shared/text-external.mjs';
 import { createEditableMessageStream, splitMessageText } from '../shared/editable-message-stream.mjs';
 import { t } from '../shared/i18n.mjs';
 import {
@@ -169,6 +170,7 @@ export function createMatrixRuntimeStatus() {
 }
 
 export class MatrixRuntime {
+  #external;
   #config;
   #auth;
   #harness;
@@ -222,7 +224,10 @@ export class MatrixRuntime {
     createCrypto = null,
     roomHistory = null,
     isKnownCommand,
+    external,
   } = {}) {
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
     const homeserver = validateMatrixHomeserver(config.homeserver);
     if (!homeserver) throw new TypeError('Matrix runtime requires a valid homeserver');
     const token = cleanString(accessToken);
@@ -422,7 +427,12 @@ export class MatrixRuntime {
     if (generation !== this.#generation) return;
     this.#clock = new ClockSkewGuard({});
     this.#ring.seed(this.#state.snapshot?.()?.seenMessageIds ?? []);
-    this.#bridge = new MatrixHarnessBridge({
+    this.#bridge = this.#external ? this.#external.createBridge({
+      ...textExternalChannel({ channel: 'matrix', bot: this.#createBotClient() }),
+      status: this.#status,
+      logger: this.#logger,
+      signal: this.#approvalController.signal,
+    }) : new MatrixHarnessBridge({
       descriptor: { ...MATRIX_DESCRIPTOR, reactions: this.#config.reactions ? MATRIX_DESCRIPTOR.reactions : {} },
       bot: this.#createBotClient(),
       harness: this.#harness,

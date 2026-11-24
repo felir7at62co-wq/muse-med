@@ -122,3 +122,45 @@ test('picking a Bot binds a private chat, and picking the follow choice clears i
     ['im_test', { chatKey: 'chat-guest', target: null }],
   ])
 })
+
+test('dsh-im accounts that no connection takes are listed with a Bot picker that links them', async t => {
+  const dom = new JSDOM('<!doctype html><body><main></main></body>')
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })
+  const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true }
+  const descriptors = Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
+  for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, value })
+  const module = { exports: {} }
+  runInNewContext(outputFiles[0].text, {
+    ...globals, navigator: dom.window.navigator, module, exports: module.exports, require: requireWeb,
+    setTimeout, clearTimeout, requestAnimationFrame: fn => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout,
+  })
+  const links = []
+  let opened = 0
+  const actions = { imLink: (body) => { links.push(structuredClone(body)); return Promise.resolve(true) } }
+  const roster = {
+    bots, rooms, im: { connections: [], platforms: ['feishu'] }, imStatus: {},
+    imAvailable: [{ botId: 'wx_one', channel: 'weixin', name: 'Studio WeChat', connected: true }, { botId: 'wecomapp_one', channel: 'wecom-app', name: 'HR app', connected: false }],
+  }
+  const container = dom.window.document.querySelector('main')
+  const root = createRoot(container)
+  t.after(() => {
+    act(() => root.unmount())
+    dom.window.close()
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else delete globalThis[key]
+    }
+  })
+  act(() => root.render(createElement(module.exports.ImPage, { roster, actions, openImPlugin: () => { opened += 1 } })))
+  const rows = [...container.querySelectorAll('.bt-im-bot')]
+  assert.deepEqual(rows.map(row => [row.querySelector('.bt-im-title').textContent, row.querySelector('.bt-im-status').textContent, row.getAttribute('data-state')]),
+    [['Studio WeChat', 'WeChat', 'ready'], ['HR app', 'WeCom app', 'connecting']])
+  assert.equal(rows[0].querySelector('.bt-im-target').getAttribute('aria-label'), 'Talks to')
+  act(() => rows[0].querySelector('.bt-im-target').click())
+  const writer = [...dom.window.document.querySelectorAll('.bt-im-menu:not([data-leaving]) [role=menuitemradio]')].find(item => item.textContent.includes('Writer'))
+  await act(async () => writer.click())
+  assert.deepEqual(links, [{ dshImBotId: 'wx_one', botId: 'bot-writer' }])
+  const add = [...container.querySelectorAll('button')].find(button => button.textContent === 'Add account')
+  act(() => add.click())
+  assert.equal(opened, 1)
+})

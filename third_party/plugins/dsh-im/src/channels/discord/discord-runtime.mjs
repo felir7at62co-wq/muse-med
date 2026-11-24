@@ -1,3 +1,4 @@
+import { textExternalChannel } from '../shared/text-external.mjs';
 import { captureGroupHistory, groupHistoryEntry } from '../shared/group-history.mjs';
 import { extractConnectionEvidence, createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';
 import { createEditableMessageStream, splitMessageText } from '../shared/editable-message-stream.mjs';
@@ -540,6 +541,7 @@ export function createDiscordRuntimeStatus() {
 }
 
 export class DiscordRuntime {
+  #external;
   #config;
   #token;
   #harness;
@@ -587,7 +589,10 @@ export class DiscordRuntime {
     createApi = (options) => new DiscordApi(options),
     createWebSocket = (url) => new WebSocket(url),
     random = Math.random,
+    external,
   }) {
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
     if (!config || !token || !harness || !state) {
       throw new TypeError('DiscordRuntime requires config, token, Harness, and state');
     }
@@ -670,8 +675,10 @@ export class DiscordRuntime {
     this.#status.startedAt = new Date().toISOString();
     this.#status.connectionState = 'connecting';
     this.#status.lastError = null; this.#status.error = null; this.#diagnostics.clear();
-    await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
-    this.#status.harnessReachable = true;
+    if (!this.#external) {
+      await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
+      this.#status.harnessReachable = true;
+    }
     const controller = new AbortController();
     this.#abortController = controller;
     const api = this.#createApi({ token: this.#token });
@@ -686,7 +693,12 @@ export class DiscordRuntime {
       }
       this.#gatewayUrl = gateway?.url;
       const client = new DiscordBotClient({ api, signal: controller.signal });
-      this.#bridge = new DiscordHarnessBridge({
+      this.#bridge = this.#external ? this.#external.createBridge({
+        ...textExternalChannel({ channel: 'discord', bot: client }),
+        status: this.#status,
+        logger: this.#logger,
+        signal: controller.signal,
+      }) : new DiscordHarnessBridge({
         bot: client,
         harness: this.#harness,
         state: this.#state,

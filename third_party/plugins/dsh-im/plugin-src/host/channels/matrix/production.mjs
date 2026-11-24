@@ -1,3 +1,4 @@
+import { loadExternalConsumerHost } from '../../external-consumer-host.mjs';
 import { unlink } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
@@ -62,6 +63,17 @@ export async function createProductionController(ctx, config = {}, internals = {
     ? observeBotWorkspaceRemovals(configStore, { workspaces })
     : configStore;
   const stateStores = new Map();
+  // Bots handed to Muse's DS Bot keep their connection here and answer through it.
+  let externalController;
+  const external = internals.external ?? await loadExternalConsumerHost({
+    channel: 'matrix',
+    path: resolve(paths.root, 'external-consumers.json'),
+    account: (botId) => (configStore.list().some((item) => item.botId === botId)
+      ? { name: workspaces.aliasFor?.(botId) || botId } : null),
+    reconnect: (botId) => externalController.reconnectBot(botId),
+    consumerWaitMs: config.externalConsumerWaitMs ?? 60_000,
+    logger,
+  });
   const sidecarStores = new Map();
   const cryptoStores = new Map();
   const historyStores = new Map();
@@ -151,6 +163,7 @@ export async function createProductionController(ctx, config = {}, internals = {
       const cryptoStore = e2eeMode === 'off' ? null : await cryptoFor(botId);
       const roomHistory = await historyFor(botId);
       return new ResolvedRuntime({
+        ...(external.isExternal(botId) ? { external: external.runtimeHook(botId) } : {}),
         config: botConfig,
         ...(accessToken ? { accessToken } : {}),
         ...(password ? { password } : {}),
@@ -212,6 +225,7 @@ export async function createProductionController(ctx, config = {}, internals = {
       }
     },
   });
+  externalController = coreController;
   const controller = createWorkspaceAwareController(coreController, {
     workspaces,
     stateFor,
@@ -229,11 +243,12 @@ export async function createProductionController(ctx, config = {}, internals = {
   return {
     controller,
     deliveryAdapter: createDeliveryAdapter({
-      channel: 'matrix', workspaces, coreController, stateFor,
+      channel: 'matrix', workspaces, coreController, stateFor, external,
     }),
     ready: supervisor.ready,
     async close() {
       await supervisor.close();
+      external.close();
       await controller.close();
       harness.stopManagedProcess();
     },

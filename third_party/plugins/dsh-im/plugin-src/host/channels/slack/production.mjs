@@ -1,3 +1,4 @@
+import { loadExternalConsumerHost } from '../../external-consumer-host.mjs';
 import { getGroupHistoryStore } from '../../group-history-runtime.mjs';
 import { getImageInputSettingsStore } from '../../../../src/channels/shared/image-input-settings-store.mjs';
 import { unlink } from 'node:fs/promises';
@@ -61,6 +62,17 @@ export async function createProductionController(ctx, config = {}, internals = {
     ? observeBotWorkspaceRemovals(configStore, { workspaces })
     : configStore;
   const stateStores = new Map();
+  // Bots handed to Muse's DS Bot keep their connection here and answer through it.
+  let externalController;
+  const external = internals.external ?? await loadExternalConsumerHost({
+    channel: 'slack',
+    path: resolve(paths.root, 'external-consumers.json'),
+    account: (botId) => (configStore.list().some((item) => item.botId === botId)
+      ? { name: workspaces.aliasFor?.(botId) || botId } : null),
+    reconnect: (botId) => externalController.reconnectBot(botId),
+    consumerWaitMs: config.externalConsumerWaitMs ?? 60_000,
+    logger,
+  });
   const statePath = (botId) => resolve(paths.bots, botId, 'state.json');
   const stateFor = async (botId) => {
     let state = stateStores.get(botId);
@@ -112,6 +124,7 @@ export async function createProductionController(ctx, config = {}, internals = {
         botId, workspaces, state, agentPresetCatalog,
       });
       return new ResolvedRuntime({
+        ...(external.isExternal(botId) ? { external: external.runtimeHook(botId) } : {}),
         config: botConfig,
         botToken,
         appToken,
@@ -146,6 +159,7 @@ export async function createProductionController(ctx, config = {}, internals = {
       }
     },
   });
+  externalController = coreController;
   const controller = createWorkspaceAwareController(coreController, {
     workspaces,
     stateFor,
@@ -163,11 +177,12 @@ export async function createProductionController(ctx, config = {}, internals = {
   return {
     controller,
     deliveryAdapter: createDeliveryAdapter({
-      channel: 'slack', workspaces, coreController, stateFor,
+      channel: 'slack', workspaces, coreController, stateFor, external,
     }),
     ready: supervisor.ready,
     async close() {
       await supervisor.close();
+      external.close();
       await controller.close();
       harness.stopManagedProcess();
     },

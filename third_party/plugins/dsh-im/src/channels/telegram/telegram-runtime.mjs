@@ -1,3 +1,4 @@
+import { textExternalChannel } from '../shared/text-external.mjs';
 import { captureGroupHistory, groupHistoryEntry } from '../shared/group-history.mjs';
 import { extractConnectionEvidence, createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';
 
@@ -1103,6 +1104,7 @@ export function createTelegramRuntimeStatus() {
 }
 
 export class TelegramRuntime {
+  #external;
   #config;
   #token;
   #harness;
@@ -1145,7 +1147,10 @@ export class TelegramRuntime {
     createApi = (options) => new TelegramApi(options),
     createHttpTransport = createTelegramHttpTransport,
     commandCatalog = SHARED_COMMAND_CATALOG,
+    external,
   }) {
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
     if (!config || !token || !harness || !state) {
       throw new TypeError('TelegramRuntime requires config, token, Harness, and state');
     }
@@ -1225,8 +1230,10 @@ export class TelegramRuntime {
     this.#status.startedAt = new Date().toISOString();
     this.#status.connectionState = 'connecting';
     this.#status.lastError = null; this.#status.error = null; this.#diagnostics.clear();
-    await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
-    this.#status.harnessReachable = true;
+    if (!this.#external) {
+      await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
+      this.#status.harnessReachable = true;
+    }
 
     const controller = new AbortController();
     this.#abortController = controller;
@@ -1263,7 +1270,12 @@ export class TelegramRuntime {
         signal: controller.signal,
         logger: this.#logger,
       });
-      this.#bridge = new TelegramHarnessBridge({
+      this.#bridge = this.#external ? this.#external.createBridge({
+        ...textExternalChannel({ channel: 'telegram', bot: client }),
+        status: this.#status,
+        logger: this.#logger,
+        signal: controller.signal,
+      }) : new TelegramHarnessBridge({
         bot: client,
         harness: this.#harness,
         state: this.#state,

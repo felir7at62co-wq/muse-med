@@ -1,3 +1,4 @@
+import { loadExternalConsumerHost } from '../../external-consumer-host.mjs';
 import { getGroupHistoryStore } from '../../group-history-runtime.mjs';
 import { getImageInputSettingsStore } from '../../../../src/channels/shared/image-input-settings-store.mjs';
 import { unlink } from 'node:fs/promises';
@@ -34,6 +35,7 @@ export function pluginPaths(config, channel) {
   const dshHome = resolve(config.dshHome ?? process.env.DSH_HOME ?? join(homedir(), '.dsh'));
   const root = resolve(config.dataDir ?? join(dshHome, 'integrations', `dsh-${channel}`));
   return {
+    root,
     config: resolve(config.configPath ?? join(root, 'config.json')),
     bots: resolve(config.botsDir ?? join(root, 'bots')),
     workspaces: resolve(config.workspacesPath ?? join(root, 'workspaces.json')),
@@ -92,6 +94,19 @@ export async function createTokenProductionController(ctx, config, internals, de
     initialAccessPolicy: seedAccessPolicy(botConfig),
   });
   const stateStores = new Map();
+  // Bots handed to Muse's DS Bot keep their connection here and answer through it.
+  let externalController;
+  const external = internals.external ?? await loadExternalConsumerHost({
+    channel: channel,
+    path: resolve(paths.root, 'external-consumers.json'),
+    account: (botId) => (configStore.list().some((item) => item.botId === botId)
+      ? { name: workspaces.aliasFor?.(botId) || botId } : null),
+    reconnect: (botId) => externalController.reconnectBot(botId),
+    consumerWaitMs: config.externalConsumerWaitMs ?? 60_000,
+    // iMessage and mail show plain text.
+    formats: ['imessage', 'email'].includes(channel) ? ['plain'] : ['plain', 'markdown'],
+    logger,
+  });
   const statePath = (botId) => resolve(paths.bots, botId, 'state.json');
   const stateFor = async (botId) => {
     let state = stateStores.get(botId);
@@ -170,6 +185,7 @@ export async function createTokenProductionController(ctx, config, internals, de
         })
         : null;
       return new ResolvedRuntime({
+        ...(external.isExternal(botId) ? { external: external.runtimeHook(botId) } : {}),
         ...channelRuntimeOptions,
         config: botConfig,
         token,
@@ -209,6 +225,7 @@ export async function createTokenProductionController(ctx, config, internals, de
       }
     },
   });
+  externalController = coreController;
   controllerRef = coreController;
   const controller = createWorkspaceAwareController(coreController, {
     workspaces,
@@ -227,11 +244,12 @@ export async function createTokenProductionController(ctx, config, internals, de
   return {
     controller,
     ...(supportsDeliveryChannel(channel) ? {
-      deliveryAdapter: createDeliveryAdapter({ channel, workspaces, coreController, stateFor }),
+      deliveryAdapter: createDeliveryAdapter({ channel, workspaces, coreController, stateFor, external }),
     } : {}),
     ready: supervisor.ready,
     async close() {
       await supervisor.close();
+      external.close();
       await controller.close();
       harness.stopManagedProcess();
     },

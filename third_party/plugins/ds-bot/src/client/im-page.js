@@ -17,8 +17,8 @@ import { CheckIcon, ChatsIcon, ChevronLeftIcon, ChevronRightIcon } from './icons
 import { hostText, t } from './i18n.js'
 
 // Brand marks where Simple Icons has one; the others get a plain monogram tile.
-const BRAND = { telegram: 'telegram', weixin: 'wechat', qq: 'qq', discord: 'discord', slack: 'slack' }
-const MONO = { feishu: '飞', dingtalk: '钉', wecom: '企', 'wecom-app': '企', email: '@' }
+const BRAND = { telegram: 'telegram', weixin: 'wechat', qq: 'qq', discord: 'discord', slack: 'slack', email: 'mail' }
+const MONO = { feishu: '飞', dingtalk: '钉', wecom: '企', 'wecom-app': '企' }
 
 const GUIDES = {
   telegram: {

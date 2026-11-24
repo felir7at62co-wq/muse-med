@@ -1,3 +1,4 @@
+import { textExternalChannel } from '../shared/text-external.mjs';
 import { captureGroupHistory, groupHistoryEntry } from '../shared/group-history.mjs';
 import { extractConnectionEvidence, createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';
 import { splitMessageText } from '../shared/editable-message-stream.mjs';
@@ -435,6 +436,7 @@ export function createSlackRuntimeStatus() {
 }
 
 export class SlackRuntime {
+  #external;
   #config;
   #botToken;
   #appToken;
@@ -475,7 +477,10 @@ export class SlackRuntime {
     connectTimeoutMs = 20_000,
     createApi = (options) => new SlackApi(options),
     createWebSocket = (url) => new WebSocket(url),
+    external,
   }) {
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
     if (!config || !botToken || !appToken || !harness || !state) {
       throw new TypeError('SlackRuntime requires config, both tokens, Harness, and state');
     }
@@ -560,8 +565,10 @@ export class SlackRuntime {
     this.#status.startedAt = new Date().toISOString();
     this.#status.connectionState = 'connecting';
     this.#status.lastError = null; this.#status.error = null; this.#diagnostics.clear();
-    await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
-    this.#status.harnessReachable = true;
+    if (!this.#external) {
+      await atConnectionStage('harness.check', () => this.#harness.ensureRunning());
+      this.#status.harnessReachable = true;
+    }
     const controller = new AbortController();
     this.#abortController = controller;
     const api = this.#createApi({ botToken: this.#botToken, appToken: this.#appToken });
@@ -572,7 +579,12 @@ export class SlackRuntime {
         throw new Error('Slack Bot Token identity does not match the saved bot');
       }
       const client = new SlackBotClient({ api, signal: controller.signal, logger: this.#logger });
-      this.#bridge = new SlackHarnessBridge({
+      this.#bridge = this.#external ? this.#external.createBridge({
+        ...textExternalChannel({ channel: 'slack', bot: client }),
+        status: this.#status,
+        logger: this.#logger,
+        signal: controller.signal,
+      }) : new SlackHarnessBridge({
         bot: client,
         harness: this.#harness,
         state: this.#state,

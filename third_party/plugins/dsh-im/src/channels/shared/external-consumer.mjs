@@ -277,6 +277,7 @@ export class ExternalInboundBridge {
   #channel;
   #normalize;
   #reply;
+  #proactive;
   #deliver;
   #status;
   #logger;
@@ -292,17 +293,20 @@ export class ExternalInboundBridge {
    * @param {(raw: any, options?: any) => (object | null | Promise<object | null>)} options.normalize
    *   Channel message → normalized message with attachment `load` functions, or null to ignore.
    * @param {(route: object, text: string, options: {signal?: AbortSignal, format?: string}) => Promise<object|void>} options.reply
+   * @param {(target: any, text: string, options: object) => Promise<unknown>} [options.proactive]
+   *   Unprompted send to a channel-level target, for runtimes that send proactively through their bridge.
    * @param {(message: object) => Promise<void>} options.deliver - Hands one normalized message to the host.
    * @param {object} [options.status] - The runtime's live status record.
    * @param {object} [options.logger]
    * @param {AbortSignal} [options.signal]
    */
-  constructor({ channel, normalize, reply, deliver, status = {}, logger = console, signal }) {
+  constructor({ channel, normalize, reply, proactive, deliver, status = {}, logger = console, signal }) {
     if (typeof normalize !== 'function' || typeof reply !== 'function' || typeof deliver !== 'function')
       throw new TypeError('An external bridge needs normalize, reply and deliver');
     this.#channel = channel;
     this.#normalize = normalize;
     this.#reply = reply;
+    this.#proactive = proactive;
     this.#deliver = deliver;
     this.#status = status;
     this.#logger = logger;
@@ -364,6 +368,18 @@ export class ExternalInboundBridge {
 
   async presentSessionSyncApproval() {
     return false;
+  }
+
+  /** Unprompted send for runtimes whose proactive path goes through their bridge. */
+  async sendProactiveText(target, text, options = {}) {
+    if (typeof this.#proactive !== 'function') throw refusal('capability-unavailable');
+    if (this.#signal?.aborted) throw refusal('bot-not-connected');
+    return this.#proactive(target, text, options);
+  }
+
+  /** The connection test belongs to standalone mode; Muse shows the link state instead. */
+  async sendConnectionTest() {
+    throw refusal('test-target-unavailable', 'This bot is handed to Muse; test it by writing to it.');
   }
 
   async reply(route, text, options = {}) {

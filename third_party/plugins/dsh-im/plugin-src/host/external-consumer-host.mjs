@@ -127,9 +127,9 @@ export function createExternalConsumerHost({ channel, modeStore, account, reconn
     runtimeHook(botId) {
       if (!modeStore.has(botId)) return undefined;
       return Object.freeze({
-        createBridge({ normalize, reply, status, logger: runtimeLogger = logger, signal }) {
+        createBridge({ normalize, reply, proactive, status, logger: runtimeLogger = logger, signal }) {
           const bridge = new ExternalInboundBridge({
-            channel, normalize, reply, status, logger: runtimeLogger, signal,
+            channel, normalize, reply, proactive, status, logger: runtimeLogger, signal,
             deliver: (message) => deliver(botId, message, signal),
           });
           bridges.set(botId, { bridge, status, signal });

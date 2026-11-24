@@ -1,3 +1,4 @@
+import { textExternalChannel } from '../shared/text-external.mjs';
 import { createConnectionDiagnostics, atConnectionStage } from '../shared/connection-error.mjs';
 import { sendRememberedConnectionTest } from '../shared/connection-test.mjs';
 import { MacOSMessagesApi, normalizeIMessage } from './imessage-api.mjs';
@@ -26,13 +27,16 @@ export function createIMessageRuntimeStatus() {
 }
 
 export class IMessageRuntime {
+  #external;
   #config; #token; #harness; #state; #contextEnhancement; #accessPolicy; #logger;
   #diagnostics;
   #replyTimeoutMs; #pollIntervalMs; #createApi; #status = createIMessageRuntimeStatus();
   #api; #bridge; #abortController; #timer; #polling; #stopped = true;
   constructor({ config, token, harness, state, contextEnhancement, accessPolicy, logger = console,
     replyTimeoutMs = 600_000, pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-    createApi = (options) => new MacOSMessagesApi(options) }) {
+    createApi = (options) => new MacOSMessagesApi(options), external }) {
+    // Set while the bot is handed to an external consumer (Muse): no DSH Session answers.
+    this.#external = external;
     if (!config || !token || !harness || !state) throw new TypeError('IMessageRuntime requires config, token, Harness, and state');
     this.#config = config; this.#token = token; this.#harness = harness; this.#state = state;
     this.#contextEnhancement = contextEnhancement; this.#accessPolicy = accessPolicy; this.#logger = logger; this.#diagnostics = createConnectionDiagnostics({ channel: 'imessage', logger });
@@ -62,7 +66,7 @@ export class IMessageRuntime {
     await this.stop(); this.#stopped = false; this.#status.startedAt = new Date().toISOString(); this.#status.connectionState = 'connecting';
     this.#abortController = new AbortController();
     try {
-      await atConnectionStage('harness.check', () => this.#harness.ensureRunning()); this.#status.harnessReachable = true;
+      if (!this.#external) { await atConnectionStage('harness.check', () => this.#harness.ensureRunning()); this.#status.harnessReachable = true; }
       this.#api = this.#createApi({ signal: this.#abortController.signal });
       const permissions = await this.#api.getPermissions();
       if (permissions.database !== 'granted' || permissions.automation !== 'granted') {
@@ -75,7 +79,12 @@ export class IMessageRuntime {
         await this.#state.setCursor(await this.#api.getLatestMessageRowId());
       }
       const client = new IMessageBotClient(this.#api, this.#abortController.signal);
-      this.#bridge = new IMessageHarnessBridge({ bot: client, harness: this.#harness, state: this.#state,
+      this.#bridge = this.#external ? this.#external.createBridge({
+        ...textExternalChannel({ channel: 'imessage', bot: client }),
+        status: this.#status,
+        logger: this.#logger,
+        signal: this.#abortController.signal,
+      }) : new IMessageHarnessBridge({ bot: client, harness: this.#harness, state: this.#state,
         contextEnhancement: this.#contextEnhancement, accessPolicy: this.#accessPolicy, status: this.#status,
         logger: this.#logger, replyTimeoutMs: this.#replyTimeoutMs, signal: this.#abortController.signal });
       this.#status.ready = true; this.#status.connectionState = 'connected'; this.#status.lastConnectedAt = Date.now();
