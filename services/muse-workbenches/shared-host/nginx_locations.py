@@ -93,6 +93,12 @@ def render():
     )))
     blocks.append(route("= /jingliu/fwp/v2/auth/muse/internal-session", " return 404; "))
     blocks.append(route("= /jingliu/fwp/v2/auth/muse/login", " return 302 /jingliu/; "))
+    blocks.append(
+        "# Jingliu serves its whole data dir under /media (database, sign-in store, backups included).\n"
+        "# Only the media folders may pass; everything else under media is refused before login.\n"
+        + route("^~ /jingliu/fwp/media/", """
+    if ($uri !~ "^/jingliu/fwp/media/(generated|uploads|outputs|character-references|exports|bgm-library|sfx-library|voice-library|appcast)/") { return 404; }
+    if ($uri ~ "/\\.") { return 404; }""" + gate("jingliu", "http://127.0.0.1:19743/", True)))
     blocks.append(route("^~ /jingliu/fwp/", gate("jingliu", "http://127.0.0.1:19743/", True)))
     blocks.append(route("= /jingliu/sfp", " return 308 /jingliu/sfp/; "))
     blocks.append(route("^~ /jingliu/sfp/", """

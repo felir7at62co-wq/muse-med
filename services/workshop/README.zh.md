@@ -14,6 +14,8 @@
 
 草稿所有者和管理员可编辑每集正文和结构化分场，预览两类历史版本，恢复已保存的版本，以及导出 Word、Markdown 或纯文本。保存、采纳正文候选稿和恢复均校验当前版本，并在同一事务中归档修改前的版本。完整草稿由所有者定稿。定稿校验整稿版本并复用该草稿的剧本库条目，已选用的版本保持有效。
 
+云端的 `app.main:app` 尚未挂载编辑器。`/jubengongfang/v1/script-editor/` 由单独的 uvicorn 进程运行 `app.script_editor_canary:app` 提供，它只挂载编辑器路由，并且只放行 `MUSE_SCRIPT_EDITOR_CANARY_USERS` 中以逗号分隔列出的工坊账号 ID；其他账号收到 403 `SCRIPT_EDITOR_CANARY`。`python -m app.script_editor_canary_schema` 创建编辑器的 `script_editor_candidates` 和 `script_editor_publications` 两张表，并核对它们的列、主键和外键。
+
 ## 定稿剧本库读者
 
 绑定文件之外的公司 Muse 账号经同域部署第一次登录时，会得到一个定稿库读者账号。`app/muse_readers.py` 为每个 Muse 账号开一个工坊用户，`login_id` 为 `muse:<账户 ID>`，角色 `user`，没有密码和功能开关。[同域边缘代理](../muse-workbenches/README.zh.md#company-accounts)只为读者放行定稿库和本人资料。读者可以列出和阅读全部定稿剧本，有 `script_pick` 才能选用，有 `script_finalize` 才能上传定稿。

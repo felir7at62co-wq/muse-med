@@ -14,6 +14,9 @@ integrations/muse-kb/*.patch whitespace=-blank-at-eol
 # DTK patches apply to the pinned upstream source as unified diffs.
 services/muse-media/deploy/patches/*.patch whitespace=-blank-at-eol
 
+# The Workshop schema dump stays byte-identical to the deployed copy, which pg_dump ends with a blank line.
+services/muse-workbenches/shared-host/schema.sql whitespace=-blank-at-eof
+
 # The reviewed optional-adapter patch stays byte-identical to its pinned hash;
 # a unified diff needs one space to mark a blank context line.
 third_party/optional-plugins/*/*.patch whitespace=-blank-at-eol

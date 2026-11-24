@@ -64,11 +64,11 @@ location /fwp/ { proxy_pass http://jingliu_api/; }
 
 工坊应发布重新构建的 Next 站点。对沿用预构建 Next 的临时验收副本，也可在代理上处理登录重定向，并在所有原站 HTML 文档的 `<head>` 开头同步加载 `<script src="/v1/auth/muse/storage.js"></script>`。同源代理必须允许此脚本。重新构建的工坊和安装后的镜流静态站已包含这项修改。登录/回调响应禁止缓存，网关和应用访问日志应只记录路径，省略包括登录码在内的 query。原站页面的 frame-ancestors 应允许指定的 Muse 父页面。
 
-同域部署在 Muse 账号站的 `/jubengongfang/` 提供剧本工坊，`/jingliu/` 提供镜流。[路径代理](shared-host/nginx_locations.py)为每次业务请求核验当前 Muse 登录和对应工作台的账号绑定，业务接口接收自己的令牌。入口页按浏览器标签页和关联账号保存原版页面所需的状态。两个应用共享 Muse 网页源，这些路径只应提供公司管理的应用代码。
+同域部署在 Muse 账号站的 `/jubengongfang/` 提供剧本工坊，`/jingliu/` 提供镜流。[路径代理](shared-host/nginx_locations.py)为每次业务请求核验当前 Muse 登录和对应工作台的账号绑定，业务接口接收自己的令牌。在 `/jingliu/fwp/media/` 下，代理只放行镜流的素材目录，并拒绝以点开头的名称，所以镜流数据目录中的数据库、登录存储和备份不会对外提供。入口页按浏览器标签页和关联账号保存原版页面所需的状态。两个应用共享 Muse 网页源，这些路径只应提供公司管理的应用代码。
 
 普通编辑在部署后的 Muse 完成新建、导入、分场编辑、历史恢复和导出后，可以收起旧工坊网页入口。从客户端 UI 插件配置移除 `workshopOrigin`，并在同域代理配置的 JSON 中设置 `archiveWorkshopWeb: true`，配套发布网页路由和边缘服务。管理员回退入口为 `/jubengongfang/_archive`，使用绑定了工坊账号的 Muse 管理员登录。保留该入口所需的旧网页发布版本。工坊 API 和工作进程继续运行。需要重新开放旧入口时，恢复客户端 UI 配置并设置 `archiveWorkshopWeb: false`。
 
-用 [prepare.py](shared-host/prepare.py) 适配两套原版前端，用 [prepare_uploads.py](shared-host/prepare_uploads.py) 配置工坊上传目录，再以 `NEXT_PUBLIC_ORCHESTRATOR_URL=/jubengongfang` 构建 Next。服务器上的 [provision.py](shared-host/provision.py) 在 `/srv/muse-workbenches/config` 下初始化各服务凭据和首名已核验成员。账号代理和业务接口共用各应用的 `bindings/*.json` 文件。工坊使用独立的 PostgreSQL、Redis 和任务进程。镜流将 SQLite 和素材保存在自己的数据目录。桌面和网页共用已登录账号的素材目录。已有部署先运行 `install.py --audience jingliu --library-only --backend <backend> --frontend <studio-site>`，再使用镜流服务的环境和 Python 路径运行 `import_character_references.py <verified-export>`。导入会校验每张原图的摘要、保留元数据和使用范围，重复执行时跳过相同记录。[activate.py](shared-host/activate.py) 检查生成的路径配置后平滑重载现有 Muse HTTPS 站点。
+用 [prepare.py](shared-host/prepare.py) 适配两套原版前端，用 [prepare_uploads.py](shared-host/prepare_uploads.py) 配置工坊上传目录，再以 `NEXT_PUBLIC_ORCHESTRATOR_URL=/jubengongfang` 构建 Next。服务器上的 [provision.py](shared-host/provision.py) 在 `/srv/muse-workbenches/config` 下初始化各服务凭据和首名已核验成员。账号代理和业务接口共用各应用的 `bindings/*.json` 文件。工坊使用独立的 PostgreSQL、Redis 和任务进程。[seed_workshop.py](shared-host/seed_workshop.py) 把只含结构的导出 [schema.sql](shared-host/schema.sql) 恢复到这个空库，并添加运维人员的工坊用户。镜流将 SQLite 和素材保存在自己的数据目录。桌面和网页共用已登录账号的素材目录。已有部署先运行 `install.py --audience jingliu --library-only --backend <backend> --frontend <studio-site>`，再使用镜流服务的环境和 Python 路径运行 `import_character_references.py <verified-export>`。导入会校验每张原图的摘要、保留元数据和使用范围，重复执行时跳过相同记录。[activate.py](shared-host/activate.py) 检查生成的路径配置后平滑重载现有 Muse HTTPS 站点。
 
 <a id="company-accounts"></a>
 ### 同域部署的公司账号

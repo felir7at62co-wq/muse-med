@@ -14,6 +14,8 @@ The cloud serves Workshop on the shared Muse workbench host at `/jubengongfang/`
 
 Draft owners and administrators can edit episode text and structured scenes, preview the history of either layer, restore a saved version, and export Word, Markdown, or plain text files. Saving, applying a text candidate, and restoring require the current revision and save the prior version in the same transaction. Only the owner can publish a complete draft. Publication checks the complete draft revision, reuses its library entry, and keeps any previously selected version.
 
+The cloud's `app.main:app` does not mount the editor yet. A separate uvicorn process serves `/jubengongfang/v1/script-editor/` with `app.script_editor_canary:app`, which mounts only the editor router and admits only the Workshop account IDs listed in `MUSE_SCRIPT_EDITOR_CANARY_USERS`, separated by commas; other accounts get 403 `SCRIPT_EDITOR_CANARY`. `python -m app.script_editor_canary_schema` creates the editor's tables `script_editor_candidates` and `script_editor_publications` and checks their columns, primary keys and foreign keys.
+
 ## Finalized-script library readers
 
 A company Muse account outside the bindings file gets a library reader on its first sign-in through the shared host. `app/muse_readers.py` opens one Workshop user per Muse account, with `login_id` `muse:<account ID>`, role `user`, no password and no feature flags. The [shared-host edge](../muse-workbenches/README.md#company-accounts) lets a reader reach only the library and its own profile. A reader lists and reads every finalized script, picks with `script_pick` and publishes a finalized script with `script_finalize`.
