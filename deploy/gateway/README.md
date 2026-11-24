@@ -1,5 +1,7 @@
 # Account gateway release from one main commit
 
+English | [中文](README.zh.md)
+
 One release of the account and model gateway (`muse-minimal-accounts.service` on the cloud server) from one Muse `main` commit S. The release replaces two directories of the running release with S's [`services/muse-accounts`](../../services/muse-accounts/README.md) and `integrations/localminidrama`; everything else is carried from the running release.
 
 Run the drivers from any machine that reaches both the git machine and the server over SSH. Git runs only on the git machine. Every driver takes S as a short or full sha and refuses a commit that is not local `main` or an ancestor of it; set `ALLOW_OFF_MAIN=1` to override.
