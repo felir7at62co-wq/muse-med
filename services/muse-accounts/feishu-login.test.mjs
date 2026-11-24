@@ -10,7 +10,8 @@ import {createMemorySessionStore} from './session-store.mjs';
 import {openStore} from './store.mjs';
 
 const origin='https://muse.test';
-const config={appId:'cli_fixture',appSecret:'fixture-server-secret-only',appType:'custom',redirectUri:origin+'/auth/feishu/callback'};
+// Department lookup is on by default; tests of other sign-in behaviour turn it off, and department tests turn it on explicitly.
+const config={appId:'cli_fixture',appSecret:'fixture-server-secret-only',appType:'custom',redirectUri:origin+'/auth/feishu/callback',organizationSync:false};
 const profile={open_id:'ou_writer',union_id:'on_writer',name:'编剧',tenant_key:'tenant_other_company',avatar_url:'https://example.test/avatar.png'};
 const response=value=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
 const sha=value=>createHash('sha256').update(value).digest('base64url');
@@ -130,6 +131,21 @@ test('organization opt-in requests user consent and persists only current depart
  const result=await f.callback(attempt);assert.equal(result.status,200);assert.equal(f.calls.length,3);
  assert.equal(f.resolved[0].value.organization.status,'available');assert.equal(f.resolved[0].value.organization.departments[0].path,'内容中心/编剧组');
  assert.doesNotMatch(JSON.stringify(f.resolved),/private-organization-token|private-phone/);
+});
+
+test('department lookup is on unless the configuration sets organizationSync to false',async t=>{
+ const f=await fixture(t,{config:{organizationSync:undefined},fetchImpl:async url=>{
+  if(url.endsWith('/token'))return response({code:0,access_token:'private-default-token',token_type:'Bearer'});
+  if(url.includes('/contact/v3/users/'))return response({code:0,data:{user:{open_id:profile.open_id,department_path:[{
+   department_id:'od-writing',department_name:{name:'编剧组'},department_path:{department_ids:['od-studio','od-writing'],department_path_name:{name:'内容中心/编剧组'}},
+  }]}}});
+  return response({code:0,data:profile});
+ }});
+ const attempt=await f.start();assert.match(attempt.authorize.searchParams.get('scope'),/contact:user.department_path:readonly/);
+ const result=await f.callback(attempt);assert.equal(result.status,200);assert.equal(f.calls.length,3);
+ assert.equal(f.resolved[0].value.organization.status,'available');assert.equal(f.resolved[0].value.organization.departments[0].path,'内容中心/编剧组');
+ const off=await fixture(t,{config:{organizationSync:false}}),plain=await off.start();
+ assert.equal(plain.authorize.searchParams.get('scope'),null);
 });
 
 test('missing directory permission keeps Feishu sign-in usable and publishes a setup state',async t=>{

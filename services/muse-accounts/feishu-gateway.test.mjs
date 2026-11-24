@@ -10,7 +10,8 @@ import {createMemorySessionStore} from './session-store.mjs';
 import {openStore} from './store.mjs';
 
 const origin='https://muse.test';
-const config={appId:'cli_gateway_fixture',appSecret:'synthetic-server-only-secret',appType:'custom',redirectUri:origin+'/auth/feishu/callback'};
+// Department lookup is on by default; these gateway tests cover other sign-in behaviour.
+const config={appId:'cli_gateway_fixture',appSecret:'synthetic-server-only-secret',appType:'custom',redirectUri:origin+'/auth/feishu/callback',organizationSync:false};
 const organizationProfile={name:'企业编剧',open_id:'ou_member',union_id:'on_member',tenant_key:'fixture_enterprise'};
 const json=value=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
 const cookieFrom=(response,name='__Host-muse')=>response.headers.getSetCookie().find(value=>value.startsWith(name+'='))?.split(';')[0];

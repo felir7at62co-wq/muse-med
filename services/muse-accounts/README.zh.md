@@ -33,14 +33,17 @@ kind: "package-reference"
 
 本目录与 `../../integrations/localminidrama` 以正式网关发布版 `20261123-r35-jubian-models` 的源码为起点，统一为 LF 换行。`bot-cloud-ledger.js` 是正式环境从共享 `third_party` 目录加载的 Bot 云端账本，`bot-coordination.mjs` 改为从本目录导入它；`package.json` 声明了正式环境已安装的 `fflate`。这里的账号组织协调器、仅飞书登录策略、工作台、账号数据、用量账本、公司 CLI、制作费用和剧变原生准入均为正式实现。后续网关发布使用 `deploy/gateway` 下的发布脚本从此源码构建。
 
-此前在本目录开发的功能只在配置后启用，因此从此源码构建的发布版在运维人员显式开启前保持正式环境的行为：
+不需要密钥、配置文件或服务器改动的开关默认开启。其余开关在运维人员配置前保持关闭；Flash 分流和开放目录等待负责人决定：
 
-| 设置 | 未设置时 | 开启方式 |
+| 设置 | 未设置时 | 修改方式 |
 |---|---|---|
 | `MUSE_DEEPSEEK_FLASH_ROUTING` | `deepseek-official` 使用其配置的供应商，网关不做故障切换 | [DeepSeek Flash 供应商路由](#deepseek-flash-supplier-routing) |
 | `MUSE_PUBLIC_MODEL_CATALOG` | `selected`：只公开公司选定的路由和模型 | `all`：公开除内部 `jubian-gpt` 改路目标外的所有已配置供应商；其他值会阻止启动 |
-| `MUSE_WORKBENCH_LOGIN_CONFIG` | `/workbench-login` 和 `/api/workbench-login/*` 返回 404 | [工作台登录](#workbench-sign-in) |
-| 飞书登录 `organizationSync` | 登录不保存部门记录 | [飞书登录](#feishu-login) |
+| `MUSE_WORKBENCH_LOGIN_CONFIG` | 关闭：`/workbench-login` 和 `/api/workbench-login/*` 返回 404 | 需要各工作台的服务端密钥；见[工作台登录](#workbench-sign-in) |
+| 飞书登录 `organizationSync` | 开启：登录时申请三项通讯录权限并保存用户所在部门 | 设为 `false` 关闭；见[飞书登录](#feishu-login) |
+| `MUSE_VOICE_SLOTS_DIR` | 开启：使用账号文件旁的 `voice-slots` | 改为其他绝对私密目录，或设为空以关闭[共享声线登记](#shared-voice-registration) |
+| `MUSE_BOT_TEAM_DB` | 开启：使用账号文件旁的 `bot-team.sqlite` | 改为其他私密 SQLite 文件，或设为空以关闭 Bot 团队账本 |
+| 市场策略 `web` | `bots-and-skills`：正式环境的 Bot 与 Skill 页面 | `skills` 需要构建好的市场浏览器模块，且目录服务在 `/me` 中返回 `accountId`；见 [Skill 市场代理](#skill-market-proxy) |
 
 `deployment/` 下的补丁工具只接受已退役的 `20261117-r24-native-company` 和 `20261117-r25-account-profile` 输入。
 
@@ -95,7 +98,7 @@ kind: "package-reference"
 }
 ```
 
-`organizationSync` 默认为 `false`，此时登录不保存部门记录。设为 `true` 后申请 `contact:contact.base:readonly`、`contact:user.department:readonly` 和 `contact:user.department_path:readonly`，并通过[飞书官方 Contact v3 用户接口](https://open.feishu.cn/document/server-docs/contact-v3/user/get)读取当前用户。请先在飞书应用中开通并发布这些权限，再让已有用户重新登录。回调只在本次请求中使用临时用户令牌，不保存令牌。身份验证完成后，部门查询单独受 `requestTimeoutMs` 限制，查询超时记录为部门不可用，登录继续。服务关闭或回调连接断开仍会取消整个登录，阻止账号或会话提交。账号记录保存部门 ID、名称、格式化部门路径、上级部门 ID 和同步时间。缺少权限及同步不可用均有明确状态，不会覆盖成功登录；旧记录未同步时提示重新登录。部门信息是上次登录的同步快照，不是实时组织目录；租户标识不等于组织名称。
+`organizationSync` 默认为 `true`：登录时申请 `contact:contact.base:readonly`、`contact:user.department:readonly` 和 `contact:user.department_path:readonly`，并通过[飞书官方 Contact v3 用户接口](https://open.feishu.cn/document/server-docs/contact-v3/user/get)读取当前用户。发布前须在飞书应用中开通并发布这些用户身份权限，或把 `organizationSync` 设为 `false`：此时登录不申请这些权限，也不保存部门记录；已有用户在下次登录后看到部门。回调只在本次请求中使用临时用户令牌，不保存令牌。身份验证完成后，部门查询单独受 `requestTimeoutMs` 限制，查询超时记录为部门不可用，登录继续。服务关闭或回调连接断开仍会取消整个登录，阻止账号或会话提交。账号记录保存部门 ID、名称、格式化部门路径、上级部门 ID 和同步时间。缺少权限及同步不可用均有明确状态，不会覆盖成功登录；旧记录未同步时提示重新登录。部门信息是上次登录的同步快照，不是实时组织目录；租户标识不等于组织名称。
 
 `tokenEndpointVersion` 默认为 `"v3"`；`"v2"` 显式选择固定的 v2 端点以兼容。Muse 不自动回退，也不复用换取失败的授权码；选择版本后须从全新授权开始验证。[授权码文档](https://open.feishu.cn/document/authentication-management/access-token/obtain-oauth-code) 描述了 PKCE 搭配 v2 的方式；[SDK issue #230](https://github.com/larksuite/oapi-sdk-go/issues/230) 报告了 v3 返回 `20049`、v2 对照成功的情况，这不代表官方确认。
 
@@ -121,9 +124,9 @@ kind: "package-reference"
 
 ## 共享声线登记
 
-用 MUSE_VOICE_SLOTS_DIR 启用 POST /api/jubian/voice-slots，路径必须是不可变发布目录之外的绝对私密持久目录。MUSE_VOICE_SLOTS_LEASE_MS、MUSE_VOICE_SLOTS_LOCK_WAIT_MS、MUSE_VOICE_SLOTS_LOCK_POLL_MS 和 MUSE_VOICE_SLOTS_TIMEOUT_MS 分别配置认领到期、锁等待／轮询及供应商核验超时。接口要求有效的 Muse Cookie 或 Bearer 会话、同源写请求和私密 X-Jubian-Token。每项操作通过固定源地址核验精确剧变项目访问权；ready／complete 还要求 delFlag=0 且无冲突删除标记，并核对真实音频资产、规范人物／时期标签及 HTTPS 地址。供应商凭据不持久化、不返回。
+POST /api/jubian/voice-slots 的状态保存在 MUSE_VOICE_SLOTS_DIR，路径必须是不可变发布目录之外的绝对私密持久目录；默认使用账号文件旁的 voice-slots，设为空值则关闭该接口。MUSE_VOICE_SLOTS_LEASE_MS、MUSE_VOICE_SLOTS_LOCK_WAIT_MS、MUSE_VOICE_SLOTS_LOCK_POLL_MS 和 MUSE_VOICE_SLOTS_TIMEOUT_MS 分别配置认领到期、锁等待／轮询及供应商核验超时。接口要求有效的 Muse Cookie 或 Bearer 会话、同源写请求和私密 X-Jubian-Token。每项操作通过固定源地址核验精确剧变项目访问权；ready／complete 还要求 delFlag=0 且无冲突删除标记，并核对真实音频资产、规范人物／时期标签及 HTTPS 地址。供应商凭据不持久化、不返回。
 
-操作为 acquire、start、complete、abandon 与 read，键包含项目／人物／人生时期及原登记操作。排他文件系统锁在多个网关进程间串行化写入。只有尚未开始的认领会到期，持久化 submitted 操作不会放行第二次创建。完成后保留精确资产 ID，不悄悄更换。未知结果沿原操作对账。遗留锁目录须确认写进程已停止后由运维核查，不能删除 submitted 回执，不能把登录过期当成重新创建许可。未配置返回 503。服务协调参与的新 Muse 客户端，不阻止剧变网页或旧客户端写入，也不自动删除资产。
+操作为 acquire、start、complete、abandon 与 read，键包含项目／人物／人生时期及原登记操作。排他文件系统锁在多个网关进程间串行化写入。只有尚未开始的认领会到期，持久化 submitted 操作不会放行第二次创建。完成后保留精确资产 ID，不悄悄更换。未知结果沿原操作对账。遗留锁目录须确认写进程已停止后由运维核查，不能删除 submitted 回执，不能把登录过期当成重新创建许可。接口关闭时返回 503。服务协调参与的新 Muse 客户端，不阻止剧变网页或旧客户端写入，也不自动删除资产。
 
 替换已就绪声线前，须独立核验精确旧资产所属项目、槽位及明确删除状态，仅成功的 data:null 不能释放槽位。新操作接收仅向其所有者返回的 replaces_asset_id 许可，start 再次核验删除状态。当前回执改变前，原账号／key 已通过 retired-<hash>.json 持久化关闭。未使用的替代登记预留在到期或放弃后仍保留此许可，重新预留时再次核验删除状态。备份整个 MUSE_VOICE_SLOTS_DIR，包含已退役回执；参见[升级指南](../../docs/upgrade-guide/v0.2.2-rc.2/deleted-voice-replacement/guide.zh.md)。不要通过移除 submitted 或已退役回执来解除登记阻塞。
 

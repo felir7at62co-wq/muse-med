@@ -151,8 +151,8 @@ export function createFeishuLogin({config,publicOrigin,environment='production',
    signal.throwIfAborted();if(closed||!bindCurrent(a))throw Object.assign(Error('Account revision changed'),{code:'ACCOUNT_REVISION_CHANGED'});
    stage='profile_validate';
    const profile=profileOf(userResult.data,config.appId);
-   // Without the opt-in no department record is attached, so sign-in stores the identity as before.
-   if(config.organizationSync===true){
+   // Departments are read unless the configuration sets organizationSync to false; then sign-in stores no department record.
+   if(config.organizationSync!==false){
     profile.organization=await readFeishuOrganization({accessToken:tokenResult.access_token,openId:profile.openId,
      signal:AbortSignal.any([controller.signal,AbortSignal.timeout(config.requestTimeoutMs)]),fetchImpl,now});
     signal=AbortSignal.any([controller.signal,AbortSignal.timeout(config.requestTimeoutMs)]);
@@ -211,7 +211,7 @@ export function createFeishuLogin({config,publicOrigin,environment='production',
   const state=token(),nonce=token(),verifier=token();
   attempts.set(state,{nonceHash:digest(nonce),verifier,expiresAt:now()+config.attemptTtlMs,desktopLogin:fields.get('desktop_login'),...consent?{desktopConsent:consent}:{},...browser?{bindAccountId:browser.id,bindRevision:browser.account.revision,browserToken:browser.token}:{}});
   const authorize=new URL(AUTHORIZATION_URL);
-  if(config.organizationSync===true)authorize.searchParams.set('scope',FEISHU_ORGANIZATION_SCOPES);
+  if(config.organizationSync!==false)authorize.searchParams.set('scope',FEISHU_ORGANIZATION_SCOPES);
   for(const[key,value]of Object.entries({client_id:config.appId,response_type:'code',redirect_uri:config.redirectUri,state,code_challenge:digest(verifier).toString('base64url'),code_challenge_method:'S256',...browser?{prompt:'consent'}:{}}))authorize.searchParams.set(key,value);
   reply(res,303,'',{location:authorize.href,'set-cookie':`${nonceCookie}=${nonce}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${Math.ceil(config.attemptTtlMs/1000)}`});return true;
  }

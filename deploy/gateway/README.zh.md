@@ -48,4 +48,4 @@
 
 ## 发布可能需要的配置
 
-网关新功能在配置前保持关闭；[生产源码表](../../services/muse-accounts/README.zh.md#production-source)列出了相关设置及默认值。`activate` 之前，把该单元的环境文件与 S 中网关启动时会拒绝的设置对照：移除供应商直连后，`MUSE_DESKTOP_MODEL_TRANSPORT` 取 `relay` 以外的值，以及已退役的 `MUSE_ZHIPU_DIRECT_*` 和 `MUSE_USAGE_RATE_PER_MINUTE` 变量，都会阻止启动，`switch.py` 随后自动回滚。环境文件的修改与发布版放在同一次重启中，并记录这次修改。
+网关新功能在配置前保持关闭；[生产源码表](../../services/muse-accounts/README.zh.md#production-source)列出了相关设置及默认值。`activate` 之前，把该单元的环境文件与 S 中网关启动时会拒绝的设置对照：移除供应商直连后，`MUSE_DESKTOP_MODEL_TRANSPORT` 取 `relay` 以外的值，以及已退役的 `MUSE_ZHIPU_DIRECT_*` 和 `MUSE_USAGE_RATE_PER_MINUTE` 变量，都会阻止启动，`switch.py` 随后自动回滚。除非飞书登录配置把 `organizationSync` 设为 `false`，否则登录时会查询飞书部门；首次发布含此功能的版本前，确认飞书应用已开通并发布三项用户身份通讯录权限，或设为 `false`。环境文件和配置文件的修改与发布版放在同一次重启中，并记录这次修改。

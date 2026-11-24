@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
-import {mkdtemp,writeFile,rm,symlink} from 'node:fs/promises';
+import {mkdtemp,writeFile,rm,stat,symlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir as systemTmpdir} from 'node:os';
 import {realpathSync as realpathOfTmpdir} from 'node:fs';
@@ -55,6 +55,8 @@ test('gateway CLI starts through a release directory symlink',async()=>{
    child.stderr.on('data',chunk=>output+=chunk);child.on('close',code=>{clearTimeout(timer);resolve({started:false,output,code});});
   });
   assert.equal(result.started,true,JSON.stringify(result));
+  // Directory-only services are on by default beside the account file.
+  assert.equal((await stat(join(dir,'bot-team.sqlite'))).isFile(),true);
  }finally{if(child&&child.exitCode===null){const closed=new Promise(r=>child.once('close',r));child.kill();await closed;}await rm(dir,{recursive:true,force:true});}
 });
 test('active HTTP streams terminate on logout, reset, disable and expiry',async()=>{
