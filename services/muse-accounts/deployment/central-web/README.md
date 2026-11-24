@@ -1,5 +1,7 @@
 # Central Muse Web deployment
 
+English | [中文](README.zh.md)
+
 The loopback gateway serves the existing Muse Web under `/central/`. It validates the existing Muse account session on every new request and restricts access to the configured production account IDs. The public account gateway still owns sign-in, device selection, and account revocation. The native Web Host keeps its private listener and browser authentication.
 
 ## Install privately

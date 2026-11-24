@@ -493,7 +493,7 @@ def static_checks(release, results):
            'id: muse-desktop-office' in config and re.search(r'id: feishu-channel\n\s+disabled: false', config) and 'feishuDshIm:' in config)
     hongguo = PROFILE / 'node_modules/muse-hongguo-download/patches/0002-electron-main-only.patch'
     results.append(('WARN hongguo Node-only catalog patch (0002) present', hongguo.exists(),
-                    '' if hongguo.exists() else 'missing: Hongguo download on cloud may fail like before 16:55 (fix is on codex/hongguo-node-runtime 88c3ea7d71)'))
+                    '' if hongguo.exists() else 'missing: rebuild the Hongguo download bundle with patches/0002-electron-main-only.patch for Node catalog support'))
 
 
 def check(before_path, expected, release, restart_wait, out):
