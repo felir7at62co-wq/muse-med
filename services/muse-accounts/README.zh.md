@@ -33,7 +33,7 @@ kind: "package-reference"
 
 本目录与 `../../integrations/localminidrama` 以正式网关发布版 `20261123-r35-jubian-models` 的源码为起点，统一为 LF 换行。`bot-cloud-ledger.js` 是正式环境从共享 `third_party` 目录加载的 Bot 云端账本，`bot-coordination.mjs` 改为从本目录导入它；`package.json` 声明了正式环境已安装的 `fflate`。这里的账号组织协调器、仅飞书登录策略、工作台、账号数据、用量账本、公司 CLI、制作费用和剧变原生准入均为正式实现。后续网关发布使用 `deploy/gateway` 下的发布脚本从此源码构建。
 
-不需要密钥、配置文件或服务器改动的开关默认开启。其余开关在运维人员配置前保持关闭；Flash 分流和开放目录等待负责人决定：
+不需要密钥、配置文件或服务器改动的开关默认开启。其余开关在运维人员配置前保持关闭；负责人决定 Flash 分流和开放目录保持关闭：
 
 | 设置 | 未设置时 | 修改方式 |
 |---|---|---|

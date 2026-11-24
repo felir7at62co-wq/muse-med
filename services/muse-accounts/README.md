@@ -33,7 +33,7 @@ Usage records live in the private directory `MUSE_USAGE_ROOT`, by default `usage
 
 This directory and `../../integrations/localminidrama` started from the source of the production gateway release `20261123-r35-jubian-models`, with LF line endings. `bot-cloud-ledger.js` is the Bot cloud ledger that production loads from its shared `third_party` tree, and `bot-coordination.mjs` imports it from this directory; `package.json` declares `fflate`, which production installs. The account organization coordinator, Feishu-only policy, workbench, account data, usage ledger, company CLI, production fees and native Jubian admission here are the production implementations. Build later gateway releases from this source with the release drivers in `deploy/gateway`.
 
-Switches that need no secret, configuration file or server change are on by default. The others stay off until an operator configures them; the Flash split and the open catalog wait for the owner's decision:
+Switches that need no secret, configuration file or server change are on by default. The others stay off until an operator configures them; the owner keeps the Flash split and the open catalog off:
 
 | Setting | Absent | Change |
 |---|---|---|
