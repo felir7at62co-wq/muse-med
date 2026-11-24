@@ -348,8 +348,19 @@ _SCOPES = ("all", "mine", "mine_private", "mine_public", "others")
 _SORTS = ("default", "newest", "oldest", "uses", "least_used")
 
 
+from ..muse_references import shared_page
+
+
 @router.get("/library")
 def list_library(kind: Optional[str] = None, q: Optional[str] = None,
+                 mine: bool = False, with_image: bool = True,
+                 scope: str = "all", sort: str = "default", limit: int = 120, offset: int = 0,
+                 importable_only: bool = False) -> dict:
+    return shared_page(_native_library, kind=kind, q=q, mine=mine, with_image=with_image, scope=scope,
+                       sort=sort, limit=limit, offset=offset, importable_only=importable_only)
+
+
+def _native_library(kind: Optional[str] = None, q: Optional[str] = None,
                  mine: bool = False, with_image: bool = True,
                  scope: str = "all", sort: str = "default",
                  limit: int = 120, offset: int = 0) -> dict:
@@ -521,6 +532,8 @@ def import_from_library(body: LibraryImportIn) -> dict:
         raise HTTPException(400, "一次最多导入 200 个")
     with get_session() as session:
         access.require_project_access(session, body.project_id)
+        if any(aid.startswith("mref-") for aid in ids):
+            raise HTTPException(409, "所选角色为创作参考素材，不能直接绑定到项目。")
         uid = access.current_user_id()
         admin = access.is_admin()
         pairs = (session.query(Asset, Project)

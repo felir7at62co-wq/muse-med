@@ -10,7 +10,7 @@
 
 ## 安装
 
-在从备份提取的发布副本运行。镜流后端源码位于 [`../jingliu`](../jingliu/README.zh.md)，`install.py --audience jingliu` 把此适配写入其发布副本。工坊源码位于 [`../workshop`](../workshop/README.zh.md)，已含 `--audience script-workshop` 及上传路径、base path 和剧本库的改动，其视频转剧本工厂步骤已归档；在从该源码构建发布之前，工坊的安装路径保留。脚本会预先核对挂载位置，重复运行可更新适配代码。工坊修改 Next 源码后须使用原项目的构建方式重新构建，镜流直接发布修改后的静态目录。生产运行原 FastAPI、Web 及工作队列，适配器随业务后端加载。
+在从备份提取的发布副本运行。镜流后端源码位于 [`../jingliu`](../jingliu/README.zh.md)，已含 `--audience jingliu` 适配；对它运行 `install.py --audience jingliu` 只会改动剪映导出。工坊源码位于 [`../workshop`](../workshop/README.zh.md)，已含 `--audience script-workshop` 及上传路径、base path 和剧本库的改动，其视频转剧本工厂步骤已归档；在从该源码构建发布之前，工坊的安装路径保留。脚本会预先核对挂载位置，重复运行可更新适配代码。工坊修改 Next 源码后须使用原项目的构建方式重新构建，镜流直接发布修改后的静态目录。生产运行原 FastAPI、Web 及工作队列，适配器随业务后端加载。
 
 ```sh
 python3 install.py --audience script-workshop \

@@ -629,6 +629,8 @@ def create_app() -> FastAPI:
     app.include_router(usage_router)
     app.include_router(stats_router)
     app.include_router(budget_router)
+    from .muse_login import configure_muse_login
+    configure_muse_login(app, "jingliu")
     app.include_router(auth_router)
     # 飞书机器人事件入口（/feishu/events，不在 /v2 下：飞书不带 Bearer，入口自己验 token 与签名）。
     app.include_router(feishu_bot_router)

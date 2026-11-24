@@ -10,7 +10,7 @@ The Jingliu installer adapts both Jianying exporters to the pinned draft library
 
 ## Install
 
-Install on an extracted release copy. Jingliu's backend source is in [`../jingliu`](../jingliu/README.md), and `install.py --audience jingliu` applies this overlay to a release copy of it. Workshop's source is in [`../workshop`](../workshop/README.md) with the `--audience script-workshop` overlay and the upload-path, base-path and script library changes already applied, and its 视频转剧本 factory step archived; the Workshop install path stays until a release is built from that source. The installer checks known integration points before writing and can be run again. Rebuild the workshop's Next application after installing. Jingliu serves the modified static directory.
+Install on an extracted release copy. Jingliu's backend source is in [`../jingliu`](../jingliu/README.md) with the `--audience jingliu` overlay already applied; on it, `install.py --audience jingliu` changes only the Jianying exporters. Workshop's source is in [`../workshop`](../workshop/README.md) with the `--audience script-workshop` overlay and the upload-path, base-path and script library changes already applied, and its 视频转剧本 factory step archived; the Workshop install path stays until a release is built from that source. The installer checks known integration points before writing and can be run again. Rebuild the workshop's Next application after installing. Jingliu serves the modified static directory.
 
 ```sh
 python3 install.py --audience script-workshop \

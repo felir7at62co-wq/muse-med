@@ -62,6 +62,11 @@ _SKIP_DIRS = {"__pycache__", ".git", "node_modules", ".venv", "venv", "backups",
 #: 项目根（backend/）—— 相对导入只能在本包内解析
 _APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app"))
 
+#: 不报的缺名：(相对 app/ 的路径, 目标模块, 名字)。
+#: app/muse_login.py 是剧本工坊与镜流共用的 Muse 登录适配器（与 services/muse-workbenches/muse_login.py
+#: 同一份）；`issue_native_session` 只在 audience 为 script-workshop 时导入工坊的 `.db.session_scope`，镜流不走这一支。
+_ALLOWED = {("muse_login.py", ".db", "session_scope")}
+
 
 # --------------------------------------------------------------- 导出名收集
 
@@ -274,6 +279,8 @@ def main(argv: list[str]) -> int:
     lazy_hits = top_hits = 0
     for f in files:
         for line, sev, mod, name in scan_file(f, res):
+            if (os.path.relpath(f, _APP_DIR), mod, name) in _ALLOWED:
+                continue
             if sev == "LAZY":
                 lazy_hits += 1
                 print(f"{f}:{line}: [LAZY] `from {mod} import {name}` —— "

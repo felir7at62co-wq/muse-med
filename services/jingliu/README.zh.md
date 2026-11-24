@@ -12,7 +12,7 @@ Muse 通过已登录的[镜流连接](../../packages/drama/jingliu-connection/RE
 
 此目录基于云端发布 `20261121-jingliu-mkwait-01` 的后端，该发布即 2026-11-17 工作台备份加上五项已部署改动。镜头脚本改由 Muse 撰写并锁定，取代镜流自己的提示词撰写。存库的报错、任务结果和日志中的密钥已脱敏。`FW_ARK_TRUSTED_ASSETS` 把人像参考图入库交给模型网关，首帧生成已下线。站位图单独保存并绑定到镜头。字幕擦除等待火山 MediaKit 出片的上限放宽；字幕擦除和超分在状态查询失败时继续轮询，也不再发送取消请求，因为该接口不支持取消。
 
-此目录中云端尚未运行的改动：
+之后的改动，自发布 `20261122-jingliu-subtitles-01`（main `cfc70b37ab`）起都已在云端运行：
 
 - 一步出字幕：`run_auto_subtitles` 可以只处理一集（`episode`）。转写镜头原声时，它用每个镜头剧本里的台词逐字纠正该镜头的转写结果，不调用模型（`align_script`，默认开启；旁白音频不纠正）。时间与断句来自声音，没念的台词不补，多念的保留。夹在对得上的字中间的一小处，只有两边按 pypinyin 带声调的读音相同、所含的否定字也相同时才换成剧本的字，阿拉伯数字按中文念法比较。改了会多出或少掉否定的一处，读音相同也按听到的保留，如「这不行啊」对剧本「这步行啊」。读轻声的「的」「地」「得」「了」，和另一边那个字声母韵母相同的任一读音都算相同；别的轻声字不算，因为「这是你吗」对「这是你妈」是问句对陈述。落在角色名或剧本说话人名里的字不比声调，并且可以取任一读音。「一」和「不」和别的字一样比声调，因为 pypinyin 只给部分词标出它们的变调：它把「一个」读作 yi2，「一样」却读作 yi1。其他声调不同的字（如「买」对「卖」）按听到的保留，不论在这一镜的什么位置都列进核对清单。
 - 字幕核对清单：`script_check.review` 列出需要人核对的镜头：剧本有台词却什么都没听到的、与剧本的相似度低于 0.5 的、剧本里有 4 个字以上没念出来的、有因读音不同而按听到的保留的差异的（`differs`）、有需要人判断而按听到的保留的差异的（`doubts`），以及按剧本改过字的（`fixes`）。`doubts` 收录每一处两边一样长、逐字声母韵母相同，并且读音相同或只差轻声或「一」「不」的声调的保留的差异，不论在这一镜的什么位置：要由人分辨是听错还是念了别的字。其中有读音相近的否定变化，如「这不行啊」对「这步行啊」、「我全不要了」对「我全部要了」和「他们不对啊」对「他们部队啊」；有轻声，如「这是你吗」对「这是你妈」；也有读音相同、但旁边对得上的字太少而没有改的，如「林辰林辰」对「林晨林晨」。`differs` 收录其他每一处夹在对得上的字中间、读音不同的差异，以及其他每一处和剧本只差声调的保留的差异，如「你买不买」对「你卖不卖」，其中每个「买」旁边只有一个对得上的字。`doubts` 还收录其他每一处含否定字（不 没 别 未 非 无 莫 勿 甭 否）的多念、没念或保留的差异，缺的一边记为空字符串：「他是坏人」对剧本「他不是坏人」相似度很高，意思却相反，可能是识别漏了「不」，也可能是视频模型把台词念反了。转写或剧本不超过 3 个字的镜头里其他保留的差异也收录进来（如「林辰」对「林晨」）：对不上的字周围对得上的字太少，分不出是听错还是念了别的字。其他多念的字、更少的没念出来的字和其他保留的差异只计入字数统计。剧本里没有「角色：台词」格式台词的镜头计入 `no_script_shots`，在任务提示中只说一次。清单先列和剧本对不上的镜头，最多 300 个，再补只按剧本改过字的镜头，直到满 60 条。`review_count` 给出全部条数，`omitted_mismatch_shots` 和 `omitted_fix_shots` 给出没列进来的镜头数，任务提示最多写出 20 个对不上的镜头的镜号。
@@ -33,9 +33,9 @@ Muse 通过已登录的[镜流连接](../../packages/drama/jingliu-connection/RE
 - 本地副本：`FW_MEDIA_KEEP_LOCAL=false` 时，任务结束时删掉它写出或回填的文件的本地副本；另一个仍在运行的任务读过的文件，由那个任务结束时再删。其他本地副本由巡检在满一小时后删除。只有台账和一次 HEAD 请求都表明桶里有同样大小的文件时才删本地副本，之后要用文件的代码经 `media.ensure_local` 从桶里取回。默认值 `true` 保留所有本地副本。
 - 部署之前：最初几轮巡检会把还没进台账的托管文件全部传进桶，每轮 300 个，其中包括此前从未上传过的整个 `character-references/` 和 `exports/`。先在服务器的数据目录里看一下它们有多大（`du -sh character-references exports`），心里有数这次补传要多久、给桶添多少用量。
 
-除这些改动、Muse 登录适配和以下几处外，`backend/app` 与该发布逐字节一致：`app/at_refs.py`、`app/auth.py`、`app/budget.py`、`app/jobs.py`、`app/notify.py`、`app/routers/library.py`、`app/routers/shots.py` 和 `app/user_directory.py` 的注释与文档字符串用占位值代替用户和管理员的姓名、一个昵称和 IP 地址，`app/config.py` 中 `feishu_notify_contact` 的默认值是「管理员」，而不是一位管理员的姓名。
+除以下几处外，`backend/app` 与云端运行的后端（发布 `20261123-workshop-readers-01`）逐字节一致。`app/at_refs.py`、`app/auth.py`、`app/budget.py`、`app/jobs.py`、`app/notify.py`、`app/routers/library.py`、`app/routers/shots.py` 和 `app/user_directory.py` 的注释与文档字符串用占位值代替用户和管理员的姓名、一个昵称和 IP 地址。`app/config.py` 中 `feishu_notify_contact` 的默认值是「管理员」，而不是一位管理员的姓名，所以从此目录构建的发布要设置 `FW_FEISHU_NOTIFY_CONTACT`。`app/muse_login.py` 是当前的适配；云端运行的是加入镜流自动开户之前的版本，由于此目录没有 `app/muse_accounts.py`，两者放行的账号相同。
 
-登录适配不在此目录中，由 [`../muse-workbenches/install.py`](../muse-workbenches/install.py) 在安装时写入发布副本。云端发布包含适配中的登录和共享素材库改动，但不包含安装器对剪映导出的适配。
+Muse 登录适配已在此目录中。`app/muse_login.py`、`app/muse_login.js`、`app/muse_storage.js` 和 `app/muse_references.py` 与 [`../muse-workbenches`](../muse-workbenches/README.zh.md) 中的同名文件逐字节相同，由一项测试核对。`app/main.py` 注册 Muse 登录路由，`app/routers/library.py` 把共享角色参考加入素材库，并拒绝把它们绑定到项目。因此 `create_app()` 需要 `FW_AUTH_UPSTREAM` 和 `MUSE_WORKBENCH_*` 配置；测试把登录设置换成不做任何事的函数。对此目录运行 [`../muse-workbenches/install.py`](../muse-workbenches/install.py) `--audience jingliu` 只会改动剪映导出 `app/routers/jianying.py` 和 `app/nd/export.py`，云端没有运行这项适配。
 
 ## 目录结构
 

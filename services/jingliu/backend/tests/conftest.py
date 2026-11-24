@@ -36,6 +36,13 @@ from app import config as _config  # noqa: E402
 _config.Settings.model_config["env_file"] = None
 _config.get_settings.cache_clear()
 
+# `create_app()` 挂 Muse 登录（app/muse_login.py），它启动时要 `FW_AUTH_UPSTREAM` 和整套
+# `MUSE_WORKBENCH_*` 配置，缺了就报错。这里的测试只建应用、不测登录，所以换成空函数；
+# 登录本身由 services/muse-workbenches/test_muse_login.py 测。
+from app import muse_login as _muse_login  # noqa: E402
+
+_muse_login.configure_muse_login = lambda app, audience: None
+
 
 def run(coro):
     """跑一个协程到结束（不引 pytest-asyncio：少一个依赖，也少一层魔法）。"""
