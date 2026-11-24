@@ -11,6 +11,8 @@ import {openDeepSeekFlashRouting} from './deepseek-flash-routing.mjs';
 import {accountToken,createModelRelay} from './model-relay.mjs';
 import {desktopModelCatalog} from './desktop-models.mjs';
 import {openGlobalModels} from './global-models.mjs';
+import {createAccountServer} from './gateway.mjs';
+import {openStore} from './store.mjs';
 
 const route='deepseek-flash-auto',model='deepseek-v4.1-flash',bailianModel='deepseek-v4.1-flash-1017';
 const accountId='0123456789abcdef',secondAccount='fedcba9876543210';
@@ -55,13 +57,17 @@ async function fixture(t){
 async function relay(t,{flashRouting,globalModels}){
  const accounts=new EventEmitter();
  accounts.get=id=>[accountId,secondAccount].includes(id)?{id}:undefined;
- const records=[],events=new EventEmitter();
- const server=createModelRelay({flashRouting,globalModels,accounts,secret,metadataSink:record=>{records.push(record);events.emit('record');}});
+ const records=[],events=new EventEmitter(),usage=[];
+ const modelUsage={begin(input){usage.push({input});return usage.length;},finish(id,report){usage[id-1].report=report;}};
+ const server=createModelRelay({flashRouting,globalModels,accounts,secret,modelUsage,metadataSink:record=>{records.push(record);events.emit('record');}});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
  const base='http://127.0.0.1:'+server.address().port;
- return {records,async waitForRecords(count){
+ return {records,usage,async waitForRecords(count){
   while(records.length<count)await once(events,'record',{signal:t.signal});
+ },async catalog(){
+  const response=await fetch(base+'/v1/muse-config',{headers:{authorization:'Bearer '+accountToken(secret,accountId)}});
+  assert.equal(response.status,200);return response.json();
  },async post(options={}){
   const {account=accountId,key,provider=route,body={}}=options;
   return fetch(base+'/v1/'+provider+'/chat/completions',{method:'POST',
@@ -104,12 +110,15 @@ function mockUpstream(t,answer){
 test('the Flash entry is opt-in and publishes one credential-free model with shared capabilities',{timeout:10000},async t=>{
  const {globalModels,flashRouting,options}=await fixture(t);
  assert.equal(await openDeepSeekFlashRouting({}),undefined);
- const disabled=desktopModelCatalog(globalModels);
+ const disabled=desktopModelCatalog(globalModels,undefined,undefined,'all');
  assert.ok(disabled.providers.some(provider=>provider.id===seed.jubian.provider));
  assert.ok(!disabled.providers.some(provider=>provider.id===route));
- const enabled=desktopModelCatalog(globalModels,undefined,flashRouting);
+ const enabled=desktopModelCatalog(globalModels,undefined,flashRouting,'all');
  assert.deepEqual(enabled.providers.map(provider=>[provider.id,provider.models.map(item=>item.id)]),
   [['volcengine-ark',['ark-unrelated']],['jubian-pro',['deepseek-v4-pro']],[route,[model]]]);
+ // The default selected catalog keeps its whitelist; the shared entry replaces the whitelisted Flash sources.
+ assert.deepEqual(desktopModelCatalog(globalModels,undefined,flashRouting).providers.map(provider=>[provider.id,provider.models.map(item=>item.id)]),
+  [[route,[model]]]);
  assert.deepEqual(enabled.providers.at(-1).models[0],{id:model,name:'DeepSeek V4.1 Flash',contextWindow:900000,
   maxTokens:90000,input:['text'],reasoningEfforts:{off:null,high:'high'},defaultReasoningEffort:'high'});
  assert.doesNotMatch(JSON.stringify(enabled),/gw\.jubian|aliyuncs|key-example|apiKey/);
@@ -123,7 +132,8 @@ test('the Flash entry is opt-in and publishes one credential-free model with sha
 });
 
 test('two sessions take distinct lines, retain affinity and send only their supplier dialect',{timeout:10000},async t=>{
- const config=await fixture(t),{post,records,waitForRecords}=await relay(t,config);
+ const config=await fixture(t),{post,records,waitForRecords,catalog}=await relay(t,config);
+ assert.deepEqual(Object.keys((await catalog()).providers),[route]);
  const calls=mockUpstream(t,()=>({status:200}));
  const key=sessionFor('jubian',{otherAccount:secondAccount}),different=sessionFor('bailian');
  for(const options of [{key},{key},{key:different},{key,account:secondAccount}]){
@@ -163,6 +173,8 @@ test('a pre-response quota refusal closes its upstream before switching and reme
  assert.deepEqual(first.records[0].supplier_attempts,
   [{supplier:'jubian',upstream_status:429,failover:'upstream_http'},{supplier:'bailian',upstream_status:200}]);
  assert.equal(first.records[0].error_kind,null);
+ // Usage metering records the shared entry and the accepted attempt, not the refused one.
+ assert.deepEqual(first.usage,[{input:{accountId,provider:route,model,entry:'legacy'},report:{outcome:'completed',sample:null,complete:true,httpStatus:200}}]);
 });
 
 test('a transient HTTP 500 falls back once and two refusals keep the original affinity',{timeout:10000},async t=>{
@@ -214,4 +226,62 @@ test('request errors, malformed successes and a stream truncated after data neve
  })()};
  await assert.rejects(async()=>{await (await post({key,body})).text();});
  assert.deepEqual(calls.map(call=>call.supplier),Array(5).fill('jubian'));
+});
+
+test('without MUSE_DEEPSEEK_FLASH_ROUTING the Flash entry is absent and deepseek-official keeps its single configured supplier',{timeout:10000},async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'muse-flash-off-'));
+ t.after(()=>rm(directory,{recursive:true,force:true}));
+ const nativeFile=join(directory,'native.json'),affinityFile=join(directory,'affinity.json');
+ const entry=(id,contextWindow)=>({id,contextWindow,maxTokens:contextWindow/10,input:['text'],reasoningEfforts:{off:null,high:'high'}});
+ await writeFile(nativeFile,JSON.stringify({version:2,revision:1,metadataRevision:1,providers:{
+  'deepseek-official':{displayName:'DeepSeek',baseURL:origin+'/v1',api:'openai-completions',apiKeyEnv:'JUBIAN_KEY',models:[entry(model,1000000)]},
+  [seed.bailian.provider]:{displayName:'Bailian',baseURL:bailianRoot+'/compatible-mode/v1',api:'openai-completions',apiKeyEnv:'BAILIAN_KEY',models:[entry(bailianModel,900000)]},
+ },credentials:{JUBIAN_KEY:'jubian-key-example',BAILIAN_KEY:'bailian-key-example'}}));
+ const globalModels=await openGlobalModels(nativeFile);
+ assert.equal(await openDeepSeekFlashRouting({affinityFile,globalModels}),undefined);
+ for(const configFile of ['','route.json',null])
+  await assert.rejects(openDeepSeekFlashRouting({configFile,affinityFile,globalModels}),/MUSE_DEEPSEEK_FLASH_ROUTING must be the absolute path/);
+ const notJson=join(directory,'route.json');await writeFile(notJson,'{"jubian":');
+ await assert.rejects(openDeepSeekFlashRouting({configFile:notJson,affinityFile,globalModels}),/not JSON/);
+ await assert.rejects(readFile(affinityFile),{code:'ENOENT'});
+ assert.deepEqual(desktopModelCatalog(globalModels).providers.map(provider=>[provider.id,provider.models.map(item=>item.id)]),
+  [['deepseek-official',[model]],[seed.bailian.provider,[bailianModel]]]);
+ const {post,records,waitForRecords,catalog}=await relay(t,{globalModels});
+ assert.equal((await catalog()).providers[route],undefined);
+ let status=429;
+ const calls=mockUpstream(t,()=>({status}));
+ const absent=await post({key:sessionFor('jubian')});assert.equal(absent.status,400);await absent.text();
+ // A supplier refusal reaches the client unchanged: Jubian routes its own suppliers and the gateway never fails over.
+ const refused=await post({provider:'deepseek-official',key:sessionFor('bailian'),body:{stream:true,thinking:{type:'enabled'}}});
+ assert.equal(refused.status,429);await refused.text();
+ status=200;
+ assert.equal(await (await post({provider:'deepseek-official',body:{stream:true}})).text(),'data: [DONE]\n\n');
+ assert.deepEqual(calls.map(call=>[call.supplier,call.body.model,call.headers.authorization]),
+  [['jubian',model,'Bearer jubian-key-example'],['jubian',model,'Bearer jubian-key-example']]);
+ assert.deepEqual(calls[0].body.thinking,{type:'enabled'});assert.equal(calls[0].body.enable_thinking,undefined);
+ await waitForRecords(3);
+ assert.ok(records.every(record=>!('model_supplier' in record)&&!('supplier_attempts' in record)));
+ assert.deepEqual(records.map(record=>[record.route,record.upstream_status,record.client_status]),
+  [[route,null,400],['deepseek-official',429,429],['deepseek-official',200,200]]);
+});
+
+test('Desktop sign-in lists the shared entry and meters the accepted supplier attempt',{timeout:10000},async t=>{
+ const config=await fixture(t),directory=await mkdtemp(join(tmpdir(),'muse-flash-desktop-'));let server;
+ t.after(async()=>{if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await rm(directory,{recursive:true,force:true});});
+ const store=await openStore(join(directory,'accounts.json')),account=await store.create('editor','pw');
+ const usage=[],publicOrigin='https://muse.test';
+ server=createAccountServer({store,globalModels:config.globalModels,flashRouting:config.flashRouting,publicOrigin,
+  modelUsage:{begin(input){usage.push({input});return usage.length;},finish(id,report){usage[id-1].report=report;}}});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
+ const login=await fetch(base+'/login',{method:'POST',redirect:'manual',headers:{origin:publicOrigin},body:'username=editor&password=pw'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ assert.deepEqual((await (await fetch(base+'/api/desktop-models/providers',{headers:{cookie}})).json()).providers.map(provider=>provider.id),[route]);
+ const calls=mockUpstream(t,call=>({status:call.supplier==='jubian'?503:200}));
+ const response=await fetch(base+'/api/desktop-models/'+route+'/chat/completions',{method:'POST',
+  headers:{cookie,origin:publicOrigin,'content-type':'application/json','x-muse-model-session':sessionFor('jubian',{account:account.id})},
+  body:JSON.stringify({model,messages:[{role:'user',content:'fixture'}],stream:true})});
+ assert.equal(await response.text(),'data: [DONE]\n\n');
+ assert.deepEqual(calls.map(call=>[call.supplier,call.body.model]),[['jubian',model],['bailian',bailianModel]]);
+ while(!usage[0]?.report)await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(usage,[{input:{accountId:account.id,provider:route,model,entry:'desktop'},report:{outcome:'completed',sample:null,complete:true,httpStatus:200}}]);
 });

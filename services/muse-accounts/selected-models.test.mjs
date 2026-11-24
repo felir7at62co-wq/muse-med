@@ -107,14 +107,16 @@ test('fresh account catalog routes every selected model with only server credent
  const root=await mkdtemp(join(tmpdir(),'muse-selected-account-'));let server;
  t.after(async()=>{if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await rm(root,{recursive:true,force:true});});
  const prepared=prepareSelectedModels(original(),{deepseekKey:officialKey}),file=join(root,'models');
+ // The gateway serves the official DeepSeek Flash and V4 Pro IDs with its configured 261017 Flash entry, so the directory carries that entry too.
+ const officialModels=prepared.providers['deepseek-official'].models;officialModels.push({...officialModels[0],id:'deepseek-v4.1-flash-261017'});
  await writeFile(file,JSON.stringify(prepared),{mode:0o600});const globalModels=await openGlobalModels(file);
- const safe=desktopModelCatalog(globalModels);
- assert.equal(safe.providers.flatMap(provider=>provider.models).length,11);
+ const safe=desktopModelCatalog(globalModels,undefined,undefined,'all');
+ assert.equal(safe.providers.flatMap(provider=>provider.models).length,12);
  assert.deepEqual(safe.providers.find(provider=>provider.id==='yunying').models.find(model=>model.id==='gemini-3.1-pro').input,['text','image']);
  assert.doesNotMatch(JSON.stringify(safe),/synthetic-|API_KEY|wy6688\.token6688\.com|api\.deepseek|open\.bigmodel/);
  const store=await openStore(join(root,'accounts'));await store.create('editor','pw');
  const origin='https://muse.test',calls=[];
- server=createAccountServer({workspaceMode:'desktop',store,globalModels,publicOrigin:origin,modelForward:async({config,body,res})=>{
+ server=createAccountServer({workspaceMode:'desktop',store,globalModels,modelCatalog:'all',publicOrigin:origin,modelForward:async({config,body,res})=>{
   calls.push({config,body});res.writeHead(200,{'content-type':'text/event-stream'});res.end('data: [DONE]\n\n');
  }});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const base='http://127.0.0.1:'+server.address().port;
@@ -133,17 +135,18 @@ test('fresh account catalog routes every selected model with only server credent
   const actual=calls.at(-1);assert.equal(actual.config.apiKey,provider.id==='deepseek-official'?officialKey:provider.id==='zhipu-official'?zhipuKey:cloudKey);
   if(provider.id==='zhipu-official')assert.equal(actual.config.baseURL,'https://open.bigmodel.cn/api/paas/v4');
   assert.equal(actual.body.max_tokens,32768);assert.deepEqual(actual.body.messages,history);assert.deepEqual(actual.body.tools,tools);
+  if(provider.id==='deepseek-official')assert.equal(actual.body.model,'deepseek-v4.1-flash-261017');
   assert.equal(actual.body.reasoning_effort,model.defaultReasoningEffort);
   if(provider.id==='zhipu-official')assert.deepEqual(actual.body.thinking,{type:'enabled',clear_thinking:false});
  }
- assert.equal(calls.length,11);
+ assert.equal(calls.length,12);
  for(const [route,model,budget,effort] of [['deepseek-official','deepseek-flash',393216,'low'],['yunying','gpt-6-sol',128000,'low'],
   ['zhipu-official','glm-5.3-flashx',128000,'max'],['zhipu-official','glm-5.3-flash',128000,'max']]){
   const reply=await fetch(base+'/api/desktop-models/'+route+'/chat/completions',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},
    body:JSON.stringify({model,messages:[],stream:true})});
   assert.equal(reply.status,200);await reply.text();assert.equal(calls.at(-1).body.max_tokens,budget);assert.equal(calls.at(-1).body.reasoning_effort,effort);
  }
- assert.equal(calls.length,15);
+ assert.equal(calls.length,16);
  const off=await fetch(base+'/api/desktop-models/deepseek-official/chat/completions',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},
   body:JSON.stringify({model:'deepseek-flash',messages:[],stream:true,thinking:{type:'disabled'},max_tokens:100})});
  assert.equal(off.status,200);await off.text();assert.deepEqual(calls.at(-1).body.thinking,{type:'disabled'});
@@ -153,7 +156,7 @@ test('fresh account catalog routes every selected model with only server credent
   const rejected=await fetch(base+'/api/desktop-models/'+route+'/chat/completions',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},
    body:JSON.stringify({model,messages:[]})});assert.equal(rejected.status,400);
  }
- assert.equal(calls.length,16);
+ assert.equal(calls.length,17);
  await fetch(base+'/logout',{method:'POST',headers:{origin,cookie},redirect:'manual'});
  assert.equal((await fetch(base+'/api/desktop-models/providers',{headers:{cookie}})).status,401);
 });

@@ -10,7 +10,6 @@ import {createNativeJubianHttp} from './native-jubian-http.mjs';
 import {loadNativeJubianAdmission} from './native-jubian-config.mjs';
 import {loadMarket,marketPage} from './market.mjs';
 import {renderSitePage} from './site-shell.mjs';
-import {openDirectModelLeases,resolveDirectLeasePolicy} from './model-direct-leases.mjs';
 import http from 'node:http';
 import {createDesktopLogin} from './desktop-login.mjs';
 import {createFeishuLogin,loadFeishuLoginConfig} from './feishu-login.mjs';
@@ -38,6 +37,8 @@ import {loadPortfolioReaders} from './kb-portfolio-config.mjs';
 import {openModelConfig,createModelRelay} from './model-relay.mjs';
 import {openGlobalModels,restrictModelSchema} from './global-models.mjs';
 import {createDesktopModels} from './desktop-models.mjs';
+import {openDeepSeekFlashRouting} from './deepseek-flash-routing.mjs';
+import {resolvePublicModelCatalog} from './public-model-catalog.mjs';
 import {createWebSearch} from './web-search.mjs';
 import {openModelUsage,modelUsageQuery} from './model-usage.mjs';
 import {renderModelUsage} from './model-usage-pages.mjs';
@@ -88,7 +89,7 @@ function loginPage(register=false,desktopLogin,feishuEnabled=false,feishuAppType
  * @param {import('node:http').Server} [options.httpServer] Unhandled carrier, optionally already listening; the factory installs gateway handlers and owns their close cleanup.
  * @returns {import('node:http').Server} The supplied carrier or a new HTTP server.
  */
-export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},workbenchOptions={},botTeamOptions,botCoordination:providedBotCoordination,productionBoard:providedProductionBoard,desktopLoginOptions={},feishuLoginOptions={},feishuOnlyLogin=false,feishuOrgSync,modelConfig,globalModels,modelForward,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,studioUsage,productionFees,productionFeeReadRatePerMinute=120,nativeJubianAdmission,nativeJubianApprovals,nativeJubianMaxRequestBytes=262144,nativeJubianRequestRatePerMinute=120,archiveAdmissionOptions={},httpServer,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,feedbackAutomation,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,voiceSlots,market,webSearchOptions={},now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},workbenchOptions={},botTeamOptions,botCoordination:providedBotCoordination,productionBoard:providedProductionBoard,desktopLoginOptions={},feishuLoginOptions={},feishuOnlyLogin=false,feishuOrgSync,modelConfig,globalModels,flashRouting,modelCatalog='selected',modelForward,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,studioUsage,productionFees,productionFeeReadRatePerMinute=120,nativeJubianAdmission,nativeJubianApprovals,nativeJubianMaxRequestBytes=262144,nativeJubianRequestRatePerMinute=120,archiveAdmissionOptions={},httpServer,modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,feedback,feedbackAutomation,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,voiceSlots,market,webSearchOptions={},now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  if(httpServer&&(httpServer.listenerCount('request')!==0||httpServer.listenerCount('upgrade')!==0))throw Error('Account HTTP carrier must have no request or upgrade handlers');
  if(!Number.isSafeInteger(nativeJubianRequestRatePerMinute)||nativeJubianRequestRatePerMinute<1||nativeJubianRequestRatePerMinute>10000)throw Error('Invalid native Jubian metadata rate');
  if(!Number.isSafeInteger(productionFeeReadRatePerMinute)||productionFeeReadRatePerMinute<1||productionFeeReadRatePerMinute>10000)throw Error('Invalid production fee metadata rate');
@@ -108,7 +109,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  function workspaceMutation(path){return /^\/api\/workspace[./](create|delete|rename|update|change|insertBefore)(?:\/|$)/.test(decodeURIComponent(path));}
  const validWebSearchSession=s=>{const current=sessionStore.get(s.token),account=current&&store.get(current.id);return !!current&&current.id===s.id&&current.expiry>now()&&!!account&&!account.disabled&&account.revision===current.revision;};
  const webSearch=createWebSearch({...webSearchOptions,globalModels,now,validSession:validWebSearchSession});
- const desktopModels=createDesktopModels({globalModels,modelConfig,forward:modelForward,now,transport:desktopModelTransport,keyPoolPolicy:modelKeyPoolPolicy,keyPool:modelKeyPool,directLeases:directModelLeases,modelUsage,usageLedger});
+ const desktopModels=createDesktopModels({globalModels,flashRouting,modelCatalog,modelConfig,forward:modelForward,now,keyPoolPolicy:modelKeyPoolPolicy,keyPool:modelKeyPool,modelUsage,usageLedger});
  const archiveAdmission=createAccountDataAdmission(archiveAdmissionOptions);
 
  publicOrigin=new URL(publicOrigin).origin;const rates=new Map(),connections=new Map(),cookies=new Map(),httpStreams=new Map(),kbAccessTokens=new Map(),activeTokens=new Map(),accountRevocations=new Map();
@@ -517,7 +518,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  * @param options Listening gateway, feedback worker, provider service, and owned model resources.
  * @returns An idempotent close operation rejecting only after cleanup completes.
  */
-export function installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,productionFees,nativeJubianAdmission,feedbackAutomation,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
+export function installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,flashRouting,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,productionFees,nativeJubianAdmission,feedbackAutomation,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
 
  const sockets=new Set();let completion;
  const connection=socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));};
@@ -537,8 +538,8 @@ export function installGatewayShutdown({accountServer,asr,market,modelRelay,mode
    try{await market?.close();}catch(error){failure??=error;}
    for(const socket of sockets)socket.destroy();
    let nativeDrained=false;
-   const closed=await Promise.allSettled([Promise.resolve().then(()=>studioRuntime?.close()),Promise.resolve().then(async()=>{await accountServer.closeNativeJubian?.();nativeDrained=true;}),closeServer(accountServer),...modelRelay?[closeServer(modelRelay)]:[],Promise.resolve().then(()=>directModelLeases?.close())]);
-   const stored=await Promise.allSettled([usageLedger?.flush(),sessionArchives?.flush()]);
+   const closed=await Promise.allSettled([Promise.resolve().then(()=>studioRuntime?.close()),Promise.resolve().then(async()=>{await accountServer.closeNativeJubian?.();nativeDrained=true;}),closeServer(accountServer),...modelRelay?[closeServer(modelRelay)]:[]]);
+   const stored=await Promise.allSettled([usageLedger?.flush(),sessionArchives?.flush(),flashRouting?.flush()]);
    if(nativeDrained){try{await nativeJubianAdmission?.close();}catch(error){failure??=error;}try{await productionFees?.close();}catch(error){failure??=error;}}
    modelKeyPool?.close();try{await modelUsage?.close();}catch(error){failure??=error;}accountServer.off('connection',connection);
 
@@ -552,9 +553,10 @@ export function installGatewayShutdown({accountServer,asr,market,modelRelay,mode
  return {close};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href){
- const desktopModelTransport=process.env.MUSE_DESKTOP_MODEL_TRANSPORT||'relay';
- if(!['relay','direct'].includes(desktopModelTransport))throw Error('MUSE_DESKTOP_MODEL_TRANSPORT must be relay or direct');
+ if(process.env.MUSE_DESKTOP_MODEL_TRANSPORT!==undefined&&process.env.MUSE_DESKTOP_MODEL_TRANSPORT!=='relay')throw Error('MUSE_DESKTOP_MODEL_TRANSPORT only accepts relay: Desktop direct model access was removed and supplier credentials never leave the gateway. Remove the setting and rotate every supplier key that direct access distributed');
  for(const name of ['MUSE_DESKTOP_MODEL_MAX_ACTIVE','MUSE_DESKTOP_MODEL_MAX_TOTAL'])if(process.env[name]!==undefined)throw Error(name+' is no longer supported; remove it to use unrestricted model relay concurrency');
+ for(const name of ['MUSE_ZHIPU_DIRECT_TOKEN_MS','MUSE_ZHIPU_DIRECT_REQUEST_MS','MUSE_ZHIPU_DIRECT_CHECK_MS','MUSE_ZHIPU_DIRECT_GRACE_MS','MUSE_USAGE_RATE_PER_MINUTE'])if(process.env[name]!==undefined)throw Error(name+' is no longer supported; Desktop direct model access and its usage reports were removed');
+ const modelCatalog=resolvePublicModelCatalog(process.env);
  const desktopRelayOptions=process.env.MUSE_DESKTOP_MAX_DEVICES===undefined?{}:{maxDevices:Number(process.env.MUSE_DESKTOP_MAX_DEVICES)};
  const workspaceMode=process.env.MUSE_WORKSPACE_MODE||'desktop';
  const studioConfig=await loadStudioConfig(process.env.MUSE_STUDIO_CONFIG);
@@ -595,10 +597,11 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   try{const {bootstrapRelease}=await import('./yunying-bootstrap.mjs');const result=await bootstrapRelease({models:globalModels,keyPath:process.env.MUSE_YUNYING_BOOTSTRAP_FILE});console.log('[muse-yunying-bootstrap] '+result.status);}
   catch{console.error('[muse-yunying-bootstrap] unavailable');}
  }
+ const flashRouting=await openDeepSeekFlashRouting({configFile:process.env.MUSE_DEEPSEEK_FLASH_ROUTING,
+  affinityFile:join(dirname(accountFile),'deepseek-flash-affinity.json'),globalModels});
  const modelUsage=await openModelUsage(process.env.MUSE_MODEL_USAGE_FILE??join(dirname(accountFile),'model-usage','requests.sqlite'));
  const modelKeyPoolPolicy=resolveModelKeyPoolPolicy(process.env);
  const modelKeyPool=createModelKeyPool({keys:()=>globalModels?.credentialPool?.('zhipu-official')??[],...modelKeyPoolPolicy});
- const directModelLeases=await openDirectModelLeases({pool:modelKeyPool,globalModels,file:join(dirname(accountFile),'model-direct-leases.json'),policy:resolveDirectLeasePolicy(process.env),allowAcquire:desktopModelTransport==='direct'});
  const feedbackRoot=join(dirname(accountFile),'feedback');
  const feedback=await openFeedback(feedbackRoot);
  const feedbackAiConfig=await loadFeedbackAiConfig(process.env.MUSE_FEEDBACK_AI_CONFIG);
@@ -636,8 +639,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;asrRequestRatePerMinute=config.requestRatePerMinute;
  }
  const companyCli=await loadCompanyCliService(process.env.MUSE_COMPANY_CLI_CONFIG,{accounts:store,studioRuntime,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN||'https://muse.aigc-pipeline.cn'});
- const accountServer=createAccountServer({store,runtime,workspaceMode,desktopRelayOptions,workbenchOptions:{cloudDeviceId:process.env.MUSE_CLOUD_BOT_DEVICE_ID},botTeamOptions:process.env.MUSE_BOT_TEAM_DB?{file:process.env.MUSE_BOT_TEAM_DB,...process.env.MUSE_BOT_STATUS_TTL_MS?{statusTtlMs:Number(process.env.MUSE_BOT_STATUS_TTL_MS)}:{}}:undefined,feishuLoginOptions:{config:feishuConfig},feishuOnlyLogin,feishuOrgSync,modelConfig,globalModels,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,studioUsage,productionFees,nativeJubianAdmission,nativeJubianApprovals:productionFees,nativeJubianMaxRequestBytes:process.env.MUSE_NATIVE_JUBIAN_REQUEST_BYTES===undefined?262144:Number(process.env.MUSE_NATIVE_JUBIAN_REQUEST_BYTES),nativeJubianRequestRatePerMinute:process.env.MUSE_NATIVE_JUBIAN_RATE_PER_MINUTE===undefined?120:Number(process.env.MUSE_NATIVE_JUBIAN_RATE_PER_MINUTE),productionFeeReadRatePerMinute:process.env.MUSE_FEE_READ_RATE_PER_MINUTE===undefined?120:Number(process.env.MUSE_FEE_READ_RATE_PER_MINUTE),archiveAdmissionOptions,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,feedbackAutomation,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
- if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,secret:modelSecret,accounts:store,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy,modelUsage,usageLedger}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
+ const accountServer=createAccountServer({store,runtime,workspaceMode,desktopRelayOptions,workbenchOptions:{cloudDeviceId:process.env.MUSE_CLOUD_BOT_DEVICE_ID},botTeamOptions:process.env.MUSE_BOT_TEAM_DB?{file:process.env.MUSE_BOT_TEAM_DB,...process.env.MUSE_BOT_STATUS_TTL_MS?{statusTtlMs:Number(process.env.MUSE_BOT_STATUS_TTL_MS)}:{}}:undefined,feishuLoginOptions:{config:feishuConfig},feishuOnlyLogin,feishuOrgSync,modelConfig,globalModels,flashRouting,modelCatalog,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,studioUsage,productionFees,nativeJubianAdmission,nativeJubianApprovals:productionFees,nativeJubianMaxRequestBytes:process.env.MUSE_NATIVE_JUBIAN_REQUEST_BYTES===undefined?262144:Number(process.env.MUSE_NATIVE_JUBIAN_REQUEST_BYTES),nativeJubianRequestRatePerMinute:process.env.MUSE_NATIVE_JUBIAN_RATE_PER_MINUTE===undefined?120:Number(process.env.MUSE_NATIVE_JUBIAN_RATE_PER_MINUTE),productionFeeReadRatePerMinute:process.env.MUSE_FEE_READ_RATE_PER_MINUTE===undefined?120:Number(process.env.MUSE_FEE_READ_RATE_PER_MINUTE),archiveAdmissionOptions,modelKeyPoolPolicy,modelKeyPool,feedback,feedbackAutomation,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,flashRouting,modelCatalog,secret:modelSecret,accounts:store,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy,modelUsage,usageLedger}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
  let sweepInterval,orgTimer,productionTimer;
  if(process.env.MUSE_PRODUCTION_BOARD_CONFIG||process.env.MUSE_PRODUCTION_BOARD_DB){
   if(!process.env.MUSE_PRODUCTION_BOARD_CONFIG||!process.env.MUSE_PRODUCTION_BOARD_DB||!accountServer.botCoordination||!feishuConfig)throw Error('Production board requires its mapping, database, Bot coordination and existing Feishu identity');
@@ -649,7 +652,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   const synchronize=()=>void board.sync().catch(()=>console.error('MUSE production source synchronization failed'));
   synchronize();productionTimer=setInterval(synchronize,config.intervalMs);productionTimer.unref();
  }
- installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,productionFees,nativeJubianAdmission,feedbackAutomation,stopSweep:()=>{clearInterval(sweepInterval);clearInterval(orgTimer);clearInterval(productionTimer);}});
+ installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,flashRouting,modelUsage,usageLedger,sessionArchives,studioRuntime,companyCli,productionFees,nativeJubianAdmission,feedbackAutomation,stopSweep:()=>{clearInterval(sweepInterval);clearInterval(orgTimer);clearInterval(productionTimer);}});
  accountServer.listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>{
   console.log('MUSE accounts gateway listening on loopback:'+accountServer.address().port);
   void feedbackAutomation.start().catch(()=>console.error('MUSE feedback automation startup failed'));

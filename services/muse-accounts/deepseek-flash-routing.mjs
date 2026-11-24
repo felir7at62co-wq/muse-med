@@ -1,6 +1,7 @@
 /** Private supplier selection for the public DeepSeek Flash model. */
 import {createHash,randomBytes} from 'node:crypto';
 import {readFile,stat,rename,unlink,writeFile} from 'node:fs/promises';
+import {isAbsolute} from 'node:path';
 
 const route='deepseek-flash-auto';
 const model='deepseek-v4.1-flash';
@@ -120,14 +121,17 @@ function createAffinity(file,entries){
 }
 
 /** Open a gateway-local route backed by two private native model settings.
- * @param {object} options Opt-in config file, private affinity file, and current global model directory.
+ * Without a config file the route is absent and `deepseek-official` keeps its configured single supplier.
+ * @param {object} options Opt-in absolute config file (`MUSE_DEEPSEEK_FLASH_ROUTING`), private affinity file, and current global model directory.
  * @returns {Promise<object|undefined>} Catalog projection and forwarding operations, or undefined when disabled.
- * @throws {Error} The configured model or its private supplier settings are missing or invalid.
+ * @throws {Error} The config path, the configured model or its private supplier settings are missing or invalid.
  */
 export async function openDeepSeekFlashRouting({configFile,affinityFile,globalModels}){
  if(configFile===undefined)return;
- if(!configFile||!affinityFile||!globalModels)throw Error('DeepSeek Flash routing requires a config file, affinity file, and native model directory');
- const config=privateConfig(JSON.parse(await readFile(configFile,'utf8')));
+ if(typeof configFile!=='string'||!isAbsolute(configFile))throw Error('MUSE_DEEPSEEK_FLASH_ROUTING must be the absolute path of the DeepSeek Flash routing JSON file; remove it to keep deepseek-official on its single supplier');
+ if(!affinityFile||!globalModels)throw Error('DeepSeek Flash routing requires a config file, affinity file, and native model directory');
+ let stored;try{stored=JSON.parse(await readFile(configFile,'utf8'));}catch(error){if(error instanceof SyntaxError)throw Error('Invalid DeepSeek Flash routing config: the file is not JSON');throw error;}
+ const config=privateConfig(stored);
  const hidden=[config.jubian,config.bailian,...config.hide??[]];
  function resolve(metadata=globalModels.metadata()){
   if(Object.hasOwn(metadata.providers??{},route))return;
@@ -143,16 +147,21 @@ export async function openDeepSeekFlashRouting({configFile,affinityFile,globalMo
  const affinity=createAffinity(affinityFile,await readAffinity(affinityFile));
  return {
   matches:(provider,id)=>provider===route&&id===model,
-  catalog(metadata){
+  /** Publish the shared entry when both sources resolve in the private directory.
+   * @param {object} metadata Private directory metadata that resolves both sources.
+   * @param {object} [target] Published projection of that directory; sources and hide references leave it and the shared entry joins it.
+   * @returns {object} The projected target, unchanged when the entry is unavailable.
+   */
+  catalog(metadata,target=metadata){
    const current=resolve(metadata);
-   if(!current)return metadata;
-   const providers=Object.fromEntries(Object.entries(metadata.providers??{}).flatMap(([provider,item])=>{
+   if(!current)return target;
+   const providers=Object.fromEntries(Object.entries(target.providers??{}).flatMap(([provider,item])=>{
     const models=item.models.filter(entry=>!hidden.some(ref=>sameRef(ref,{provider,model:entry.id})));
     return models.length||!item.models.length?[[provider,{...item,models}]]:[];
    }));
-   const deepseek=metadata.deepseek&&{...metadata.deepseek,
-    models:metadata.deepseek.models.filter(entry=>!hidden.some(ref=>sameRef(ref,{provider:'deepseek-official',model:entry.id})))};
-   const {deepseek:unused,...rest}=metadata;
+   const deepseek=target.deepseek&&{...target.deepseek,
+    models:target.deepseek.models.filter(entry=>!hidden.some(ref=>sameRef(ref,{provider:'deepseek-official',model:entry.id})))};
+   const {deepseek:unused,...rest}=target;
    return {...rest,...deepseek?.models.length?{deepseek}:{},
     providers:{...providers,[route]:{displayName:'DeepSeek',models:[current.spec]}}};
   },

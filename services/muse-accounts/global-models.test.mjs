@@ -28,7 +28,7 @@ test('per-model effort defaults survive private storage and public metadata with
  await directory.setCredential('GLM_KEY','synthetic-private-key');
  const reopened=await openGlobalModels(file),resolved=reopened.resolve('studio','glm-5.3-flash');
  assert.equal(resolved.defaultReasoningEffort,'low');assert.equal(resolved.maxTokens,32768);assert.equal(resolved.apiKey,'synthetic-private-key');
- const catalog=desktopModelCatalog(reopened);assert.equal(catalog.providers[0].models[0].defaultReasoningEffort,'low');
+ const catalog=desktopModelCatalog(reopened,undefined,undefined,'all');assert.equal(catalog.providers[0].models[0].defaultReasoningEffort,'low');
  assert.doesNotMatch(JSON.stringify(catalog),/synthetic-private-key|GLM_KEY|provider.example/);
 });
 

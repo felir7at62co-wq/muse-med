@@ -20,7 +20,7 @@ test('Muse login exposes website models, streams through account auth and revoke
   let hold=false,started;const entered=new Promise(r=>{started=r;});
  const requests=[];const origin='https://muse.test';
   const globalModels={metadata:()=>({providers:{studio:{displayName:'工作室',models:[{id:'writer',name:'编剧',contextWindow:128000,maxTokens:8192,input:['text'],reasoningEfforts:false}]}}}),resolve:(route,id)=>route==='studio'&&id==='writer'?{model:id,apiKey:'server-only-key',baseURL:'https://provider.test/v1',maxTokens:8192,reasoningEfforts:false}:undefined};
-  server=createAccountServer({store,runtime:{ensure:()=>{throw Error('No workspace backend needed');}},globalModels,publicOrigin:origin,modelForward:async({config,body,res,signal})=>{requests.push({config,body});if(hold){started();await new Promise((resolve,reject)=>{signal.addEventListener('abort',()=>reject(Error('revoked')),{once:true});});}res.setHeader('content-type','text/event-stream');res.end('data: [DONE]\n\n');}});
+  server=createAccountServer({store,runtime:{ensure:()=>{throw Error('No workspace backend needed');}},globalModels,modelCatalog:'all',publicOrigin:origin,modelForward:async({config,body,res,signal})=>{requests.push({config,body});if(hold){started();await new Promise((resolve,reject)=>{signal.addEventListener('abort',()=>reject(Error('revoked')),{once:true});});}res.setHeader('content-type','text/event-stream');res.end('data: [DONE]\n\n');}});
   await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
   const call=(path,options={})=>fetch(base+path,{redirect:'manual',...options});
   assert.equal((await call('/api/desktop-models/providers')).status,401);
@@ -135,7 +135,7 @@ test('verified Jubian catalog exposes only admitted models and forwards their ex
  await writeFile(path,JSON.stringify(addJubianTestedModels(source,{credentialRef:'TEST'})),{mode:0o600});
  const globalModels=await openGlobalModels(path);
  const requested=[];
- const fixture=await capacityFixture(t,{globalModels,modelForward:async({config,body,res})=>{
+ const fixture=await capacityFixture(t,{globalModels,modelCatalog:'all',modelForward:async({config,body,res})=>{
   requested.push(body.model);
   assert.equal(config.apiKey,secret);
   assert.equal(config.baseURL,'https://gw.jubianai.net/v1');
@@ -199,6 +199,26 @@ for(const [name,value] of [['MUSE_DESKTOP_MODEL_TRANSPORT','direct'],['MUSE_ZHIP
   }),error=>{assert.match(error.stderr,new RegExp(name));assert.match(error.stderr,/direct/i);assert.doesNotMatch(error.stdout,/listening/);return true;});
  });
 }
+
+test('the public catalog lists only the selected company models unless every provider is explicitly published',async()=>{
+ const model=id=>({id,contextWindow:128000,maxTokens:8192,input:['text'],reasoningEfforts:false});
+ const providers={'deepseek-official':{models:[model('deepseek-v4.1-flash-261017')]},'volcengine-ark':{models:[model('glm-5.3-flash-260828'),model('ark-other')]},
+  yunying:{models:[model('gpt-6.1-sol'),model('gemini-3.1-pro'),model('gpt-6-sol')]},'alibaba-bailian':{models:[model('deepseek-v4.1-flash-1017'),model('qwen-other')]},
+  jubian:{models:[model('claude-sonnet-5-5')]},'jubian-gpt':{models:[model('gpt-6.1-sol')]},studio:{models:[model('writer')]}};
+ const globalModels={metadata:()=>({providers})};
+ const listed=catalog=>catalog.providers.map(provider=>[provider.id,provider.models.map(item=>item.id)]);
+ const selected=[['deepseek-official',['deepseek-v4.1-flash-261017']],['volcengine-ark',['glm-5.3-flash-260828']],['yunying',['gpt-6.1-sol','gemini-3.1-pro']],
+  ['alibaba-bailian',['deepseek-v4.1-flash-1017']],['jubian',['claude-sonnet-5-5']]];
+ assert.deepEqual(listed(desktopModelCatalog(globalModels)),selected);
+ assert.deepEqual(listed(desktopModelCatalog(globalModels,undefined,undefined,'selected')),selected);
+ // Every configured provider except the internal GPT reroute target.
+ assert.deepEqual(listed(desktopModelCatalog(globalModels,undefined,undefined,'all')),Object.entries(providers).filter(([id])=>id!=='jubian-gpt').map(([id,provider])=>[id,provider.models.map(item=>item.id)]));
+ for(const value of ['','ALL','everything',null])assert.throws(()=>desktopModelCatalog(globalModels,undefined,undefined,value),/selected or all/);
+ assert.throws(()=>createAccountServer({store:{},modelCatalog:'everything'}),/selected or all/);
+ for(const value of ['','everything'])await assert.rejects(promisify(execFile)(process.execPath,[fileURLToPath(new URL('./gateway.mjs',import.meta.url))],{
+  env:{MUSE_PUBLIC_MODEL_CATALOG:value},timeout:20000,
+ }),error=>{assert.match(error.stderr,/MUSE_PUBLIC_MODEL_CATALOG must be selected or all/);assert.doesNotMatch(error.stdout,/listening/);return true;});
+});
 
 test('removed Desktop capacity configuration fails with an operator migration instruction',async()=>{
  await assert.rejects(promisify(execFile)(process.execPath,[fileURLToPath(new URL('./gateway.mjs',import.meta.url))],{
