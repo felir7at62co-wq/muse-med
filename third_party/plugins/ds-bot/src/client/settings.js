@@ -5,6 +5,7 @@ import { MESSAGE_WIDTH, allThemes, effectsOf, flatWidthOf, layoutOf, thinkingSho
 import { CloseIcon, ChevronLeftIcon, ChevronRightIcon, ChatsIcon, ClockIcon, CoinIcon, ConnectorIcon, GlobeIcon, InfoIcon, MonitorIcon, PhoneIcon, PlusIcon, SlidersIcon, SparkIcon, TerminalIcon, SETTINGS_ICONS } from './icons.js'
 import { IconAgentPresetOutlineMedium, IconArchiveOutlineMedium, IconPersonalizationOutlineMedium, IconSettingsOutlineMedium, IconUserOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AdminStar, BotAvatar, RoomAvatar } from './mark.js'
+import { animatedAvatarsOn } from './animated-avatar.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, Switch } from './bot-settings.js'
 import { Segmented, useGlide } from './motion.js'
@@ -249,7 +250,10 @@ function MotionSection({ roster, actions, run }) {
       h(Segmented, { label: t('Bot animation'), value: motion, className: 'bt-motion-seg' }, MOTIONS.map(([id, label]) => h('button', {
         key: id, type: 'button', 'aria-pressed': motion === id,
         onClick: () => { if (motion !== id) run(actions.setPrefs({ motion: id })) },
-      }, t(label))))))
+      }, t(label))))),
+    // Muse: off by default; on, the Main Bot tiles and the details page draw animated avatars.
+    h(SetRow, { label: t('Animated avatars') },
+      h(Switch, { label: t('Animated avatars'), on: animatedAvatarsOn(roster.prefs), onChange: animatedAvatars => run(actions.setPrefs({ animatedAvatars })) })))
 }
 
 function BotsPage({ roster, actions, run }) {

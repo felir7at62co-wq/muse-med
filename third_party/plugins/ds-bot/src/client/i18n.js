@@ -39,6 +39,7 @@ const ZH = {
   'Resize sidebar': '调整侧边栏宽度',
   'Animation': '动画',
   'Bot animation': 'Bot 动画',
+  'Animated avatars': '动态形象',
   'Interface motion': '界面动效',
   Full: '标准',
   Reduced: '精简',

@@ -55,6 +55,7 @@ export const FR = {
   "Resize sidebar": "Redimensionner la barre latérale",
   "Animation": "Animation",
   "Bot animation": "Animation des Bots",
+  "Animated avatars": "Avatars animés",
   "Interface motion": "Animation d'interface",
   "Full": "Complet",
   "Reduced": "Réduit",

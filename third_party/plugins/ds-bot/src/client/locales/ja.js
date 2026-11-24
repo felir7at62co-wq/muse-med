@@ -55,6 +55,7 @@ export const JA = {
   "Resize sidebar": "サイドバーの幅を調整",
   "Animation": "アニメーション",
   "Bot animation": "Bot アニメーション",
+  "Animated avatars": "アニメーションアバター",
   "Interface motion": "画面モーション",
   "Full": "標準",
   "Reduced": "軽減",

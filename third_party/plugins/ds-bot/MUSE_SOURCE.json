@@ -7,9 +7,12 @@
   "addedFiles": [
     "MUSE_SOURCE.json",
     "NOTICE",
+    "dev/avatar-definitions.mjs",
     "dev/spider.mjs",
     "dev/trace.mjs",
     "src/client/account-page.js",
+    "src/client/animated-avatar.js",
+    "src/client/avatar-definitions.js",
     "src/client/background-panel.js",
     "src/client/background-thought-bubbles.js",
     "src/client/balance-page.js",
@@ -24,6 +27,7 @@
     "src/host/im/feishu-turn.js",
     "src/host/im/platforms/feishu-dsh-im.js",
     "src/host/station-events.js",
+    "test/animated-avatar.test.js",
     "test/central-members.test.js",
     "test/im-feishu-turn.test.js",
     "test/im-page.test.js",
@@ -49,6 +53,8 @@
     "dev/characters.mjs",
     "index.js",
     "office.js",
+    "package-lock.json",
+    "package.json",
     "scripts/style-debt.mjs",
     "src/client/about.js",
     "src/client/account-page.js",
@@ -68,11 +74,13 @@
     "src/client/icons.js",
     "src/client/im-page.js",
     "src/client/index.js",
+    "src/client/inks.js",
     "src/client/locales/de.js",
     "src/client/locales/es.js",
     "src/client/locales/fr.js",
     "src/client/locales/ja.js",
     "src/client/locales/ko.js",
+    "src/client/mark-flight.js",
     "src/client/mark.js",
     "src/client/member-status.js",
     "src/client/notify.js",
@@ -248,6 +256,7 @@
     "Feishu groups register themselves (`im/index.js`, `im/platforms/feishu.js`, `im/platforms/feishu-dsh-im.js`): the Feishu handles, native and dsh-im, gain `chats()`, which lists the groups the bot is in (`GET /open-apis/im/v1/chats`, ten pages of 100, with the app credentials DS Bot holds), and the native adapter reports `im.chat.member.bot.added_v1` through a new optional `onChat` handler (dsh-im does not forward that event, so a dsh-im connection picks a new group up at its next listing). The core registers every listed group not yet known as a chat with a Bot of its own, through the same path a first message takes, when the connection turns ready, every ten minutes while it stays ready and on `onChat`; Bots are made one after another, a known chat only follows its name (so a deleted chat Bot is not made again until the chat writes), `chatBots: false` records the chat without a Bot, and a list that cannot be read is logged once per connect. Leaving a group is not followed. Platforms without `chats()` are unchanged",
     "`im_send` and `im_history` (`im/index.js`, `tools.js`): the Bot a connection belongs to reaches every chat registered on that connection, by title or key, not only the chats whose messages come to it; other Bots keep their own chats. Listed chats go by title, with the key where a title is missing or shared. What is sent is not passed to the chat's own Bot",
     "Feishu replies keep their formatting (`im/feishu-markdown.js`, `im/platforms/feishu.js`, `im/platforms/feishu-dsh-im.js`, NOTICE): a reply that uses Markdown goes out as schema 2.0 cards with one `markdown` element instead of a text message; a plain reply stays text. On a dsh-im connection with the rich consumer the cards answer the source message (in its topic) through DS Bot's Feishu REST access, and plain replies and any chunk Feishu will not take as a card still go through dsh-im's checked reply. Ported from the retained dsh-im source (`feishu-cards.mjs`, `bridge.mjs`, MIT, recorded in NOTICE): the 24,000-byte budget of one card's content, the five-table limit of one card with its GFM table detection and the cut where a table begins, and plain text when the card is refused (a 4xx other than 401 and 403). dsh-im rewrites no Markdown; added here: a picture given by address becomes a link and one given by a local path its caption, because a card draws pictures only from Feishu image keys, and a code fence cut by chunking is closed and opened again",
-    "dsh-im for every channel (`im/platforms/dsh-im.js`, `im/index.js`, `im-page.js`, `settings.js`, `tools.js` `im_history`, `shared/im-platforms.js`): one adapter takes any dsh-im account through dsh-im's channel-neutral external consumer; connections link through the `dshIm` option (the older `feishuDshIm` still works) or Settings → IM, which lists unlinked dsh-im accounts with a Bot picker, and a link pins the account fingerprint. Replies go back to the message that asked; a chat's delivery route is saved so it can be written to first; attachments load only for admitted messages; `im_history` reads a chat back through dsh-im"
+    "dsh-im for every channel (`im/platforms/dsh-im.js`, `im/index.js`, `im-page.js`, `settings.js`, `tools.js` `im_history`, `shared/im-platforms.js`): one adapter takes any dsh-im account through dsh-im's channel-neutral external consumer; connections link through the `dshIm` option (the older `feishuDshIm` still works) or Settings → IM, which lists unlinked dsh-im accounts with a Bot picker, and a link pins the account fingerprint. Replies go back to the message that asked; a chat's delivery route is saved so it can be written to first; attachments load only for admitted messages; `im_history` reads a chat back through dsh-im",
+    "Animated avatars, off by default (`animated-avatar.js`, `avatar-definitions.js`, `dev/avatar-definitions.mjs`): Settings → Bots → Animation has one switch, Animated avatars (`animatedAvatars` in the team preferences, stored only when on, like `thinking`; a `false` that an earlier build stored reads as off and goes with the next off). While it is off every avatar is the drawn mark, no canvas is mounted, the finished-run hold stays 1.8 s and `copyOf` in `mark-flight.js` is the clone with its own ids that the panel made before. While it is on, open-bot-avatar 0.3.1 (MIT, pinned in `devDependencies` and in the plugin build toolchain, bundled into the Client) draws the seven default characters (star, moon, gumdrop, peanut, bunny, kitty, acorn) from definitions built from `CHARACTERS`: the body's outline scaled to the package's 8..92 box, and a level eye pair as tall and as far apart as the character's capsules, moved up to 6.5 units toward the middle on the five characters drawn turned to the right, where the package needs room to turn the eyes. It shows in two places only, the Main Bot tiles of the open sidebar (the first four move, later ones are one still picture) and the avatar of a Bot's details page, in the box of the drawn mark and under the same badges (`animated` on `BotAvatar`); a Bot with a picture, the Muse spider (`animatedDefinition` refuses it by name, so the vector spider of `muse-spider.js` and its `SpiderDetail` motion stay as they are) and every other character keep the drawn mark, as do rows, groups and chat. A Bot's state maps to the package's six (`alert` to `blocked`), its color to the ink's hex for the theme's mode (`inkHex` in `inks.js`; the gradient takes its text ink), the eyes to the surface behind, Interface motion to reduced motion or one still picture, and the Bot's name to the accessible label; the pointer on an avatar makes it happy and the details avatar follows the pointer, unless Bot animation is quiet; a finished run holds the package's celebration for 3.9 s. A copy of the details avatar that flies to the panel's strip is painted from its canvas (`copyOf` paints only the canvas of an animated avatar)"
   ]
 }

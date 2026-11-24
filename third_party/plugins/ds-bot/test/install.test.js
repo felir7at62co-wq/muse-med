@@ -146,6 +146,8 @@ test('the client channel answers from the saved state', async (t) => {
     version: 1,
     mainBotId: 'm1',
     revision: 4,
+    // Muse: what a build that had the animated avatars on by default stored for off.
+    prefs: { animatedAvatars: false },
     bots: {
       m1: { id: 'm1', name: 'Chief', role: 'Chief of Staff', lab: 'deepseek', appliedModel: 'ollama/deepseek-v4.1-flash', instructions: '', createdAt: 1 },
       b2: { id: 'b2', name: 'Writer', role: '写作', lab: 'kimi', instructions: 'Kimi-style long reads', createdAt: 2 },
@@ -201,6 +203,17 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: true })).value, false)
   await call('set-prefs', { enterToSend: false })
   assert.equal('enterToSend' in (await call('set-prefs', { enterToSend: null })).value, false)
+  // Muse: the animated avatars are off by default; only switching them on is stored. The
+  // `false` the saved team carries loads as it is, reads as off, and goes with the next off.
+  assert.equal((await call('state')).value.prefs.animatedAvatars, false)
+  assert.equal((await call('set-prefs', {})).value.animatedAvatars, false)
+  assert.equal((await call('set-prefs', { animatedAvatars: true })).value.animatedAvatars, true)
+  assert.equal((await call('state')).value.prefs.animatedAvatars, true)
+  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: false })).value, false)
+  await call('set-prefs', { animatedAvatars: true })
+  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: null })).value, false)
+  // A value this version does not know changes nothing.
+  assert.equal('animatedAvatars' in (await call('set-prefs', { animatedAvatars: 'on' })).value, false)
   // A refusal from the team code keeps its message for the user.
   assert.deepEqual((await call('delete-bot', { id: 'nobody' })).error, { code: 'bot/refused', message: 'Unknown Bot', details: {} })
   // Off the Desktop profile there are no Bot browsers.

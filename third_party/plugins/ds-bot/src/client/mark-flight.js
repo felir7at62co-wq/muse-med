@@ -75,6 +75,27 @@ export function uniqueIds(root) {
   return root
 }
 
+// Muse: an animated avatar (animated-avatar.js) is a canvas inside its `.bt-mark-live` host.
+const LIVE_CANVAS = '.bt-mark-live canvas'
+
+/**
+ * A copy of `node` to show beside it: ids of its own (uniqueIds), and the canvas of every
+ * animated avatar painted from the one it copies, since a cloned canvas is blank. With no
+ * animated avatar inside, the copy is `uniqueIds(node.cloneNode(true))` and nothing more.
+ * @template {Element} T
+ * @param {T} node
+ * @returns {T} The copy, not yet in the document.
+ */
+export function copyOf(node) {
+  const copy = uniqueIds(node.cloneNode(true))
+  const originals = node.querySelectorAll(LIVE_CANVAS)
+  copy.querySelectorAll(LIVE_CANVAS).forEach((canvas, index) => {
+    // A canvas with no size yet has nothing to copy, and drawing from it throws.
+    if (originals[index].width > 0 && originals[index].height > 0) canvas.getContext('2d')?.drawImage(originals[index], 0, 0)
+  })
+  return copy
+}
+
 /**
  * One flying copy of the mark at a time. It lives inside the panel (so the panel's edge
  * clips it, and it goes with the panel when that slides away), and each frame it is

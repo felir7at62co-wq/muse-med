@@ -106,6 +106,9 @@ importers:
       nodemailer:
         specifier: 10.0.10
         version: 10.0.10
+      open-bot-avatar:
+        specifier: 0.3.1
+        version: 0.3.1
       parse5:
         specifier: 8.0.1
         version: 8.0.1
@@ -2047,6 +2050,9 @@ packages:
 
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
+
+  open-bot-avatar@0.3.1:
+    resolution: {integrity: sha512-TvX876wtLlmMCGY7d0Mo98Mn7pSIJAZ4swy5NhFcgyI0oMzZX0zuo8p+BedIop+yEOPLZbWZONusu4zh8C43kQ==}
 
   openai@7.19.0:
     resolution: {integrity: sha512-MX2s3u2L5racTO0CC/SWpCOasJQBCJrqLKXK+l82cAhdeF8mPMBEe/gxMm0ZFa2xpKpOFLRjxv5afYEZbBXmbQ==}
@@ -4582,6 +4588,8 @@ snapshots:
   once@1.4.0:
     dependencies:
       wrappy: 1.0.2
+
+  open-bot-avatar@0.3.1: {}
 
   openai@7.19.0(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(undici@7.29.1)(ws@8.21.3)(zod@4.4.3):
     optionalDependencies:

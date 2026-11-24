@@ -3,6 +3,7 @@ import { fnv1a, lookOf, shapeId, shapeOf, MASK_ID, nextMarkSerial, characterMark
 import { reducedEffects, reducedMotion } from './motion.js'
 import { FeishuMark, MARKS } from './connector-marks.js'
 import { t } from './i18n.js'
+import { AnimatedAvatar, DONE_MS, animatedDefinition } from './animated-avatar.js'
 
 export { colorOf, lookOf } from './characters.js'
 
@@ -126,8 +127,8 @@ function MainStar() {
     h('path', { d: 'M10 2.4l2.29 5.04 5.51.63-4.09 3.74 1.11 5.42L10 14.5l-4.82 2.73 1.11-5.42L2.2 8.07l5.51-.63z' }))
 }
 
-// Marks settle with a short squash when a run finishes.
-function useSettled(state) {
+// Marks settle with a short squash when a run finishes; `ms` is how long that shows.
+function useSettled(state, ms = 1800) {
   const prev = useRef(state)
   const [settled, setSettled] = useState(false)
   useEffect(() => {
@@ -136,7 +137,7 @@ function useSettled(state) {
     if (state !== 'idle') { setSettled(false); return undefined }
     if (was === 'idle' || was === 'alert') return undefined
     setSettled(true)
-    const timer = setTimeout(() => setSettled(false), 1800)
+    const timer = setTimeout(() => setSettled(false), ms)
     return () => clearTimeout(timer)
   }, [state])
   return settled
@@ -153,13 +154,20 @@ export const imLabel = im => (IM_MARKS[im] ? t('Linked to {name}', { name: t(IM_
 
 // `im` names the chat app the Bot is linked to; its mark sits above the state, Main and
 // admin badge, so both show.
-export function BotAvatar({ bot, size, state = 'idle', main, admin, im, badge = true, live = true, gaze = false, pokeable = false }) {
-  const settled = useSettled(state)
+// Muse: `animated` ('live', or 'still' for one picture) draws the character with
+// animated-avatar.js in the same box, under the same badges; a picture, the Muse spider and a
+// character with no definition keep the drawn mark. `surface` names what the avatar stands on.
+export function BotAvatar({ bot, size, state = 'idle', main, admin, im, badge = true, live = true, gaze = false, pokeable = false, animated, surface }) {
+  const look = animated && bot !== undefined ? lookOf(bot) : undefined
+  const definition = look && animatedDefinition(look)
+  const settled = useSettled(state, definition ? DONE_MS : undefined)
   if (bot === undefined) return h(BotMark, { size })
   const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' && state !== 'waiting' ? 'working' : admin ? 'admin' : main ? 'main' : null
   const ImMark = badge ? IM_MARKS[im]?.[1] : undefined
   return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
-    h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
+    definition
+      ? h(AnimatedAvatar, { definition, color: look.color, size, state: settled ? 'done' : state, label: bot.name, gaze, still: animated === 'still', surface })
+      : h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,
     badgeKind === 'alert' ? h('span', { className: 'bt-badge bt-badge-alert', 'aria-label': t('Waiting for your answer'), role: 'img' }, '?') : null,
     badgeKind === 'admin' ? h('span', { className: 'bt-badge bt-badge-admin', 'aria-label': t('Admin'), role: 'img' }, h(StarIcon)) : null,

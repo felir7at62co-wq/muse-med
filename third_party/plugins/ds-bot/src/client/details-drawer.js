@@ -4,6 +4,7 @@ import { currentPart, runStatsOf, usageOf } from './text.js'
 import { AlertIcon, PlusIcon, CloseIcon, ChevronLeftIcon, GearIcon, ShareIcon, SideIcon, TerminalIcon, FolderIcon, MonitorIcon } from './icons.js'
 import { BotMark } from './mark.js'
 import { DetailsAvatar } from './details-avatar.js'
+import { animatedAvatarsOn } from './animated-avatar.js'
 import { GlobeIcon, Favicon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm, InlineText } from './bot-settings.js'
@@ -389,7 +390,7 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, pr
     ? () => { void Promise.resolve(elsewhere[key]()).catch(failure => setError(failure?.message ?? String(failure))) }
     : () => setTab(key))
   const avatar = bot ? h(DetailsAvatar, { bot, main: isMainBot, running, activity: doing,
-    awaitingInput: awaitingInput || roster.questions?.[part] !== undefined, completedAt })
+    awaitingInput: awaitingInput || roster.questions?.[part] !== undefined, completedAt, animated: animatedAvatarsOn(roster.prefs) })
     : h(MemberPile, { room, roster })
   const identity = h(Fragment, null,
       editing

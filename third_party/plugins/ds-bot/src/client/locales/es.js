@@ -56,6 +56,7 @@ export const ES = {
   'Resize sidebar': 'Redimensionar barra lateral',
   'Animation': 'Animación',
   'Bot animation': 'Animación del Bot',
+  'Animated avatars': 'Avatares animados',
   'Interface motion': 'Movimiento de interfaz',
   Full: 'Completo',
   Reduced: 'Reducido',

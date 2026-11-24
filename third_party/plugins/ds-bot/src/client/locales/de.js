@@ -56,6 +56,7 @@ export const DE = {
   'Resize sidebar': 'Breite der Seitenleiste ändern',
   'Animation': 'Animation',
   'Bot animation': 'Bot-Animation',
+  'Animated avatars': 'Animierte Avatare',
   'Interface motion': 'Oberflächenbewegung',
   Full: 'Vollständig',
   Reduced: 'Reduziert',

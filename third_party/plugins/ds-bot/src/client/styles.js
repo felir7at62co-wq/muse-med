@@ -3,6 +3,7 @@ import { DEFAULT_MASK } from './characters.js'
 import { MENTION_ORIGIN } from './text.js'
 import { SPRING_SHAPE, SPRING_TAP, SPRING_STRETCH, SPRING_POP, spring } from './motion.js'
 import { SPIDER_DETAIL_CSS } from './details-avatar.js'
+import { ANIMATED_AVATAR_CSS } from './animated-avatar.js'
 
 // The pill stretches for "Memory updated" on SPRING_STRETCH, and its icon pops on
 // SPRING_POP; it closes on SPRING_SHAPE.
@@ -102,6 +103,7 @@ body[data-bt-motion=quiet] .bt-mark[data-poke]{cursor:default}
 @keyframes bt-blink{0%,42%,50%,100%{transform:scaleY(1)}46%{transform:scaleY(.03)}48%{transform:scaleY(1.06)}}
 @media (prefers-reduced-motion:reduce){.bt-mark *{animation:none!important;transition:none!important}}
 ${SPIDER_DETAIL_CSS}
+${ANIMATED_AVATAR_CSS}
 .bt-badge{position:absolute;right:0;bottom:0;width:12px;height:12px;border-radius:50%;corner-shape:round;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1.5px var(--bt-sidebar)}
 /* Muse: the chat app a Bot is linked to, on the avatar's right edge above the state, Main
    and admin badge. The app's mark sits on white, the IM marks' ink, in both themes. */

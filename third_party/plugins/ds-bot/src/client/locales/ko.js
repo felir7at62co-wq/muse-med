@@ -56,6 +56,7 @@ export const KO = {
   'Resize sidebar': '사이드바 너비 조절',
   'Animation': '애니메이션',
   'Bot animation': 'Bot 애니메이션',
+  'Animated avatars': '애니메이션 아바타',
   'Interface motion': '화면 모션',
   Full: '전체',
   Reduced: '줄이기',

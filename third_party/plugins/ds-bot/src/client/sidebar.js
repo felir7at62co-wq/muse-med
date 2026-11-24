@@ -7,6 +7,7 @@ import { ChatsIcon, PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, ClockIcon, Gea
 import { lookOf, MAIN_LOOK, youLook } from './characters.js'
 import { MuseGlyph } from './muse-brand.js'
 import { botState, BotMark, BotAvatar, RoomAvatar, imLabel } from './mark.js'
+import { tileAvatar } from './animated-avatar.js'
 import { AgentBadge } from './agent-badge.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
@@ -100,7 +101,7 @@ function BotRow({ bot, roster, links, actions, useSessions, useSessionStatus, us
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
-    h(BotAvatar, { bot, size: 60, state, main: true, im }),
+    h(BotAvatar, { bot, size: 60, state, main: true, im, animated: tileAvatar(roster.prefs, (roster.mainBotIds ?? []).indexOf(id)) }),
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null))
   }

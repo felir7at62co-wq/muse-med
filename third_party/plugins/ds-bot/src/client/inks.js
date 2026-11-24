@@ -21,6 +21,9 @@ export const luminance = hex => [1, 3, 5]
   .reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0)
 const inkName = color => (INKS[color] ? color : INKS[LEGACY_INKS[color]] ? LEGACY_INKS[color] : 'gray')
 export const inkFill = color => (isHex(color) ? color : `var(--bt-ink-${inkName(color)})`)
+// Muse: a color as a hex for what cannot read a CSS variable, such as a canvas: the ink of the
+// light or the dark mode. A gradient color gives the ink that stands in for it in text.
+export const inkHex = (color, dark) => (isHex(color) ? color : INKS[inkName(color)][dark ? 1 : 0])
 // Text in a Bot's color; pure black reads as a heading, so it falls back to gray.
 export const inkText = color => (color === 'black' ? 'var(--bt-ink-gray)' : inkFill(color))
 // A color as a CSS background, for swatches and masked marks.

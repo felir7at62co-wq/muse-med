@@ -11,7 +11,7 @@ import { STORAGE } from './storage.js'
 import { MIN_CHAT } from './frame-layout.js'
 import { chatRoom } from './frame-watch.js'
 import { SPRING_LEAD, SPRING_SHAPE, SPRING_TRAIL, reducedMotion, stepMenuFocus, useLinger } from './motion.js'
-import { FLIGHT_ENDS, INTENT_MS, createFlight, flightEnd, flightStart, planFlight, uniqueIds } from './mark-flight.js'
+import { FLIGHT_ENDS, INTENT_MS, copyOf, createFlight, flightEnd, flightStart, planFlight } from './mark-flight.js'
 import { DetailsDrawer } from './details-drawer.js'
 import { SideChatView } from './side-chat.js'
 import { drawerTabOf, listTabOf, panelHasStrip, platformOfTab, projectOfTab, scriptOfTab, sideChatsOf, stripMenuKeys, terminalOfTab } from './side-model.js'
@@ -691,7 +691,7 @@ export function BotPanel({ pane, workbench = false, roomy = false, projects = NO
       ghostEl.className = 'bt-panel-ghost'
       // The fading copy stays exactly where the view stood, whatever the panel grows around it.
       Object.assign(ghostEl.style, { top: `${outgoing.offsetTop}px`, width: `${outgoing.offsetWidth}px`, height: `${outgoing.offsetHeight}px` })
-      ghostEl.append(uniqueIds(outgoing.cloneNode(true)))
+      ghostEl.append(copyOf(outgoing))
       // The flying mark stands in for the drawer's; the fading copy must not show it a second time.
       if (flies && next !== 'details') for (const mark of ghostEl.querySelectorAll('.bt-drawer-id .bt-mark')) mark.style.visibility = 'hidden'
       panel.append(ghostEl)
@@ -703,7 +703,7 @@ export function BotPanel({ pane, workbench = false, roomy = false, projects = NO
     if (plan === 'start' && source === null) return
     intent.current = {
       plan, next, id: pane.id, at: performance.now(), end: flightEnd(next),
-      node: source ? uniqueIds(source.cloneNode(true)) : null, from: source ? source.getBoundingClientRect() : null,
+      node: source ? copyOf(source) : null, from: source ? source.getBoundingClientRect() : null,
     }
   }
   const switchView = (next) => {
