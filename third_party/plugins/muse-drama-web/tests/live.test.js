@@ -2,19 +2,18 @@
  * Opt-in live check against the real deployment. It performs reads only and never
  * writes, shares or submits a paid task.
  *
- *   DRAMA_WEB_TOKEN=<bearer> node --test tests/live.test.js
- *
- * Without the variable the whole file is skipped, so the default `pnpm test` stays offline.
+ * Set DRAMA_WEB_BASE_URL and DRAMA_WEB_TOKEN in the test environment,
+ * then run `node --test tests/live.test.js`.
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { DramaWebClient } from '../src/client.js'
 
-const token = process.env.DRAMA_WEB_TOKEN ?? ''
-const skip = token ? false : 'DRAMA_WEB_TOKEN is not set'
+const baseUrl = process.env.DRAMA_WEB_BASE_URL ?? ''
+const skip = baseUrl && process.env.DRAMA_WEB_TOKEN ? false : 'DRAMA_WEB_BASE_URL and DRAMA_WEB_TOKEN are required'
 
 test('the token identifies a real account', { skip }, async () => {
-  const client = new DramaWebClient({ tokenEnv: 'DRAMA_WEB_TOKEN' })
+  const client = new DramaWebClient({ baseUrl })
   const me = await client.me()
   assert.ok(me?.id, 'expected an account id')
   assert.ok(typeof me.username === 'string' && me.username.length > 0)
@@ -22,7 +21,7 @@ test('the token identifies a real account', { skip }, async () => {
 })
 
 test('the library answers a keyword search and keeps total honest', { skip }, async () => {
-  const client = new DramaWebClient({ tokenEnv: 'DRAMA_WEB_TOKEN' })
+  const client = new DramaWebClient({ baseUrl })
   const page = await client.listDramas({ keyword: '听宝', page: 1, page_size: 5 })
   assert.ok(Array.isArray(page.items), 'expected an items array')
   assert.equal(typeof page.total, 'number')
@@ -30,7 +29,7 @@ test('the library answers a keyword search and keeps total honest', { skip }, as
 })
 
 test('a drama profile and its final files are readable', { skip }, async () => {
-  const client = new DramaWebClient({ tokenEnv: 'DRAMA_WEB_TOKEN' })
+  const client = new DramaWebClient({ baseUrl })
   const page = await client.listDramas({ keyword: '听宝', page: 1, page_size: 1 })
   const drama = page.items?.[0]
   assert.ok(drama?.id, 'expected a drama id from the search')
@@ -43,12 +42,12 @@ test('a drama profile and its final files are readable', { skip }, async () => {
     assert.equal(typeof list[0].id, 'number')
     const signed = await client.fileUrl(list[0].id)
     const url = signed?.url ?? signed?.download_url
-    assert.ok(typeof url === 'string' && url.startsWith('http'), 'expected a signed url')
+    assert.ok(typeof url === 'string' && url.startsWith('https://'), 'expected a signed HTTPS URL')
   }
 })
 
 test('subtitle erasure reports its switch', { skip }, async () => {
-  const client = new DramaWebClient({ tokenEnv: 'DRAMA_WEB_TOKEN' })
+  const client = new DramaWebClient({ baseUrl })
   const state = await client.subtitleEraseEnabled()
   assert.equal(typeof state?.enabled, 'boolean')
 })

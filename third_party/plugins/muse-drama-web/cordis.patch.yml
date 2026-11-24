@@ -1,9 +1,18 @@
 - insert:
     - id: muse-drama-web
       name: muse-drama-web
+      disabled: !!js >-
+        (() => {
+          const value = (process.env.DRAMA_WEB_BASE_URL || '').trim()
+          if (value.length > 16_384 || !value.isWellFormed() || /[\\\s?#]/u.test(value)) return true
+          const url = URL.parse(value)
+          return !url || url.protocol !== 'https:' || Boolean(url.username || url.password)
+            || !['/api/v1', '/api/v1/'].includes(url.pathname)
+        })()
       config:
-        baseUrl: http://drama-web.jubianai.net/api/v1
-        # The host owns the value; the plugin only names the variable.
+        baseUrl: !!js (process.env.DRAMA_WEB_BASE_URL || '').trim()
+        allowedMediaOrigins: !!js >-
+          (process.env.DRAMA_WEB_MEDIA_ORIGIN || '').trim() ? [process.env.DRAMA_WEB_MEDIA_ORIGIN.trim()] : []
         tokenEnv: DRAMA_WEB_TOKEN
         usernameEnv: DRAMA_WEB_USERNAME
         passwordEnv: DRAMA_WEB_PASSWORD

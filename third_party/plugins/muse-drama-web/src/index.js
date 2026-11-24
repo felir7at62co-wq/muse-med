@@ -1,5 +1,4 @@
 /** Model-visible tools for the Jubian drama resource site ("剧壳资源管理系统"). */
-import { resolve } from 'node:path'
 import { DramaWebClient, RESOURCE_TYPES } from './client.js'
 
 export const name = 'muse-drama-web'
@@ -14,6 +13,8 @@ export const inject = ['tools', 'agents']
  */
 export function apply(ctx, config = {}) {
   const client = new DramaWebClient(config)
+  const allowRemoteWrites = config.allowRemoteWrites === true
+  const remoteWritesDisabled = { ok: false, reason: '剧壳远端写入尚未由宿主启用。' }
   const output = (extra = {}) => ({
     schema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' }, ...extra }, required: ['ok'] },
     render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
@@ -37,13 +38,13 @@ export function apply(ctx, config = {}) {
         return { ok: false, token_present: false, reason: `host did not provide ${client.config.usernameEnv} / ${client.config.passwordEnv}` }
       }
       const result = await client.login({ username, password }, exec.signal)
-      const exp = typeof result.claims?.exp === 'number' ? new Date(result.claims.exp * 1000).toISOString() : null
+      const expiry = typeof result.claims?.exp === 'number' ? new Date(result.claims.exp * 1000) : undefined
       return {
         ok: true,
         token_present: true,
         must_change_password: result.mustChangePassword,
         claims: { role: result.claims?.role ?? null, team: result.claims?.team ?? null, sub: result.claims?.sub ?? null },
-        expires_at: exp,
+        ...(expiry && Number.isFinite(expiry.getTime()) ? { expires_at: expiry.toISOString() } : {}),
       }
     },
     ...present('剧壳登录'),
@@ -72,15 +73,16 @@ export function apply(ctx, config = {}) {
     timeoutMs: 35_000,
     execute: async (args, exec) => {
       const data = await client.listDramas(args, exec.signal)
-      const items = Array.isArray(data?.items) ? data.items : []
-      return { ok: true, total: typeof data?.total === 'number' ? data.total : null, count: items.length, items, raw: data }
+      if (!Array.isArray(data?.items)) return { ok: false, reason: '剧壳搜索结果缺少剧目列表。' }
+      const total = Number.isInteger(data.total) && data.total >= 0 ? { total: data.total } : {}
+      return { ok: true, ...total, count: data.items.length, items: data.items }
     },
     ...present('剧壳短剧库'),
   }, 'library')
 
   register({
     name: 'drama_web_profile',
-    description: '读取一部短剧的完整档案（GET /dramas/{id}，可选 siblings）。真实字段包括 title、aliases、cover_url、episode_count、paid_episode、drama_type、market、age_group、status、staff、title_tags、ai_generated、file_counts、total_duration。集数与别名一律以返回为准，不要按剧名推断。',
+    description: '读取一部短剧的完整档案（GET /dramas/{id}，可选 siblings）。真实字段包括 title、aliases、profile（简介）、cover_url、episode_count、paid_episode、drama_type、market、age_group、status、staff、title_tags、ai_generated、file_counts、total_duration。集数与别名一律以返回为准，不要按剧名推断。',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -114,15 +116,16 @@ export function apply(ctx, config = {}) {
     timeoutMs: 35_000,
     execute: async (args, exec) => {
       const data = await client.listFiles(args.dramaId, { resourceType: args.resource_type, variant: args.variant }, exec.signal)
-      const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : null)
-      return { ok: true, count: list ? list.length : null, files: data }
+      const list = [data, data?.items, data?.data].find(Array.isArray)
+      if (!list) return { ok: false, reason: '剧壳文件接口未返回可读取的文件列表。' }
+      return { ok: true, count: list.length, files: list }
     },
     ...present('剧壳文件清单'),
   }, 'files')
 
   register({
     name: 'drama_web_download',
-    description: '把单个文件从剧壳下载到当前工作区（先 GET /files/{id}/url 取签名地址，再下载）。落盘后核对字节数与 SHA-256，并在结果里给出回执。签名地址有时效，不能缓存或复用；批量下载请先取文件清单再逐个调用。省略 outputPath 时只返回地址、不落盘。',
+    description: '把单个文件从剧壳下载到当前工作区。提供文件 id 和工作区内的相对目标路径；目标文件必须尚不存在。成功后返回路径、字节数与 SHA-256。批量下载请先读取文件清单。',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -130,17 +133,24 @@ export function apply(ctx, config = {}) {
         fileId: { type: 'integer' },
         outputPath: { type: 'string', description: '相对当前工作区的落盘路径' },
       },
-      required: ['fileId'],
+      required: ['fileId', 'outputPath'],
     },
     output: output({ bytes: { type: 'integer' }, sha256: { type: 'string' }, path: { type: 'string' } }),
     timeoutMs: 600_000,
     execute: async (args, exec) => {
-      if (!args.outputPath) {
-        const signed = await client.fileUrl(args.fileId, 'attachment', exec.signal)
-        return { ok: true, url: signed?.url ?? signed?.download_url ?? null, raw: signed }
+      if (typeof args.outputPath !== 'string' || !args.outputPath.trim()) {
+        return { ok: false, reason: '请提供工作区内的相对目标路径。' }
       }
-      const cwd = ctx.agents.requireInitiator().session.header.cwd
-      const receipt = await client.download(args.fileId, resolve(cwd, args.outputPath), { signal: exec.signal })
+      const { session } = ctx.agents.requireInitiator()
+      const policy = ctx.get('sandboxPolicy')?.resolve({ session })
+      if (!policy?.workspaceRoot || !['workspace-write', 'danger-full-access'].includes(policy.mode)) {
+        return { ok: false, reason: '下载需要当前会话的工作区写入权限。' }
+      }
+      const receipt = await client.download(args.fileId, args.outputPath, {
+        workspaceRoot: policy.workspaceRoot,
+        workspaceCwd: session.header.cwd,
+        signal: exec.signal,
+      })
       return { ok: true, ...receipt }
     },
     ...present('剧壳文件下载', 'write'),
@@ -166,6 +176,7 @@ export function apply(ctx, config = {}) {
     execute: async (args, exec) => {
       if (args.action === 'list') return { ok: true, shares: await client.listPanShares(args.dramaId, exec.signal) }
       if (args.action === 'tasks') return { ok: true, tasks: await client.panShareTasks(args.dramaId, exec.signal) }
+      if (!allowRemoteWrites) return remoteWritesDisabled
       if (!Array.isArray(args.file_ids) || args.file_ids.length === 0) return { ok: false, accepted: false, reason: 'create needs at least one real file_ids entry' }
       const created = await client.createPanShare(args.dramaId, {
         period_days: args.period_days ?? 7,
@@ -179,7 +190,7 @@ export function apply(ctx, config = {}) {
 
   register({
     name: 'drama_web_title',
-    description: '调用剧壳服务端的模型端点：action=title 走 POST /dramas/{id}/generate-title，action=analyze 走 POST /dramas/{id}/analyze-script。两者无请求体、上游允许 320 秒，本工具给 330 秒。结果只作草稿，改写剧名要走网页端或专门的写入流程，不要直接覆盖。',
+    description: '调用剧壳服务端的模型端点。action=title 生成标题，action=analyze 分析剧本。执行可能更新远端剧目信息，需要宿主启用远端写入。',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -189,6 +200,7 @@ export function apply(ctx, config = {}) {
     output: output({ action: { type: 'string' } }),
     timeoutMs: 340_000,
     execute: async (args, exec) => {
+      if (!allowRemoteWrites) return remoteWritesDisabled
       const started = Date.now()
       const data = args.action === 'analyze'
         ? await client.analyzeScript(args.dramaId, exec.signal)
@@ -222,8 +234,7 @@ export function apply(ctx, config = {}) {
     timeoutMs: 65_000,
     execute: async (args, exec) => {
       if (args.action === 'list') return { ok: true, tasks: await client.subtitleEraseTasks(args.dramaId, exec.signal) }
-      const enabled = await client.subtitleEraseEnabled(exec.signal)
-      if (enabled && enabled.enabled === false) return { ok: false, reason: 'subtitle erasure is disabled on this deployment' }
+      if (!allowRemoteWrites) return remoteWritesDisabled
       const body = {
         source_file_id: args.source_file_id,
         left: args.left,
@@ -237,6 +248,8 @@ export function apply(ctx, config = {}) {
       for (const [key, value] of Object.entries(body)) {
         if (value === undefined || value === null) return { ok: false, reason: `create is missing ${key}` }
       }
+      const enabled = await client.subtitleEraseEnabled(exec.signal)
+      if (enabled?.enabled !== true) return { ok: false, reason: '剧壳服务未确认启用去字幕功能。' }
       return { ok: true, task: await client.createSubtitleEraseTask(args.dramaId, body, exec.signal) }
     },
     ...present('剧壳去字幕', 'write'),

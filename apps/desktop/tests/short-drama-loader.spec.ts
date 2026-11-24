@@ -29,12 +29,13 @@ const presetPath = fileURLToPath(new URL('../../desktop-host/presets/short-drama
 const hostPatch = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
 const bundledSkillDir = fileURLToPath(new URL('../../../packages/drama/skills/skills', import.meta.url))
 
-it('loads desktop Jubian on the Host and short-drama skill tools from the bundled source root', async () => {
+it('loads desktop Jubian and the configured short-drama tools from the bundled source root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-short-drama-loader-'))
   const ctx = new Context()
   vi.stubEnv('MUSE_HOME', root)
   vi.stubEnv('DSH_HOME', root)
   vi.stubEnv('DSH_FFMPEG_PATH', undefined)
+  vi.stubEnv('DRAMA_WEB_BASE_URL', 'https://drama.test/api/v1')
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Unexpected Jubian request') })
   try {
     const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: Record<string, unknown> }>
@@ -44,6 +45,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     // that provider's row comes from (its runtime directories arrive from `src/index.ts`).
     const provider = hostPatches.find(row => row.id === 'skill-filesystem')
     const skill = presetRows.find(row => row.id === 'tool-skill')
+    const dramaWeb = presetRows.find(row => row.id === 'muse-drama-web')
     const persona = presetRows.find(row => row.id === 'persona')?.config
     expect(jubian?.name).toBe('@deepseek-ai/dsh-tool-jubian')
     expect(provider?.config).toMatchObject({ includeDefaultRoots: false })
@@ -75,7 +77,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     })
     expect(presetRows.some(row => row.id === 'tool-jubian')).toBe(false)
     expect(presetRows.some(row => row.id === 'skill-filesystem')).toBe(false)
-    if (!jubian || !provider || !skill) throw new Error('Missing short-drama or Desktop Host row')
+    if (!jubian || !provider || !skill || !dramaWeb) throw new Error('Missing short-drama or Desktop Host row')
     const providerConfig: unknown = provider.config
     if (typeof providerConfig !== 'object' || providerConfig === null || Array.isArray(providerConfig)) {
       throw new Error('Missing skill provider config')
@@ -97,11 +99,13 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem',
         config: { ...providerConfig, bundledSkillDir, watch: false } },
       skill,
+      dramaWeb,
       { ...jubian, config: { ...jubianConfig, workspaceSecrets: false, ledgerRoot: join(root, 'ledger') } },
-    ]))
+    ], { schema: entryListSchema }))
     ctx.baseUrl = pathToFileURL(root).href + '/'
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
+    const dramaWebSource = new URL('../../../third_party/plugins/muse-drama-web/src/index.js', import.meta.url).href
     const modules = new Map<string, unknown>([
       ['test:native-executor', NativeExecutor],
       ['test:subprocess', SubprocessLocal],
@@ -110,6 +114,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       ['@deepseek-ai/dsh-agent', AgentRegistry], ['@deepseek-ai/dsh-skill', SkillRegistry],
       ['test:credentials', MemoryCredentials], ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem],
       ['@deepseek-ai/dsh-tool-skill', ToolSkill], ['@deepseek-ai/dsh-tool-jubian', Jubian],
+      ['muse-drama-web', await import(/* @vite-ignore */ dramaWebSource)],
     ])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
       register() { throw new Error('Unexpected loader hooks') },
@@ -126,6 +131,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     expect(ctx.get('jubianImage')).toBeDefined()
     expect(await ctx.jubianVideoRecovery.status()).toMatchObject({ enabled: false, projectDir: null })
     expect(ctx.tools.get('jubian_video')?.description).toContain('image_generate 会真实计费')
+    expect(ctx.tools.schemas().map(tool => tool.name)).toContain('drama_web_library')
     const listed = await ctx.skills.list()
     expect(listed.map(row => row.name)).not.toContain('jubian-asset-library')
     expect(listed.map(row => row.name)).toContain('tweet-drama-asset-vision-check')

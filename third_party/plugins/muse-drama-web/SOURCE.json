@@ -1,6 +1,6 @@
 {
-    "hostVersion":  "0.2.1-alpha.1",
-    "commit":  "79cbecf0cdb79f9dca8a56a808ad2a8e451d7e00",
+    "hostVersion":  "0.2.2-rc.2",
+    "name":  "muse-drama-web",
     "referenceApp":  {
                          "included":  false
                      },

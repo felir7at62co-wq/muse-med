@@ -1,17 +1,67 @@
-/**
- * Transport and typed calls for the Jubian drama resource site ("剧壳资源管理系统").
- *
- * Verified against the shipped SPA bundle (`/assets/index-BhA9aCLQ.js` and its 21
- * chunks): axios `baseURL: "/api/v1"`, bearer token from `localStorage.drama_token`,
- * `POST /auth/login` is form-urlencoded, unauthenticated calls answer HTTP 401 with an
- * empty body, and no request signing exists.
- */
-import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+/** Transport and typed calls for the Jubian drama resource site. */
+import { prepareDownloadTarget, saveDownload } from './workspace-download.js'
 
-/** Default API root; the host may override it for a staging or mirrored deployment. */
-export const DEFAULT_BASE_URL = 'http://drama-web.jubianai.net/api/v1'
+// The observed browser entry is display-only. An operator must configure the secure API root.
+const BROWSER_ORIGIN = 'http://drama-web.jubianai.net'
+const MAX_JSON_BYTES = 8 * 1024 * 1024
+const MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
+const DOWNLOAD_TIMEOUT_MS = 600_000
+
+function httpsUrl(value) {
+  if (typeof value !== 'string' || !value || value.length > 16_384 || !value.isWellFormed() || /[\\\s#]/u.test(value)) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password ? url : null
+  } catch { return null }
+}
+
+/** Convert an explicitly configured, credential-free HTTPS API root to its canonical form. */
+export function secureApiRoot(value) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  const url = httpsUrl(text)
+  if (!url || text.includes('?') || (url.pathname !== '/api/v1' && url.pathname !== '/api/v1/')) return null
+  return url.origin + '/api/v1'
+}
+
+function mediaOrigins(input, baseUrl) {
+  if (input !== undefined && !Array.isArray(input)) return null
+  const origins = new Set(baseUrl === null ? [] : [new URL(baseUrl).origin])
+  for (const value of input ?? []) {
+    const url = httpsUrl(value)
+    if (!url || value.includes('?') || url.pathname !== '/') return null
+    origins.add(url.origin)
+  }
+  return origins
+}
+
+function callSignal(signal, timeoutMs) {
+  const timeout = AbortSignal.timeout(timeoutMs)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
+}
+
+async function readJson(response, path) {
+  const reader = response.body?.getReader()
+  if (!reader) return null
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ''
+  try {
+    for (;;) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      bytes += chunk.value.byteLength
+      if (bytes > MAX_JSON_BYTES) throw new DramaWebError('Drama Web response exceeded the JSON byte limit', { path })
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+    text += decoder.decode()
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+  if (!text.trim()) return null
+  try { return JSON.parse(text) }
+  catch { throw new DramaWebError('Drama Web returned an invalid JSON response', { path }) }
+}
 
 /** Paths the read tools may reach. Anything else is refused before a request leaves. */
 export const READ_PREFIXES = [
@@ -49,13 +99,12 @@ export const RESOURCE_TYPES = [
 export class DramaWebError extends Error {
   /**
    * @param {string} message - Operator-facing text.
-   * @param {{status?: number, body?: unknown, path?: string}} detail - Upstream facts.
+   * @param {{status?: number, path?: string}} detail - Upstream facts.
    */
   constructor(message, detail = {}) {
     super(message)
     this.name = 'DramaWebError'
     this.status = detail.status ?? null
-    this.body = detail.body ?? null
     this.path = detail.path ?? null
   }
 }
@@ -93,20 +142,24 @@ export function readTokenClaims(token) {
 
 /** Client bound to one deployment; holds the session token in memory only. */
 export class DramaWebClient {
+  #allowedMediaOrigins
+
   /**
    * @param {Record<string, any>} config - Plugin config (`baseUrl`, `tokenEnv`, `timeoutMs`).
-   * @param {{fetch?: typeof fetch, now?: () => number}} deps - Test seams.
+   * @param {{fetch?: typeof fetch}} deps - Test transport seam.
    */
   constructor(config = {}, deps = {}) {
+    const baseUrl = secureApiRoot(config.baseUrl)
     this.config = {
-      baseUrl: typeof config.baseUrl === 'string' && config.baseUrl ? config.baseUrl.replace(/\/+$/, '') : DEFAULT_BASE_URL,
+      baseUrl,
       tokenEnv: typeof config.tokenEnv === 'string' && config.tokenEnv ? config.tokenEnv : 'DRAMA_WEB_TOKEN',
       usernameEnv: typeof config.usernameEnv === 'string' && config.usernameEnv ? config.usernameEnv : 'DRAMA_WEB_USERNAME',
       passwordEnv: typeof config.passwordEnv === 'string' && config.passwordEnv ? config.passwordEnv : 'DRAMA_WEB_PASSWORD',
-      timeoutMs: Number(config.timeoutMs) > 0 ? Number(config.timeoutMs) : 30_000,
+      timeoutMs: Number.isSafeInteger(config.timeoutMs) && config.timeoutMs > 0 && config.timeoutMs <= DOWNLOAD_TIMEOUT_MS
+        ? config.timeoutMs : 30_000,
     }
+    this.#allowedMediaOrigins = mediaOrigins(config.allowedMediaOrigins, baseUrl)
     this.fetch = deps.fetch ?? globalThis.fetch
-    this.now = deps.now ?? Date.now
     this.session = { token: '' }
   }
 
@@ -115,10 +168,8 @@ export class DramaWebClient {
     return this.session.token || normalizeBearer(process.env[this.config.tokenEnv])
   }
 
-  /** Operator-facing deployment root, used when rendering links back to the user. */
-  get siteRoot() {
-    return this.config.baseUrl.replace(/\/api\/v1\/?$/, '')
-  }
+  /** The observed browser origin is never used as an API transport. */
+  get siteRoot() { return BROWSER_ORIGIN }
 
   /**
    * One bounded JSON call through the shared envelope.
@@ -128,15 +179,24 @@ export class DramaWebClient {
    */
   async request(path, options = {}) {
     const method = options.method ?? (options.form || options.body !== undefined ? 'POST' : 'GET')
-    if (method === 'GET' && !options.noGuard) this.assertReadable(path)
-    const url = new URL(`${this.config.baseUrl}${path}`)
+    const baseUrl = secureApiRoot(this.config.baseUrl)
+    if (!baseUrl) throw new DramaWebError('Configure an approved HTTPS Drama Web API root ending in /api/v1')
+    if (typeof path !== 'string' || !path.startsWith('/') || /[\\\s?#]/u.test(path)) {
+      throw new DramaWebError('Invalid Drama Web API path')
+    }
+    const url = new URL(baseUrl + path)
+    if (url.pathname !== '/api/v1' + path) throw new DramaWebError('Invalid Drama Web API path')
+    if (method === 'GET') this.assertReadable(path)
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value === undefined || value === null || value === '') continue
       url.searchParams.set(key, String(value))
     }
     const headers = { accept: 'application/json' }
-    const token = options.noAuth ? '' : this.token()
-    if (token) headers.authorization = `Bearer ${token}`
+    if (!options.noAuth) {
+      const token = this.token()
+      if (!token) throw new DramaWebError('Drama Web credentials are missing')
+      headers.authorization = 'Bearer ' + token
+    }
     let body
     if (options.form) {
       headers['content-type'] = 'application/x-www-form-urlencoded'
@@ -146,32 +206,24 @@ export class DramaWebClient {
       headers['content-type'] = 'application/json'
       body = JSON.stringify(options.body)
     }
-    const timeoutMs = options.timeoutMs ?? this.config.timeoutMs
-    const signal = options.signal
-      ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
-      : AbortSignal.timeout(timeoutMs)
-    const response = await this.fetch(url, { method: options.method ?? (body === undefined ? 'GET' : 'POST'), headers, body, redirect: 'error', signal })
-    const text = await response.text()
-    let parsed = null
-    if (text) {
-      try {
-        parsed = JSON.parse(text)
-      }
-      catch {
-        parsed = text
-      }
+    const signal = callSignal(options.signal, options.timeoutMs ?? this.config.timeoutMs)
+    let response
+    try { response = await this.fetch(url, { method, headers, body, credentials: 'omit', redirect: 'error', signal }) }
+    catch {
+      signal.throwIfAborted()
+      throw new DramaWebError('Drama Web HTTPS request failed', { path })
     }
     if (!response.ok) {
-      const detail = text ? ` ${text.slice(0, 200)}` : ' (empty body)'
-      throw new DramaWebError(`drama-web rejected ${path}: HTTP ${response.status}${detail}`, { status: response.status, body: parsed, path })
+      await response.body?.cancel().catch(() => {})
+      throw new DramaWebError('Drama Web rejected ' + path + ': HTTP ' + response.status, { status: response.status, path })
     }
-    return parsed
+    return await readJson(response, path)
   }
 
   /** Refuse a read outside the documented surface. */
   assertReadable(path) {
-    if (!READ_PREFIXES.some(prefix => path.startsWith(prefix))) {
-      throw new DramaWebError(`path is outside the read allowlist: ${path}`, { path })
+    if (!READ_PREFIXES.some(prefix => path.startsWith(prefix.endsWith('/') ? prefix : prefix + '/') || path === prefix)) {
+      throw new DramaWebError('Path is outside the Drama Web read allowlist')
     }
   }
 
@@ -184,7 +236,7 @@ export class DramaWebClient {
   async login({ username, password }, signal) {
     const body = await this.request('/auth/login', { form: { username, password }, noAuth: true, signal })
     const token = normalizeBearer(body?.access_token ?? body?.accessToken ?? '')
-    if (!token) throw new DramaWebError('login answered without an access token', { body })
+    if (!token) throw new DramaWebError('Drama Web login answered without an access token')
     this.session.token = token
     return {
       token,
@@ -234,23 +286,34 @@ export class DramaWebClient {
   }
 
   /**
-   * Resolve one file's signed URL, download it and prove the bytes on disk.
-   * @param {number|string} fileId - File id from {@link listFiles}.
-   * @param {string} targetPath - Absolute destination path.
-   * @param {{signal?: AbortSignal, disposition?: string}} [options] - Cancellation and content disposition.
-   * @returns {Promise<{path: string, bytes: number, sha256: string, url: string}>}
+   * Resolve the file's signed URL, then publish bounded bytes inside the initiating workspace.
+   * @param {number|string} fileId - File id from the resource inventory.
+   * @param {string} outputPath - Workspace-relative destination path.
+   * @param {{workspaceRoot: string, workspaceCwd: string, signal?: AbortSignal, disposition?: string}} options - Authorized workspace and cancellation.
+   * @returns {Promise<{path: string, bytes: number, sha256: string}>} Local receipt without the signed URL.
    */
-  async download(fileId, targetPath, { signal, disposition = 'attachment' } = {}) {
-    const signed = await this.fileUrl(fileId, disposition, signal)
-    const url = signed?.url ?? signed?.download_url ?? signed?.data?.url
-    if (!url) throw new DramaWebError('file url response carried no download address', { body: signed })
-    const response = await this.fetch(url, { signal, redirect: 'error' })
-    if (!response.ok) throw new DramaWebError(`download failed: HTTP ${response.status}`, { status: response.status })
-    const buffer = Buffer.from(await response.arrayBuffer())
-    await mkdir(dirname(targetPath), { recursive: true })
-    await writeFile(targetPath, buffer)
-    const sha256 = createHash('sha256').update(buffer).digest('hex')
-    return { path: targetPath, bytes: buffer.length, sha256, url }
+  async download(fileId, outputPath, { workspaceRoot, workspaceCwd, signal, disposition = 'attachment' } = {}) {
+    const deadline = callSignal(signal, DOWNLOAD_TIMEOUT_MS)
+    const target = await prepareDownloadTarget(workspaceRoot, workspaceCwd, outputPath, deadline)
+    if (!this.#allowedMediaOrigins?.size) throw new DramaWebError('Configure trusted HTTPS Drama Web media origins')
+    const signed = await this.fileUrl(fileId, disposition, deadline)
+    const url = httpsUrl(signed?.url ?? signed?.download_url ?? signed?.data?.url)
+    if (!url || !this.#allowedMediaOrigins.has(url.origin)) {
+      throw new DramaWebError('Download address is outside the trusted HTTPS media origins')
+    }
+    let response
+    try {
+      response = await this.fetch(url, { headers: { 'accept-encoding': 'identity' },
+        credentials: 'omit', redirect: 'error', signal: deadline })
+    } catch {
+      deadline.throwIfAborted()
+      throw new DramaWebError('Drama Web HTTPS media request failed')
+    }
+    if (response.status !== 200) {
+      await response.body?.cancel().catch(() => {})
+      throw new DramaWebError('Download failed: HTTP ' + response.status, { status: response.status })
+    }
+    return await saveDownload(response, target, MAX_DOWNLOAD_BYTES, deadline)
   }
 
   /** Create one pan-share request; the server accepts it and generates asynchronously. */
@@ -298,6 +361,6 @@ export class DramaWebClient {
 
   /** Build the browser URL for a drama so results can be checked by a person. */
   mintUrl(dramaId) {
-    return `${this.siteRoot}/#/dramas/${dramaId}`
+    return this.siteRoot + '/#/dramas/' + encodeURIComponent(dramaId)
   }
 }

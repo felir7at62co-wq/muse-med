@@ -1,6 +1,8 @@
 # muse-drama-web
 
-Muse tools for the Jubian drama resource site (**剧壳资源管理系统**, `drama-web.jubianai.net`). The site is a separate service from the Jubian production backend at `web.jubianai.net/prod-api`: its API root is `/api/v1`, it authenticates with a token from `POST /auth/login`, and nothing in `@deepseek-ai/dsh-jubian` covers it.
+English | [中文](README.zh.md)
+
+Muse tools for the Jubian drama resource site (**剧壳资源管理系统**, `drama-web.jubianai.net`). The resource site uses the `/api/v1` API and issues bearer tokens through `POST /auth/login`.
 
 ## What the tools do
 
@@ -10,32 +12,26 @@ Muse tools for the Jubian drama resource site (**剧壳资源管理系统**, `dr
 | `drama_web_library` | `GET /dramas` | Library search by keyword, status, market, push status, dates and leader |
 | `drama_web_profile` | `GET /dramas/{id}` | Real profile fields plus optional siblings |
 | `drama_web_files` | `GET /dramas/{id}/files` | Resource ids by category (`final`, `subtitle`, `poster`, `script`, …) |
-| `drama_web_download` | `GET /files/{id}/url` | Signed URL, optional workspace download with byte count and SHA-256 |
+| `drama_web_download` | `GET /files/{id}/url` | Downloads to a new file in the current workspace and reports the path, byte count and SHA-256 |
 | `drama_web_pan_share` | `POST/GET /dramas/{id}/pan-share` | Creates an asynchronous pan share; `tasks` confirms generation |
 | `drama_web_title` | `POST /dramas/{id}/generate-title` | Server-side title or script analysis, 330s budget |
 | `drama_web_subtitle_erase` | `GET/POST /dramas/{id}/subtitle-erase-tasks` | Region-based subtitle erasure |
 | `drama_web_link` | none | Builds the browser URL for a drama |
 
-## Mount
+## Configure in Muse
 
-```yaml
-- insert:
-    - id: muse-drama-web
-      name: muse-drama-web
-      config:
-        baseUrl: http://drama-web.jubianai.net/api/v1
-        tokenEnv: DRAMA_WEB_TOKEN
-```
+Set `DRAMA_WEB_BASE_URL` in the Muse Host environment to the deployment's HTTPS API root, including `/api/v1`. With this setting, Muse loads the bundled plugin in the short-drama agent. The manual plugin patch uses the same setting.
 
-The host owns the token value. Without one, call `drama_web_login` after setting `DRAMA_WEB_USERNAME` / `DRAMA_WEB_PASSWORD`; the login tool never accepts credentials as arguments.
+Set `DRAMA_WEB_TOKEN` in the Host environment or use `drama_web_login` with Host-provided `DRAMA_WEB_USERNAME` and `DRAMA_WEB_PASSWORD`. When the service sends downloads from a separate HTTPS origin, set `DRAMA_WEB_MEDIA_ORIGIN` to that origin, without a path or query.
 
-## Limits that are real
+Downloads require a session that allows workspace writes and a relative destination for a new file. Remote creation of shares, title generation, script analysis and subtitle-erasure submissions require an explicit Host override of `allowRemoteWrites`. Review the target project and expected effect before enabling these operations.
 
-- Unauthenticated calls answer HTTP 401 with an empty body, so the plugin reports the status and never guesses "expired" from it.
-- There is no refresh token; a 401 means signing in again.
+## Service behavior
+
+- Authentication failures retain the upstream HTTP status. Renew the Host token or sign in again when the token expires.
 - Pan shares are generated asynchronously: an accepted request is not a finished share.
 - Subtitle erasure needs the region measured against the same video resolution; a guessed box produces unusable output.
-- Pan share is limited to team leaders and above: a plain member gets `403 仅组长及以上可管理网盘分享`, which the plugin surfaces verbatim.
+- Pan share requires a team leader or higher role. The plugin retains the HTTP 403 status when the service rejects access.
 - The deployment can be behind a Feishu SSO for interactive sign-in; the token that flow yields is the same bearer token these tools use.
 
 ## Verify
@@ -43,7 +39,7 @@ The host owns the token value. Without one, call `drama_web_login` after setting
 Unit tests run against a local stub server and never contact the real site:
 
 ```sh
-node --test tests/*.test.js
+node --test tests/client.test.js tests/tools.test.js
 ```
 
-A live check needs one real token; it is not part of the default test run.
+For an opt-in live read check, set `DRAMA_WEB_BASE_URL` and `DRAMA_WEB_TOKEN` in the test environment and run `node --test tests/live.test.js`.
