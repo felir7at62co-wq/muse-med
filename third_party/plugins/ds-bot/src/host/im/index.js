@@ -16,6 +16,9 @@ import { createFeishuTurn } from './feishu-turn.js'
 import { nameProblem } from '../../shared/mentions.js'
 
 const RECONCILE_MS = 15_000
+// How often Settings → IM re-reads the unlinked dsh-im accounts; describing a Feishu
+// account asks Feishu, so it is not repeated on every reconcile.
+const AVAILABLE_MS = 60_000
 const RUNTIME_SAVE_MS = 400
 const FORMLESS_CONTEXT_KINDS = new Set(['compact-checkpoint', 'cordis-host-runner', 'output-continuation', 'ptc-mode', 'working-directory', 'screenplay-project-read', 'jubian-video-selection'])
 // A user-role source is model context when its producer declared a form other than `relay`
@@ -1494,12 +1497,15 @@ export function install(rt) {
 
   // dsh-im accounts a connection could take its messages from, for Settings → IM.
   let available = []
+  let availableAt = 0
   const refreshAvailable = async () => {
     const service = dshIm
     if (service === undefined || typeof service.listBots !== 'function') {
       available = []
       return
     }
+    if (Date.now() - availableAt < AVAILABLE_MS) return
+    availableAt = Date.now()
     try {
       const taken = new Set(Object.values(connections()).map(linkOf).filter(Boolean))
       const next = []
@@ -1511,6 +1517,7 @@ export function install(rt) {
       }
       if (dshIm === service) available = next
     } catch (error) {
+      availableAt = 0
       rt.warn('ds-bot: dsh-im accounts could not be listed: %s', error?.message ?? error)
     }
   }
@@ -1520,6 +1527,7 @@ export function install(rt) {
     const service = sub.dshIm
     sub.effect(() => {
       dshIm = service
+      availableAt = 0
       void rt.load().then(() => sync()).catch(() => {})
       return () => {
         if (dshIm !== service) return
@@ -1847,6 +1855,8 @@ export function install(rt) {
   }
 
   const imEndpoint = async (endpoint, body) => {
+    // A link or a removal changes which accounts are free right away.
+    if (endpoint === 'im-link' || endpoint === 'im-remove') availableAt = 0
     const result = await endpoints[endpoint]?.(body ?? {})
     if (result === undefined) throw new Error(`Unknown endpoint ${endpoint}`)
     if (endpoint !== 'im-retry') void sync()
