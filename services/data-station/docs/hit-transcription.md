@@ -39,7 +39,7 @@
 
 ```text
 queued ──claim──▶ downloading ⇄ transcribing ⇄ checking ──script──▶ published
-   ▲                       │ (fail, retryable, 还有次数)            
+   ▲                       │ (fail, retryable, 还有次数)
    └───────────────────────┤ (租约过期, 还有次数)
                            ├─ fail（次数用完或 retryable:false）──▶ failed
                            └─ fail needsAttention / 租约过期且次数用完 ──▶ needs-attention（待处理）
