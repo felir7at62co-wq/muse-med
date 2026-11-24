@@ -26,15 +26,18 @@ function streamFailure(message){
  * @returns {object} pi-ai model; this probe requests 32,768 tokens without changing the directory.
  */
 export function probeModel(route,provider,entry){
- const glm=/^glm-5\.3(?:-|$)/i.test(entry.id.split('/').at(-1));
+ const glm=/^glm-5[.-]3(?:-|$)/i.test((entry.upstreamModelId??entry.id).split('/').at(-1));
+ // Desktop applies the DeepSeek thinking protocol to this route whichever upstream serves it.
+ const deepseek=route==='deepseek-official';
  const endpoint=completionEndpoint(provider.baseURL);endpoint.pathname=endpoint.pathname.replace(/\/chat\/completions$/,'');
  const efforts=glm?{low:'low'}:entry.reasoningEfforts;
- return {id:entry.id,name:entry.name||entry.id,api:'openai-completions',provider:'muse-cloud-'+route,baseUrl:endpoint.href.replace(/\/$/,''),
+ // A directory entry may serve its catalog ID from a different upstream model ID.
+ return {id:entry.upstreamModelId??entry.id,name:entry.name||entry.id,api:'openai-completions',provider:'muse-cloud-'+route,baseUrl:endpoint.href.replace(/\/$/,''),
   reasoning:!!efforts&&efforts!==false,input:entry.input??['text'],contextWindow:entry.contextWindow??128000,maxTokens:32768,
   cost:{input:0,output:0,cacheRead:0,cacheWrite:0},
   ...(efforts&&efforts!==false?{thinkingLevelMap:Object.fromEntries(['off','minimal','low','medium','high','xhigh','max'].map(level=>[level,efforts[level]??null]))}:{}),
   compat:{supportsStore:false,supportsDeveloperRole:false,maxTokensField:'max_tokens',supportsReasoningEffort:!!efforts&&efforts!==false,
-   ...(glm?{thinkingFormat:'deepseek',requiresReasoningContentOnAssistantMessages:true}:{})}};
+   ...(glm||deepseek?{thinkingFormat:'deepseek',requiresReasoningContentOnAssistantMessages:true}:{})}};
 }
 
 /** Project token counts and fixed outcomes from a single model's two bounded requests.
@@ -44,11 +47,13 @@ export function probeModel(route,provider,entry){
  * @returns {Promise<boolean>} Whether a complete tool call and marker continuation passed.
  */
 export async function probeTask(task,stream,report){
- const glm=/^glm-5\.3(?:-|$)/i.test(task.model.id.split('/').at(-1));
+ const glm=/^glm-5[.-]3(?:-|$)/i.test(task.model.id.split('/').at(-1));
+ // Desktop's DeepSeek route sends the catalog default effort, which the selected catalogs set to low.
+ const deepseek=task.model.provider==='muse-cloud-deepseek-official';
  async function request(stage,messages,toolChoice){
   const signal=AbortSignal.timeout(45000);let status=null,failure;
   const options={apiKey:task.key,maxTokens:32768,maxRetries:0,timeoutMs:45000,signal,toolChoice,
-   ...(glm?{reasoningEffort:'low'}:{}),
+   ...(glm||deepseek?{reasoningEffort:'low'}:{}),
    onPayload:payload=>{if(glm){payload.thinking={type:'enabled',clear_thinking:false};payload.reasoning_effort='low';}return payload;},
    fetch:async(input,init)=>{
     const response=await fetch(input,init);status=response.status;

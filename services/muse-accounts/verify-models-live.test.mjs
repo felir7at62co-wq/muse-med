@@ -35,15 +35,22 @@ test('catalog probes retain family-specific thinking and preserve real pi-ai too
  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const publicSettings={baseURL:'https://provider.example/v1'};
  for(const [route,id] of [['yunying','glm-5.3-flash'],['zhipu-official','glm-5.3-flashx'],['zhipu-official','glm-5.3-flash'],
-  ...['gemini-3.8-flash','claude-sonnet-5-5','grok-4.7','qwen3.8-max','MiniMax-m3','doubao-seed-2-pro','kimi-k3'].map(id=>['yunying',id])]){
-  const model=probeModel(route,publicSettings,{id,contextWindow:200000,maxTokens:8192,reasoningEfforts:false});model.baseUrl='http://127.0.0.1:'+server.address().port+'/v1';
+  ...['gemini-3.8-flash','claude-sonnet-5-5','grok-4.7','qwen3.8-max','MiniMax-m3','doubao-seed-2-pro','kimi-k3'].map(id=>['yunying',id]),
+  ['deepseek-official','deepseek-v4.1-flash']]){
+  const efforts=route==='deepseek-official'?{off:null,low:'low',high:'high',max:'max'}:false;
+  const model=probeModel(route,publicSettings,{id,contextWindow:200000,maxTokens:8192,reasoningEfforts:efforts});model.baseUrl='http://127.0.0.1:'+server.address().port+'/v1';
   const outcomes=[];assert.equal(await probeTask({route,key:'synthetic-key',model},stream,value=>outcomes.push(value)),true);
   const [first,second]=requests.slice(-2);assert.equal(first.max_tokens,32768);assert.equal(second.max_tokens,32768);assert.equal(second.messages.find(message=>message.role==='assistant').reasoning_content,'saved private reasoning');
   assert.equal(Object.hasOwn(first,'tool_choice'),false);assert.equal(Object.hasOwn(second,'tool_choice'),false);
   if(id.startsWith('glm-5.3-')){assert.deepEqual(first.thinking,{type:'enabled',clear_thinking:false});assert.equal(first.reasoning_effort,'low');}
+  else if(route==='deepseek-official'){assert.equal(first.thinking?.type,'enabled');assert.equal(first.reasoning_effort,'low');}
   else{assert.equal(first.thinking,undefined);assert.equal(first.reasoning_effort,undefined);}
   assert.doesNotMatch(JSON.stringify(outcomes),/synthetic-key|private reasoning|private-balance|private-cost/);assert.deepEqual(outcomes[1].tokens,{input:4,output:2,cacheRead:0,cacheWrite:0,totalTokens:6});
  }
+ const aliased=probeModel('deepseek-official',publicSettings,{id:'deepseek-v4.1-flash-261017',upstreamModelId:'deepseek-v4.1-flash',
+  reasoningEfforts:{off:null,low:'low',high:'high',max:'max'}});aliased.baseUrl='http://127.0.0.1:'+server.address().port+'/v1';
+ assert.equal(await probeTask({route:'deepseek-official',key:'synthetic-key',model:aliased},stream,()=>{}),true);
+ assert.equal(requests.at(-2).model,'deepseek-v4.1-flash');assert.equal(requests.at(-2).thinking?.type,'enabled');
  const forced=probeModel('studio',publicSettings,{id:'writer',reasoningEfforts:false});forced.baseUrl='http://127.0.0.1:'+server.address().port+'/v1';
  assert.equal(await probeTask({route:'studio',key:'synthetic-key',model:forced,toolChoice:'forced'},stream,()=>{}),true);
  assert.deepEqual(requests.at(-2).tool_choice,{type:'function',function:{name:'muse_echo'}});assert.equal(requests.at(-1).tool_choice,'none');

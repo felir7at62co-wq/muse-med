@@ -279,11 +279,17 @@ test('a used-up balance marks the button and says generation has stopped', async
   }
 })
 
-test('zero credit does not report generation stopped while charging is off', async () => {
-  const side = client([ok({ unlimited: false, available: '0.00', usedFen: 50000, heldFen: 0, enforced: false })])
-  await side.mount()
-  assert.equal(byClass(side.render(), 'bt-account bt-quota')[0].props['data-state'], 'known')
-  assert.equal(byClass(side.open(), 'bt-quota-stop').length, 0)
+test('zero credit shows a balance when Jingliu has not confirmed enforcement', async () => {
+  for (const enforced of [false, null, undefined]) {
+    const side = client([ok({ unlimited: false, available: '0.00', usedFen: 50000, heldFen: 0, enforced })])
+    await side.mount()
+    const [button] = byClass(side.render(), 'bt-account bt-quota')
+    assert.equal(button.props['data-state'], 'known')
+    assert.equal(byClass(button, 'bt-quota-dot').length, 0)
+    const tree = side.open()
+    assert.equal(textOf(byClass(tree, 'bt-quota-figure')), '¥0.00')
+    assert.equal(byClass(tree, 'bt-quota-stop').length, 0)
+  }
 })
 
 test('the balance button closes the popover and opens Settings at Balance and costs', async () => {
