@@ -101,7 +101,7 @@ function BotRow({ bot, roster, links, actions, useSessions, useSessionStatus, us
       type: 'button', className: 'bt-tile', 'aria-label': label, 'aria-current': active ? 'page' : undefined,
       'data-bot-id': id, title: preview || bot.name, onClick: () => actions.openSession(id), onContextMenu,
     },
-    h(BotAvatar, { bot, size: 60, state, main: true, im, animated: tileAvatar(roster.prefs, (roster.mainBotIds ?? []).indexOf(id)) }),
+    h(BotAvatar, { bot, size: 60, state, main: true, im, animated: tileAvatar(roster.prefs, (roster.mainBotIds ?? []).indexOf(id)), rig: true }),
     h('span', { className: 'bt-tile-name' }, bot.name),
     bot.role ? h('span', { className: 'bt-chip' }, bot.role) : null))
   }

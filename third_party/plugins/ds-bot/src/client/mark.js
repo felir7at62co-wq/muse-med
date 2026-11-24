@@ -82,7 +82,7 @@ function useGaze(ref, enabled) {
 // fidget and moment); transcript marks stay still so a long chat does not run dozens
 // of animations.
 const FIDGETS = ['hop', 'sway', 'stretch', 'look']
-export function BotMark({ bot, look: given, size = 36, state = 'idle', live = false, gaze = false, pokeable = false, label }) {
+export function BotMark({ bot, look: given, size = 36, state = 'idle', live = false, gaze = false, pokeable = false, label, rig = false }) {
   const look = given ?? lookOf(bot)
   const ref = useRef(null)
   const maskId = useRef('')
@@ -92,6 +92,7 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
   const [broken, setBroken] = useState('')
   const image = look.image && look.image !== broken ? look.image : undefined
   useGaze(ref, gaze)
+  const rigged = rig && !image && shapeOf(look.shape).rig !== undefined
   const common = {
     ref,
     className: poked ? 'bt-mark bt-mark-poke' : 'bt-mark',
@@ -101,6 +102,8 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
     'data-fidget': live ? FIDGETS[fnv1a(`${bot?.id ?? ''}:fidget`) % FIDGETS.length] : undefined,
     'data-gaze': gaze ? '' : undefined,
     'data-poke': pokeable ? '' : undefined,
+    // Muse: a character drawn in parts (the spider's rig), so its legs can move.
+    'data-rig': rigged ? '' : undefined,
     style: { width: size, height: size, ...(live ? { '--bt-delay': `${-(fnv1a(String(bot?.id ?? '')) % 5000) / 1000}s`, '--bt-fidget-delay': `${-(fnv1a(`${bot?.id ?? ''}:when`) % 9000) / 1000}s` } : {}) },
     role: label ? 'img' : undefined,
     'aria-label': label,
@@ -110,7 +113,7 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
   }
   if (image) return h('span', common, h('img', { className: 'bt-mark-img', src: image, alt: '', draggable: false, onError: () => setBroken(image) }))
   const box = shapeOf(look.shape).size
-  return h('span', common, h('svg', { viewBox: `0 0 ${box} ${box}`, dangerouslySetInnerHTML: { __html: characterMarkup(look.shape, look.color).replaceAll(MASK_ID, maskId.current) } }))
+  return h('span', common, h('svg', { viewBox: `0 0 ${box} ${box}`, dangerouslySetInnerHTML: { __html: characterMarkup(look.shape, look.color, rigged).replaceAll(MASK_ID, maskId.current) } }))
 }
 
 function StarIcon({ size = 8 }) {
@@ -157,7 +160,7 @@ export const imLabel = im => (IM_MARKS[im] ? t('Linked to {name}', { name: t(IM_
 // Muse: `animated` ('live', or 'still' for one picture) draws the character with
 // animated-avatar.js in the same box, under the same badges; a picture, the Muse spider and a
 // character with no definition keep the drawn mark. `surface` names what the avatar stands on.
-export function BotAvatar({ bot, size, state = 'idle', main, admin, im, badge = true, live = true, gaze = false, pokeable = false, animated, surface }) {
+export function BotAvatar({ bot, size, state = 'idle', main, admin, im, badge = true, live = true, gaze = false, pokeable = false, animated, surface, rig = false }) {
   const look = animated && bot !== undefined ? lookOf(bot) : undefined
   const definition = look && animatedDefinition(look)
   const settled = useSettled(state, definition ? DONE_MS : undefined)
@@ -167,7 +170,7 @@ export function BotAvatar({ bot, size, state = 'idle', main, admin, im, badge = 
   return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
     definition
       ? h(AnimatedAvatar, { definition, color: look.color, size, state: settled ? 'done' : state, label: bot.name, gaze, still: animated === 'still', surface })
-      : h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
+      : h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable, rig }),
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,
     badgeKind === 'alert' ? h('span', { className: 'bt-badge bt-badge-alert', 'aria-label': t('Waiting for your answer'), role: 'img' }, '?') : null,
     badgeKind === 'admin' ? h('span', { className: 'bt-badge bt-badge-admin', 'aria-label': t('Admin'), role: 'img' }, h(StarIcon)) : null,

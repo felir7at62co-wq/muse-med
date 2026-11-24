@@ -424,8 +424,8 @@ test('with the switch off a tile and a details page draw the marks they drew bef
   const h = page.react.createElement
   for (const bot of bots) {
     // The tile as sidebar.js builds it, beside the avatar it built before the animated avatars.
-    const tile = page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu', animated: tileAvatar(prefs, 0) }))
-    assert.equal(written(tile), written(page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu' }))), bot.id)
+    const tile = page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu', animated: tileAvatar(prefs, 0), rig: true }))
+    assert.equal(written(tile), written(page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, im: 'feishu', rig: true }))), bot.id)
     // The details page as details-drawer.js builds it, beside what DetailsAvatar returned before.
     const details = page.mount(h(DetailsAvatar, { bot, main: true, running: true, activity: 'thinking', awaitingInput: false, animated: animatedAvatarsOn(prefs) }))
     if (bot !== SPIDER_BOT) {
@@ -433,8 +433,10 @@ test('with the switch off a tile and a details page draw the marks they drew bef
     }
     for (const tree of [tile, details]) {
       assert.deepEqual(find(tree, isLive), [], bot.id)
-      // The drawing is the character's own markup, from characters.js.
-      if (bot !== PICTURE_BOT) assert.equal(drawingOf(tree), characterMarkup(bot.avatar.shape, 'cyan'), bot.id)
+      // The drawing is the character's own markup, from characters.js; in both places the
+      // spider is drawn in parts, and no other character has parts.
+      if (bot !== PICTURE_BOT) assert.equal(drawingOf(tree), characterMarkup(bot.avatar.shape, 'cyan', true), bot.id)
+      if (bot !== PICTURE_BOT && bot !== SPIDER_BOT) assert.equal(drawingOf(tree), characterMarkup(bot.avatar.shape, 'cyan'), bot.id)
     }
   }
   assert.equal(page.mounts.length, 0)
@@ -470,16 +472,17 @@ test('with the switch on a spider Bot still renders the vector spider, in the Bo
   // The default: no key stored.
   const prefs = {}
   assert.equal(animatedAvatarsOn(prefs), true)
-  const spiderIn = paint => `<path d="${SPIDER.body}" fill="${paint}"/>`
+  // A tile and the details page draw the spider in parts; the torso is one of them.
+  const spiderIn = paint => `<path d="${SPIDER.parts.find(part => part.id === 'torso').body}" fill="${paint}"/>`
   for (const [bot, paint] of [[SPIDER_BOT, 'var(--bt-ink-cyan)'], [botOf('muse-spider', { color: 'violet' }), SPIDER.base], [botOf('muse-spider', { color: '#418fae' }), '#418fae']]) {
     // Every tile place, moving and still.
     for (const index of [0, 3, 4]) {
-      const tile = page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, animated: tileAvatar(prefs, index) }))
+      const tile = page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, animated: tileAvatar(prefs, index), rig: true }))
       assert.deepEqual(find(tile, isLive), [])
-      assert.equal(drawingOf(tile), characterMarkup('muse-spider', bot.color))
+      assert.equal(drawingOf(tile), characterMarkup('muse-spider', bot.color, true))
       assert.ok(drawingOf(tile).includes(spiderIn(paint)), paint)
       // The avatar is the one a team with the switch off has.
-      assert.equal(written(tile), written(page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true }))))
+      assert.equal(written(tile), written(page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, rig: true }))))
     }
     // The details page keeps the spider's own motion: SpiderDetail around the drawn mark.
     const element = h(DetailsAvatar, { bot, main: true, running: true, activity: 'thinking', awaitingInput: false, animated: animatedAvatarsOn(prefs) })
@@ -507,7 +510,7 @@ test('with the switch on a Bot with a picture and the other thirteen characters 
     page.reset()
     const [mark] = page.render(BotAvatar, { bot, size: 60, animated: 'live' }).props.children
     assert.equal(mark.type, BotMark, bot.id)
-    assert.deepEqual(plain(mark.props), { bot: plain(bot), size: 60, state: 'idle', live: true, gaze: false, pokeable: false, children: [] })
+    assert.deepEqual(plain(mark.props), { bot: plain(bot), size: 60, state: 'idle', live: true, gaze: false, pokeable: false, rig: false, children: [] })
     for (const animated of ['live', 'still']) {
       const tile = page.mount(h(BotAvatar, { bot, size: 60, state: 'working', main: true, animated }))
       assert.deepEqual(find(tile, isLive), [], bot.id)

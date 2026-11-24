@@ -128,8 +128,10 @@ export const MASK_ID = '%MASK%'
 let markSerial = 0
 export const nextMarkSerial = () => (markSerial += 1)
 export const markupCache = new Map()
-export function characterMarkup(shape, color) {
-  const key = `${shape}|${color}`
+export function characterMarkup(shape, color, rigged = false) {
+  // Muse: a shape with a `rig` can be drawn in parts, for a mark whose legs move.
+  const rig = rigged ? shapeOf(shape).rig : undefined
+  const key = `${shape}|${color}${rig ? '|rig' : ''}`
   let markup = markupCache.get(key)
   if (markup === undefined) {
     const def = shapeOf(shape)
@@ -140,9 +142,14 @@ export function characterMarkup(shape, color) {
     const gradient = stops ? `<linearGradient id="${MASK_ID}g" gradientUnits="userSpaceOnUse" x1="18" y1="10" x2="78" y2="92">${stops.map(([offset, value]) => `<stop offset="${offset}" stop-color="${value}"/>`).join('')}</linearGradient>` : ''
     // Muse: a shape may give its own color for an ink (the spider's artwork purple for violet).
     const paint = stops ? `url(#${MASK_ID}g)` : def.inks?.[color] ?? inkFill(color)
-    const body = def.solidEyes
-      ? `${bodyOf(def, paint)}<g class="bt-gaze"><g class="bt-eyes">${def.eyes.map(solidEyeMarkup).join('')}${def.eyes.map(solidHappyEyeMarkup).join('')}</g></g>`
-      : `<g mask="url(#${MASK_ID})">${bodyOf(def, paint)}</g>`
+    const solidEyes = () => `<g class="bt-gaze"><g class="bt-eyes">${def.eyes.map(solidEyeMarkup).join('')}${def.eyes.map(solidHappyEyeMarkup).join('')}</g></g>`
+    // The torso of a rig carries what is joined to it behind and the eyes; what stands in
+    // front of it stays where it is.
+    const body = rig
+      ? `<g fill-rule="evenodd">${rig.box}<g class="bt-torso">${rig.back(paint)}${rig.torso(paint)}${solidEyes()}</g>${rig.front(paint)}</g>`
+      : def.solidEyes
+        ? `${bodyOf(def, paint)}${solidEyes()}`
+        : `<g mask="url(#${MASK_ID})">${bodyOf(def, paint)}</g>`
     markup = `<defs>${gradient}<mask id="${MASK_ID}" ${maskBox(def.size)}>${holes(def, eyes)}</mask></defs><g class="bt-b">${def.wrap ? `<g transform="${def.wrap}">${body}</g>` : body}</g>`
     markupCache.set(key, markup)
   }

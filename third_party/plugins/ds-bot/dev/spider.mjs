@@ -1,12 +1,17 @@
-// Traces the Muse spider artwork into the layers of src/client/muse-spider.js. The artwork
+// Traces the Muse spider artwork into the parts of src/client/muse-spider.js. The artwork
 // is a cel-shaded picture in one purple: a base tone, darker regions (crisp shadows and a
 // few soft falloffs) and lighter regions (the gloss streak and the lit leg faces). The trace
-// keeps the drawing and drops the color: the outline is filled with the Bot's color, the
+// keeps the drawing and drops the color: an outline is filled with the Bot's color, the
 // darker regions are nested translucent steps laid over it, and the lighter regions are one
-// translucent layer. The layers' colors and opacities are measured, so that on the
+// translucent layer. The steps' colors and opacities are measured, so that on the
 // artwork's own purple they give the artwork's tones: a run of steps shares the color its
 // tones lead to, and each step's opacity brings the tone under it to the artwork's tone
 // there. The painted eyes are left out; the character system draws them on top.
+//
+// The drawing comes apart into the torso and six legs, so the legs can move. A leg is an
+// ellipse in the artwork. A part that lies under another one is completed there (the torso
+// under the near legs, a far leg under the torso), so at rest the parts give the same
+// picture as the whole, and nothing opens when a leg moves.
 //
 //   node dev/spider.mjs               prints the SPIDER block for src/client/muse-spider.js
 //   node dev/spider.mjs --check       also prints how far the layers are from the artwork
@@ -30,6 +35,29 @@ const CRISP_CUTS = [0.15, 0.31]
 // unit: crisp edges are kept to a hundredth, soft falloffs to the other characters' tenth.
 const CRISP = [0.03, 100]
 const SOFT = [0.2, 10]
+
+// The legs that move, back to front, with where the artwork shows each one's edge (box
+// units): `outline` is a box whose stretch of the artwork's outline is the leg's own edge,
+// and `rim` is a point on the leg's lit rim, whose outer edge is the leg's edge too. A far
+// leg with `behind` passes behind the dome: where the dome's outline, continued, covers
+// plain base tone inside the leg's ellipse, that is the torso.
+const LEGS = [
+  { id: 'far-upper', outline: [7.5, 41.25, 16, 52.5], behind: true },
+  { id: 'far-lower', outline: [2.5, 55, 15, 71.25] },
+  { id: 'far-right', outline: [90.75, 50, 98.75, 65], behind: true },
+  { id: 'near-left', near: true, rim: [25.4, 56.2], outline: [26.25, 76.25, 36.25, 100] },
+  { id: 'near-right', near: true, rim: [89.9, 59.4], outline: [78.125, 76.25, 89.375, 100] },
+  { id: 'near-middle', near: true, rim: [53.4, 61.4], outline: [43.125, 78.125, 58.75, 100] },
+]
+// No leg touches the dome's outline above this line.
+const DOME_ABOVE = 41.25
+// How far past its fitted ellipse a leg reaches, in artwork pixels: a near leg takes its
+// whole antialiased edge with it, and a far leg also the thin strips of the artwork that lie
+// between two legs.
+const PAD = { near: 1.5, far: 4 }
+// A far leg's root under the torso: its ellipse moved toward the middle of the dome by this
+// share of its long half axis, and this many times as large.
+const ROOT = { shift: 0.55, grow: 1.45 }
 
 /**
  * Reads an 8-bit RGB or RGBA PNG without interlacing.
@@ -208,35 +236,116 @@ function lineThrough(start, tones) {
   return { color, toColor, shares: tones.map(tone => toColor.reduce((sum, v, c) => sum + v * (tone[c] - start[c]), 0) / length) }
 }
 
+// The convex hull of points, counterclockwise in pixel coordinates (y down).
+function hullOf(points) {
+  const sorted = [...points].sort((p, q) => p[0] - q[0] || p[1] - q[1])
+  const turn = (o, p, q) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0])
+  const chain = (list) => {
+    const out = []
+    for (const p of list) {
+      while (out.length >= 2 && turn(out.at(-2), out.at(-1), p) <= 0) out.pop()
+      out.push(p)
+    }
+    return out.slice(0, -1)
+  }
+  return [...chain(sorted), ...chain(sorted.reverse())]
+}
+
+// The ellipse through points, by least squares on a conic about their mean. `reach(x, y)`
+// is 1 on the ellipse and less inside; `a` and `b` are the half axes and [ux, uy] is the
+// direction of the long one.
+function ellipseThrough(points) {
+  const mx = points.reduce((sum, p) => sum + p[0], 0) / points.length
+  const my = points.reduce((sum, p) => sum + p[1], 0) / points.length
+  const normal = Array.from({ length: 5 }, () => new Float64Array(6))
+  for (const [px, py] of points) {
+    const [x, y] = [px - mx, py - my]
+    const row = [x * x, x * y, y * y, x, y]
+    for (let i = 0; i < 5; i += 1) {
+      for (let j = 0; j < 5; j += 1) normal[i][j] += row[i] * row[j]
+      normal[i][5] += row[i]
+    }
+  }
+  for (let i = 0; i < 5; i += 1) {
+    let pivot = i
+    for (let r = i + 1; r < 5; r += 1) if (Math.abs(normal[r][i]) > Math.abs(normal[pivot][i])) pivot = r
+    ;[normal[i], normal[pivot]] = [normal[pivot], normal[i]]
+    for (let r = 0; r < 5; r += 1) {
+      if (r === i) continue
+      const factor = normal[r][i] / normal[i][i]
+      for (let j = i; j < 6; j += 1) normal[r][j] -= factor * normal[i][j]
+    }
+  }
+  const [A, B, C, D, E] = normal.map((row, i) => row[5] / row[i])
+  const det = 4 * A * C - B * B
+  const [cx, cy] = [(-2 * C * D + B * E) / det, (-2 * A * E + B * D) / det]
+  const k = 1 - (A * cx * cx + B * cx * cy + C * cy * cy + D * cx + E * cy)
+  const [qa, qb, qc] = [A / k, B / (2 * k), C / k]
+  const mid = (qa + qc) / 2
+  const swing = Math.hypot((qa - qc) / 2, qb)
+  const [a, b] = [1 / Math.sqrt(mid - swing), 1 / Math.sqrt(mid + swing)]
+  const axis = Math.abs(qb) > 1e-12 ? [qb, mid - swing - qa] : qa < qc ? [1, 0] : [0, 1]
+  const length = Math.hypot(...axis)
+  const reach = (x, y) => { const [dx, dy] = [x - mx - cx, y - my - cy]; return Math.sqrt(qa * dx * dx + 2 * qb * dx * dy + qc * dy * dy) }
+  return { cx: mx + cx, cy: my + cy, a, b, ux: axis[0] / length, uy: axis[1] / length, reach }
+}
+
+// Fills `value` where `open` is set from the values around it, by repeated averaging inside
+// `member`: how a part is completed where another part covers it in the artwork.
+function complete(value, member, open, size) {
+  const list = []
+  let sum = 0
+  let known = 0
+  for (let k = 0; k < value.length; k += 1) {
+    if (!member[k]) continue
+    if (open[k]) list.push(k)
+    else { sum += value[k]; known += 1 }
+  }
+  const start = known ? sum / known : 0
+  for (const k of list) value[k] = start
+  for (let sweep = 0; sweep < 240; sweep += 1) {
+    for (let at = 0; at < list.length; at += 1) {
+      const k = list[sweep % 2 ? list.length - 1 - at : at]
+      let total = 0
+      let count = 0
+      for (const other of [k - 1, k + 1, k - size, k + size]) {
+        if (other < 0 || other >= value.length || !member[other]) continue
+        total += value[other]
+        count += 1
+      }
+      if (count) value[k] = total / count
+    }
+  }
+}
+
 /**
  * Traces the artwork.
  * @param {string} [file] - The artwork PNG; the approved copy when omitted.
- * @returns {{ base: string, body: string, layers: Array<[string, string, number]> }} The
- * artwork's base color, the outline, and the overlays [path, color, opacity] in paint order.
+ * @returns {{ base: string, body: string, steps: Array<[string, number]>, layers: string[], parts: Array<{ id: string, pivot?: [number, number], near?: boolean, body: string, layers: string[] }> }}
+ * The artwork's base color; the whole outline; the overlays' [color, opacity] in paint order
+ * and the whole drawing's path for each; and the same drawing in parts, back to front, each
+ * with its outline and one path (or '') per overlay. A leg has the point it turns about.
  */
 export function trace(file = ARTWORK) {
   const { size, pixels, inside, eye, shade, light } = tones(readPng(file))
+  const count = size * size
   const n = size - 1
   const unit = 100 / size
   // Samples sit on pixel centers; a loop point (x, y up, origin in the middle) goes to the box.
   const place = ([x, y]) => [(x + n / 2 + 0.5) * unit, (n / 2 - y + 0.5) * unit]
   const outline = inside.map(value => 0.5 - value)
-  // A region never passes the outline: its field is the outline's field where it applies.
-  const region = (field, level, precision) => {
-    const loops = contours(field.map((value, k) => Math.max(outline[k], level - value)), n, n / 2).filter(loop => area(loop) * unit * unit > 0.2)
-    return pathOf(loops, place, ...precision)
-  }
+  const pathIn = (field, precision) => pathOf(contours(field, n, n / 2).filter(loop => area(loop) * unit * unit > 0.2), place, ...precision)
   // The middle tone of the pixels that `member` picks.
   const toneOf = (member) => {
     const picked = []
-    for (let k = 0; k < shade.length; k += 1) if (inside[k] > 0.98 && !eye[k] && member(k)) picked.push(k)
+    for (let k = 0; k < count; k += 1) if (inside[k] > 0.98 && !eye[k] && member(k)) picked.push(k)
     return picked.length ? [0, 1, 2].map(c => median(picked.map(k => pixels[k * 4 + c]))) : undefined
   }
   const settled = settle(shade, size)
   const cuts = [...SOFT_CUTS, ...CRISP_CUTS].sort((a, b) => a - b)
   const crisp = level => CRISP_CUTS.includes(level)
   const lit = []
-  for (let k = 0; k < light.length; k += 1) if (inside[k] > 0.98 && light[k] > 0.1) lit.push(light[k])
+  for (let k = 0; k < count; k += 1) if (inside[k] > 0.98 && light[k] > 0.1) lit.push(light[k])
   const gloss = median(lit) / 2
   const base = toneOf(k => settled[k] < cuts[0] && light[k] < gloss)
   const bands = cuts.map((level, index) => toneOf(k => settled[k] >= level && settled[k] < (cuts[index + 1] ?? Infinity)))
@@ -247,7 +356,8 @@ export function trace(file = ARTWORK) {
     if (runs.length === 0 || crisp(level)) runs.push([])
     runs.at(-1).push(index)
   })
-  const layers = []
+  // The overlays in paint order: [the field it is cut from, the level, precision, color, opacity].
+  const overlays = []
   let under = base
   for (const run of runs) {
     const start = under
@@ -255,16 +365,139 @@ export function trace(file = ARTWORK) {
     let covered = 0
     run.forEach((index, position) => {
       const opacity = +(1 - (1 - shares[position]) / (1 - covered)).toFixed(3)
-      const path = opacity >= 0.004 && region(settled, cuts[index], crisp(cuts[index]) ? CRISP : SOFT)
-      if (!path) return
-      layers.push([path, hex(color), opacity])
+      if (!(opacity >= 0.004)) return
+      overlays.push(['shade', cuts[index], crisp(cuts[index]) ? CRISP : SOFT, hex(color), opacity])
       covered = 1 - (1 - covered) * (1 - opacity)
       under = start.map((v, c) => v + toColor[c] * covered)
     })
   }
   const shine = lineThrough(base, [toneOf(k => light[k] >= gloss)])
-  layers.push([region(light, gloss, CRISP), hex(shine.color), +shine.shares[0].toFixed(3)])
-  return { base: hex(base), body: pathOf(contours(outline, n, n / 2), place, ...CRISP), layers }
+  overlays.push(['light', gloss, CRISP, hex(shine.color), +shine.shares[0].toFixed(3)])
+
+  // The legs. Edge points come from the artwork's outline and from the lit rims.
+  const [colOf, rowOf] = [k => k % size, k => Math.floor(k / size)]
+  const edgeOf = member => { const out = []; for (let k = 0; k < count; k += 1) if (member(k) && [k - 1, k + 1, k - size, k + size].some(other => other < 0 || other >= count || !member(other))) out.push([colOf(k), rowOf(k)]); return out }
+  const outlinePoints = edgeOf(k => inside[k] >= 0.5)
+  const within = ([x0, y0, x1, y1]) => outlinePoints.filter(([x, y]) => x * unit > x0 && x * unit < x1 && y * unit > y0 && y * unit < y1)
+  const bright = k => inside[k] >= 0.5 && !eye[k] && light[k] >= gloss
+  const rimOf = ([x, y]) => {
+    const seed = Math.round(y / unit) * size + Math.round(x / unit)
+    if (!bright(seed)) throw new Error(`no lit rim at ${x}, ${y}`)
+    const seen = new Uint8Array(count)
+    const queue = [seed]
+    seen[seed] = 1
+    for (let at = 0; at < queue.length; at += 1) for (const other of [queue[at] - 1, queue[at] + 1, queue[at] - size, queue[at] + size]) if (other >= 0 && other < count && !seen[other] && bright(other)) { seen[other] = 1; queue.push(other) }
+    return hullOf(edgeOf(k => seen[k] === 1))
+  }
+  const dome = ellipseThrough(outlinePoints.filter(([, y]) => y * unit < DOME_ABOVE))
+  const legs = LEGS.map(leg => ({ ...leg, ...ellipseThrough([...(leg.rim ? rimOf(leg.rim) : []), ...within(leg.outline)]) }))
+  // Who owns a pixel of the artwork: the frontmost near leg that reaches it, else the
+  // frontmost far leg that shows there, else the torso (0). A far leg shows on the pixels
+  // joined to its own stretch of the outline; one that passes behind the dome stops where
+  // the dome's outline, continued, covers plain base tone.
+  const padOf = leg => (leg.near ? PAD.near : PAD.far)
+  const reaches = (leg, k) => leg.reach(colOf(k), rowOf(k)) <= 1 + padOf(leg) / leg.b
+  const toned = k => settled[k] >= 0.05 || light[k] >= gloss
+  const owner = new Uint8Array(count)
+  for (let k = 0; k < count; k += 1) for (let index = legs.length - 1; index >= 0 && !owner[k]; index -= 1) if (legs[index].near && reaches(legs[index], k)) owner[k] = index + 1
+  for (let index = legs.length - 1; index >= 0; index -= 1) {
+    const leg = legs[index]
+    if (leg.near) continue
+    const free = k => !owner[k] && reaches(leg, k) && (!leg.behind || toned(k) || dome.reach(colOf(k), rowOf(k)) > 1)
+    const queue = within(leg.outline).map(([x, y]) => y * size + x).filter(free)
+    for (const k of queue) owner[k] = index + 1
+    for (let at = 0; at < queue.length; at += 1) for (const other of [queue[at] - 1, queue[at] + 1, queue[at] - size, queue[at] + size]) if (other >= 0 && other < count && free(other)) { owner[other] = index + 1; queue.push(other) }
+  }
+  // A leg turns about the end of its long axis that is nearer the middle of the dome. A leg
+  // that passes behind the dome turns about the point where its own outline meets the
+  // dome's, so the corner between the two stays closed.
+  const pivotOf = (leg) => {
+    if (leg.behind) return outlinePoints.filter(([x, y]) => owner[y * size + x] === legs.indexOf(leg) + 1).reduce((best, p) => (Math.hypot(p[0] - dome.cx, p[1] - dome.cy) < Math.hypot(best[0] - dome.cx, best[1] - dome.cy) ? p : best))
+    const side = Math.sign((dome.cx - leg.cx) * leg.ux + (dome.cy - leg.cy) * leg.uy) || 1
+    return [leg.cx + side * 0.7 * leg.a * leg.ux, leg.cy + side * 0.7 * leg.a * leg.uy]
+  }
+  // A soft edge for a membership, so its traced outline is smooth.
+  const soften = (member) => {
+    let field = Float64Array.from(member)
+    for (let pass = 0; pass < 3; pass += 1) {
+      const next = new Float64Array(count)
+      for (let k = 0; k < count; k += 1) {
+        const [col, row] = [colOf(k), rowOf(k)]
+        let sum = 0
+        let weight = 0
+        for (let i = Math.max(0, row - 3); i <= Math.min(size - 1, row + 3); i += 1) for (let j = Math.max(0, col - 3); j <= Math.min(size - 1, col + 3); j += 1) { sum += field[i * size + j]; weight += 1 }
+        next[k] = sum / weight
+      }
+      field = next
+    }
+    return field
+  }
+  // Under a near leg the torso goes on inside the hull of what shows of it (thin strips
+  // left out) and of a shoulder around each near leg's pivot, as far as the line between
+  // the two points where the leg's stretch of the outline begins and ends.
+  const torso = Uint8Array.from(owner, (value, k) => (value === 0 && inside[k] >= 0.5 ? 1 : 0))
+  const core = soften(torso)
+  const shoulders = legs.filter(leg => leg.near).flatMap(leg => Array.from({ length: 24 }, (_, at) => [pivotOf(leg)[0] + 0.5 * leg.b * Math.cos(at * Math.PI / 12), pivotOf(leg)[1] + 0.5 * leg.b * Math.sin(at * Math.PI / 12)]))
+  const hull = hullOf([...edgeOf(k => core[k] > 0.9), ...shoulders])
+  const inHull = (x, y) => hull.every(([px, py], at) => { const [qx, qy] = hull[(at + 1) % hull.length]; return (qx - px) * (y - py) - (qy - py) * (x - px) >= 0 })
+  for (let k = 0; k < count; k += 1) if (owner[k] === 0) torso[k] = 1
+  legs.forEach((leg, index) => {
+    if (!leg.near) return
+    const own = outlinePoints.filter(([x, y]) => owner[y * size + x] === index + 1)
+    // The two ends are the leg's outline points farthest toward the dome on either side of its long axis.
+    const across = ([x, y]) => (x - leg.cx) * -leg.uy + (y - leg.cy) * leg.ux
+    const side = Math.sign((dome.cx - leg.cx) * leg.ux + (dome.cy - leg.cy) * leg.uy) || 1
+    const along = ([x, y]) => side * ((x - leg.cx) * leg.ux + (y - leg.cy) * leg.uy)
+    const [[x0, y0], [x1, y1]] = [own.filter(p => across(p) < 0), own.filter(p => across(p) >= 0)].map(list => list.reduce((best, p) => (along(p) > along(best) ? p : best)))
+    const inner = Math.sign((x1 - x0) * (dome.cy - y0) - (y1 - y0) * (dome.cx - x0))
+    for (let k = 0; k < count; k += 1) if (owner[k] === index + 1 && Math.sign((x1 - x0) * (rowOf(k) - y0) - (y1 - y0) * (colOf(k) - x0)) === inner && inHull(colOf(k), rowOf(k))) torso[k] = 1
+  })
+  // Each part's field (negative inside), back to front: the far legs, the torso, the near
+  // legs. A far leg also has a root: its ellipse again, larger and nearer the middle of the
+  // dome, kept to where the torso covers it at rest, so the torso can move without a gap.
+  const soft = soften(torso)
+  const torsoField = Float64Array.from(outline, (value, k) => Math.max(value, 0.5 - soft[k]))
+  const legField = (leg) => {
+    const toDome = Math.hypot(dome.cx - leg.cx, dome.cy - leg.cy)
+    const [dx, dy] = [((dome.cx - leg.cx) / toDome) * leg.a * ROOT.shift, ((dome.cy - leg.cy) / toDome) * leg.a * ROOT.shift]
+    return Float64Array.from(outline, (value, k) => {
+      const own = (leg.reach(colOf(k), rowOf(k)) - 1) * leg.b - padOf(leg)
+      const root = leg.near ? Infinity : Math.max((leg.reach(colOf(k) - dx, rowOf(k) - dy) - ROOT.grow) * leg.b, torsoField[k])
+      return Math.max(value, Math.min(own, root))
+    })
+  }
+  const order = [...legs.filter(leg => !leg.near), { id: 'torso' }, ...legs.filter(leg => leg.near)]
+  const fields = order.map(part => (part.id === 'torso' ? torsoField : legField(part)))
+  // The part that shows at a pixel when the spider is at rest: the frontmost one there.
+  const top = new Int8Array(count).fill(-1)
+  for (let k = 0; k < count; k += 1) for (let at = order.length - 1; at >= 0 && top[k] < 0; at -= 1) if (fields[at][k] < 0) top[k] = at
+  const parts = order.map((part, at) => {
+    const field = fields[at]
+    // The part's own tones: the artwork's where the part shows, completed from there under
+    // whatever covers it.
+    const member = Uint8Array.from(field, value => (value < 0.5 ? 1 : 0))
+    const open = Uint8Array.from(member, (inPart, k) => (inPart && top[k] !== at ? 1 : 0))
+    const values = { shade: Float64Array.from(settled), light: Float64Array.from(light) }
+    complete(values.shade, member, open, size)
+    complete(values.light, member, open, size)
+    return {
+      id: part.id,
+      ...(part.reach ? { pivot: pivotOf(part).map(v => +((v + 0.5) * unit).toFixed(1)) } : {}),
+      ...(part.near ? { near: true } : {}),
+      body: pathIn(field, CRISP),
+      // A region never passes its part's outline: its field is the outline's field where it applies.
+      layers: overlays.map(([kind, level, precision]) => pathIn(field.map((value, k) => Math.max(value, level - values[kind][k])), precision)),
+    }
+  })
+  // The whole drawing in one piece too, for a mark that does not move its legs.
+  const whole = { shade: settled, light }
+  return {
+    base: hex(base),
+    body: pathIn(outline, CRISP),
+    steps: overlays.map(([, , , color, opacity]) => [color, opacity]),
+    layers: overlays.map(([kind, level, precision]) => pathIn(outline.map((value, k) => Math.max(value, level - whole[kind][k])), precision)),
+    parts,
+  }
 }
 
 // The loops of path data written by pathOf: "M x y l dx dy ... z" with relative steps.
@@ -298,9 +531,9 @@ function coverage(d, size, fine = 4) {
 }
 
 /**
- * Draws traced layers in the artwork's own base color and compares them with the artwork,
+ * Draws a trace at rest in the artwork's own base color and compares it with the artwork,
  * pixel by pixel at the artwork's size. The painted eyes are left out of the color figures.
- * @param {{ base: string, body: string, layers: Array<[string, string, number]> }} spider - A trace.
+ * @param {{ base: string, steps: Array<[string, number]>, parts: Array<{ body: string, layers: string[] }> }} spider - A trace.
  * @param {string} [file] - The artwork PNG.
  * @returns {{ overlap: number, mean: number, p99: number, worst: number }} The share of the
  * two outlines' union that both cover, and the largest channel difference per pixel inside
@@ -310,26 +543,30 @@ export function fidelity(spider, file = ARTWORK) {
   const picture = readPng(file)
   const { size, inside, eye } = tones(picture)
   const rgb = value => (value.length === 4 ? [1, 2, 3].map(k => parseInt(value[k] + value[k], 16)) : [1, 3, 5].map(k => parseInt(value.slice(k, k + 2), 16)))
-  const body = coverage(spider.body, size)
+  const drawn = new Float64Array(size * size)
   const color = new Float64Array(size * size * 3)
-  const baseColor = rgb(spider.base)
-  for (let k = 0; k < size * size; k += 1) for (let c = 0; c < 3; c += 1) color[k * 3 + c] = baseColor[c]
-  for (const [d, fill, opacity] of spider.layers) {
+  const paintOver = (d, fill, opacity) => {
     const cover = coverage(d, size)
     const paint = rgb(fill)
     for (let k = 0; k < size * size; k += 1) {
       const share = cover[k] * opacity
       if (share) for (let c = 0; c < 3; c += 1) color[k * 3 + c] += (paint[c] - color[k * 3 + c]) * share
     }
+    return cover
+  }
+  for (const part of spider.parts) {
+    const cover = paintOver(part.body, spider.base, 1)
+    for (let k = 0; k < size * size; k += 1) drawn[k] += cover[k] * (1 - drawn[k])
+    part.layers.forEach((d, index) => { if (d) paintOver(d, ...spider.steps[index]) })
   }
   let both = 0
   let either = 0
   const differences = []
   for (let k = 0; k < size * size; k += 1) {
-    const [drawn, painted] = [body[k] >= 0.5, inside[k] >= 0.5]
-    if (drawn && painted) both += 1
-    if (drawn || painted) either += 1
-    if (body[k] < 0.98 || inside[k] < 0.98 || eye[k]) continue
+    const [here, painted] = [drawn[k] >= 0.5, inside[k] >= 0.5]
+    if (here && painted) both += 1
+    if (here || painted) either += 1
+    if (drawn[k] < 0.98 || inside[k] < 0.98 || eye[k]) continue
     differences.push(Math.max(...[0, 1, 2].map(c => Math.abs(color[k * 3 + c] - picture.pixels[k * 4 + c]))))
   }
   const sorted = Float64Array.from(differences).sort()
@@ -338,12 +575,12 @@ export function fidelity(spider, file = ARTWORK) {
 
 /**
  * The trace as source text.
- * @param {{ base: string, body: string, layers: Array<[string, string, number]> }} spider - A trace.
+ * @param {object} spider - A trace.
  * @returns {string} The SPIDER block of src/client/muse-spider.js.
  */
 export function block(spider) {
-  const quote = value => JSON.stringify(value).replaceAll('"', "'")
-  return `export const SPIDER = {\n  base: ${quote(spider.base)},\n  body: ${quote(spider.body)},\n  layers: [\n${spider.layers.map(layer => `    ${quote(layer)},`).join('\n')}\n  ],\n}`
+  const quote = value => JSON.stringify(value).replace(/"(\w+)":/g, '$1:').replaceAll('"', "'")
+  return `export const SPIDER = {\n  base: ${quote(spider.base)},\n  body: ${quote(spider.body)},\n  steps: ${quote(spider.steps)},\n  layers: [\n${spider.layers.map(layer => `    ${quote(layer)},`).join('\n')}\n  ],\n  parts: [\n${spider.parts.map(part => `    ${quote(part)},`).join('\n')}\n  ],\n}`
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -352,6 +589,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log(block(spider))
   if (process.argv.includes('--check')) {
     const { overlap, mean, p99, worst } = fidelity(spider, file)
-    console.error(`outline overlap ${(overlap * 100).toFixed(2)}%, color difference mean ${mean.toFixed(2)}, 99th percentile ${p99.toFixed(1)}, largest ${worst.toFixed(0)} (of 255)`)
+    console.error(`at rest: outline overlap ${(overlap * 100).toFixed(2)}%, color difference mean ${mean.toFixed(2)}, 99th percentile ${p99.toFixed(1)}, largest ${worst.toFixed(0)} (of 255)`)
   }
 }

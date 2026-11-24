@@ -22,13 +22,19 @@
     "src/client/muse-brand.js",
     "src/client/muse-spider.js",
     "src/client/quota.js",
+    "src/client/spider-motion.js",
+    "src/client/team-dock-motion.js",
     "src/client/terminal-cards.js",
     "src/host/central-members.js",
+    "src/host/im/feishu-markdown.js",
     "src/host/im/feishu-turn.js",
+    "src/host/im/platforms/dsh-im.js",
     "src/host/im/platforms/feishu-dsh-im.js",
     "src/host/station-events.js",
     "test/animated-avatar.test.js",
     "test/central-members.test.js",
+    "test/im-dsh-im.test.js",
+    "test/im-feishu-markdown.test.js",
     "test/im-feishu-turn.test.js",
     "test/im-page.test.js",
     "test/muse-account-page.test.js",
@@ -37,15 +43,10 @@
     "test/schedule-summary.test.js",
     "test/sidebar-mains.test.js",
     "test/station-events.test.js",
+    "test/team-dock-motion.test.js",
     "test/terminal-tabs.test.js",
     "test/update-check-default.test.js",
-    "test/work-files.test.js",
-    "src/client/team-dock-motion.js",
-    "test/team-dock-motion.test.js",
-    "src/host/im/feishu-markdown.js",
-    "test/im-feishu-markdown.test.js",
-    "src/host/im/platforms/dsh-im.js",
-    "test/im-dsh-im.test.js"
+    "test/work-files.test.js"
   ],
   "modifiedFiles": [
     "README.md",
@@ -257,6 +258,7 @@
     "`im_send` and `im_history` (`im/index.js`, `tools.js`): the Bot a connection belongs to reaches every chat registered on that connection, by title or key, not only the chats whose messages come to it; other Bots keep their own chats. Listed chats go by title, with the key where a title is missing or shared. What is sent is not passed to the chat's own Bot",
     "Feishu replies keep their formatting (`im/feishu-markdown.js`, `im/platforms/feishu.js`, `im/platforms/feishu-dsh-im.js`, NOTICE): a reply that uses Markdown goes out as schema 2.0 cards with one `markdown` element instead of a text message; a plain reply stays text. On a dsh-im connection with the rich consumer the cards answer the source message (in its topic) through DS Bot's Feishu REST access, and plain replies and any chunk Feishu will not take as a card still go through dsh-im's checked reply. Ported from the retained dsh-im source (`feishu-cards.mjs`, `bridge.mjs`, MIT, recorded in NOTICE): the 24,000-byte budget of one card's content, the five-table limit of one card with its GFM table detection and the cut where a table begins, and plain text when the card is refused (a 4xx other than 401 and 403). dsh-im rewrites no Markdown; added here: a picture given by address becomes a link and one given by a local path its caption, because a card draws pictures only from Feishu image keys, and a code fence cut by chunking is closed and opened again",
     "dsh-im for every channel (`im/platforms/dsh-im.js`, `im/index.js`, `im-page.js`, `settings.js`, `tools.js` `im_history`, `shared/im-platforms.js`): one adapter takes any dsh-im account through dsh-im's channel-neutral external consumer; connections link through the `dshIm` option (the older `feishuDshIm` still works) or Settings → IM, which lists unlinked dsh-im accounts with a Bot picker, and a link pins the account fingerprint. Replies go back to the message that asked; a chat's delivery route is saved so it can be written to first; attachments load only for admitted messages; `im_history` reads a chat back through dsh-im",
-    "Animated avatars, on by default (`animated-avatar.js`, `avatar-definitions.js`, `dev/avatar-definitions.mjs`): Settings → Bots → Animation has one switch, Animated avatars (`animatedAvatars` in the team preferences, stored only when off, like `enterToSend`: no key is on, `false` is off, and a `true` stored while off was the default is on and goes with the next on; a team that turned it on and off again while off was the default has no key and sees it on). While it is off every avatar is the drawn mark, no canvas is mounted, the finished-run hold stays 1.8 s and `copyOf` in `mark-flight.js` is the clone with its own ids that the panel made before. While it is on, open-bot-avatar 0.3.1 (MIT, pinned in `devDependencies` and in the plugin build toolchain, bundled into the Client, named in NOTICE, its version and license text in the built package's `BUNDLED_LICENSES.md`) draws the seven default characters (star, moon, gumdrop, peanut, bunny, kitty, acorn) from definitions built from `CHARACTERS`: the body's outline scaled to the package's 8..92 box, and a level eye pair as tall and as far apart as the character's capsules, moved up to 6.5 units toward the middle on the five characters drawn turned to the right, where the package needs room to turn the eyes. It shows in two places only, the Main Bot tiles of the open sidebar (the first four move, later ones are one still picture) and the avatar of a Bot's details page, in the box of the drawn mark and under the same badges (`animated` on `BotAvatar`); a Bot with a picture, the Muse spider (`animatedDefinition` refuses it by name, so the vector spider of `muse-spider.js` and its `SpiderDetail` motion stay as they are) and every other character keep the drawn mark, as do rows, groups and chat. A Bot's state maps to the package's six (`alert` to `blocked`), its color to the ink's hex for the theme's mode (`inkHex` in `inks.js`; the gradient takes its text ink), the eyes to the surface behind, Interface motion to reduced motion or one still picture, and the Bot's name to the accessible label; the pointer on an avatar makes it happy and the details avatar follows the pointer, unless Bot animation is quiet; a finished run holds the package's celebration for 3.9 s. A copy of the details avatar that flies to the panel's strip is painted from its canvas (`copyOf` paints only the canvas of an animated avatar)"
+    "Animated avatars, on by default (`animated-avatar.js`, `avatar-definitions.js`, `dev/avatar-definitions.mjs`): Settings → Bots → Animation has one switch, Animated avatars (`animatedAvatars` in the team preferences, stored only when off, like `enterToSend`: no key is on, `false` is off, and a `true` stored while off was the default is on and goes with the next on; a team that turned it on and off again while off was the default has no key and sees it on). While it is off every avatar is the drawn mark, no canvas is mounted, the finished-run hold stays 1.8 s and `copyOf` in `mark-flight.js` is the clone with its own ids that the panel made before. While it is on, open-bot-avatar 0.3.1 (MIT, pinned in `devDependencies` and in the plugin build toolchain, bundled into the Client, named in NOTICE, its version and license text in the built package's `BUNDLED_LICENSES.md`) draws the seven default characters (star, moon, gumdrop, peanut, bunny, kitty, acorn) from definitions built from `CHARACTERS`: the body's outline scaled to the package's 8..92 box, and a level eye pair as tall and as far apart as the character's capsules, moved up to 6.5 units toward the middle on the five characters drawn turned to the right, where the package needs room to turn the eyes. It shows in two places only, the Main Bot tiles of the open sidebar (the first four move, later ones are one still picture) and the avatar of a Bot's details page, in the box of the drawn mark and under the same badges (`animated` on `BotAvatar`); a Bot with a picture, the Muse spider (`animatedDefinition` refuses it by name, so the vector spider of `muse-spider.js` and its `SpiderDetail` motion stay as they are) and every other character keep the drawn mark, as do rows, groups and chat. A Bot's state maps to the package's six (`alert` to `blocked`), its color to the ink's hex for the theme's mode (`inkHex` in `inks.js`; the gradient takes its text ink), the eyes to the surface behind, Interface motion to reduced motion or one still picture, and the Bot's name to the accessible label; the pointer on an avatar makes it happy and the details avatar follows the pointer, unless Bot animation is quiet; a finished run holds the package's celebration for 3.9 s. A copy of the details avatar that flies to the panel's strip is painted from its canvas (`copyOf` paints only the canvas of an animated avatar)",
+    "The Muse spider moves its legs (`src/client/spider-motion.js`): `dev/spider.mjs` also takes the traced drawing apart into the torso and six legs (three behind the torso, three in front), each leg an ellipse fitted to the artwork with the point it turns about, and completes a part where another covers it, so at rest the parts are the same picture as the whole drawing. `characterMarkup(shape, color, true)` draws the parts for a mark with `rig` (the details avatar and a Main Bot's tile; `data-rig` on the mark), the far legs and the eyes inside the torso's group; every other mark keeps the whole drawing unchanged. The motion is CSS transforms by `data-state` (rest, thinking, working, a question for the user, waiting, done, petting) whose loops start and end at rest; Bot animation Quiet keeps the spider still at rest, reduced interface motion leaves only the blink, and motion off stops it. The details page's whole-figure keyframes in `details-avatar.js` are replaced by these"
   ]
 }

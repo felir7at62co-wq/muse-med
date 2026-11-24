@@ -6,7 +6,7 @@ Tested with dsh `0.2.2-rc.1` (Web and Desktop).
 
 ## Features
 
-The Muse spider in Bot details reacts to thinking, tool work, and requests for user input. A successfully completed turn plays one short animation. The details avatar respects the system's reduced-motion setting.
+The Muse spider in Bot details and on a Main Bot's tile is drawn in parts, so its legs move: it breathes and taps a leg at rest, taps while thinking, types while working, hops and waves for a request for user input, sits lower while waiting for a teammate, and jumps once after a successfully completed turn. Bot animation set to Quiet keeps it still at rest; reduced interface motion leaves only the blink, and motion off or the system's reduced-motion setting stops it.
 
 Main Bots appear at the top of the sidebar in Main Bot order. A Bot linked to an enabled Feishu connection shows the Feishu mark on its avatar, including Bots bound to a group chat or direct message.
 
@@ -310,7 +310,7 @@ dev/check.sh                             # all checks (see below)
 | `web-search.js` | The `auto` search provider; independent of the team code |
 | `test/` | Unit tests and fixtures |
 | `dev/characters.mjs` | Builds the characters (small 3D models traced to outlines) into the `CHARACTERS` table in `src/client/characters.js` |
-| `dev/spider.mjs` | Traces the Muse spider artwork (`packages/client/ui-muse-market/src/client/assets/muse-purple-spider.png`) into the `SPIDER` layers in `src/client/muse-spider.js`; `--check` prints how far the layers are from the artwork |
+| `dev/spider.mjs` | Traces the Muse spider artwork (`packages/client/ui-muse-market/src/client/assets/muse-purple-spider.png`) into `SPIDER` in `src/client/muse-spider.js`: the whole drawing, and the same drawing in parts (torso and six legs); `--check` prints how far the parts at rest are from the artwork |
 | `dev/trace.mjs` | Contour tracing and path writing shared by `dev/characters.mjs` and `dev/spider.mjs` |
 | `dev/avatar-definitions.mjs` | Builds the default characters as open-bot-avatar definitions into `src/client/avatar-definitions.js`, for the animated avatars |
 | `dev/` | Mock model, test benches, smoke test, Desktop scripts, real-model tools (steward evaluation, logging pass-through) |
