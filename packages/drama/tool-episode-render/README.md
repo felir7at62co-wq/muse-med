@@ -46,6 +46,7 @@ Mount the plugin as one row of a short-drama preset; basic methods need the tool
 | `masterVolume` | `1.45` | Gain applied to the episode's own master audio; 0–8 |
 | `bgmVolume` | `0.24` | Gain applied to the BGM bed; 0–8 |
 | `maxBgmVolume` | `8` | Effective BGM gain ceiling after project/profile overrides; Muse creative presets use 1 |
+| `stageDeliveryLockWaitMs` | `60000` | Wait for each delivery receipt or video ban writer lock, in whole milliseconds from 1 to 600000. Canceling the command ends the wait. |
 | `preferNvenc` | `true` | Whether the GPU encoder is probed at all |
 | `fontsDir` | `C:/Windows/Fonts` | Directory libass resolves the subtitle font from |
 | `subtitleFontFamily` | `SimHei` | ASS subtitle font family |

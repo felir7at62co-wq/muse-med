@@ -29,11 +29,15 @@ const RECEIPT = '成片与草稿回执.json'
 const DRAFT_FILES = ['draft_content.json', 'draft_meta_info.json']
 const CANDIDATE_WARNING = '已归档技术检查通过的候选，画面、对白与字幕同步仍待内容验收。'
 
+/** Default acquisition budget while another delivery verifies and copies its media. */
+export const DEFAULT_STAGE_DELIVERY_LOCK_WAIT_MS = 60_000
+
 interface StageDeliveryInput extends VerifyInput {
   readonly transcriptsPath?: string
   readonly decisionsPath?: string
   readonly sourceQaVerifier?: SourceQaVerifier
   readonly contentReviewVerifier?: ContentReviewVerifier
+  readonly signal?: AbortSignal
 }
 
 const digest = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
@@ -318,7 +322,10 @@ async function checkBoundSpeechCoverage(input: StageDeliveryInput, render: Deliv
  * @returns The verification report and, if staged, the exact candidate paths.
  */
 export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: string): Promise<DramaRenderReport> {
-  const { project, episode, output, timelinePath, subtitleSrt } = input
+  const { project, episode, output, timelinePath, subtitleSrt, signal } = input
+  signal?.throwIfAborted()
+  const lockOptions = { waitMs: input.settings.stageDeliveryLockWaitMs ?? DEFAULT_STAGE_DELIVERY_LOCK_WAIT_MS,
+    ...(signal === undefined ? {} : { signal }) }
   const draftRoot = dirname(draft)
   const episodeDir = dirname(draftRoot)
   if (!/^\d{2,}$/.test(episode) || basename(draftRoot) !== DRAFTS || !inside(project, draftRoot)
@@ -469,6 +476,7 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
         await copyFile(output, stagedVideo)
         if (await fileSha256(stagedVideo) !== sha256) throw new Error('归档期间工作成片已变化。')
         await recheckSelection()
+        signal?.throwIfAborted()
         if (directory === undefined) await mkdir(upload)
         if (!(await localEntry(upload))?.isDirectory() || (await readdir(upload)).length > 0) {
           throw new Error(`归档期间交付文件夹已变化：${upload}`)
@@ -487,7 +495,7 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
         }))
         await rmdir(staging)
       }
-    })
+    }, lockOptions)
     return { ...verified, output: video, written,
       checks: contentReview === undefined ? verified.checks : [...verified.checks, { id: 'content_review', severity: 'failure' as const,
         ok: true, detail: '当前分包和成片的观察证据、内容结论与真实试听回答已绑定；不代表自动语义检测完美。',
@@ -497,5 +505,5 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
       summary: { ...verified.summary, checks: verified.summary.checks + (contentReview === undefined ? 0 : 1),
         warnings: verified.summary.warnings + 1 },
       delivery_package: { status: 'candidate', video, draft, sha256, reused, receipt } }
-  })
+  }, lockOptions)
 }

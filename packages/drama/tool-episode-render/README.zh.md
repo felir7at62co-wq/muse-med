@@ -46,6 +46,7 @@ kind: "package-reference"
 | `masterVolume` | `1.45` | 整集原声的增益，0–8 |
 | `bgmVolume` | `0.24` | BGM 的增益，0–8 |
 | `maxBgmVolume` | `8` | 项目及配置覆盖后的实际 BGM 增益上限；Muse 创作预设使用 1 |
+| `stageDeliveryLockWaitMs` | `60000` | 等待交付回执或视频禁用清单的每个写锁，取 1 到 600000 毫秒之间的整数。取消命令会结束等待。 |
 | `preferNvenc` | `true` | 是否探测 GPU 编码器 |
 | `fontsDir` | `C:/Windows/Fonts` | libass 解析字幕字体所在目录 |
 | `subtitleFontFamily` | `SimHei` | ASS 字幕字体族 |

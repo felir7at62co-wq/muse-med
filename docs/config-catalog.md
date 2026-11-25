@@ -5329,6 +5329,8 @@ export interface Config {
   bgmVolume?: number
   /** Maximum final BGM multiplier; default 8, independent of original-dialogue gain. */
   maxBgmVolume?: number
+  /** Maximum time in milliseconds to acquire each delivery writer lock. */
+  stageDeliveryLockWaitMs?: number
   /** Whether the GPU encoder is probed before each render; defaults to true. */
   preferNvenc?: boolean
   /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */

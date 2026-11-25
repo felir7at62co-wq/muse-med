@@ -40,7 +40,7 @@ import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report
 import { renderEpisode, type RenderInput } from './render.ts'
 import type { BgmPlanReport, DeliverySubtitleVisual, DramaRenderMethod, DramaRenderReport, EndingEffectFit, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { verifyEpisode } from './verify.ts'
-import { stageEpisodeDelivery } from './stage-delivery.ts'
+import { DEFAULT_STAGE_DELIVERY_LOCK_WAIT_MS, stageEpisodeDelivery } from './stage-delivery.ts'
 import { registerDramaVideo } from './video.ts'
 import { resolveSubtitleOverlay } from './subtitle-plan.ts'
 import { readTimeline } from './timeline.ts'
@@ -109,6 +109,8 @@ export interface Config {
   bgmVolume?: number
   /** Maximum final BGM multiplier; default 8, independent of original-dialogue gain. */
   maxBgmVolume?: number
+  /** Maximum time in milliseconds to acquire each delivery writer lock. */
+  stageDeliveryLockWaitMs?: number
   /** Whether the GPU encoder is probed before each render; defaults to true. */
   preferNvenc?: boolean
   /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */
@@ -139,6 +141,7 @@ export const Config: z<Config> = z.object({
   masterVolume: z.number().min(0).max(8).default(DEFAULT_MASTER_VOLUME),
   bgmVolume: z.number().min(0).max(8).default(DEFAULT_BGM_VOLUME),
   maxBgmVolume: z.number().min(0).max(8).default(8),
+  stageDeliveryLockWaitMs: z.number().step(1).min(1).max(600_000).default(DEFAULT_STAGE_DELIVERY_LOCK_WAIT_MS),
   preferNvenc: z.boolean().default(true),
   fontsDir: z.string().default(DEFAULT_FONTS_DIR),
   subtitleFontFamily: z.string().pattern(FONT_FAMILY_PATTERN).default(DEFAULT_SUBTITLE_FONT_FAMILY),
@@ -328,6 +331,7 @@ export function resolveSettings(config: Config = {}): RenderSettings {
     masterVolume: config.masterVolume ?? DEFAULT_MASTER_VOLUME,
     bgmVolume: config.bgmVolume ?? DEFAULT_BGM_VOLUME,
     maxBgmVolume: config.maxBgmVolume ?? 8,
+    stageDeliveryLockWaitMs: config.stageDeliveryLockWaitMs ?? DEFAULT_STAGE_DELIVERY_LOCK_WAIT_MS,
     preferNvenc: config.preferNvenc ?? true,
     fontsDir: config.fontsDir ?? DEFAULT_FONTS_DIR,
     subtitleFontFamily: config.subtitleFontFamily ?? DEFAULT_SUBTITLE_FONT_FAMILY,
@@ -673,6 +677,7 @@ async function prepareWithSubtitleRepair(call: PrepareCall, toolkit: MediaToolki
  * @param sourceQaStage - Optional Host-captured source evidence in a private stage.
  * @param sourceQaExpectedSha - Host-verified source review digest for that stage.
  * @param contentReviewVerifier - Optional Host-only observation and listening-answer validation for delivery.
+ * @param signal - Cancels delivery lock waits and stops before committing a staged candidate.
  * @returns The canonical result; `ok` is false when a delivery check failed.
  * @throws {Error} When an argument is missing, an input is unusable, or a media command fails.
  */
@@ -684,6 +689,7 @@ export async function runDramaRender(
   sourceQaStage?: import('./source-qa.ts').SourceQaStagedAccess,
   sourceQaExpectedSha?: string,
   contentReviewVerifier?: ContentReviewVerifier,
+  signal?: AbortSignal,
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
@@ -809,6 +815,7 @@ export async function runDramaRender(
     ? await stageEpisodeDelivery({ ...verification,
       ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
       ...(contentReviewVerifier === undefined ? {} : { contentReviewVerifier }),
+      ...(signal === undefined ? {} : { signal }),
       ...(call.transcriptsPath === undefined ? {} : { transcriptsPath: call.transcriptsPath }),
       ...(call.decisionsPath === undefined ? {} : { decisionsPath: call.decisionsPath }),
     }, call.draft)
@@ -1257,7 +1264,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         const signal = AbortSignal.any([exec.signal, scope.signal])
         await scope.contentReview(session, signal)(binding)
         signal.throwIfAborted()
-      })
+      }, exec.signal)
       return coverage === undefined ? report : { ...report, speech_coverage: toolSpeechCoverage(coverage) }
     },
   }))
