@@ -210,22 +210,52 @@ it('creates a blank numbered draft from the draft collection and reuses the same
   ])
 })
 
-it('passes a selected source file to Workshop and opens the returned draft', async () => {
+it('keeps a pending import open and reuses its Workshop request until the user edits it', async () => {
   const { props, createDraft, openScript } = setup()
+  const firstResponse = Promise.withResolvers<undefined>()
+  createDraft.mockImplementationOnce(async () => {
+    await firstResponse.promise
+    throw new Error('Response lost')
+  }).mockRejectedValueOnce(new Error('Still offline'))
   const view = render(<DrawerScripts {...props} />)
   fireEvent.click(view.getByRole('button', { name: en.importDraft }))
   const dialog = within(view.getByRole('dialog', { name: en.importDraft }))
   const file = new File(['Episode 1'], 'Side story.txt', { type: 'text/plain' })
   const selector = dialog.getByLabelText(new RegExp(en.draftSource, 'u'))
+  const name = dialog.getByRole('textbox', { name: en.draftName })
   fireEvent.change(selector, { target: { files: [file] } })
   const submit = dialog.getByRole('button', { name: en.importDraft })
   await waitFor(() => { expect(submit).toHaveProperty('disabled', false) })
-  fireEvent.click(submit)
-  await waitFor(() => { expect(openScript).toHaveBeenCalledWith({ id: 'draft:45', title: draft.title }) })
+  try {
+    fireEvent.click(submit)
+    expect(submit).toHaveProperty('disabled', true)
+    expect(selector).toHaveProperty('disabled', true)
+    expect(name).toHaveProperty('disabled', true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(view.getByRole('dialog', { name: en.importDraft })).toBeTruthy()
+    fireEvent.click(submit)
+    expect(createDraft).toHaveBeenCalledTimes(1)
+  } finally {
+    await act(async () => { firstResponse.resolve(undefined) })
+  }
+  expect(dialog.getByRole('alert').textContent).toBe(en.draftCreateFailed)
   const request = createDraft.mock.calls[0]?.[0]
   expect(request?.requestId).toBeTypeOf('string')
-  expect(createDraft).toHaveBeenCalledWith({ title: 'Side story', requestId: request?.requestId,
+  expect(request).toEqual({ title: 'Side story', requestId: request?.requestId,
     file: { filename: 'Side story.txt', base64: 'RXBpc29kZSAx' } })
+  fireEvent.click(submit)
+  expect((await dialog.findByRole('alert')).textContent).toBe(en.draftCreateFailed)
+  expect(createDraft).toHaveBeenNthCalledWith(2, request)
+  expect(openScript).not.toHaveBeenCalled()
+
+  fireEvent.change(name, { target: { value: '  Reviewed side story  ' } })
+  expect(dialog.queryByRole('alert')).toBeNull()
+  fireEvent.click(submit)
+  await waitFor(() => { expect(openScript).toHaveBeenCalledExactlyOnceWith({ id: 'draft:45', title: draft.title }) })
+  const reviewed = createDraft.mock.calls[2]?.[0]
+  expect(reviewed?.requestId).toBeTypeOf('string')
+  expect(reviewed).toEqual({ ...request, title: 'Reviewed side story', requestId: reviewed?.requestId })
+  expect(reviewed?.requestId).not.toBe(request?.requestId)
 })
 
 it('rejects unsupported, empty and oversized imports and clears validation when the choice is canceled', () => {
@@ -246,6 +276,8 @@ it('rejects unsupported, empty and oversized imports and clears validation when 
   expect(dialog.queryByRole('alert')).toBeNull()
   expect(submit).toHaveProperty('disabled', true)
   expect(createDraft).not.toHaveBeenCalled()
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(view.queryByRole('dialog')).toBeNull()
 })
 
 it('keeps the latest selected source when an earlier file read fails', async () => {
@@ -276,6 +308,45 @@ it('keeps the latest selected source when an earlier file read fails', async () 
     expect(request?.requestId).toBeTypeOf('string')
     expect(createDraft).toHaveBeenCalledWith({ title: 'Approved title', requestId: request?.requestId,
       file: { filename: 'new.md', base64: 'TmV3' } })
+  } finally { read.mockRestore() }
+})
+
+it('keeps a stale source from being imported when the latest file cannot be read', async () => {
+  const { props, createDraft, openScript } = setup()
+  const readers: FileReader[] = []
+  const capture = function (this: FileReader) { readers.push(this) }
+  const read = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementationOnce(capture).mockImplementationOnce(capture)
+  try {
+    const view = render(<DrawerScripts {...props} />)
+    fireEvent.click(view.getByRole('button', { name: en.importDraft }))
+    const dialog = within(view.getByRole('dialog', { name: en.importDraft }))
+    const input = dialog.getByLabelText(new RegExp(en.draftSource, 'u'))
+    const submit = dialog.getByRole('button', { name: en.importDraft })
+    const choose = (file: File) => { fireEvent.change(input, { target: { files: [file] } }) }
+    choose(new File(['Outdated'], 'first.md'))
+    choose(new File(['Unreadable'], 'second.md'))
+    const [stale, currentReader] = readers
+    vi.spyOn(stale!, 'result', 'get').mockReturnValue('data:text/markdown;base64,T3V0ZGF0ZWQ=')
+    await act(async () => { stale!.dispatchEvent(new ProgressEvent('load')) })
+    expect(dialog.getByRole('status').textContent).toBe(en.loading)
+    expect(submit).toHaveProperty('disabled', true)
+
+    vi.spyOn(currentReader!, 'error', 'get').mockReturnValue(new DOMException('Source became unreadable', 'NotReadableError'))
+    await act(async () => { currentReader!.dispatchEvent(new ProgressEvent('error')) })
+    expect(dialog.getByRole('alert').textContent).toBe(en.draftCreateFailed)
+    expect(dialog.queryByRole('status')).toBeNull()
+    expect(submit).toHaveProperty('disabled', true)
+    expect(createDraft).not.toHaveBeenCalled()
+
+    fireEvent.change(dialog.getByRole('textbox', { name: en.draftName }), { target: { value: 'Recovered draft' } })
+    choose(new File(['Current'], 'recovered.md'))
+    await waitFor(() => { expect(submit).toHaveProperty('disabled', false) })
+    fireEvent.click(submit)
+    await waitFor(() => { expect(openScript).toHaveBeenCalledTimes(1) })
+    const request = createDraft.mock.calls[0]?.[0]
+    expect(request?.requestId).toBeTypeOf('string')
+    expect(createDraft).toHaveBeenCalledExactlyOnceWith({ title: 'Recovered draft', requestId: request?.requestId,
+      file: { filename: 'recovered.md', base64: 'Q3VycmVudA==' } })
   } finally { read.mockRestore() }
 })
 
@@ -456,7 +527,7 @@ it('keeps the history dialog open until a pending restore settles', async () => 
   expect(restoreHistory).toHaveBeenCalledTimes(1)
 })
 
-it.each(['chapters', 'mixed', 'outline'] as const)('downloads %s in the selected format and supported scope', async (kind) => {
+it.each(['chapters', 'storyboards', 'mixed', 'outline'] as const)('downloads %s in the selected format and supported scope', async (kind) => {
   const { props, exportDraft } = setup()
   const create = vi.fn(() => 'blob:file')
   const revoke = vi.fn()
@@ -464,17 +535,29 @@ it.each(['chapters', 'mixed', 'outline'] as const)('downloads %s in the selected
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   try {
     const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+    const storyboard = kind === 'storyboards'
+    if (storyboard) fireEvent.change(view.getByRole('combobox', { name: en.draftLayer }), { target: { value: 'storyboard' } })
     fireEvent.click(view.getByRole('button', { name: en.exportScriptDraft }))
     const dialog = within(view.getByRole('dialog', { name: en.exportScriptDraft }))
-    fireEvent.change(dialog.getByRole('combobox', { name: en.draftExportFormat }), { target: { value: 'md' } })
+    const format = storyboard ? 'txt' : 'md'
+    const exportKind = dialog.getByRole('combobox', { name: en.draftExportKind })
+    expect(exportKind).toHaveProperty('value', storyboard ? 'storyboards' : 'chapters')
+    fireEvent.change(dialog.getByRole('combobox', { name: en.draftExportFormat }), { target: { value: format } })
     const scope = dialog.getByRole('combobox', { name: en.draftExportEpisodes })
     fireEvent.change(scope, { target: { value: 'episode' } })
-    fireEvent.change(dialog.getByRole('combobox', { name: en.draftExportKind }), { target: { value: kind } })
-    expect(scope).toHaveProperty('disabled', kind !== 'chapters')
-    expect(scope).toHaveProperty('value', kind === 'chapters' ? 'episode' : 'all')
+    if (storyboard) {
+      fireEvent.change(scope, { target: { value: 'all' } })
+      expect(scope).toHaveProperty('value', 'all')
+      fireEvent.change(scope, { target: { value: 'episode' } })
+      fireEvent.change(exportKind, { target: { value: 'chapters' } })
+    }
+    fireEvent.change(exportKind, { target: { value: kind } })
+    const episodeExport = kind === 'chapters' || storyboard
+    expect(scope).toHaveProperty('disabled', !episodeExport)
+    expect(scope).toHaveProperty('value', episodeExport ? 'episode' : 'all')
     fireEvent.click(dialog.getByRole('button', { name: en.exportScriptDraft }))
     await waitFor(() => { expect(view.queryByRole('dialog')).toBeNull() })
-    expect(exportDraft).toHaveBeenCalledWith({ draftId: 45, kind, format: 'md', ...(kind === 'chapters' ? { episode: 3 } : {}) })
+    expect(exportDraft).toHaveBeenCalledWith({ draftId: 45, kind, format, ...(episodeExport ? { episode: 3 } : {}) })
     expect(click.mock.instances[0]).toHaveProperty('download', 'source.md')
     expect(create).toHaveBeenCalledWith(expect.any(Blob))
     await waitFor(() => { expect(revoke).toHaveBeenCalledWith('blob:file') })
@@ -482,4 +565,34 @@ it.each(['chapters', 'mixed', 'outline'] as const)('downloads %s in the selected
     click.mockRestore()
     vi.unstubAllGlobals()
   }
+})
+
+it('keeps export settings through a failed download and allows dismissal after the request settles', async () => {
+  const { props, exportDraft } = setup()
+  const response = Promise.withResolvers<undefined>()
+  exportDraft.mockImplementationOnce(async () => {
+    await response.promise
+    throw new Error('Export service unavailable')
+  })
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.click(view.getByRole('button', { name: en.exportScriptDraft }))
+  const dialog = within(view.getByRole('dialog', { name: en.exportScriptDraft }))
+  const scope = dialog.getByRole('combobox', { name: en.draftExportEpisodes })
+  fireEvent.change(scope, { target: { value: 'episode' } })
+  const submit = dialog.getByRole('button', { name: en.exportScriptDraft })
+  try {
+    fireEvent.click(submit)
+    expect(scope).toHaveProperty('disabled', true)
+    expect(submit).toHaveProperty('disabled', true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(view.getByRole('dialog', { name: en.exportScriptDraft })).toBeTruthy()
+  } finally {
+    await act(async () => { response.resolve(undefined) })
+  }
+  expect(dialog.getByRole('alert').textContent).toBe(en.draftExportFailed)
+  expect(scope).toHaveProperty('value', 'episode')
+  expect(submit).toHaveProperty('disabled', false)
+  expect(exportDraft).toHaveBeenCalledExactlyOnceWith({ draftId: 45, kind: 'chapters', format: 'docx', episode: 3 })
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(view.queryByRole('dialog')).toBeNull()
 })

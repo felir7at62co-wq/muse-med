@@ -148,7 +148,7 @@ Promise<ResolvedEpisode | BlockedEpisode> {
     if (Array.isArray(row.characters)) for (const name of row.characters) if (typeof name === 'string' && name.trim()) names.add(name.trim())
   }
   return { kind: 'ok', episode, code, clock, names: [...names].sort(), files: localEpisodeFiles(project, code),
-    shots: clock.map(shot => ({ shot: shot.source.shot, audio: shot.audio, lines: linesOf(shot.source.package ?? shot.source.shot),
+    shots: clock.map(shot => ({ shot: shot.source.shot, audio: shot.audio, lines: linesOf(shot.source.shot),
       window: { clipInUs: 0, durationUs: shot.durationUs, speed: 1 } })) }
 }
 

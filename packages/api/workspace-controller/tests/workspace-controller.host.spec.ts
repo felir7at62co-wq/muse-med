@@ -606,8 +606,9 @@ describe('first-use Remote', () => {
     const { controller, ctx, root } = await harness({ systemDocuments: true })
     const workspace = await ctx.workspaceRegistry.initializeDefault(async () => root)
     const signal = AbortSignal.abort()
-    await expect(controller.initializeDefault(signal))
-      .resolves.toMatchObject({ workspace: { workspaceId: workspace!.id, path: root, title: basename(root) } })
+    const expected = { workspace: { workspaceId: workspace!.id, path: root, title: basename(root) } }
+    await expect(controller.initializeDefault(signal)).resolves.toMatchObject(expected)
+    await expect(controller.useComputer(signal)).resolves.toMatchObject(expected)
   })
 
   it('returns a durable Workspace named after its fixed directory without allocating a Session', async () => {
@@ -619,6 +620,24 @@ describe('first-use Remote', () => {
     expect(existsSync(result!.workspace.path)).toBe(true)
     expect(ctx.sessions.list()).toEqual([])
     expect(await controller.initializeDefault(signal)).toEqual(result)
+  })
+
+  it('opens and reuses the computer workspace when a different workspace already exists', async () => {
+    const { controller, ctx, root } = await harness()
+    const project = await controller.create({ path: stageDir(root, 'existing-project') })
+    const computerPath = join(root, 'deepseek-harness', DEFAULT_WORKSPACE_DIRECTORY)
+    const signal = new AbortController().signal
+    await expect(controller.initializeDefault(signal)).resolves.toBeUndefined()
+    expect(existsSync(computerPath)).toBe(false)
+
+    const result = await controller.useComputer(signal)
+
+    expect(result.workspace).toMatchObject({ path: computerPath, title: DEFAULT_WORKSPACE_DIRECTORY })
+    expect(result.workspace.workspaceId).not.toBe(project.workspace.workspaceId)
+    expect(existsSync(computerPath)).toBe(true)
+    await expect(controller.useComputer(signal)).resolves.toEqual(result)
+    await expect(controller.create({ path: project.workspace.path })).resolves.toEqual({ ...project, created: false })
+    expect(ctx.sessions.list()).toEqual([])
   })
 
   it('skips ineligible first use and propagates preparation failures', async () => {

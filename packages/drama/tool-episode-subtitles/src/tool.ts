@@ -169,23 +169,20 @@ async function review(args: EpisodeSubtitlesArgs, settings: EpisodeSubtitlesSett
   const unknown: string[] = []
   let outcome: BuildOutcome | undefined
   if (args.decisions !== undefined && args.decisions.length > 0) {
-    const owners = new Map<string, number>()
-    for (const [episode, paths] of files) for (const item of await readReview(paths.review) ?? []) owners.set(item.id, episode)
-    const changes = new Map<number, Map<string, DecisionAction>>()
+    const owners = new Map<string, { episode: number; path: string }>()
+    for (const [episode, paths] of files) {
+      for (const item of await readReview(paths.review) ?? []) owners.set(item.id, { episode, path: paths.decisions })
+    }
+    const changes = new Map<number, { path: string; actions: Map<string, DecisionAction> }>()
     for (const decision of args.decisions) {
-      const episode = owners.get(decision.id)
-      if (episode === undefined) { unknown.push(decision.id); continue }
-      const paths = files.get(episode)
-      if (paths === undefined) { unknown.push(decision.id); continue }
-      const map = changes.get(episode) ?? await readDecisions(paths.decisions)
-      map.set(decision.id, decision.action)
-      changes.set(episode, map)
+      const owner = owners.get(decision.id)
+      if (owner === undefined) { unknown.push(decision.id); continue }
+      const update = changes.get(owner.episode) ?? { path: owner.path, actions: await readDecisions(owner.path) }
+      update.actions.set(decision.id, decision.action)
+      changes.set(owner.episode, update)
       applied++
     }
-    for (const [episode, map] of changes) {
-      const paths = files.get(episode)
-      if (paths !== undefined) await writeDecisions(paths.decisions, map)
-    }
+    for (const { path, actions } of changes.values()) await writeDecisions(path, actions)
     if (changes.size > 0) {
       outcome = await buildEpisodes(deps, { episodes: [...changes.keys()], waitMs: 0, allowAsr: false, replaceLegacy: false }, signal)
     }

@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { onTestFinished, vi } from 'vitest'
+import WorkshopConnection from '../src/index.ts'
 
 /** Status and JSON body of one loopback reply; a string body is sent verbatim. */
 export type Reply = [number, unknown]
@@ -76,4 +77,20 @@ export async function host(loadAccount = true) {
   }
   if (loadAccount) await ctx.plugin(Account).await()
   return { ctx, account }
+}
+
+/**
+ * Mount the connection against the standard synthetic sign-in and a test's routes.
+ * @param route - Respond to application requests after sign-in.
+ * @returns The mounted service and the ordered HTTP requests.
+ */
+export async function workshopHost(route: Parameters<typeof workbench>[0]) {
+  const { origin, requests } = await workbench((req, body) => {
+    if (req.url === '/v1/auth/muse/challenge') return [200, { requestId: 'fixture', challenge: 'c'.repeat(43) }]
+    if (req.url === '/v1/auth/muse/exchange') return [200, { access_token: 'fixture-token', user: { id: 41 } }]
+    return route(req, body)
+  })
+  const { ctx } = await host()
+  await ctx.plugin(WorkshopConnection, { workshopOrigin: origin }).await()
+  return { ctx, api: ctx.workshopConnection, requests }
 }
