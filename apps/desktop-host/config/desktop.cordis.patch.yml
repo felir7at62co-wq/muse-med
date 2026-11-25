@@ -222,6 +222,10 @@
         visibleModels:
           - { providerId: yunying, modelId: gemini-3.1-pro }
           - { providerId: yunying, modelId: gpt-6.1-sol }
+        defaultModelRollout:
+          revision: jubian-deepseek-v4-flash-v1
+          providerId: jubian
+          modelId: deepseek-v4-flash
         requestTimeoutMs: 60000
         # Keep the outage budget. A reply discarded by prompt-usage-guard gets one recovery
         # before a consecutive shortfall ends the step.

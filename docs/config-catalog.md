@@ -65,6 +65,8 @@ export interface Config {
   model: Volatile<string>
   /** Adapter-owned reasoning effort; omission follows the provider default. */
   reasoningEffort: Volatile<string | undefined>
+  /** Last deployment revision applied to the profile's default. */
+  appliedDefaultRevision?: Volatile<string | undefined>
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-default-model -->
@@ -2994,6 +2996,15 @@ export interface Config {
     /** Exact model ID selectable only for the specified provider. */
     modelId: string
   }[]
+  /** One deployment revision of the new-session default, applied when its exact account route is selectable. */
+  readonly defaultModelRollout?: {
+    /** Deployment revision recorded with the new default so later manual choices are retained. */
+    readonly revision: string
+    /** Exact provider ID in the account gateway catalog. */
+    readonly providerId: string
+    /** Exact model ID within the configured provider. */
+    readonly modelId: string
+  }
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account gateway requests in milliseconds. */
