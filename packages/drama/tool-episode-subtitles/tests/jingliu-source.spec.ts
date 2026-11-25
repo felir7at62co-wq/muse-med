@@ -1,10 +1,15 @@
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { JingliuHttpError, type JingliuSession, type LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { jingliuSource, type JingliuSourceOptions } from '../src/source.ts'
 import type { EpisodeSource, StoreShot } from '../src/types.ts'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...fs, mkdir: vi.fn(fs.mkdir) }
+})
 
 const firstPath = '/fw/media/generated/first.mp4'
 const secondPath = '/fw/media/generated/second.mp4'
@@ -42,10 +47,11 @@ it('refuses malformed edit plans before downloading media', async () => {
 
 it('reports missing video without downloading it and handles older edit plans without optional metadata', async () => {
   const f = await fixture()
-  f.request.mockResolvedValueOnce(plan()).mockResolvedValueOnce(plan({ ...shot, video_path: null, order: 5 }))
+  const missing = (order: number) => ({ ...shot, shot_id: `missing-${String(order)}`, video_path: null, order })
+  f.request.mockResolvedValueOnce(plan()).mockResolvedValueOnce(plan(missing(8), shot, missing(5)))
     .mockResolvedValueOnce(plan({ ...shot, subtitles: { status: 'unverified' } }))
   await expect(f.provider().resolve([1])).resolves.toMatchObject([{ kind: 'blocked', reason: 'shots_missing', shots: [] }])
-  await expect(f.provider().resolve([1])).resolves.toMatchObject([{ kind: 'blocked', reason: 'video_missing', shots: [5] }])
+  await expect(f.provider().resolve([1])).resolves.toMatchObject([{ kind: 'blocked', reason: 'video_missing', shots: [8, 5] }])
   expect(f.download).not.toHaveBeenCalled()
   await expect(f.provider().resolve([1])).resolves.toMatchObject([{ kind: 'ok', names: ['青禾'], shots: [{
     shot: 1, remote: { status: 'unverified', legacy: 1 }, jingliu: { etag: '', clip_in_us: 200_000, speed: 2 },
@@ -80,16 +86,16 @@ it('reports a Host without local downloads and preserves cancellation during the
 
 async function publication(source: EpisodeSource) {
   const [episode] = await source.resolve([1])
-  const shot = episode?.kind === 'ok' ? episode.shots[0] : undefined
-  if (episode?.kind !== 'ok' || shot === undefined || source.store === undefined) throw new Error('Expected one publishable Jingliu episode')
+  if (episode?.kind !== 'ok' || episode.shots.length === 0 || source.store === undefined) throw new Error('Expected a publishable Jingliu episode')
   const store = source.store.bind(source)
   const audioSha = 'a'.repeat(64)
-  const candidate: StoreShot = { shot,
+  const candidates = episode.shots.map((shot): StoreShot => ({ shot,
     rules: { key: 'canonical-rules', audio_sha256: audioSha, words: [{ start: 0, end: 0.5, text: '你来了。', seg: 0 }],
       lines: shot.lines, names: [...episode.names], decisions: [], flags: [] },
     state: { shot: shot.shot, audio_sha256: audioSha, key: 'canonical-rules', cues: [], items: [] },
-  }
-  return () => store(episode, [candidate], { replaceLegacy: false })
+  }))
+  return (prepare?: (shot: StoreShot) => StoreShot) => store(episode,
+    prepare === undefined ? candidates : candidates.map(prepare), { replaceLegacy: false })
 }
 
 const segments = (shots: readonly unknown[], refused: readonly unknown[] = []) => JSON.stringify({ mode: 'segments', shots, refused })
@@ -100,6 +106,7 @@ it.each([
   { name: 'a refused row without a shot ID', job: { status: 'done', result: segments([], [null]) } },
   { name: 'an unexpected refused shot', job: { status: 'done', result: segments([], [{ shot_id: 'another-shot' }]) } },
   { name: 'a written row without a shot ID', job: { status: 'done', result: segments([{ items: [] }]) } },
+  { name: 'a written row with invalid review items', job: { status: 'done', result: segments([{ shot_id: 'shot-1', items: null }]) } },
   { name: 'an unexpected written shot', job: { status: 'done', result: segments([{ shot_id: 'another-shot', items: [] }]) } },
   { name: 'a malformed review item', job: { status: 'done', result: segments([{ shot_id: 'shot-1', items: [null] }]) } },
 ])('rejects $name without treating the episode as stored', async ({ job }) => {
@@ -175,4 +182,42 @@ it('reports a conflicting receipt fingerprint without resubmitting the job', asy
   await writeFile(join(jobs, fingerprint!), 'a-different-request')
   await expect(store()).rejects.toMatchObject({ code: 'JINGLIU_JOB_CONFLICT' })
   expect(f.request.mock.calls.map(([route]) => route)).toEqual(['/projects/film/edit-plan', '/jobs', '/jobs/job-1'])
+})
+
+it.each([
+  { reason: 'video_changed', outcome: { kind: 'waiting', changed: [3, 8] } },
+  { reason: 'unavailable', outcome: { kind: 'blocked', reason: 'subtitle_job_failed', shots: [3, 8] } },
+  { reason: 'legacy_subtitles', outcome: { kind: 'stored', legacy: [3, 8] } },
+])('reports $reason refusals in shot order', async ({ reason, outcome }) => {
+  const f = await fixture()
+  const planned = (order: number) => ({ ...shot, shot_id: `shot-${String(order)}`, order, video_path: `/fw/media/generated/${String(order)}.mp4` })
+  f.request.mockResolvedValueOnce(plan(planned(8), planned(3), planned(13)))
+  const store = await publication(f.provider())
+  f.request.mockResolvedValueOnce({ id: 'job-1' }).mockResolvedValueOnce({ status: 'done', result: segments(
+    [{ shot_id: 'shot-13', items: [] }], [{ shot_id: 'shot-8', reason }, { shot_id: 'shot-3', reason }],
+  ) })
+  const result = await store()
+  expect(result).toMatchObject(outcome)
+  if (result.kind === 'stored') expect([...result.shots.keys()]).toEqual([13])
+})
+
+it.each(['jingliu', 'remote'] as const)('refuses to publish a shot missing its %s edit-plan data', async (missing) => {
+  const f = await fixture()
+  const store = await publication(f.provider())
+  await expect(store((candidate) => {
+    const { jingliu, remote, ...shot } = candidate.shot
+    if (!jingliu || !remote) throw new Error('Expected Jingliu edit-plan data')
+    return { ...candidate, shot: missing === 'jingliu' ? { ...shot, remote } : { ...shot, jingliu } }
+  })).rejects.toMatchObject({ code: 'EPISODE_SUBTITLES_JINGLIU_INVALID' })
+  expect(f.request.mock.calls.map(([route]) => route)).toEqual(['/projects/film/edit-plan'])
+})
+
+it('reports denied receipt-directory creation and keeps the job unsubmitted', async () => {
+  const f = await fixture()
+  const store = await publication(f.provider())
+  const denied = Object.assign(new Error('Cannot create receipt directory'), { code: 'EACCES' })
+  await vi.mocked(mkdir).withImplementation(async () => { throw denied }, async () => {
+    await expect(store()).rejects.toBe(denied)
+  })
+  expect(f.request.mock.calls.map(([route]) => route)).toEqual(['/projects/film/edit-plan'])
 })

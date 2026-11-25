@@ -15,11 +15,12 @@ import { readFile, rename, stat } from 'node:fs/promises'
 import { relative } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { cueRateFindings, formatSrtDocument, InvalidSubtitleClockError, readSubtitleClockReceipt, sourceClockSha256,
-  subtitleClockPath, subtitleClockRows, writeSubtitleClock, type SubtitleClockInputs } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
+  subtitleClockPath, subtitleClockRows, writeSubtitleClock, type SubtitleClockInputs,
+  type SubtitleClockReceiptV2 } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
 import { readShotTranscript, transcribeShots, type AsrDeps, type AsrOutcome, type AsrRequest } from './asr.ts'
 import { placeShotCues, sourceSpan } from './clock.ts'
 import type { HashCache } from './hash-cache.ts'
-import type { BlockReason, DecisionAction, EpisodeSource, ResolvedEpisode, RulesShot, ShotState, SourceShot,
+import type { BlockedEpisode, BlockReason, DecisionAction, EpisodeSource, ResolvedEpisode, RulesShot, ShotState, SourceShot,
   ShotTranscript, SubtitleRules } from './types.ts'
 
 /** Producer name written into version 2 clock receipts. */
@@ -188,18 +189,19 @@ function workOf(episode: ResolvedEpisode): { shot: SourceShot; durationUs: numbe
  */
 export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, signal?: AbortSignal): Promise<BuildOutcome> {
   const resolved = await deps.source.resolve(request.episodes, signal)
-  const work = new Map<ResolvedEpisode, ShotWork[]>()
+  const work: { episode: ResolvedEpisode | BlockedEpisode; shots: ShotWork[] }[] = []
   for (const episode of resolved) {
-    if (episode.kind !== 'ok') continue
     const shots: ShotWork[] = []
-    for (const { shot, durationUs } of workOf(episode)) {
-      const audioSha = await deps.hash.sha256(shot.audio, signal)
-      const transcript = await readShotTranscript(deps.source.root, audioSha)
-      shots.push({ shot, durationUs, audioSha, ...(transcript === undefined ? {} : { transcript }) })
+    if (episode.kind === 'ok') {
+      for (const { shot, durationUs } of workOf(episode)) {
+        const audioSha = await deps.hash.sha256(shot.audio, signal)
+        const transcript = await readShotTranscript(deps.source.root, audioSha)
+        shots.push({ shot, durationUs, audioSha, ...(transcript === undefined ? {} : { transcript }) })
+      }
     }
-    work.set(episode, shots)
+    work.push({ episode, shots })
   }
-  const misses: AsrRequest[] = [...work.values()].flat().filter(item => item.transcript === undefined)
+  const misses: AsrRequest[] = work.flatMap(row => row.shots).filter(item => item.transcript === undefined)
     .map(item => ({ audio_sha256: item.audioSha, audio: item.shot.audio }))
   const asr: AsrOutcome = misses.length > 0 && request.allowAsr
     ? await transcribeShots(misses, deps.asr, { allowNew: true, waitMs: request.waitMs }, signal)
@@ -209,12 +211,11 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
   const outcomes = new Map<number, EpisodeOutcome>()
   const ready: ReadyEpisode[] = []
   const requests = new Map<string, RulesShot>()
-  for (const episode of resolved) {
+  for (const { episode, shots } of work) {
     if (episode.kind !== 'ok') {
       outcomes.set(episode.episode, { episode: episode.episode, status: 'blocked', reason: episode.reason, shots: episode.shots })
       continue
     }
-    const shots = work.get(episode) ?? []
     const blocked: { shot: number; reason: BlockReason }[] = []
     const transcripts: { item: ShotWork; transcript: ShotTranscript; sha256: string }[] = []
     for (const item of shots) {
@@ -263,7 +264,7 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
   const ran = requests.size === 0 ? [] : await deps.rules.run([...requests.values()], signal)
   const results = new Map(ran.map(result => [result.key, result]))
   for (const { episode, shots, decisions, changed } of ready) {
-    const computed = shots.map((item) => {
+    let computed = shots.map((item) => {
       const result = results.get(item.key)
       if (result !== undefined) {
         const state: ShotState = { shot: item.shot.shot, audio_sha256: item.audioSha, key: item.key, cues: result.cues,
@@ -273,7 +274,6 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
       if (item.before === undefined) throw new Error(`EP${episode.code} 镜头 ${String(item.shot.shot)} 缺少字幕规则结果。`)
       return { item, state: item.before }
     })
-    let states = computed.map(row => row.state)
     let legacy: readonly number[] = []
     if (deps.source.store !== undefined) {
       const stored = await deps.source.store(episode,
@@ -288,16 +288,18 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
           changed: [...new Set([...changed, ...stored.changed])].sort((a, b) => a - b) })
         continue
       }
-      states = states.map((state) => {
-        const row = stored.shots.get(state.shot)
-        return row === undefined ? state : { ...state, items: row.items, stored: row.stored }
+      computed = computed.map((entry) => {
+        const row = stored.shots.get(entry.state.shot)
+        return row === undefined ? entry : { ...entry, state: { ...entry.state, items: row.items, stored: row.stored } }
       })
       legacy = stored.legacy
     }
-    const { text, review } = layoutEpisode(episode, shots, states, decisions, deps.source.clockReview)
+    const { text, review } = layoutEpisode(episode, computed, decisions, deps.source.clockReview)
     const pending = review.filter(row => row.decision === null).length
     const moved = await publish(episode, text, rulesSha, subtitleInputs(episode, decisions), pending, deps.hash, signal)
-    await writeJson(episode.files.state, { version: 1, episode: episode.code, rules_sha256: rulesSha, shots: states })
+    await writeJson(episode.files.state, {
+      version: 1, episode: episode.code, rules_sha256: rulesSha, shots: computed.map(row => row.state),
+    })
     await writeJson(episode.files.review, { version: 1, episode: episode.code, pending, items: review })
     const common = { episode: episode.episode, pending, changed: [...changed].sort((a, b) => a - b),
       ...(moved === undefined ? {} : { kept: relative(deps.source.root, moved) }) }
@@ -315,20 +317,17 @@ export async function buildEpisodes(deps: BuildDeps, request: BuildRequest, sign
 /**
  * Lay one episode out on its clock: cues, clipped or fast cues as review items, and the SRT text.
  * @param episode - Resolved episode.
- * @param shots - Shots in clip order with measured durations.
- * @param states - Correction results in the same order.
+ * @param shots - Shots in clip order with measured durations and correction results.
  * @param decisions - Episode decisions by item ID.
  * @param clockReview - Whether clipped and too-fast cues become review items.
  * @returns SRT text and review items on the episode clock.
  */
-function layoutEpisode(episode: ResolvedEpisode, shots: readonly ReadyShot[], states: readonly ShotState[],
+function layoutEpisode(episode: ResolvedEpisode, shots: readonly { item: ReadyShot; state: ShotState }[],
   decisions: ReadonlyMap<string, DecisionAction>, clockReview: boolean): { text: string; review: EpisodeReviewItem[] } {
   const placedCues: { startSeconds: number; endSeconds: number; text: string }[] = []
   const review: EpisodeReviewItem[] = []
   let clipStartUs = 0
-  for (const [position, { shot, durationUs }] of shots.entries()) {
-    const state = states[position]
-    if (state === undefined) continue
+  for (const { item: { shot, durationUs }, state } of shots) {
     const clipStart = clipStartUs / 1_000_000
     const at = (start: number, end: number) => {
       const span = sourceSpan(shot.window, start, end)
@@ -374,16 +373,18 @@ function layoutEpisode(episode: ResolvedEpisode, shots: readonly ReadyShot[], st
 }
 
 /**
- * Move an SRT at the canonical path that no `episode_subtitles` receipt covers to `<srt>.manual-<stamp>`, with its receipt.
+ * Check existing subtitle bytes and move a manual SRT aside with its receipt.
  * @param srt - Canonical SRT path.
+ * @param text - Newly built SRT text.
  * @param signal - Owning call cancellation.
- * @returns The new path of a moved SRT, or undefined when nothing was there or the SRT is this tool's own.
+ * @returns The path of a preserved manual SRT or the receipt for identical tool-owned bytes, when present.
  */
-async function setAsideManualSrt(srt: string, signal?: AbortSignal): Promise<string | undefined> {
+async function prepareSrt(srt: string, text: string, signal?: AbortSignal):
+Promise<{ moved?: string; receipt?: SubtitleClockReceiptV2 }> {
   let current: Buffer
   try { current = await readFile(srt) }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
     throw error
   }
   let receipt
@@ -393,13 +394,15 @@ async function setAsideManualSrt(srt: string, signal?: AbortSignal): Promise<str
     if (!(error instanceof InvalidSubtitleClockError)) throw error
   }
   if (receipt?.version === 2 && receipt.producer === PRODUCER
-    && receipt.srt_sha256 === createHash('sha256').update(current).digest('hex')) return undefined
+    && receipt.srt_sha256 === createHash('sha256').update(current).digest('hex')) {
+    return current.toString('utf8') === text ? { receipt } : {}
+  }
   const stamp = new Date().toISOString().replace(/[-:.]/gu, '')
   let target = `${srt}.manual-${stamp}`
   for (let copy = 2; await exists(target) || await exists(subtitleClockPath(target)); copy++) target = `${srt}.manual-${stamp}-${String(copy)}`
   await rename(srt, target)
   if (await exists(subtitleClockPath(srt))) await rename(subtitleClockPath(srt), subtitleClockPath(target))
-  return target
+  return { moved: target }
 }
 
 async function exists(file: string): Promise<boolean> {
@@ -413,12 +416,8 @@ async function exists(file: string): Promise<boolean> {
 async function publish(episode: ResolvedEpisode, text: string, rulesSha: string, inputs: SubtitleClockInputs, pending: number,
   hash: HashCache, signal?: AbortSignal): Promise<string | undefined> {
   const hashFile = (file: string, hashSignal?: AbortSignal) => hash.sha256(file, hashSignal)
-  const moved = await setAsideManualSrt(episode.files.srt, signal)
-  let current: string | undefined
-  try { current = await readFile(episode.files.srt, 'utf8') }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
-  const receipt = current === text ? (await readSubtitleClockReceipt(episode.files.srt, signal))?.receipt : undefined
-  if (receipt?.version === 2 && receipt.rules_sha256 === rulesSha && receipt.review_pending === pending
+  const { moved, receipt } = await prepareSrt(episode.files.srt, text, signal)
+  if (receipt?.rules_sha256 === rulesSha && receipt.review_pending === pending
     && JSON.stringify(receipt.inputs) === JSON.stringify(inputs)
     && receipt.source_clock_sha256 === sourceClockSha256(episode.code, await subtitleClockRows(episode.clock, signal, hashFile))) {
     return moved
