@@ -1,0 +1,29 @@
+{
+  "initial": [
+    {
+      "name": "im_send",
+      "description": "Send a message or deliver a file to a chat app chat without waiting for someone to write first. You can reach the chats whose messages come to you and every chat on a connection you own. Replies go to the Bot assigned to that chat.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Plain text or Markdown, up to 4000 characters. Required when files are omitted"
+          },
+          "chat": {
+            "type": "string",
+            "description": "Chat name or its listed key. Omit it to use your one own chat. If a name is shared, use the name with its key"
+          },
+          "files": {
+            "type": "array",
+            "description": "Feishu only. Up to 5 paths inside your working folder, each up to 30 MiB, sent in order after any text",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "changes": []
+}

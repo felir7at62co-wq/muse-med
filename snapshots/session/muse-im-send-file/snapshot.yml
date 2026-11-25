@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-im-send-file
+profile: headless
+composition: muse-im-send-file
+recording: authored
+header:
+  class: muse-im-send-file
+  pin: true
+writerOutput: true
+workspace:
+  final: true
