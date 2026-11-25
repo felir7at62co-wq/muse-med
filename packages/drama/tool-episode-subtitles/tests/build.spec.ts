@@ -151,7 +151,7 @@ it('keeps manual subtitles when a backup path is an unresolvable link', async ()
     await expect(build()).rejects.toMatchObject({ code: 'ELOOP' })
     await expect(readFile(srt, 'utf8')).resolves.toBe('manual subtitle')
   } finally {
-    vi.setSystemTime()
+    vi.useRealTimers()
     await unlink(backup)
   }
 })
