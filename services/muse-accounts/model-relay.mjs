@@ -8,7 +8,7 @@ import {readFile,writeFile,rename,mkdir,chmod} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {pipeline} from 'node:stream/promises';
 import {Readable} from 'node:stream';
-import {readModelFailure,modelFailure} from './model-errors.mjs';
+import {readModelFailureDetails,modelFailure} from './model-errors.mjs';
 import {createModelKeyPool,resolveModelKeyPoolPolicy,ModelKeyPoolError} from './model-key-pool.mjs';
 import {closeModelUpstream,modelSseBytes} from './model-sse.mjs';
 import {createModelRequestMetadata,observeModelResponseBytes} from './model-request-metadata.mjs';
@@ -97,10 +97,11 @@ export async function forwardModel({config,body,res,signal,queueMs,metadata}){
   if(response.statusCode<200||response.statusCode>=300){
    metadata?.failed('upstream_http');metadata?.client(response.statusCode>=400&&response.statusCode<500?response.statusCode:502);
    console.error('[muse-model-relay] upstream status',response.statusCode);
-   const failure=await readModelFailure(response);
+   const {failure,credentialsRejected}=await readModelFailureDetails(response);
    const retryAfter=response.headers['retry-after'];
    res.writeHead(response.statusCode>=400&&response.statusCode<500?response.statusCode:502,{'content-type':'application/json','cache-control':'no-store',...timings,
-    ...(response.statusCode===429&&typeof retryAfter==='string'&&/^\d{1,5}$/.test(retryAfter)?{'retry-after':retryAfter}:{})});
+    ...(response.statusCode===429&&typeof retryAfter==='string'&&/^\d{1,5}$/.test(retryAfter)?{'retry-after':retryAfter}:{}),
+    ...credentialsRejected?{'x-muse-model-auth-error':'upstream-credentials-rejected'}:{}});
    res.end(JSON.stringify(failure));return;
   }
   if(body.stream&&!String(response.headers['content-type']||'').toLowerCase().includes('text/event-stream')){
