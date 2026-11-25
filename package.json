@@ -274,6 +274,7 @@
     "@deepseek-ai/dsh-mcp-client": "workspace:*",
     "@deepseek-ai/dsh-perception-bgm": "workspace:*",
     "@deepseek-ai/dsh-pwsh-local": "workspace:*",
+    "@deepseek-ai/dsh-scope": "workspace:*",
     "@deepseek-ai/dsh-skill-office": "workspace:*",
     "@deepseek-ai/dsh-subagent-acp": "workspace:*",
     "@deepseek-ai/dsh-subagent-claude-code": "workspace:*",

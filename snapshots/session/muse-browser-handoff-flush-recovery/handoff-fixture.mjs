@@ -52,6 +52,7 @@ export function apply(ctx) {
     ctx, state, browserChannel, pastOwners: new Map(),
     load: async () => state,
     refresh: async () => {},
+    phoneServe: handler => { assert.equal(typeof handler, 'function') },
     readOnly: () => undefined,
     botOf: id => state.bots[id],
     chatOf: id => state.bots[id]?.sessionId,

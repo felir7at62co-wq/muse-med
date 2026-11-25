@@ -150,6 +150,9 @@ importers:
       '@deepseek-ai/dsh-pwsh-local':
         specifier: workspace:*
         version: link:packages/shell/pwsh-local
+      '@deepseek-ai/dsh-scope':
+        specifier: workspace:*
+        version: link:packages/core/scope
       '@deepseek-ai/dsh-skill-office':
         specifier: workspace:*
         version: link:packages/skill/skill-office

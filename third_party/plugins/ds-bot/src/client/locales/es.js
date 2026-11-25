@@ -1668,6 +1668,7 @@ export const ES = {
   'Failed': 'Falló',
 
   // HOST_ZH merged keys
+  'The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.': 'Es posible que la respuesta a la cesión del navegador ya esté en cola. No se ha confirmado que se haya guardado. Revisa la conversación antes de enviar otra solicitud.',
   'Request failed': 'Solicitud fallida',
   'Permissions are not available in this DeepSeek Harness': 'Los permisos no están disponibles en este DeepSeek Harness',
   'Avatar images must be PNG, JPEG, WebP, or GIF': 'Las imágenes de avatar deben ser PNG, JPEG, WebP o GIF',

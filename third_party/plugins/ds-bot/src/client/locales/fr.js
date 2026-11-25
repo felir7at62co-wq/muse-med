@@ -1634,6 +1634,7 @@ export const FR = {
   "Attachments: {names}": "Pièces jointes : {names}",
   "Sent": "Envoyé",
   "Failed": "Échec",
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "La réponse au transfert du navigateur est peut-être déjà en attente. Son enregistrement reste à confirmer. Consultez la conversation avant d’envoyer une nouvelle demande.",
   "Request failed": "Échec de la requête",
   "Permissions are not available in this DeepSeek Harness": "Les autorisations ne sont pas disponibles dans ce DeepSeek Harness",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "Les images d’avatar doivent être au format PNG, JPEG, WebP ou GIF",
