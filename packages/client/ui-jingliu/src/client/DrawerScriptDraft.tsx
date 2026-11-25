@@ -52,6 +52,8 @@ export function DraftLibrary({ epoch, openScript, t, useResource, draftActions }
   const list = useResource<'workshop-drafts'>(address('workshop-drafts', epoch, revision, {
     query, offset: String(offset), limit: String(DRAFT_PAGE),
   }))
+  const nextOffset = list.value?.nextOffset
+  const goNext = typeof nextOffset === 'number' ? () => { setOffset(nextOffset) } : undefined
   return <section className={scripts.drawer} aria-label={t('scriptDrafts')}>
     <form className={data.search} role="search" onSubmit={(event) => { event.preventDefault(); setQuery(search.trim()); setOffset(0) }}>
       <Input aria-label={t('searchScripts')} placeholder={t('searchScripts')} maxLength={100} value={search}
@@ -78,11 +80,9 @@ export function DraftLibrary({ epoch, openScript, t, useResource, draftActions }
               </span>
             </button>
           </li>)}</ul>}
-    {(offset > 0 || typeof list.value?.nextOffset === 'number') && <div className={data.pages}>
+    {(offset > 0 || goNext !== undefined) && <div className={data.pages}>
       <Button variant="ghost" size="sm" disabled={offset === 0} onClick={() => { setOffset(current => Math.max(0, current - DRAFT_PAGE)) }}>{t('previous')}</Button>
-      <Button variant="ghost" size="sm" disabled={typeof list.value?.nextOffset !== 'number'} onClick={() => {
-        if (typeof list.value?.nextOffset === 'number') setOffset(list.value.nextOffset)
-      }}>{t('next')}</Button>
+      <Button variant="ghost" size="sm" disabled={goNext === undefined} onClick={goNext}>{t('next')}</Button>
     </div>}
   </section>
 }

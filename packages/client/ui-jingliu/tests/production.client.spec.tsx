@@ -13,6 +13,10 @@ import { en } from '../src/client/locales.ts'
 
 const t = makeTranslate(en)
 const live = <T,>(value: T) => ({ status: 'live' as const, value, failure: undefined })
+const bridgeProject: StudioProject = {
+  id: 'bridge', title: 'Bridge production', episodes: 2, shots: 0, completed: 0, role: 'owner', thumbnail: '',
+  mode: 'drama', aspect: '9:16', createdAt: '', profile: { videoModel: '', generationMode: '', resolution: '' },
+}
 
 afterEach(cleanup)
 
@@ -75,11 +79,7 @@ it('keeps the workspace picker tied to the current conversation and recovers fro
 
 it('saves the selected project’s settings after a rejected write and refreshes its displayed preferences', async () => {
   type Props = Parameters<typeof ProductionSettings>[0]
-  const project: StudioProject = {
-    id: 'bridge', title: 'Bridge production', episodes: 2, shots: 0, completed: 0, role: 'owner', thumbnail: '',
-    mode: 'drama', aspect: '9:16', createdAt: '', profile: { videoModel: '', generationMode: '', resolution: '' },
-  }
-  const projects = [project, { ...project, id: 'pilot', title: 'Pilot production' }]
+  const projects = [bridgeProject, { ...bridgeProject, id: 'pilot', title: 'Pilot production' }]
   const options: StudioOptions = {
     projectId: 'pilot', resolution: '720p', resolutions: ['720p', '1080p'], projectModel: 'Studio Image',
     models: [{ id: 'cinema', name: 'Cinema' }], character: '', location: '', prop: '',
@@ -131,6 +131,47 @@ it('saves the selected project’s settings after a rejected write and refreshes
   expect(preferenceRead && Object.fromEntries(preferenceRead.searchParams)).toEqual({ id: 'pilot', epoch: '3', revision: '2' })
 })
 
+it('retries the balance and keeps project settings inactive until a production is available', () => {
+  type Props = Parameters<typeof ProductionSettings>[0]
+  const unavailable = { status: 'none', value: undefined, failure: undefined } as const
+  const balance: StudioBalance = { unlimited: true, available: '0.00', usedFen: 200, heldFen: 0, enforced: false }
+  const reads: URL[] = []
+  const useResource = ((address: string) => {
+    const url = new URL(address)
+    reads.push(url)
+    const revision = url.searchParams.get('revision')
+    switch (url.hostname) {
+      case 'jingliu-credit': return revision === '0' ? { ...unavailable, status: 'failed' } : live(balance)
+      case 'jingliu-projects': return revision === '0' ? { ...unavailable, status: 'loading' } : live(revision === '1' ? [] : [bridgeProject])
+      default: return unavailable
+    }
+  }) as Props['useResource']
+  const saveOption = vi.fn<Props['saveOption']>()
+  const savePreferences = vi.fn<Props['savePreferences']>()
+  const props: Pick<Props, 't' | 'useResource' | 'useAccountEpoch' | 'saveOption' | 'savePreferences'> = {
+    t, useResource, useAccountEpoch: select => select(7), saveOption, savePreferences,
+  }
+  const view = render(<ProductionSettings {...props as Props} />)
+  expect(view.getByText('—')).toBeTruthy()
+  expect(view.queryByRole('combobox')).toBeNull()
+  expect(reads.slice(-2).map(url => url.href)).toEqual(['studio://inactive', 'studio://inactive'])
+
+  fireEvent.click(within(view.getByRole('alert')).getByRole('button', { name: en.refresh }))
+  expect(view.getByText(en.unlimited)).toBeTruthy()
+  expect(view.queryByRole('alert')).toBeNull()
+  expect(view.queryByRole('combobox')).toBeNull()
+  expect(reads.slice(-2).map(url => url.href)).toEqual(['studio://inactive', 'studio://inactive'])
+
+  fireEvent.click(view.getByRole('button', { name: en.refresh }))
+  expect(view.getByRole('combobox', { name: en.project })).toHaveProperty('value', 'bridge')
+  expect(view.queryByRole('checkbox', { name: en.chips })).toBeNull()
+  expect(reads.slice(-2).map(url => [url.hostname, Object.fromEntries(url.searchParams)])).toEqual([
+    ['jingliu-options', { epoch: '7', revision: '2', id: 'bridge' }], ['jingliu-prefs', { epoch: '7', revision: '2', id: 'bridge' }],
+  ])
+  expect(saveOption).not.toHaveBeenCalled()
+  expect(savePreferences).not.toHaveBeenCalled()
+})
+
 it('shows live allowance only on the wide sidebar and removes the previous amount on account failure', () => {
   type Props = Parameters<typeof CreditEntry>[0]
   let epoch = 3
@@ -168,6 +209,7 @@ it('retries the shared asset catalog, pages through it and keeps an unavailable 
     if (url.protocol === 'studio:') return { status: 'none', value: undefined, failure: undefined }
     if (url.hostname === 'jingliu-image') return failure
     if (url.searchParams.get('revision') === '0') return waiting ? { ...failure, status: 'loading' } : failure
+    if (url.searchParams.get('offset') === '24' && url.searchParams.get('revision') === '1') return { ...failure, status: 'none' }
     return live<StudioLibrary>({ total: 25, items: [url.searchParams.get('offset') === '24' ? last : front] })
   }) as Props['useResource']
   const props: Props = { t, useResource, useAccountEpoch: select => select(3) }
@@ -178,11 +220,19 @@ it('retries the shared asset catalog, pages through it and keeps an unavailable 
   fireEvent.click(within(view.getByRole('alert')).getByRole('button', { name: en.refresh }))
   expect(view.queryByRole('img')).toBeNull()
   expect(view.getByRole('button', { name: front.name })).toBeTruthy()
+  const refreshCatalog = view.getByRole('button', { name: en.refresh })
   fireEvent.click(view.getByRole('tab', { name: en.location }))
   fireEvent.click(view.getByRole('button', { name: en.next }))
+  expect(view.getByRole('alert').textContent).toContain(en.failed)
+  expect(view.getByRole('button', { name: en.previous })).toHaveProperty('disabled', false)
   expect(view.getByRole('button', { name: en.next })).toHaveProperty('disabled', true)
   expect(requests.some(url => url.hostname === 'jingliu-library' && url.searchParams.get('kind') === 'location'
     && url.searchParams.get('offset') === '24' && url.searchParams.get('revision') === '1')).toBe(true)
+
+  fireEvent.click(refreshCatalog)
+  expect(view.queryByRole('alert')).toBeNull()
+  expect(requests.some(url => url.hostname === 'jingliu-library' && url.searchParams.get('kind') === 'location'
+    && url.searchParams.get('offset') === '24' && url.searchParams.get('revision') === '2')).toBe(true)
 
   fireEvent.click(view.getByRole('button', { name: last.name }))
   const preview = within(view.getByRole('dialog', { name: last.name }))
