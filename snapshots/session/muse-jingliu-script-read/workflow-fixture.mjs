@@ -180,7 +180,7 @@ export async function apply(ctx) {
   }))
   await ctx.plugin(Connection, { studioOrigin: studio })
   await ctx.plugin(plugin, jingliuTool.config)
-  await mountPreset(ctx.isolate('museAccount'), { presetId: preset, hidePlatformShellTools: true })
+  await mountPreset(ctx.isolate('museAccount'), { presetId: preset, hidePlatformShellTools: true, hideWorkspaceInstructions: true })
   ctx.on('approval/request', async ({ agent, callId, reason }) => {
     assert.equal(ctx.sandboxPolicy.resolve({ session: agent.session }).mode, 'danger-full-access')
     assert.equal(callId, 'import-jingliu-script')

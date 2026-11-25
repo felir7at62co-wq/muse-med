@@ -83,6 +83,13 @@ export async function apply(ctx, config) {
         source = source.replace("'@deepseek-ai/dsh-desktop-host/short-drama-guidance'",
           JSON.stringify(new URL('../muse-short-drama-draft-ending/short-drama-guidance.mjs', import.meta.url).href))
       }
+      if (config.hideWorkspaceInstructions === true) {
+        const instructionRow = '\n- id: agent-instructions\n'
+        if (!source.includes(instructionRow) || source.indexOf(instructionRow) !== source.lastIndexOf(instructionRow)) {
+          throw new Error(`The source ${presetId} preset must declare one workspace instructions row`)
+        }
+        source = source.replace(instructionRow, `${instructionRow}  disabled: true\n`)
+      }
       const clockRow = "- id: time-context\n  name: '@deepseek-ai/dsh-time-context'\n"
       if (!source.includes(clockRow) || source.indexOf(clockRow) !== source.lastIndexOf(clockRow)) {
         throw new Error(`The source ${presetId} preset must declare one request clock`)
