@@ -4,7 +4,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import ToolRuntime, { type ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { WorkbenchRequest, WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { WorkbenchHttpError, type WorkbenchRequest, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { checkEpisodes, finalizeTool, splitEpisodes } from '../src/finalize.ts'
 import { episodeFiles, libraryTool } from '../src/library.ts'
@@ -25,7 +25,7 @@ function sessionOf(route: Route) {
   return { session, request }
 }
 
-async function bench(tool: ToolDefinition) {
+async function bench(tool: ToolDefinition, configure?: (ctx: Context) => void) {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(SystemPrompt)
@@ -33,6 +33,7 @@ async function bench(tool: ToolDefinition) {
   await ctx.plugin(NativeToolExecutor)
   const fiber = ctx.plugin({ name: 'library-fixture', inject: ['tools'], apply: (scope: Context) => { scope.effect(() => scope.tools.register(tool)) } })
   await fiber.await()
+  configure?.(ctx)
   return (args: unknown, agent = true) => executeToolFixture(ctx, {
     name: tool.name, arguments: args, callId: ToolCallId('library-call'), signal: new AbortController().signal,
     ...(agent ? { agent: { session: { id: 'session-1' } } as never } : {}),
@@ -95,6 +96,7 @@ describe('script_library', () => {
         { path: '剧本库/a_b_c-v2/第002集.md', text: '# 第2集 摊牌\n\n△ 客厅。\n林晚：我不嫁。\n' },
       ],
     })
+    expect(episodeFiles('  ', 2, []).folder).toBe('剧本库/剧本-v2')
     const { files } = episodeFiles('好一个乖乖女', 2, EPISODES)
     expect(splitEpisodes(files).map(episode => episode.content)).toEqual(['1-1 日 内 林家\n林母：吃饭了。', '△ 客厅。\n林晚：我不嫁。'])
   })
@@ -112,12 +114,86 @@ describe('script_library', () => {
     expect(Object.keys(written)).toEqual(['剧本库/好一个乖乖女-v2/第001集.md', '剧本库/好一个乖乖女-v2/第002集.md'])
   })
 
+  it('reads the latest version and presents its recorded production project without including manuscript text', async () => {
+    const script = { ...SCRIPT, status: 'in_production', project: { id: 'p-9', title: '乖乖女' } }
+    const { session, request } = sessionOf(() => ({
+      script, can_pick: true, versions: [], content: { version: 3, episodes: EPISODES },
+    }))
+    const write = vi.fn(async (_path: string, _text: string) => {})
+    const tool = libraryTool({ connect: async () => session, write: () => write })
+    const call = await bench(tool)
+    const args = { action: 'read', id: 7 }
+    const result = await call(args)
+    expect(result).toMatchObject({ isError: false, value: { version: 3, project: '乖乖女' } })
+    expect(request).toHaveBeenCalledOnce()
+    expect(request.mock.calls[0]?.[0]).toBe('/script-library/7')
+    expect(request.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(tool.presentCall?.(args)?.title).toBe('取出定稿剧本 · 剧本 7')
+    expect(tool.presentResult?.(args, result)?.title).toBe('已取出 《好一个乖乖女》 第 3 版 · 2 集')
+    expect(JSON.stringify(result.content)).not.toContain(EPISODES[0]!.content)
+  })
+
+  it('requires a valid script ID and a conversation before reading workspace files', async () => {
+    const { session, request } = sessionOf(() => ({}))
+    const connect = vi.fn(async () => session)
+    const write = vi.fn()
+    const call = await bench(libraryTool({ connect, write }))
+    expect((await call({ action: 'read', id: 0 })).error?.message).toContain('id 是剧本库编号')
+    expect((await call({ action: 'read', id: 7 }, false)).error?.info).toMatchObject({ code: 'WORKSHOP_SESSION_REQUIRED' })
+    expect(connect).not.toHaveBeenCalled()
+
+    expect((await call({ action: 'read', id: 7, version: 0 })).error?.message).toContain('version')
+    expect(request).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it('records the Jingliu project a picked script became', async () => {
     const { session, request } = sessionOf(() => ({ script: { ...SCRIPT, status: 'in_production', project: { id: 'p-9', title: '乖乖女' } } }))
-    const call = await bench(libraryTool({ connect: async () => session, write: () => async () => undefined }))
-    const result = await call({ action: 'link', id: 7, project_id: 'p-9', project_title: '乖乖女' }, false)
+    const tool = libraryTool({ connect: async () => session, write: () => async () => undefined })
+    const call = await bench(tool)
+    const args = { action: 'link', id: 7, project_id: '  p-9 ', project_title: ' 乖乖女 ' }
+    const result = await call(args, false)
     expect(result.isError).toBe(false)
+    expect(tool.presentCall?.(args)?.title).toBe('登记投产 · 剧本 7')
+    expect(tool.presentResult?.(args, result)?.title).toBe('已登记投产 · 《好一个乖乖女》 → 乖乖女')
     expect(request).toHaveBeenCalledWith('/script-library/7/production', expect.objectContaining({ method: 'POST', body: { project_id: 'p-9', project_title: '乖乖女' } }))
+  })
+
+  it('does not report a project when the server returned no link and preserves permission errors', async () => {
+    const { session, request } = sessionOf(() => ({ script: SCRIPT }))
+    const tool = libraryTool({ connect: async () => session, write: () => async () => undefined })
+    const call = await bench(tool)
+    const args = { action: 'link', id: 7, project_id: 'p-9', project_title: '乖乖女' }
+    const missing = await call(args)
+    expect(missing).toMatchObject({ isError: false, value: { project_id: null, project: null } })
+    expect(tool.presentResult?.(args, missing)?.title).toBe('已登记投产 · 《好一个乖乖女》')
+    request.mockRejectedValueOnce(new WorkbenchHttpError(403, 'SCRIPT_PICK_FORBIDDEN', '没有剧本选用权限。'))
+    const denied = await call(args)
+    expect(denied.error?.info).toMatchObject({ code: 'SCRIPT_PICK_FORBIDDEN' })
+    expect(tool.presentResult?.(args, denied)).toBeUndefined()
+  })
+
+  it('omits project and title labels after a post-execute policy redacts the script summary', async () => {
+    const { session } = sessionOf(() => ({ script: SCRIPT }))
+    const tool = libraryTool({ connect: async () => session, write: () => async () => undefined })
+    const call = await bench(tool, (ctx) => {
+      ctx.on('tools/post-execute', async () => ({ kind: 'accept', value: { action: 'link', id: 7, status: 'picked' } }))
+    })
+    const args = { action: 'link', id: 7, project_id: 'p-9', project_title: '乖乖女' }
+    const redacted = await call(args)
+    expect(redacted).toMatchObject({ isError: false, meta: { title: null, project: null } })
+    expect(tool.presentResult?.(args, redacted)?.title).toBe('已登记投产 · ')
+  })
+
+  it('omits labels for older results missing usable presentation metadata', () => {
+    const { session } = sessionOf(() => ({}))
+    const tool = libraryTool({ connect: async () => session, write: () => async () => undefined })
+    const args = { action: 'read', id: 7 }
+    expect(tool.presentResult?.(args, { isError: false, content: [] })).toBeUndefined()
+    expect(tool.presentResult?.(args, { isError: false, content: [], meta: null })).toBeUndefined()
+    expect(tool.presentResult?.(args, { isError: false, content: [], meta: [] })).toBeUndefined()
+    expect(tool.presentResult?.(args, { isError: false, content: [], meta: {} })?.title).toBe('已取出 ')
   })
 
   it('asks for the project when link names none', async () => {
@@ -125,6 +201,9 @@ describe('script_library', () => {
     const call = await bench(libraryTool({ connect: async () => session, write: () => async () => undefined }))
     const result = await call({ action: 'link', id: 7 })
     expect(result.isError).toBe(true)
+    const overlong = await call({ action: 'link', id: 7, project_id: 'x'.repeat(81), project_title: 'x'.repeat(201) })
+    expect(overlong.error?.message).toContain('project_id')
+    expect(overlong.error?.message).toContain('project_title')
     expect(request).not.toHaveBeenCalled()
   })
 })

@@ -40,9 +40,10 @@ async function bench() {
     readText = vi.fn(async (target: string) => files[target] ?? '')
     writeText = vi.fn(async (target: string, text: string) => { files[target] = text })
   }
+  const resolvePolicy = vi.fn(() => ({ workspaceRoot: '/workspace' }))
   class Policy extends Service {
     constructor(parent: Context) { super(parent, 'sandboxPolicy') }
-    resolve = vi.fn(() => ({ workspaceRoot: '/workspace' }))
+    resolve = resolvePolicy
   }
   const fiber = ctx.plugin({ name: plugin.name, inject: plugin.inject, apply: plugin.apply })
   await fiber.await()
@@ -51,7 +52,7 @@ async function bench() {
     agent: { session: { id: 'session-1' } } as never,
   })
   const registered = () => ['script_finalize', 'script_library', 'workshop_script_editor'].filter(name => ctx.tools.get(name) !== undefined)
-  return { ctx, call, registered, files, Connection, Files, Policy }
+  return { ctx, call, registered, files, Connection, Files, Policy, resolvePolicy }
 }
 
 describe('tool-workshop', () => {
@@ -69,14 +70,16 @@ describe('tool-workshop', () => {
   })
 
   it('reads and writes script files in the conversation workspace', async () => {
-    const { ctx, call, files, Connection, Files, Policy } = await bench()
+    const { ctx, call, files, Connection, Files, Policy, resolvePolicy } = await bench()
     await ctx.plugin(Connection)
     await ctx.plugin(Files)
     await ctx.plugin(Policy)
     const finalized = await call('script_finalize', { title: '雨巷', files: ['drafts/0001.md'] })
     expect(finalized.value).toMatchObject({ id: 7, version: 1, created: true })
+    resolvePolicy.mockClear()
     const read = await call('script_library', { action: 'read', id: 7, version: 2 })
     expect(read.isError).toBe(false)
+    expect(resolvePolicy).toHaveBeenCalledExactlyOnceWith({ session: { id: 'session-1' } })
     expect(files['/workspace/剧本库/雨巷-v2/第001集.md']).toBe('# 第1集\n\n林晚回家。\n')
   })
 })

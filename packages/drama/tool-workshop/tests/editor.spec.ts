@@ -81,6 +81,42 @@ describe('workshop_script_editor', () => {
     expect(workshop.stageScriptDraftCandidate).not.toHaveBeenCalled()
   })
 
+  it('starts an unfiltered draft search and rejects invalid bounds before contacting Workshop', async () => {
+    const { call, workshop } = await bench()
+    await expect(call({ action: 'list' })).resolves.toMatchObject({ isError: false, value: { next_offset: 10 } })
+    expect(workshop.scriptDrafts).toHaveBeenCalledExactlyOnceWith({ offset: 0, limit: 10 })
+    for (const [args, field] of [
+      [{ action: 'list', query: 'x'.repeat(101) }, 'query'],
+      [{ action: 'list', offset: -1 }, 'offset'],
+      [{ action: 'open', draft_id: 0 }, 'draft_id'],
+      [{ action: 'read', draft_id: 12, episode: 0 }, 'episode'],
+      [{ action: 'propose', draft_id: 12, episode: 2, base_revision: EPISODE.revision, content: ' ', summary: 'Update' }, 'content'],
+    ] as const) expect((await call(args)).error?.message).toContain(field)
+    expect(workshop.scriptDrafts).toHaveBeenCalledOnce()
+    expect(workshop.scriptDraft).not.toHaveBeenCalled()
+    expect(workshop.scriptDraftEpisode).not.toHaveBeenCalled()
+    expect(workshop.stageScriptDraftCandidate).not.toHaveBeenCalled()
+  })
+
+  it('presents the candidate review without exposing its text or presenting a stale result as ready', async () => {
+    const { call, tool, workshop } = await bench()
+    const args = { action: 'propose', draft_id: 12, episode: 2, base_revision: EPISODE.revision, content: PROPOSAL.content, summary: PROPOSAL.summary }
+    const reading = { action: 'read', draft_id: 12, episode: 2 }
+    expect(tool.isConcurrencySafe?.(reading)).toBe(true)
+    expect(tool.isConcurrencySafe?.(args)).toBe(false)
+    expect(tool.presentCall?.({ action: 'list' })).toMatchObject({ title: '查找剧本草稿', kind: 'read' })
+    expect(tool.presentCall?.(args)).toEqual({ card: 'generic', kind: 'other', title: '提交单集候选稿 · 第 2 集',
+      rawInput: { draft_id: 12, episode: 2, summary: PROPOSAL.summary } })
+    expect(tool.presentCall?.({ action: 'propose' })).toMatchObject({ rawInput: { draft_id: null, episode: null, summary: null } })
+
+    const accepted = await call(args)
+    expect(tool.presentResult?.(args, accepted)?.title).toBe('候选稿待审阅 · 第 2 集')
+    expect(JSON.stringify(tool.presentResult?.(args, accepted))).not.toContain(PROPOSAL.content)
+    expect(tool.presentResult?.(reading, await call(reading))).toBeUndefined()
+    workshop.stageScriptDraftCandidate.mockRejectedValueOnce(new WorkbenchHttpError(409, 'SCRIPT_EDITOR_VERSION_CHANGED', '请重新读取。'))
+    expect(tool.presentResult?.(args, await call(args))).toBeUndefined()
+  })
+
   it('reads a pending candidate only when requested and surfaces a stale saved revision', async () => {
     const { call, workshop } = await bench()
     const reading = { action: 'read', draft_id: 12, episode: 2 }
