@@ -26,13 +26,15 @@ const shot = {
 
 afterEach(cleanup)
 
-function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = false, legacyEmptyBoard = false, storedShots, history = 'live' }: {
+function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = false, legacyEmptyBoard = false, storedShots,
+  history = 'live', historyCreatedAt = '2026-11-23T06:00:00Z' }: {
   stale?: boolean
   canFinalize?: boolean
   changedBeforeConfirmation?: boolean
   legacyEmptyBoard?: boolean
   storedShots?: string
   history?: 'live' | 'loading' | 'empty' | 'retry' | 'stale-preview' | 'preview-retry' | 'multiple'
+  historyCreatedAt?: string
 } = {}) {
   const reads: URL[] = []
   let latestRevision = draft.revision
@@ -45,7 +47,7 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
     draftId: draft.id, episode, title: '', shotsJson: episode === 3 && storedShots !== undefined ? storedShots : JSON.stringify(episode === 3 && !legacyEmptyBoard ? [shot] : []),
     revision: 'board-' + String(episode), version: legacyEmptyBoard ? 1 : 2, exists: episode === 3 && !legacyEmptyBoard, stale: false,
   })
-  const old = { id: 21, version: 1, createdAt: '2026-11-23T06:00:00Z', createdBy: '11' }
+  const old = { id: 21, version: 1, createdAt: historyCreatedAt, createdBy: '11' }
   const blank = { id: 22, version: 2, createdAt: null, createdBy: '11', content: '' }
   const hasBlankHistory = history === 'stale-preview' || history === 'preview-retry' || history === 'multiple'
   const useResource = ((address: string) => {
@@ -423,6 +425,18 @@ it.each(['loading', 'empty'] as const)('blocks restore while episode history is 
   expect(restoreHistory).not.toHaveBeenCalled()
   fireEvent.keyDown(document, { key: 'Escape' })
   expect(view.queryByRole('dialog')).toBeNull()
+})
+
+it('uses the version number alone for an absent or invalid history timestamp', () => {
+  const { props } = setup({ history: 'multiple', historyCreatedAt: 'unknown' })
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+
+  expect(dialog.getByRole('option', { name: 'Version 1' })).toHaveProperty('value', '21')
+  expect(dialog.getByRole('option', { name: 'Version 2' })).toHaveProperty('value', '22')
+  fireEvent.change(dialog.getByRole('combobox', { name: en.chooseDraftVersion }), { target: { value: '21' } })
+  expect(dialog.getByText('Jin watches the door.')).toBeTruthy()
 })
 
 it('keeps the previous preview from enabling restore after the version selection changes', () => {

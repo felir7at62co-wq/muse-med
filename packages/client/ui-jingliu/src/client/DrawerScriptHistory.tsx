@@ -15,7 +15,7 @@ function dateLabel(date: string | null, t: Text): string {
 }
 
 /**
- * Show the stored history of the active episode layer and restore one selected version on request.
+ * Show saved versions of the active episode layer, with dates when available, and restore the version under preview on request.
  * @param props - The episode and layer under review, their revision, and the account's data access.
  * @returns The revision list, preview and restore confirmation.
  */
@@ -45,10 +45,9 @@ export function DraftHistory({ draftId, episode, layer, baseRevision, epoch, rev
   const label = t('episodeHistory')
   return <Modal open title={label} closeLabel={t('close')} onClose={() => { if (!mutation.busy) close() }} footer={<>
     <Button size="sm" variant="ghost" disabled={mutation.busy} onClick={close}>{t('close')}</Button>
-    <Button size="sm" variant="primary" disabled={!canRestore} onClick={() => {
-      if (!canRestore) return
+    <Button size="sm" variant="primary" disabled={!canRestore} onClick={canRestore ? () => {
       void mutation.run(async () => { restored(await restore({ draftId, episode, layer, historyId: preview.id, baseRevision })) })
-    }}>{t('restoreDraftVersion')}</Button>
+    } : undefined}>{t('restoreDraftVersion')}</Button>
   </>}>
     <div className={css.editor}>
       <div className={css.episodeBar}>
@@ -60,13 +59,16 @@ export function DraftHistory({ draftId, episode, layer, baseRevision, epoch, rev
           : history.value.items.length === 0 ? <p className={data.quiet}>{t('emptyDraftHistory')}</p>
             : <label className={css.field}>{t('chooseDraftVersion')}
               <select className={css.select} value={selected ?? ''} disabled={mutation.busy} onChange={(event) => {
-                select(Number(event.target.value) || undefined)
+                select(Number(event.target.value))
                 if (mutation.problem !== 'conflict') mutation.reset()
               }}>
                 <option value="" disabled>{t('chooseDraftVersion')}</option>
-                {history.value.items.map(item => <option key={item.id} value={item.id}>
-                  {t('versionLabel', { number: item.version })}{item.createdAt ? ` · ${dateLabel(item.createdAt, t)}` : ''}
-                </option>)}
+                {history.value.items.map((item) => {
+                  const date = dateLabel(item.createdAt, t)
+                  return <option key={item.id} value={item.id}>
+                    {t('versionLabel', { number: item.version })}{date && ` · ${date}`}
+                  </option>
+                })}
               </select>
             </label>}
       {!failure && selected !== undefined && (preview === undefined ? <p className={data.quiet} role="status">{t('loading')}</p>

@@ -32,6 +32,7 @@ function detail(script: ScriptSummary, version: number): ScriptDetail {
 
 function live<T>(value: T) { return { status: 'live' as const, value, failure: undefined } }
 const failed = { status: 'failed', value: undefined, failure: undefined } as const
+const loading = { ...failed, status: 'loading' } as const
 const drafts: ScriptDraftList = { items: [], nextOffset: null }
 
 function setup(read: (url: URL) => ReturnType<DrawerScriptsProps['useResource']> | undefined) {
@@ -58,16 +59,19 @@ function setup(read: (url: URL) => ReturnType<DrawerScriptsProps['useResource']>
 afterEach(cleanup)
 
 it('retries, searches and pages through finalized scripts while keeping the active account and filters', () => {
+  let pageReady = false
   const { props, requests } = setup((url) => {
     if (url.hostname !== 'workshop-scripts') return undefined
     const page = Number(url.searchParams.get('page'))
     if (url.searchParams.get('revision') === '0') return failed
+    if (!pageReady) return loading
     if (url.searchParams.get('status') === 'in_production') return live<ScriptList>({
       items: [], total: 0, page, limit: 50, counts: { all: 51, waiting: 45, picked: 6, inProduction: 0 }, canPick: true,
     })
     const script = page === 2 ? { ...initialScript, id: 43, title: 'A Letter Across the Bridge',
       owner: { id: 13, name: null }, kind: 'narration' as const, style: '3d' as const } : initialScript
-    return live<ScriptList>({ items: [script], total: 51, page, limit: 50,
+    const items = page === 2 ? [script, { ...script, id: 44, title: ' ', owner: { id: 15, name: 'Workshop archive' } }] : [script]
+    return live<ScriptList>({ items, total: 51, page, limit: 50,
       counts: { all: 51, waiting: 45, picked: 6, inProduction: 0 }, canPick: true })
   })
   const lastSearch = () => Object.fromEntries(requests.filter(url => url.hostname === 'workshop-scripts').at(-1)!.searchParams)
@@ -76,6 +80,9 @@ it('retries, searches and pages through finalized scripts while keeping the acti
   const library = within(view.getByRole('region', { name: en.scriptLibrary }))
   expect(library.getByRole('alert').textContent).toContain(en.scriptsFailed)
   fireEvent.click(library.getByRole('button', { name: en.refresh }))
+  expect(library.getByText(en.loading)).toBeTruthy()
+  pageReady = true
+  view.rerender(<DrawerScripts {...props} />)
   expect(library.getByRole('button', { name: /Paper Bridges/u })).toBeTruthy()
   expect(lastSearch()).toEqual({ epoch: '3', revision: '1', status: '', q: '', mine: '', page: '1', limit: '50' })
 
@@ -89,6 +96,7 @@ it('retries, searches and pages through finalized scripts while keeping the acti
   expect(library.getByRole('button', { name: en.next })).toHaveProperty('disabled', true)
   const result = library.getByRole('button', { name: /A Letter Across the Bridge/u })
   expect(result.textContent).toContain(t('memberName', { id: '13' }))
+  expect(library.getByRole('button', { name: /Workshop archive/u }).textContent?.startsWith('·')).toBe(true)
   fireEvent.click(result)
   expect(props.openScript).toHaveBeenCalledExactlyOnceWith({ id: '43', title: 'A Letter Across the Bridge' })
 
@@ -100,6 +108,51 @@ it('retries, searches and pages through finalized scripts while keeping the acti
   fireEvent.click(library.getByRole('button', { name: /^In production/u }))
   expect(lastSearch()).toMatchObject({ status: 'in_production', mine: '1' })
   expect(library.getByText(en.nothingHere)).toBeTruthy()
+})
+
+it('retries a failed finalized detail without switching scripts or losing its account', () => {
+  let detailReady = false
+  const { props, requests } = setup((url) => {
+    if (url.hostname !== 'workshop-script') return undefined
+    if (url.searchParams.get('revision') === '0') return failed
+    return detailReady ? live(detail(initialScript, 2)) : loading
+  })
+  const drawer = <DrawerScripts {...props} script={openScript} />
+  const view = render(drawer)
+  const alert = within(view.getByRole('alert'))
+  expect(alert.getByText(en.scriptsFailed)).toBeTruthy()
+  fireEvent.click(alert.getByRole('button', { name: en.refresh }))
+  expect(view.getByText(en.loading)).toBeTruthy()
+  expect(view.queryByRole('alert')).toBeNull()
+  detailReady = true
+  view.rerender(<DrawerScripts {...props} script={openScript} />)
+  expect(view.getByRole('region', { name: initialScript.title })).toBeTruthy()
+  expect(view.getByRole('heading', { name: 'The crossing' })).toBeTruthy()
+  expect(requests.filter(url => url.hostname === 'workshop-script').map(url => Object.fromEntries(url.searchParams))).toEqual([
+    { epoch: '3', revision: '0', id: '42' }, { epoch: '3', revision: '1', id: '42' }, { epoch: '3', revision: '1', id: '42' },
+  ])
+})
+
+it.each([null, 'Original manuscript'])('opens an original narration without episodes and uses the available version (%s)', (originTitle) => {
+  const script: ScriptSummary = {
+    ...initialScript, id: 43, title: 'Bridge stories', rights: 'original', originWorkId: null, originTitle,
+    kind: 'narration', style: '3d', episodes: 0, words: 800, latestVersion: 4, status: 'picked',
+  }
+  const contents: ScriptDetail = { script, canPick: true, versions: [], content: { version: 4, episodes: [] } }
+  const { props } = setup(url => url.hostname === 'workshop-script' ? live(contents) : undefined)
+  const view = render(<DrawerScripts {...props} script={{ id: '43', title: script.title }} />)
+  const info = within(view.getByRole('complementary', { name: en.scriptParams }))
+  expect(info.getByText(en.rightsOriginal)).toBeTruthy()
+  expect(info.getByText(en.scriptOrigin).nextElementSibling?.textContent).toBe(originTitle ?? '—')
+  expect(info.getByText(en.scriptWords).nextElementSibling?.textContent).toBe(t('wordsValue', { value: '800' }))
+  expect(info.getByText(t('versionLabel', { number: 4 }))).toBeTruthy()
+  expect(info.queryByRole('combobox', { name: en.scriptVersion })).toBeNull()
+  expect(view.getByText(en.nothingHere)).toBeTruthy()
+  expect(view.queryByRole('article')).toBeNull()
+  fireEvent.click(info.getByRole('button', { name: en.newJingliuProject }))
+  expect(props.compose).toHaveBeenCalledExactlyOnceWith(t('scriptProjectRequest', {
+    title: script.title, id: '43', version: '4', form: en.typeNarration, look: en.look3d, episodes: '0',
+  }))
 })
 
 it('quotes the viewed episode but bases a new production on the accepted version', async () => {
@@ -146,6 +199,7 @@ it('quotes the viewed episode but bases a new production on the accepted version
 
 it('retries a failed project link and updates the script to the chosen production', async () => {
   let script: ScriptSummary = { ...initialScript, status: 'picked', picked: { version: 2, by: owner, at: null } }
+  let projects: StudioProject[] | undefined
   const project: StudioProject = {
     id: 'p-1', title: 'Bridge pilot', episodes: 0, shots: 0, completed: 0, role: 'owner', thumbnail: '',
     mode: 'drama', aspect: '9:16', createdAt: '', profile: { videoModel: '', generationMode: '', resolution: '' },
@@ -153,8 +207,8 @@ it('retries a failed project link and updates the script to the chosen productio
   const { props, requests } = setup((url) => {
     if (url.hostname === 'workshop-script') return live(detail(script, 2))
     if (url.hostname !== 'jingliu-projects') return undefined
-    return url.searchParams.get('revision') === '0' ? failed
-      : live([project, { ...project, id: 'p-2', title: 'Bridge production' }])
+    if (url.searchParams.get('revision') === '0') return failed
+    return projects === undefined ? loading : live(projects)
   })
   props.link.mockRejectedValueOnce(new Error('Workshop write failed')).mockImplementationOnce(async ({ projectId, projectTitle }) => {
     script = { ...script, status: 'in_production', project: { id: projectId, title: projectTitle } }
@@ -163,6 +217,14 @@ it('retries a failed project link and updates the script to the chosen productio
   fireEvent.click(view.getByRole('button', { name: en.linkProject }))
   const error = within(view.getByRole('alert'))
   fireEvent.click(error.getByRole('button', { name: en.refresh }))
+  expect(view.getByText(en.loading)).toBeTruthy()
+  projects = []
+  view.rerender(<DrawerScripts {...props} script={openScript} />)
+  expect(view.getByText(en.emptyProjects)).toBeTruthy()
+  expect(view.queryByRole('combobox', { name: en.chooseProject })).toBeNull()
+  expect(props.link).not.toHaveBeenCalled()
+  projects = [project, { ...project, id: 'p-2', title: 'Bridge production' }]
+  view.rerender(<DrawerScripts {...props} script={openScript} />)
   const picker = view.getByRole('combobox', { name: en.chooseProject })
   expect(picker).toHaveProperty('value', 'p-1')
   fireEvent.change(picker, { target: { value: 'p-2' } })
@@ -179,6 +241,7 @@ it('retries a failed project link and updates the script to the chosen productio
 })
 
 it('fetches source rankings on demand and retries without losing the displayed script', async () => {
+  let sourceReady = false
   const work: MuseDataWorkDetail = {
     id: 'fanqie:700', platform: 'fanqie', sourceId: '700', title: 'An old bridge: original', author: 'Song',
     tags: ['Family', 'Mystery'], episodeCount: 32, wordCount: 16000, board: 'Adaptations', rank: 4,
@@ -190,7 +253,8 @@ it('fetches source rankings on demand and retries without losing the displayed s
   const { props, requests } = setup((url) => {
     if (url.hostname === 'workshop-script') return live(detail(initialScript, 2))
     if (url.hostname !== 'muse-data-work') return undefined
-    return url.searchParams.get('revision') === '0' ? failed : live(work)
+    if (url.searchParams.get('revision') === '0') return failed
+    return sourceReady ? live(work) : loading
   })
   const view = render(<DrawerScripts {...props} script={openScript} />)
   expect(requests.some(url => url.hostname === 'muse-data-work')).toBe(false)
@@ -198,6 +262,9 @@ it('fetches source rankings on demand and retries without losing the displayed s
   fireEvent.click(origin)
   expect(view.getByRole('alert').textContent).toContain(en.dataFailed)
   fireEvent.click(within(view.getByRole('alert')).getByRole('button', { name: en.refresh }))
+  expect(view.getByText(en.loading)).toBeTruthy()
+  sourceReady = true
+  view.rerender(<DrawerScripts {...props} script={openScript} />)
   await waitFor(() => {
     expect(view.getByText(work.title!)).toBeTruthy()
   })
@@ -208,9 +275,29 @@ it('fetches source rankings on demand and retries without losing the displayed s
   expect(data.queryByText('Shares')).toBeNull()
   const sourceRequests = requests.filter(url => url.hostname === 'muse-data-work')
   expect(sourceRequests.map(url => ({ id: url.searchParams.get('id'), revision: url.searchParams.get('revision') }))).toEqual([
-    { id: work.id, revision: '0' }, { id: work.id, revision: '1' },
+    { id: work.id, revision: '0' }, { id: work.id, revision: '1' }, { id: work.id, revision: '1' },
   ])
   fireEvent.click(origin)
   expect(view.queryByLabelText(en.originData)).toBeNull()
   expect(view.getByRole('heading', { name: 'The crossing' })).toBeTruthy()
+})
+
+it('shows an unranked source by its ID when the catalog has no title, counts or valid date', () => {
+  const work: MuseDataWorkDetail = {
+    id: 'fanqie:700', platform: 'fanqie', sourceId: '700', title: null, author: null,
+    tags: [], episodeCount: null, wordCount: null, board: 'Adaptations', rank: null, observedAt: '', metrics: [],
+  }
+  const script = { ...initialScript, originTitle: null }
+  const { props, requests } = setup((url) => {
+    if (url.hostname === 'workshop-script') return live(detail(script, 2))
+    return url.hostname === 'muse-data-work' ? live(work) : undefined
+  })
+  const view = render(<DrawerScripts {...props} script={openScript} />)
+  fireEvent.click(view.getByRole('button', { name: work.id }))
+  const data = within(view.getByLabelText(en.originData))
+  expect(data.getByText(work.sourceId)).toBeTruthy()
+  expect(data.getByText(en.platformFanqie)).toBeTruthy()
+  expect(data.getByText(work.board)).toBeTruthy()
+  expect(data.queryByText(/No\. |observed|episodes|words/iu)).toBeNull()
+  expect(requests.find(url => url.hostname === 'muse-data-work')?.searchParams.get('id')).toBe(work.id)
 })
