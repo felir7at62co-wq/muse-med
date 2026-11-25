@@ -51,6 +51,7 @@
   ],
   "modifiedFiles": [
     "README.md",
+    "client.js",
     "cordis.patch.yml",
     "dev/characters.mjs",
     "index.js",
@@ -198,7 +199,8 @@
     "The plain-session row is named \"Muse 会话\" and always exists (`ensureAgent` at team bootstrap, no first Session); its menu no longer offers removal, because removing the row archives every Session it holds",
     "The row works in one workspace: unfolded it shows a workspace picker first (the pick is kept in `localStorage` under `ds-bot:agent-workspace`, else the workspace of its latest Session), nothing opens before a workspace is picked, new Sessions are made in that workspace, and only that workspace's Sessions are listed",
     "The ordinary Sessions of the picked workspace join the row through the `agent-sync` endpoint (`syncAgentSessions`), which skips every Session a Bot, a group or the row already owns",
-    "`client.js` is rebuilt from `src/client` by the Muse plugin build; the committed copy is upstream's and does not contain the changes above",
+    "Muse packaging builds `client.js` from `src/client` in private staging",
+    "Phone confirmation cards (`src/client/styles.js`) scroll within a bounded dock and keep their controls at least 44 px wide and high",
     "Settings and the account menu no longer offer \"Classic Agent mode\"; Settings still offers the way back when a window is already in that mode, and the hint shown when the Bot team fails to start still offers the classic view",
     "When a conversation moves on to a fresh part, `moveOn` emits the host event `task-skill/carry` before the handoff package, so the task skills in effect stay in effect in the fresh part; `canMakeRoom` counts the skill-invocation messages of the current part as carried again, so a part that holds little besides its skills is not replaced over and over",
     "Brand: the interface says \"Muse\". `t()` and `hostText()` replace \"DS Bot\", \"DeepSeek Harness\" and the word \"DSH\" in shown text after translation; the sidebar name, the About name, the notification title and one refusal line are literals changed in place. Host-side text is changed at its source (see the entry on host-side text)",

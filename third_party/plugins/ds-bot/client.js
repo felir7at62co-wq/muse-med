@@ -1758,6 +1758,7 @@ var JA = {
   "Attachments: {names}": "添付ファイル: {names}",
   "Sent": "送信済み",
   "Failed": "失敗",
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "ブラウザーの引き継ぎへの回答はすでにキューに追加された可能性がありますが、保存は確認できていません。新しいリクエストを送る前に会話を確認してください。",
   "Request failed": "リクエストに失敗しました",
   "Permissions are not available in this DeepSeek Harness": "この DeepSeek Harness では権限設定を利用できません",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "アバター画像は PNG、JPEG、WebP、または GIF 形式である必要があります",
@@ -4348,6 +4349,7 @@ var KO = {
   "Sent": "전송됨",
   "Failed": "실패",
   // Host static strings (HOST_ZH)
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "브라우저 인계 응답이 이미 대기열에 추가되었을 수 있지만 저장 여부는 확인되지 않았습니다. 새 요청을 보내기 전에 대화를 확인하세요.",
   "Request failed": "요청 실패",
   "Permissions are not available in this DeepSeek Harness": "이 DeepSeek Harness에서는 권한 설정을 지원하지 않습니다",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "아바타 이미지는 PNG, JPEG, WebP 또는 GIF 형식이어야 합니다",
@@ -6940,6 +6942,7 @@ var ES = {
   "Sent": "Enviado",
   "Failed": "Falló",
   // HOST_ZH merged keys
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "Es posible que la respuesta a la cesión del navegador ya esté en cola. No se ha confirmado que se haya guardado. Revisa la conversación antes de enviar otra solicitud.",
   "Request failed": "Solicitud fallida",
   "Permissions are not available in this DeepSeek Harness": "Los permisos no están disponibles en este DeepSeek Harness",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "Las imágenes de avatar deben ser PNG, JPEG, WebP o GIF",
@@ -9489,6 +9492,7 @@ var FR = {
   "Attachments: {names}": "Pièces jointes : {names}",
   "Sent": "Envoyé",
   "Failed": "Échec",
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "La réponse au transfert du navigateur est peut-être déjà en attente. Son enregistrement reste à confirmer. Consultez la conversation avant d’envoyer une nouvelle demande.",
   "Request failed": "Échec de la requête",
   "Permissions are not available in this DeepSeek Harness": "Les autorisations ne sont pas disponibles dans ce DeepSeek Harness",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "Les images d’avatar doivent être au format PNG, JPEG, WebP ou GIF",
@@ -12079,6 +12083,7 @@ var DE = {
   "Sent": "Gesendet",
   "Failed": "Fehlgeschlagen",
   // HOST_ZH + lines 1601-1653
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "Die Antwort auf die Browserübergabe steht möglicherweise bereits in der Warteschlange. Ob sie gespeichert wurde, ist noch unklar. Prüfe den Chat, bevor du eine weitere Anfrage sendest.",
   "Request failed": "Anfrage fehlgeschlagen",
   "Permissions are not available in this DeepSeek Harness": "Berechtigungen werden in diesem DeepSeek Harness nicht unterstützt",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "Avatar-Bilder müssen im Format PNG, JPEG, WebP oder GIF vorliegen",
@@ -14851,6 +14856,7 @@ var HOST_ZH = {
   "Another dsh has this Bot team open, so phones connect to that one": "另一个 dsh 打开了这个 Bot 团队，手机会连到那一个",
   "This dsh runs on a Node without WebSocket": "这个 dsh 用的 Node 不支持 WebSocket",
   "Phones are paired and removed on the computer": "配对和删除手机只能在电脑上做",
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "浏览器交接答复可能已被接收，但尚未确认保存成功。发送新请求前，请先检查会话",
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "头像图片必须是 PNG、JPEG、WebP 或 GIF",
@@ -22567,6 +22573,9 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q.bt-q-settled{--bt-q-px:14px}
 .bt-q-inline .bt-q,.bt-q-inline .dv-view,.bt-q-inline .dv-q{width:100%;max-width:100%}
 .bt-q .bt-q-opt,.bt-q button,.bt-q-inline .dv-view button,.dv-seg.dv-view-seg button{min-height:44px}
+.bt-q :is(.bt-q-submit,.bt-q-btn,.bt-q-x){min-width:44px}
+.bt-q-dock{max-height:min(440px,52vh);max-height:min(440px,52dvh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.bt-q-dock>.bt-q{flex-shrink:0}
 .bt-q-opt-label,.bt-q-inline .dv-q-label{white-space:normal;overflow-wrap:anywhere}
 .bt-dialog-log{padding-left:12px;padding-right:12px}
 .bt-exchange .bt-dialog-log{padding-left:12px;padding-right:12px}

@@ -17,26 +17,20 @@ for (const engine of engines) {
 
     beforeAll(async () => {
       const bundled = await build({
-        stdin: {
-          contents: `import { SHELL_CSS, CONVERSATION_CSS } from './third_party/plugins/ds-bot/src/client/styles.js';
-import { closePhoneSidebar } from './third_party/plugins/ds-bot/src/client/phone-navigation.js';
-const style = document.createElement('style');
-style.textContent = SHELL_CSS + CONVERSATION_CSS;
-document.head.append(style);
-document.getElementById('open-chat')?.addEventListener('click', () => closePhoneSidebar({ toggleSidebar() {
-  document.getElementById('frame').setAttribute('data-sidebar-collapsed', '');
-  document.getElementById('frame').dataset.toggles = String(Number(document.getElementById('frame').dataset.toggles || 0) + 1);
-} }));`,
-          resolveDir: root,
-          sourcefile: 'mobile-layout-fixture.js',
-        },
-        nodePaths: [join(root, 'node_modules/.pnpm/node_modules')],
+        entryPoints: [fileURLToPath(new URL('./fixtures/muse-mobile-layout.js', import.meta.url))],
+        nodePaths: [join(root, 'apps/web/node_modules'), join(root, 'node_modules/.pnpm/node_modules')],
+        define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+        loader: { '.ttf': 'dataurl', '.woff': 'dataurl', '.woff2': 'dataurl' },
         bundle: true,
         platform: 'browser',
         format: 'iife',
+        outdir: 'muse-mobile-layout',
         write: false,
       })
-      script = bundled.outputFiles[0]!.text
+      const client = bundled.outputFiles.find(file => file.path.endsWith('.js'))
+      const styles = bundled.outputFiles.find(file => file.path.endsWith('.css'))
+      if (!client || !styles) throw new Error('The phone fixture must bundle client code and primitive styles')
+      script = `document.head.append(Object.assign(document.createElement('style'), { textContent: ${JSON.stringify(styles.text)} }));\n${client.text}`
       browser = await engine.launch()
       const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
       page = await context.newPage()
@@ -45,19 +39,24 @@ document.getElementById('open-chat')?.addEventListener('click', () => closePhone
     afterAll(async () => { await browser?.close() })
 
     it('collapses the expanded sidebar on a phone after opening a conversation', async () => {
-      await page.setContent('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="frame"><div class="fixture_sidebarCol"><button id="open-chat">Open conversation</button></div></div>')
+      await page.setContent('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="phone-sidebar-fixture"></div>')
       await page.addScriptTag({ content: script })
-      await page.getByRole('button', { name: 'Open conversation' }).tap()
-      expect(await page.locator('#frame').getAttribute('data-sidebar-collapsed')).toBe('')
-      expect(await page.locator('#frame').getAttribute('data-toggles')).toBe('1')
-      await page.getByRole('button', { name: 'Open conversation' }).tap()
-      expect(await page.locator('#frame').getAttribute('data-toggles')).toBe('1')
+      const column = page.locator('.bt-leftcol')
+      const conversation = page.getByRole('button', { name: /Paper Bridge/u })
+      const selection = page.locator('output')
+      await expect.poll(() => column.getAttribute('data-left')).toBe('drawer')
+      await conversation.tap()
+      await expect.poll(() => column.getAttribute('data-left')).toBe('rail')
+      expect(await selection.textContent()).toBe('bridge')
+      expect(await selection.getAttribute('data-drawer-closes')).toBe('1')
+      await conversation.tap()
+      expect(await selection.getAttribute('data-drawer-closes')).toBe('1')
 
       await page.setViewportSize({ width: 1280, height: 850 })
-      await page.locator('#frame').evaluate((node) =>{  node.removeAttribute('data-sidebar-collapsed') })
-      await page.getByRole('button', { name: 'Open conversation' }).click()
-      expect(await page.locator('#frame').getAttribute('data-sidebar-collapsed')).toBeNull()
-      expect(await page.locator('#frame').getAttribute('data-toggles')).toBe('1')
+      await expect.poll(() => column.getAttribute('data-left')).toBe('open')
+      await conversation.click()
+      expect(await column.getAttribute('data-left')).toBe('open')
+      expect(await selection.getAttribute('data-drawer-closes')).toBe('1')
     })
 
     it('keeps a long confirmation scrollable with reachable touch controls in both themes', async () => {
@@ -114,15 +113,36 @@ document.getElementById('open-chat')?.addEventListener('click', () => closePhone
       await page.setContent('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}</style><main>Conversation</main>')
       await page.addScriptTag({ content: script })
       expect(await page.locator('body').evaluate(body => getComputedStyle(body).paddingTop)).toBe('0px')
-      await page.addStyleTag({ content: 'body{padding-top:36px!important;box-sizing:border-box}#muse-desktop-context{position:fixed;top:0;height:36px}' })
-      await page.locator('body').evaluate((body) => {
-        const banner = document.createElement('nav')
-        banner.id = 'muse-desktop-context'
-        body.append(banner)
+      const mount = 'http://muse-mobile.invalid/desktop/fixture/'
+      const presence = await readFile(join(root, 'services/muse-accounts/desktop-presence.js'), 'utf8')
+      await page.route('http://muse-mobile.invalid/**', (route) => {
+        switch (route.request().url()) {
+          case mount:
+            return route.fulfill({
+              contentType: 'text/html; charset=utf-8',
+              body: '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><main>Conversation</main><script src="desktop-presence.js" data-name="Editing computer" defer></script>',
+            })
+          case mount + 'desktop-presence.js':
+            return route.fulfill({ contentType: 'text/javascript; charset=utf-8', body: presence })
+          case mount + 'api/desktop/status':
+            return route.fulfill({ json: { state: 'online' } })
+          default:
+            return route.fulfill({ status: 404 })
+        }
       })
-      const rules = await page.evaluate(() => Array.from(document.styleSheets).flatMap(sheet => Array.from(sheet.cssRules)).filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule).filter(rule => rule.selectorText.includes('muse-desktop-context')).map(rule => ({ selector: rule.selectorText, top: rule.style.top, paddingTop: rule.style.paddingTop, priority: rule.style.getPropertyPriority('padding-top') })))
-      expect(rules).toContainEqual({ selector: 'body:has(> #muse-desktop-context)', top: '', paddingTop: 'calc(36px + env(safe-area-inset-top,0px))', priority: 'important' })
-      expect(rules).toContainEqual({ selector: 'body > #muse-desktop-context', top: 'env(safe-area-inset-top,0px)', paddingTop: '', priority: '' })
+      await page.goto(mount)
+      await page.getByRole('navigation', { name: '当前电脑' }).getByText('电脑：Editing computer').waitFor()
+      const rules = await page.evaluate(() => Array.from(document.styleSheets)
+        .flatMap(sheet => Array.from(sheet.cssRules))
+        .filter((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule)
+        .map(rule => ({
+          selector: rule.selectorText,
+          top: rule.style.top.replaceAll(' ', ''),
+          paddingTop: rule.style.paddingTop.replaceAll(' ', ''),
+          priority: rule.style.getPropertyPriority('padding-top'),
+        })))
+      expect(rules).toContainEqual(expect.objectContaining({ selector: 'body', paddingTop: 'calc(36px+env(safe-area-inset-top,0px))', priority: 'important' }))
+      expect(rules).toContainEqual(expect.objectContaining({ selector: '#muse-desktop-context', top: 'env(safe-area-inset-top,0px)' }))
       expect(await page.locator('body').evaluate(body => getComputedStyle(body).paddingTop)).toBe('36px')
       expect(await page.locator('#muse-desktop-context').evaluate(banner => getComputedStyle(banner).top)).toBe('0px')
     })

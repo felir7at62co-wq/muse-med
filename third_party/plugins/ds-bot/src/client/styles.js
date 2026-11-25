@@ -1438,6 +1438,9 @@ div:has(> nav [class*="_marks"]){display:none!important}
 .bt-q.bt-q-settled{--bt-q-px:14px}
 .bt-q-inline .bt-q,.bt-q-inline .dv-view,.bt-q-inline .dv-q{width:100%;max-width:100%}
 .bt-q .bt-q-opt,.bt-q button,.bt-q-inline .dv-view button,.dv-seg.dv-view-seg button{min-height:44px}
+.bt-q :is(.bt-q-submit,.bt-q-btn,.bt-q-x){min-width:44px}
+.bt-q-dock{max-height:min(440px,52vh);max-height:min(440px,52dvh);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.bt-q-dock>.bt-q{flex-shrink:0}
 .bt-q-opt-label,.bt-q-inline .dv-q-label{white-space:normal;overflow-wrap:anywhere}
 .bt-dialog-log{padding-left:12px;padding-right:12px}
 .bt-exchange .bt-dialog-log{padding-left:12px;padding-right:12px}

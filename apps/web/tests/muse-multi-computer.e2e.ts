@@ -81,6 +81,8 @@ describe.skipIf(webSnapshotMode() === 'record')('Muse multi-computer Web access'
       page.on('pageerror', error => errors.push(error.message))
     }
     try {
+      await picker.waitForURL(account.base + '/workbench', { timeout: 10_000 })
+      await picker.getByRole('link', { name: '进入我的本地 Bot', exact: true }).click()
       await picker.getByRole('heading', { name: '选择电脑' }).waitFor({ timeout: 10_000 })
     } catch (error) {
       await picker.screenshot({ path: join(shotDir, 'failure-login.png') })

@@ -264,7 +264,7 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 ## Desktop website access
 
-网关入口默认使用 `MUSE_WORKSPACE_MODE=desktop`。桌面安装通过 `/api/desktop/connect` 连接。浏览器登录后，`/` 在仅一台电脑在线时自动进入；多台或没有电脑在线时显示电脑选择页。`/computers` 始终打开选择页，显示账号所属电脑的名称、操作系统、在线状态和最近连接时间。普通浏览器访问不会启动云端 agent。显式设置 `MUSE_WORKSPACE_MODE=cloud` 可保留云端工作间；`createAccountServer` 库工厂为兼容现有调用者，仍保留该默认值。
+网关入口默认使用 `MUSE_WORKSPACE_MODE=desktop`。桌面安装通过 `/api/desktop/connect` 连接。浏览器登录后，`/` 打开 `/workbench`。点击 **进入我的本地 Bot** 可打开 `/computers` 电脑选择页，查看账号所属电脑的名称、操作系统、在线状态和最近连接时间。普通浏览器访问不会启动云端 agent。显式设置 `MUSE_WORKSPACE_MODE=cloud` 可使用云端工作间，这也是 `createAccountServer` 库工厂的默认设置。
 
 显式管理员账号上下文在独立口令提升权限后，使用 `MUSE_RUNTIME_SOCKET` 指定的既有运行时 broker（默认 `/run/muse-runtime/broker.sock`）。普通桌面接口既不启动云端工作间，也不延长其活动时间。每个管理员上下文仍绑定其登录、目标与到期时间；其他账号或后续登录不能复用该授权。这些上下文不会改变用户的桌面绑定。
 
@@ -274,7 +274,7 @@ HTTP 上传、事件流、Range 响应和原生 `/api/remote.mux` 数据帧按�
 
 桥接每隔 `heartbeatIntervalMs`（15 秒）向在线桌面发送 Ping；`heartbeatTimeoutMs`（30 秒）内没有 Pong 时，将桌面标为离线并关闭浏览器的观察连接。选择页与入口页面可见时每五秒查询状态。聊天页显示当前电脑；**切换电脑** 在新标签页打开选择页，保留当前标签页。另一台电脑在线时，断线标签页仍等待原来的 UUID。断线与登录过期提示会保留当前工作区和未发送内容；重连移除提示，不刷新页面。只有完整、未压缩的入口 GET 页面会加入观察脚本；HEAD、部分响应、压缩内容和事件流保留原始字节。本地 Host 响应或 WebSocket 升级失败只结束对应浏览器请求，桌面控制连接保持可用。
 
-手机入口使用所选电脑的 `/desktop/<installation-UUID>/?mobile=1` 地址。电脑选择与重连会保留手机模式及所选安装实例。相对 manifest、启动地址和作用域让添加到主屏幕的入口绑定这台电脑；媒体 Range 请求与 Bot 事件流使用同一个经过账号认证的挂载路径。
+手机入口使用所选电脑的 `/desktop/<installation-UUID>/?mobile=1` 地址。电脑选择与重连会保留手机模式及所选安装实例。聊天页的电脑状态栏会为手机顶部安全区留出空间。相对 manifest、启动地址和作用域让添加到主屏幕的入口绑定这台电脑。媒体 Range 请求与 Bot 事件流使用同一个经过账号认证的挂载路径。
 
 桌面模式需要 TLS 反向代理把 WebSocket 转发到此进程。仅安装客户端不会切换已部署的网关。本地集成与 Chromium 测试验证了电脑选择、独立标签页、隔离、Range 播放、取消与撤权；生产手机登录和反向代理仍需要部署验证。
 
