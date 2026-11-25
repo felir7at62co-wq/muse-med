@@ -9,9 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The desktop opens the signed-in account's retained Router in the local default workspace. It can greet once using the verified profile while the Router is idle and before any human message. A confirmed cloud production follows an assignment to its worker, even if the user later selects another production in the Router.
+Muse Desktop opens the signed-in account's Router in the default workspace. An idle Router may greet once using the verified profile before the first human message. Workers keep their assignment's confirmed cloud production after a project switch.
 
-Compose this optional Host plugin with a routing-only preset. The Main Session searches the local profile owner's ordinary conversations, checks candidate summaries, and chooses an idle existing Session or a fresh worker. Workers keep their ordinary tools, history and presets. The separate task ledger tracks dispatch and execution revisions; receipt delivery does not imply completion or human acceptance.
+Mount this optional Host plugin with a routing-only preset. The Main Session checks the owner's conversation summaries and chooses an idle Session or a fresh worker. Workers keep their tools, history and presets. The task ledger records dispatches, execution revisions and receipts. Completion and acceptance require separate evidence.
 
 ## Table of Contents
 

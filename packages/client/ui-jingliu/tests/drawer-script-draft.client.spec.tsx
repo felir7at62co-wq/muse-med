@@ -26,12 +26,13 @@ const shot = {
 
 afterEach(cleanup)
 
-function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = false, legacyEmptyBoard = false, storedShots }: {
+function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = false, legacyEmptyBoard = false, storedShots, history = 'live' }: {
   stale?: boolean
   canFinalize?: boolean
   changedBeforeConfirmation?: boolean
   legacyEmptyBoard?: boolean
   storedShots?: string
+  history?: 'live' | 'loading' | 'empty' | 'retry'
 } = {}) {
   const reads: URL[] = []
   let latestRevision = draft.revision
@@ -56,7 +57,11 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
         revision: url.searchParams.has('confirmation') && changedBeforeConfirmation ? 'unreviewed-revision' : latestRevision }; break
       case 'workshop-draft-episode': value = episodeRow(Number(url.searchParams.get('episode'))); break
       case 'workshop-draft-storyboard': value = storyRow(Number(url.searchParams.get('episode'))); break
-      case 'workshop-draft-history': value = { items: [old] }; break
+      case 'workshop-draft-history':
+        if (history === 'loading') return { status: 'loading', value: undefined, failure: undefined }
+        if (history === 'retry' && url.searchParams.get('retry') === '0') return { status: 'failed', value: undefined, failure: undefined }
+        value = { items: history === 'empty' ? [] : [old] }
+        break
       case 'workshop-draft-history-entry': value = { ...old, content: url.searchParams.get('layer') === 'storyboard'
         ? JSON.stringify([{ ...shot, location: 'Market' }]) : 'Jin watches the door.' }; break
     }
@@ -270,6 +275,37 @@ it('restores a legacy revision for the chosen episode and layer when its version
   expect(view.getByText(/Market/u)).toBeTruthy()
   expect(restoreHistory).toHaveBeenCalledWith({ draftId: 45, episode: 3, layer: 'storyboard', historyId: 21, baseRevision: 'board-3' })
   expect(saveEpisode).not.toHaveBeenCalled()
+})
+
+it.each(['loading', 'empty'] as const)('blocks restore while episode history is %s', (history) => {
+  const { props, restoreHistory } = setup({ history })
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+  expect(dialog.getByText(history === 'loading' ? en.loading : en.emptyDraftHistory)).toBeTruthy()
+  expect(dialog.getByRole('button', { name: en.restoreDraftVersion })).toHaveProperty('disabled', true)
+  expect(restoreHistory).not.toHaveBeenCalled()
+})
+
+it.each([
+  ['SCRIPT_EDITOR_VERSION_CHANGED', en.draftConflict, true],
+  ['WORKSHOP_UNAVAILABLE', en.draftRestoreFailed, false],
+] as const)('retries history reads and keeps the selected chapter open after %s', async (code, message, blocked) => {
+  const { props, reads, restoreHistory } = setup({ history: 'retry' })
+  restoreHistory.mockRejectedValueOnce(Object.assign(new Error('Restore rejected'), { code }))
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+  expect(dialog.getByRole('alert').textContent).toContain(en.draftHistoryFailed)
+  fireEvent.click(dialog.getByRole('button', { name: en.retry }))
+  expect(reads.some(url => url.hostname === 'workshop-draft-history' && url.searchParams.get('retry') === '1')).toBe(true)
+  fireEvent.change(dialog.getByRole('combobox', { name: en.chooseDraftVersion }), { target: { value: '21' } })
+  expect(dialog.getByText('Jin watches the door.')).toBeTruthy()
+  const restore = dialog.getByRole('button', { name: en.restoreDraftVersion })
+  fireEvent.click(restore)
+  await waitFor(() => { expect(dialog.getByRole('alert').textContent).toContain(message) })
+  expect(restore).toHaveProperty('disabled', blocked)
+  expect(restoreHistory).toHaveBeenCalledWith({ draftId: 45, episode: 3, layer: 'chapter', historyId: 21, baseRevision: 'episode-3' })
 })
 
 it.each(['chapters', 'mixed', 'outline'] as const)('downloads %s in the selected format and supported scope', async (kind) => {

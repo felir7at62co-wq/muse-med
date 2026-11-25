@@ -12,9 +12,9 @@ import { assertDesktopHostPackageFiles } from '../scripts/prepare-package-set.ts
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const host = join(root, 'apps/desktop-host')
-const runtimeEntries = ['index', 'cli', 'retired-bot', 'delegation-policy', 'native-preset', 'creation-policy',
-  'editing-policy', 'creation-skills', 'short-drama-guidance', 'feishu-migration', 'manuscript-revisions',
-  'manuscript-continuity-preset', 'manuscript-source-review', 'source-recovery', 'jianying-draft', 'computer-use',
+const runtimeEntries = ['index', 'cli', 'retired-bot', 'product-drama-settings', 'delegation-policy', 'native-preset',
+  'creation-policy', 'editing-policy', 'craft', 'creation-skills', 'short-drama-guidance', 'feishu-migration', 'manuscript-revisions',
+  'manuscript-continuity-preset', 'manuscript-source-review', 'source-recovery', 'jianying-draft', 'office', 'computer-use',
   'computer-input-worker', 'workspace-owned-storage', 'workspace-owner-lease', 'workspace-storage-composition',
   'workspace-handoff', 'workspace-process-snapshot', 'generation-loop-composition', 'episode-source-authority',
   'approved-episode-render', 'episode-render-worker']

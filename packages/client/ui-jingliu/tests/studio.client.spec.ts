@@ -17,12 +17,14 @@ vi.mock('@deepseek-ai/dsh-jingliu-connection/remote', () => ({ default: {} }))
 afterEach(() => vi.unstubAllGlobals())
 
 it.each([
-  { config: {}, titles: [], urls: [] },
-  { config: { studioOrigin: 'http://127.0.0.1:18796' }, titles: ['镜流'], urls: ['http://127.0.0.1:18796/fwp/v2/auth/muse/embed'] },
-  { config: { workshopOrigin: 'https://scripts.example' }, titles: ['剧本工坊'], urls: ['https://scripts.example/v1/auth/muse/embed'] },
+  { config: {}, titles: [], descriptions: [], urls: [] },
+  { config: { studioOrigin: 'http://127.0.0.1:18796' }, titles: ['镜流'], descriptions: ['短剧制作工作台'],
+    urls: ['http://127.0.0.1:18796/fwp/v2/auth/muse/embed'] },
+  { config: { workshopOrigin: 'https://scripts.example' }, titles: ['剧本工坊'], descriptions: ['剧本创作与编辑'],
+    urls: ['https://scripts.example/v1/auth/muse/embed'] },
   { config: { studioOrigin: 'https://studio.example', workshopOrigin: 'https://scripts.example' },
-    titles: ['镜流', '剧本工坊'], urls: ['https://studio.example/fwp/v2/auth/muse/embed', 'https://scripts.example/v1/auth/muse/embed'] },
-])('opens each configured workbench independently ($titles)', async ({ config, titles, urls }) => {
+    titles: ['镜流', '剧本工坊'], descriptions: ['短剧制作工作台', '剧本创作与编辑'], urls: ['https://studio.example/fwp/v2/auth/muse/embed', 'https://scripts.example/v1/auth/muse/embed'] },
+])('opens each configured workbench independently ($titles)', async ({ config, titles, descriptions, urls }) => {
   const ctx = new Context()
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(host, config).await()
@@ -46,8 +48,24 @@ it.each([
   await active.await()
   const entries = ctx.sidebarRightTabs.guide()
   expect(entries.map(entry => entry.title())).toEqual(titles)
-  for (const entry of entries) expect(ctx.sidebarRightTabs.get(entry.kind)?.keepMounted).toBe(true)
+  expect(entries.map(entry => entry.description?.())).toEqual(descriptions)
+  for (const entry of entries) {
+    const tab = ctx.sidebarRightTabs.get(entry.kind)
+    expect(tab?.title('')).toBe(entry.title())
+    expect(tab?.keepMounted).toBe(true)
+  }
   await active.dispose()
+  expect(ctx.sidebarRightTabs.guide()).toHaveLength(0)
+})
+
+it('rejects an embedded Workshop on the renderer origin', async () => {
+  vi.stubGlobal(WORKSHOP_URL_GLOBAL, new URL('/v1/auth/muse/embed', location.origin).href)
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await ctx.plugin(SlotRegistry).await()
+  ctx.provide('locale', new LocaleRuntime(ctx))
+  ctx.provide('sidebarRightTabs', new SidebarRightTabRegistry(ctx))
+  await expect(ctx.plugin(studio).await()).rejects.toThrow('script-workshop requires a separate workbench origin.')
   expect(ctx.sidebarRightTabs.guide()).toHaveLength(0)
 })
 
@@ -135,11 +153,18 @@ it('binds each iframe to its configured audience and replaces all open documents
   const initial = panes[0]!.hooks.loginGeneration.getSnapshot()
   await Promise.all(panes.map(async (pane) => { expect(await pane.issueLogin('challenge')).toEqual({ code: 'temporary' }) }))
   expect(issueWorkbenchCode.mock.calls).toEqual([[{ audience: 'jingliu', challenge: 'challenge' }], [{ audience: 'script-workshop', challenge: 'challenge' }]])
+  issueWorkbenchCode
+    .mockResolvedValueOnce({ ok: false, error: { code: 'muse-workbench/sign-in-required' } })
+    .mockResolvedValueOnce({ ok: false, error: { code: 'gateway/internal' } })
+  await expect(panes[0]!.issueLogin('challenge')).resolves.toEqual({ error: 'sign-in-required' })
+  await expect(panes[1]!.issueLogin('challenge')).resolves.toEqual({ error: 'unavailable' })
   accountChanged()
   ctx.emit('connection/reset')
   expect(panes.map(pane => pane.hooks.loginGeneration.getSnapshot())).toEqual([initial + 2, initial + 2])
   await active.dispose()
   expect(off).toHaveBeenCalled()
+  await expect(panes[0]!.issueLogin('challenge')).resolves.toEqual({ error: 'unavailable' })
+  expect(issueWorkbenchCode).toHaveBeenCalledTimes(4)
 })
 
 it('fills the Bot drawer\'s data slot once the account Remote and the resource registry arrive', async () => {

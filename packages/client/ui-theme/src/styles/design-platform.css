@@ -327,6 +327,14 @@ body {
   --dsw-menu-surface-fill: rgba(252, 253, 254, 0.7);
   --dsw-alias-menu-group-header-fill: rgba(248, 249, 250, 0.94);
   --dsw-specific-menu: var(--dsw-menu-surface-fill);
+  /* Platform marks keep their brand colors in both palettes. */
+  --dsw-specific-platform-mark-hongguo: #c8423a;
+  --dsw-specific-platform-mark-douyin: #596575;
+  --dsw-specific-platform-mark-lvpaopao: #23804a;
+  --dsw-specific-platform-mark-fanqie: #e07b39;
+  --dsw-specific-platform-mark-qimao: #c99a2e;
+  --dsw-specific-platform-mark-light-ink: var(--dsw-static-neutral-00);
+  --dsw-specific-platform-mark-dark-ink: #15151a;
   --dsw-specific-selector: var(--dsw-static-neutral-bluish-60);
   --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);
   --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-deepseek-100);
