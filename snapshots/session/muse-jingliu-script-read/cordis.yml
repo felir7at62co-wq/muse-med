@@ -8,6 +8,11 @@
   disabled: true
 - id: skill-filesystem
   disabled: true
+# This replay uses only HTTP tools. Pin the unused runner to keep the skill catalog platform-independent.
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
 - insert:
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'

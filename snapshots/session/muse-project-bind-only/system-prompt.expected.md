@@ -71,8 +71,9 @@ interface ToolArgsMap {
     /** To save: the user-provided existing absolute editor draft directory, readable and writable on this host. Omit to read. */
     path?: string;
   } & Record<string, JsonValue>;
-  /** Read the authoritative project bible, preview a confirmed change and its downstream impact, or save the reviewed revision. bind_only creates a minimal project binding only when no project_config.json exists; first verify the remote project ID and that this exact directory belongs to it. Never use a directory already bound to another project. It does not set budget or delivery. To migrate, provide migration_from and a different empty target project_dir with changes.jubian_script_id: copies creative settings and local character identities, excluding old remote references, tasks and authorization. Validate exact target project and model settings through Jubian tools before preview; register target assets and recheck before production. */
+  /** Read a project bible, preview confirmed changes, save the reviewed revision or create a minimal Jubian binding. Verify the project ID, model and video settings through Jubian before production. */
   drama_project: {
+    /** For bind_only, verify that the directory belongs to the target project and has no project_config.json. Pass only changes.jubian_script_id. */
     action: "read" | "preview" | "update" | "bind_only";
     /** Existing absolute project directory. */
     project_dir: string;
@@ -237,11 +238,11 @@ interface ToolArgsMap {
         user_quote?: string;
       })[];
     };
-    /** Preview/update only: source for a new local project. Source files remain unchanged; target must be a different existing empty directory. */
+    /** Preview/update to a different empty directory. Copy creative settings and local character identities while retaining the original project. */
     migration_from?: {
       /** Existing absolute source project directory. */
       project_dir: string;
-      /** Expected current source jubian_script_id; different from changes.jubian_script_id. */
+      /** Verified source Jubian script ID, different from the target in changes. */
       script_id: number;
     };
     /** Preview/update reason recorded in version history. */

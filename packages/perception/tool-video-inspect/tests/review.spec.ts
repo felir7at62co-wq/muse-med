@@ -19,6 +19,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, expect, it, vi } from 'vitest'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../../scripts/coverage-partitions.ts'
 import * as Video from '../src/index.ts'
 import { createVideoSourceQaVerifier } from '../src/source-qa-evidence.ts'
 import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
@@ -34,6 +35,8 @@ import { renderContactPage } from '../src/contact.ts'
 import { applyCompleteReview } from '../src/review.ts'
 import { compareReviewDraft } from '../src/review-compare.ts'
 import { z } from 'zod'
+
+const mediaTestTimeoutMs = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 30_000
 
 type Plan = { name: string; args: object } | (() => { name: string; args: object }) | 'fail' | 'offload' | 'offload-throw' | undefined
 class Model extends LlmAdapter {
@@ -568,7 +571,7 @@ it('finds cuts across the full episode and preserves pending observations throug
   expect(h.results().at(-1)?.isError).toBe(false)
   await h.run(h.call('status'), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
-}, 30_000)
+}, mediaTestTimeoutMs)
 
 it.each([12, 125])('delivers unrelated parent-Session files without reading or changing an old EP47 review with %s recorded frames', async (recorded) => {
   const h = await fixture()
@@ -1258,7 +1261,7 @@ it('keeps completed ASR reports distinct and reports a stale saved digest or non
   })
   await h.run(h.call('status'), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('ASR path unavailable')
-}, 30_000)
+}, mediaTestTimeoutMs)
 
 it('rejects a video revision changed during a speech description, timeline or event update', async () => {
   const h = await fixture(), transcript = join(h.root, 'saved-asr.json')
@@ -1443,7 +1446,7 @@ it('records optional event groups and saved speech, resumes them, and compares c
   while (h.review().frames.some(frame => frame.observation === undefined)) await h.run(h.call('next'), h.record, undefined)
   await h.run({ name: 'present', args: { files: [{ path: h.manuscript }] } }, undefined)
   expect(h.results().at(-1)?.isError).toBe(false)
-}, 30_000)
+}, mediaTestTimeoutMs)
 
 it('rejects invalid or oversized event notes before committing optional event state', async () => {
   const h = await fixture({ config: { reviewCompareMaxBytes: 180 } })
@@ -1506,7 +1509,7 @@ it('keeps transcript-linked report digests stable across workspace roots while d
   expect(first.results().at(-1)?.isError).toBe(false)
   expect(digest(reportPath(first))).not.toBe(digest(firstPath))
   expect(await readFile(firstPath, 'utf8')).toBe(before)
-}, 30_000)
+}, mediaTestTimeoutMs)
 
 it('uses the complete serialized UTF-8 byte length at an exact comparison limit', async () => {
   const h = await fixture()

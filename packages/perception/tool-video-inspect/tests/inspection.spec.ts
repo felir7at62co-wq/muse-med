@@ -16,6 +16,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import sharp from 'sharp'
 import { afterEach, expect, it, onTestFailed, vi } from 'vitest'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../../scripts/coverage-partitions.ts'
 import * as VideoInspect from '../src/index.ts'
 import { runMedia, parseVideoMetadata } from '../src/media.ts'
 import * as Media from '../src/media.ts'
@@ -27,6 +28,7 @@ vi.mock('node:os', async (importOriginal) => {
   return { ...actual, platform: vi.fn(actual.platform) }
 })
 
+const mediaTestTimeoutMs = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 30_000
 const contexts: Context[] = [], roots: string[] = []
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -611,7 +613,7 @@ it('retains an internal decode failure as partial OCR coverage after selecting v
         { start_seconds: 0, end_seconds: 1 }, { start_seconds: 2, end_seconds: 4 },
       ] } })
   expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
-}, 30_000)
+}, mediaTestTimeoutMs)
 
 it('keeps an EOF gap partial when the probe cannot establish a video-stream duration', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })

@@ -22,7 +22,7 @@ it('restores the confirmed project only for its own conversation and studio iden
   expect(await ctx.jingliuConnection.selected('new-folder', 'me')).toBeNull()
 })
 
-it('reports a wrong conversation in its stored selection and propagates filesystem failures', async () => {
+it('rejects an invalid stored selection and propagates filesystem failures', async () => {
   const home = await mkdtemp(join(tmpdir(), 'muse-project-'))
   vi.stubEnv('DSH_HOME', home)
   onTestFinished(async () => { vi.unstubAllEnvs(); await rm(home, { recursive: true, force: true }) })
@@ -33,8 +33,20 @@ it('reports a wrong conversation in its stored selection and propagates filesyst
   const [name] = await readdir(directory)
   if (name === undefined) throw new Error('Stored selection file is missing')
   const file = join(directory, name)
-  await writeFile(file, JSON.stringify({ ...film, version: 1, session: 'other', owner: 'me' }))
-  await expect(readSelection('router')).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
+  const selection = { ...film, version: 1, session: 'router', owner: 'me' }
+  for (const stored of [
+    null,
+    { ...selection, version: 2 },
+    { ...selection, session: 'other' },
+    { ...selection, owner: 42 },
+    { ...selection, owner: '' },
+    { ...selection, id: 42 },
+    { ...selection, id: '../film-1' },
+    { ...selection, title: null },
+  ]) {
+    await writeFile(file, JSON.stringify(stored))
+    await expect(readSelection('router')).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
+  }
 
   await unlink(file)
   await mkdir(file)

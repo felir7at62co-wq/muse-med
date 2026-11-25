@@ -1,3 +1,9 @@
+# This replay does not execute a shell. Pin the unused runner for a platform-neutral skill catalog.
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+
 - id: agent-default-model
   config:
     provider: hongguo-jackotom-cleanup-fixture

@@ -113,17 +113,17 @@ function fixture(packaged = false) {
   mkdirSync(dirname(reviewerModule), { recursive: true })
   writeFileSync(reviewerModule, '// private reviewer fixture\n')
   const skillRoot = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills'))
-  const skillNames = ['tweet-drama-core', 'tweet-drama-script-convert',
-    'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
-    'tweet-drama-shot-asset-match', 'jubian-snatch',
-    'shot-script-creator-16-9-3d', 'shot-script-creator-9-16',
-    'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
-  const skills = skillNames.map((name) => {
+  const visibleSkills = ['tweet-drama-script-convert', 'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
+    'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']
+  const hiddenResources = ['tweet-drama-core', 'tweet-drama-shot-asset-match', 'jubian-snatch',
+    'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect',
+    'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
+  const skills = [...visibleSkills, ...hiddenResources].map((name) => {
     const path = join(skillRoot, name, 'SKILL.md')
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, '# fixture')
     return { name, path, source: 'bundled', invocation: { modelInvocable: true } }
-  })
+  }).filter(skill => visibleSkills.includes(skill.name))
   skills.push(...layout.selected.map(skill => ({ ...skill, invocation: { modelInvocable: true } })))
   const cordisSkill = {
     name: 'editing-cordis-compositions',
@@ -215,11 +215,13 @@ function fixture(packaged = false) {
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
     'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill',
-    'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'read', 'present', 'audio_transcribe', 'video_inspect', 'video_ocr',
+    'jingliu_projects', 'jingliu_workflows', 'jingliu_studio', 'jingliu_run', 'jingliu_media', 'workshop_script_editor', 'script_library',
+    'episode_subtitles', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision',
+    'source_recover', 'screenplay_export_docx', 'read', 'present', 'audio_transcribe', 'video_inspect', 'video_ocr',
     process.platform === 'win32' ? 'pwsh' : 'bash']
   type SmokeResponse = { statusCode: number; end(text: string): void }
   let route: { path: string; handler(request: object, response: SmokeResponse): Promise<void> } | undefined
-  const sourceCapabilityNames = ['jubian_find', 'jubian_claim', 'jubian_snatch', ...Object.keys(editingModelInput.tools)]
+  const sourceCapabilityNames = Object.keys(editingModelInput.tools)
   const standardCapabilityNames = ['subagent', 'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'workflow',
     'ask_user_question', 'todo_write', 'todo_update', 'jubian_video', 'audio_transcribe']
   const coordinatorCapabilityNames = ['write', 'edit', 'glob', 'grep', 'present', 'web_search', 'web_fetch',
@@ -291,7 +293,7 @@ function fixture(packaged = false) {
         : key.preset === 'main-session' ? []
           : key.preset === 'minimal' ? [shell]
             : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
-              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...sourceCapabilityNames]
+              'drama_character_references', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...sourceCapabilityNames]
               : key.preset === 'bot-coordinator' ? ['read', 'skill', shell, ...coordinatorCapabilityNames]
                 : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...sourceCapabilityNames]
                   : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? [] : ['workflow'])]).map(name => ({ name, description: editingModelInput.tools[name] ?? 'Fixture capability.' }))
@@ -816,7 +818,8 @@ it.each(defaultHostSkills)('rejects shared Muse skill %s missing from the packag
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'jubian_budget', 'video_inspect', 'video_ocr'])('rejects a missing project tool %s', async (name) => {
+it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'jubian_budget',
+  'jingliu_projects', 'workshop_script_editor', 'episode_subtitles', 'video_inspect', 'video_ocr'])('rejects a missing project tool %s', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'
@@ -826,7 +829,7 @@ it.each(['drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revis
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects a missing product skill %s', async (name) => {
+it.each(['tweet-drama-script-convert', 'tweet-drama-asset-vision-check', 'shot-script-creator-16-9-3d', 'shot-script-creator-9-16'])('rejects a missing product skill %s', async (name) => {
   const f = fixture()
   const index = f.skills.findIndex(skill => skill.name === name)
   f.skills.splice(index, 1)
@@ -834,11 +837,17 @@ it.each(['tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'shot-scri
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('rejects a missing shared snatch skill', async () => {
+it('rejects a missing bundled snatch resource', async () => {
   const f = fixture()
-  const index = f.skills.findIndex(skill => skill.name === 'jubian-snatch')
-  f.skills.splice(index, 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing product skill jubian-snatch')
+  rmSync(join(f.root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills/jubian-snatch/SKILL.md'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing bundled resource jubian-snatch')
+})
+
+it('rejects making the bundled legacy snatch resource model-invocable', async () => {
+  const f = fixture()
+  const path = join(f.root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills/jubian-snatch/SKILL.md')
+  f.skills.push({ name: 'jubian-snatch', path, source: 'bundled', invocation: { modelInvocable: true } })
+  await expect(f.apply(f.ctx)).rejects.toThrow('hidden bundled skill is model-invocable: jubian-snatch')
 })
 
 it.each([false, true])('rejects a runtime without its Word export helper (packaged=%s)', async (packaged) => {
@@ -897,7 +906,7 @@ it.each(['short-drama', 'short-drama-v2', 'ptc', 'standard', 'cordis', 'bot-coor
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['run_code', 'drama_assets', 'source_snapshot', 'video_contact_sheet', 'video_ocr'])('rejects creation without %s', async (name) => {
+it.each(['run_code', 'drama_character_references', 'source_snapshot', 'video_contact_sheet', 'video_ocr'])('rejects creation without %s', async (name) => {
   const f = fixture()
   if (name === 'run_code') {
     const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
@@ -1178,12 +1187,12 @@ it.each(['read', 'tool_search', 'tool_context'])
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user'])
-('rejects archived Bot tool %s leaking into a registered composition', async (name) => {
+it.each(['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user', 'drama_assets'])
+('rejects retired product tool %s leaking into a registered composition', async (name) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => [...schemas(key), { name }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('archived Bot tool remains active: ' + name)
+  await expect(f.apply(f.ctx)).rejects.toThrow('retired product tool remains active: ' + name)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
@@ -1225,12 +1234,6 @@ it('rejects a short-drama preset without its source report tool', async () => {
   f.sourceCapabilityNames.splice(f.sourceCapabilityNames.indexOf('source_report'), 1)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool source_report')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
-})
-
-it('rejects an editing mode without its script-pool reader', async () => {
-  const f = fixture()
-  f.sourceCapabilityNames.splice(f.sourceCapabilityNames.indexOf('jubian_find'), 1)
-  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool jubian_find')
 })
 
 it('rejects an editing mode missing a standard tool', async () => {
