@@ -2385,6 +2385,23 @@ it('does not attribute unrelated image requests or their budget failures to an e
   expect(h.results().at(-1)!.content.filter(block => block.type === 'image')).toHaveLength(2)
 })
 
+it('completes a scan whose last interval would be shorter than one analysis sample', async () => {
+  const h = await fixture({ config: { reviewChunkSeconds: 1 } })
+  await rm(h.input)
+  const ffmpeg = await h.ctx.subprocess.resolveExecutable('ffmpeg')
+  await runMedia(h.ctx, [ffmpeg, '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=red:s=96x64:r=25:d=2.04',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', h.input], { mode: 'danger-full-access', workspaceRoot: h.root }, undefined,
+  { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
+  const calls = vi.spyOn(Media, 'runMedia')
+  await h.run(h.call('scan'), undefined)
+  expect(h.results().filter(result => result.isError)).toEqual([])
+  expect(h.review().scan_complete).toBe(true)
+  expect(h.review().scanned_until).toBe(h.review().duration)
+  // Two intervals, 0–1 s and 1–2.04 s, each run cut detection and thumbnail sampling once.
+  expect(calls.mock.calls.filter(([, argv]) => argv.some(argument => argument.includes('gte(scene,0)')))).toHaveLength(2)
+  expect(h.review().frames.at(-1)?.reasons).toContain('closing')
+}, 30_000)
+
 it('decodes the exact first frame after a cut in a later scan chunk', async () => {
   const h = await fixture()
   await rm(h.input)
