@@ -19,8 +19,10 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
-import * as BashEnv from '@deepseek-ai/dsh-shell-env'
+import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
+import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
@@ -803,20 +805,36 @@ it('invalidates stale visual source evidence without preventing an ordinary fina
 })
 
 it('discovers a real shell-written six-episode output list from the original user declaration without a bind instruction', async () => {
-  const command = "mkdir -p output\nfor episode in 04 05 08 09 12 13; do printf '第%s集\\n%s-1 家 日 内\\n甲：你好。\\n' \"$episode\" \"$episode\" > \"output/EP$episode.md\"; done"
-  const f = await fixture([toolCallResponse('write-shell', 'bash', { command, description: '保存本次六集正文' }), textResponse('已完成。')],
+  const episodes = ['04', '05', '08', '09', '12', '13']
+  const windows = process.platform === 'win32'
+  const command = (windows ? [
+    'New-Item -ItemType Directory -Path output | Out-Null',
+    `foreach ($episode in ${episodes.map(episode => `'${episode}'`).join(', ')}) {`,
+    '  $path = Join-Path (Get-Location).Path "output/EP${episode}.md"',
+    '  [IO.File]::WriteAllLines($path, @("第${episode}集", "${episode}-1 家 日 内", "甲：你好。"), [Text.UTF8Encoding]::new($false))',
+    '}',
+  ] : [
+    'mkdir -p output',
+    `for episode in ${episodes.join(' ')}; do`,
+    '  printf \'第%s集\\n%s-1 家 日 内\\n甲：你好。\\n\' "$episode" "$episode" > "output/EP$episode.md"',
+    'done',
+  ]).join('\n')
+  const shell = windows ? 'pwsh' : 'bash'
+  const f = await fixture([toolCallResponse('write-shell', shell, { command, description: '保存本次六集正文' }), textResponse('已完成。')],
     { videoEvidenceMaxScenes: 1 })
   await f.ctx.plugin(LocalSubprocessRuntime)
-  await f.ctx.plugin(BashEnv, { dshHome: join(f.root, '.state') })
-  await f.ctx.plugin(LocalBashExecutor, { cwd: f.root, timeoutMs: 10_000 })
-  await f.ctx.plugin(ToolBash)
-  for (const episode of ['4', '5', '8', '9', '12', '13']) await f.addReview(`第${episode}集`)
+  await f.ctx.plugin(ShellEnv, { dshHome: join(f.root, '.state') })
+  await f.ctx.plugin(windows ? PwshLocalExecutor : LocalBashExecutor, { cwd: f.root, timeoutMs: 10_000 })
+  await f.ctx.plugin(windows ? ToolPwsh : ToolBash)
+  for (const episode of episodes) await f.addReview(`第${Number(episode)}集`)
   const request = '保留原文件，分别保存为output/EP04.md、EP05.md、EP08.md、EP09.md、EP12.md、EP13.md，再提供一份合并Markdown稿。'
     + '已有视频和转写可直接使用，本次不重新下载、不提交转写或媒体生成。完成后给我文件和简要说明。'
   await f.run(request)
+  const result = f.agent.session.snapshotEvents().find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'write-shell')
+  assert.ok(result?.type === 'tool/result', 'The Agent must call its real shell tool')
+  expect(result.data.message.isError, JSON.stringify(result.data.message.content)).toBe(false)
   expect(f.evidence()).toHaveLength(6)
-  expect(f.evidence().map(result => result.receipt.path)).toEqual(['04', '05', '08', '09', '12', '13']
-    .map(episode => join(f.root, 'output', `EP${episode}.md`)))
+  expect(f.evidence().map(item => item.receipt.path)).toEqual(episodes.map(episode => join(f.root, 'output', `EP${episode}.md`)))
   expect(f.evidence()[0]?.output_association.basis).toBe('literal_user_output_path')
   expect(f.evidence()[1]?.output_association.basis).toBe('parallel_output_directory_candidates')
 })

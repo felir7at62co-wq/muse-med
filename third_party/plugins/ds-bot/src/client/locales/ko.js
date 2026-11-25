@@ -1668,6 +1668,7 @@ export const KO = {
   'Failed': '실패',
 
   // Host static strings (HOST_ZH)
+  'The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.': '브라우저 인계 응답이 이미 대기열에 추가되었을 수 있지만 저장 여부는 확인되지 않았습니다. 새 요청을 보내기 전에 대화를 확인하세요.',
   'Request failed': '요청 실패',
   'Permissions are not available in this DeepSeek Harness': '이 DeepSeek Harness에서는 권한 설정을 지원하지 않습니다',
   'Avatar images must be PNG, JPEG, WebP, or GIF': '아바타 이미지는 PNG, JPEG, WebP 또는 GIF 형식이어야 합니다',

@@ -2,6 +2,7 @@
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Context, Service } from '@deepseek-ai/cordis'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-schedule'
@@ -127,6 +128,23 @@ describe('unattended Main Session', () => {
     const brief = worker.events.find(event => event.type === 'user/message' && event.data.id === latest(task).briefId)
     expect(JSON.stringify(brief)).toContain('This run is unattended: nobody answers questions here or in Main')
     expect(JSON.stringify(brief)).not.toContain('use ask_user_question here only when')
+  })
+
+  it('keeps an unattended retry on its originally confirmed Jingliu production', async () => {
+    const test = await fixture()
+    const project = { owner: 'studio-user', id: 'film-1', title: '雨夜' }
+    let selected = project
+    const inherit = vi.fn(() => { selected = { ...project, id: 'film-2' } })
+    await test.ctx.plugin(class Studio extends Service {
+      constructor(ctx: Context) { super(ctx, 'jingliuConnection') }
+      assignmentProject() { return selected }
+      inheritProject = inherit
+    }).await()
+    const task = await test.service.dispatch(test.main, request)
+    const marked = await waitTask(test, item => item.id === task.id && latest(item).attention !== undefined)
+    expect(marked.attempts).toHaveLength(2)
+    expect(latest(marked)).toMatchObject({ revision: 2, studioProject: project })
+    expect(inherit.mock.calls).toEqual(marked.attempts.map(attempt => [attempt.sessionId, project]))
   })
 
   it('re-dispatches a failed report and leaves a completed re-dispatch unmarked', async () => {

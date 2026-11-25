@@ -1219,7 +1219,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-drama-settings`
 
 - `refs`: `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/drama/drama-settings/src/index.ts:25`](../packages/drama/drama-settings/src/index.ts)
+- `source`: [`packages/drama/drama-settings/src/index.ts:24`](../packages/drama/drama-settings/src/index.ts)
 
 ```ts config-catalog
 /** Resolved composition options and live settings for short-drama work. */
@@ -5331,6 +5331,8 @@ export interface Config {
   bgmVolume?: number
   /** Maximum final BGM multiplier; default 8, independent of original-dialogue gain. */
   maxBgmVolume?: number
+  /** Maximum time in milliseconds to acquire each delivery writer lock. */
+  stageDeliveryLockWaitMs?: number
   /** Whether the GPU encoder is probed before each render; defaults to true. */
   preferNvenc?: boolean
   /** Directory libass resolves the subtitle font from; defaults to `C:/Windows/Fonts`. */
@@ -6701,7 +6703,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-workbench-connection`
 
-- `source`: [`packages/drama/workbench-connection/src/index.ts:45`](../packages/drama/workbench-connection/src/index.ts)
+- `source`: [`packages/drama/workbench-connection/src/index.ts:37`](../packages/drama/workbench-connection/src/index.ts)
 
 ```ts config-catalog
 /** Server address and limits for this installation, after `WorkshopConnection.Config` applied its defaults. */

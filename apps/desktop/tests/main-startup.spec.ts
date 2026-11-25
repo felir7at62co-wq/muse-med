@@ -2197,6 +2197,8 @@ describe('desktop main startup', () => {
     { phase: 'error', failedOperation: 'check', message: 'Old feed unavailable' },
   ] satisfies DesktopUpdateState[])('discards a manual check result after switching channel: $phase', async (result) => {
     await readyForUpdate()
+    const { DesktopUpdateSettings } = await import('../src/update-settings.ts')
+    const save = vi.spyOn(DesktopUpdateSettings.prototype, 'save').mockResolvedValue(undefined)
     const checked = Promise.withResolvers<DesktopUpdateState>()
     const requested = Promise.withResolvers<undefined>()
     harness.updateCheck.mockImplementationOnce(() => { requested.resolve(undefined); return checked.promise })
@@ -2205,9 +2207,12 @@ describe('desktop main startup', () => {
     Reflect.apply(action!.click!, undefined, [])
     const prompt = Promise.resolve(invoke(DESKTOP_IPC.updatesOpen, 'app'))
     await requested.promise
-    await invoke(DESKTOP_IPC.updatesChannelSet, 'app', 'stable')
+    const switched = await invoke(DESKTOP_IPC.updatesChannelSet, 'app', 'stable')
     checked.resolve(result)
     await prompt
+    expect(save).toHaveBeenCalledExactlyOnceWith('stable')
+    expect(switched).toMatchObject({ kind: 'applied', state: { channel: 'stable', changing: false } })
+    expect(harness.updateCheck).toHaveBeenLastCalledWith(true)
     expect(harness.dialog.showMessageBox).toHaveBeenCalledTimes(1)
     expect(harness.updateDownload).not.toHaveBeenCalled()
     expect(harness.updateInstall).not.toHaveBeenCalled()

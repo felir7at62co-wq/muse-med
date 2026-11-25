@@ -215,12 +215,13 @@ export function apply(ctx) {
           ? { stack: new Error('Desktop lifecycle ' + event).stack?.slice(0, 4096) } : {}) })
     } catch (error) { observerError(event, error) }
   }
+  const ids = ['short-drama', 'short-drama-v2', 'main-session', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const reviewerId = 'muse-manuscript-continuity-reviewer'
   const observedAgents = new WeakSet(), signalReleases = []
   const observeCreated = ({ agent, signal }) => {
     try {
       if (!agent.session.id.startsWith('desktop-product-smoke-') || signal === undefined || observedAgents.has(agent)) return
-      // Eight ordinary presets own two Agents each; the private reviewer owns one.
-      if (signalReleases.length >= 17) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
+      if (signalReleases.length >= ids.length * 2 + 1) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
       const context = agent.ctx, fiber = context.fiber, agentIdentity = identity(agent), contextIdentity = identity(context)
       const alreadyAborted = signal.aborted
       let recorded = false
@@ -286,19 +287,18 @@ export function apply(ctx) {
   let failed = false, failure
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
-  const ids = ['short-drama', 'main-session', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
-  const reviewerId = 'muse-manuscript-continuity-reviewer'
   const roster = [...ids, reviewerId]
   const presets = await ctx.agentPresets.list()
   if (presets.length !== roster.length || roster.some(id => !presets.some(preset => preset.id === id))) {
     throw new Error('desktop runtime: product preset roster differs; expected ' + roster.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
   }
-  if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
+  if (ctx.agentPresets.defaultId !== 'short-drama-v2') throw new Error('desktop runtime: product default preset changed')
   if ((await ctx.agentPresets.resolve('editing')).id !== 'short-drama') {
     throw new Error('desktop runtime: retired editing preset must resolve to short-drama')
   }
   const inventory = await ctx.agentPresets.compositionInventory()
   for (const id of ids) {
+  const creative = id === 'short-drama' || id === 'short-drama-v2'
   const handles = []
   const failures = []
   let index = -1
@@ -340,20 +340,21 @@ export function apply(ctx) {
       }
       continue
     }
-    const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
-    for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
+    const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user', 'drama_assets']
+    for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: retired product tool remains active: ' + name + ' in ' + id)
     for (const name of names) if (name.startsWith('mcp__muse-account__')) {
       throw new Error('desktop runtime: retired built-in account MCP remains active: ' + name + ' in ' + id)
     }
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-    const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
+    const required = creative ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'ask_user_question', 'todo_write', 'todo_update',
-      'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'read', 'present', 'video_inspect', 'video_ocr',
-      process.platform === 'win32' ? 'pwsh' : 'bash']
+      'jingliu_projects', 'jingliu_workflows', 'jingliu_studio', 'jingliu_run', 'jingliu_media', 'workshop_script_editor', 'script_library',
+      'episode_subtitles', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision',
+      'source_recover', 'screenplay_export_docx', 'read', 'present', 'video_inspect', 'video_ocr', shell]
       : id === 'minimal' ? [shell]
         : id === 'creation' ? ['read', 'skill', shell, 'present', 'video_contact_sheet', 'video_ocr',
-          'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft',
-          'jubian_find', 'jubian_claim', 'jubian_snatch', 'source_snapshot', 'source_report', 'work_mapping']
+          'drama_character_references', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft',
+          'source_snapshot', 'source_report', 'work_mapping']
         : id === 'bot-coordinator' ? ['read', 'write', 'edit', 'glob', 'grep', 'skill', shell, 'present',
           'web_search', 'web_fetch', 'ask_user_question', 'todo_write', 'todo_update', 'subagent',
           'tool_search', 'tool_context']
@@ -377,8 +378,10 @@ export function apply(ctx) {
       const local = [...names].filter(name => !inherited.has(name))
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
+    if (creative && !ctx.agentTeams.isEnabled(handle.agent)) {
+      throw new Error('desktop runtime: new ' + id + ' Session must enable official Team tasks')
+    }
     if (id === 'short-drama') {
-      if (!ctx.agentTeams.isEnabled(handle.agent)) throw new Error('desktop runtime: new short-drama Session must enable official Team tasks')
       const assembly = modelInput
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
       if (!persona?.startsWith(editingModelInput.personaPrefix)) {
@@ -541,11 +544,17 @@ export function apply(ctx) {
     if (existsSync(join(bundled, 'xiaohongshu-reference')) || skills.some(skill => skill.name === 'xiaohongshu-reference')) {
       throw new Error('desktop runtime: XHS must not ship in the product directory or skill registry')
     }
-    const requiredSkills = ['tweet-drama-core', 'tweet-drama-script-convert',
-      'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
-      'tweet-drama-shot-asset-match', 'jubian-snatch',
-      'shot-script-creator-16-9-3d', 'shot-script-creator-9-16',
-      'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect', 'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
+    const hiddenResources = ['tweet-drama-core', 'tweet-drama-shot-asset-match', 'jubian-snatch',
+      'tweet-drama-draft-build', 'tweet-drama-background-render', 'tweet-drama-project-inspect',
+      'tweet-drama-project-bible', 'tweet-drama-voice-continuity', 'tweet-drama-delivery']
+    for (const name of hiddenResources) {
+      if (!existsSync(join(bundled, name, 'SKILL.md'))) throw new Error('desktop runtime: missing bundled resource ' + name)
+      if (skills.some(skill => skill.name === name && skill.source === 'bundled' && skill.invocation.modelInvocable)) {
+        throw new Error('desktop runtime: hidden bundled skill is model-invocable: ' + name)
+      }
+    }
+    const requiredSkills = ['tweet-drama-script-convert', 'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
+      'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']
     for (const name of requiredSkills) {
       if (id === 'creation' && !creationSkillNames.has(name)) continue
       const skill = skills.find(value => value.name === name)
@@ -677,6 +686,7 @@ export async function smokeDesktopRuntime(
   const hostEnvironment = {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !/^(?:npm|pnpm|corepack)_/iu.test(name))),
     DSH_HOME: home, MUSE_HOME: home, HOME: home, USERPROFILE: home,
+    MUSE_DEFAULT_PRESET: '',
     XDG_CONFIG_HOME: home, XDG_CACHE_HOME: home, XDG_STATE_HOME: home,
     APPDATA: home, LOCALAPPDATA: home,
     npm_config_userconfig: join(home, 'npmrc'), npm_config_globalconfig: join(home, 'npmrc'),

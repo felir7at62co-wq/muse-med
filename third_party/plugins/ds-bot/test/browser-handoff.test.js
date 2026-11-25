@@ -329,22 +329,25 @@ test('browser-give-back refuses a stale call, an unknown outcome, and an unknown
   assert.equal(sent.length, 0)
 })
 
-test('browser-give-back restores the hold when the Bot cannot be told', async (t) => {
+test('browser-give-back admits one answer when saving cannot be confirmed', async (t) => {
   const { rt, call, sent, failFlush, stop } = start()
   t.after(stop)
   await rt.load()
 
   rt.browserChannel.setHold('b2', BOT_HOLD)
-  failFlush(new Error('flush failed'))
+  failFlush(new Error('private flush failure'))
   const failed = await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
   assert.equal(failed.ok, false)
-  assert.match(failed.error.message, /flush failed/)
-  assert.deepEqual(rt.browserChannel.holdOf('b2'), BOT_HOLD)
+  assert.equal(failed.error.code, 'bot/handoff-unconfirmed')
+  assert.match(failed.error.message, /may already be queued; saving is unconfirmed/)
+  assert.doesNotMatch(failed.error.message, /private flush failure/)
+  assert.match(await rt.diagnostics.logText(), /private flush failure/)
+  assert.equal(rt.browserChannel.holdOf('b2'), null)
+  assert.equal(sent.length, 1)
 
   failFlush(undefined)
-  sent.length = 0
-  assert.equal((await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })).value, true)
-  assert.equal(rt.browserChannel.holdOf('b2'), null)
+  const retry = await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
+  assert.equal(retry.error.code, 'bot/forbidden')
   assert.equal(sent.length, 1)
 })
 

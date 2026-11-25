@@ -8,6 +8,7 @@
     { "path": "../../../vendor/schemastery" },
     { "path": "../../llm/llm" },
     { "path": "../../core/tools" },
-    { "path": "../../host/muse-account/tsconfig.host.json" }
+    { "path": "../../host/muse-account/tsconfig.host.json" },
+    { "path": "../../util/atomic-write" }
   ]
 }

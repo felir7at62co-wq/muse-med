@@ -1634,6 +1634,7 @@ export const JA = {
   "Attachments: {names}": "添付ファイル: {names}",
   "Sent": "送信済み",
   "Failed": "失敗",
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "ブラウザーの引き継ぎへの回答はすでにキューに追加された可能性がありますが、保存は確認できていません。新しいリクエストを送る前に会話を確認してください。",
   "Request failed": "リクエストに失敗しました",
   "Permissions are not available in this DeepSeek Harness": "この DeepSeek Harness では権限設定を利用できません",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "アバター画像は PNG、JPEG、WebP、または GIF 形式である必要があります",

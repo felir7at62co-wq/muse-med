@@ -165,6 +165,29 @@ it('reports a shot whose video changed on Jingliu as changed and builds again', 
   expect(await call()).toMatchObject({ status: 'waiting', changed: { 1: [12] }, next: { tool: 'episode_subtitles', args: { method: 'build' } } })
 })
 
+it('combines a corrected script with a separate shot refused for a video change', async () => {
+  const { shots, g, call, control } = await setup()
+  await call()
+  g.complete()
+  expect(await call()).toMatchObject({ status: 'needs_review' })
+  shots[0]!.lines = ['另一个版本']
+  shots[1]!.status = 'missing'
+  control.changed = 'b2'
+  expect(await call()).toMatchObject({ status: 'waiting', changed: { 1: [11, 12] } })
+  expect(g.submits).toHaveLength(1)
+})
+
+it('anchors a review finding before a Jingliu trim at the start of the played shot', async () => {
+  const { g, call } = await setup()
+  g.account.audioStatus = async id => ({
+    id, status: 'complete', segments: [{ start: 4.25, end: 4.55, text: '吗' }],
+  })
+  await call()
+  await call()
+  const review = await call({ method: 'review' })
+  expect(review.items).toMatchObject([{ shot: 12, start: 3, end: 3 }])
+})
+
 it('reports an old Jingliu as outdated and never sends it a subtitle job', async () => {
   const { requests, call, control } = await setup()
   control.outdated = true
@@ -191,7 +214,7 @@ it('asks the user about legacy rows instead of rebuilding over them, and replace
     ask: { keep: { tool: 'jianying_draft', args: { source: 'jingliu', project: 'p1', episodes: [1], keep_legacy_subtitles: true } },
       remake: { tool: 'episode_subtitles', args: { method: 'build', source: 'jingliu', project: 'p1', episodes: [1], replace_legacy: true } } } })
   expect(built).not.toHaveProperty('next')
-  expect(String((built.ask as { question: string }).question)).toContain('EP1')
+  expect((built.ask as { question: string }).question).toContain('EP1')
   expect(jobs.map(segments => segments.map(segment => segment.shot_id))).toEqual([['b2']])
   expect(payloads[0]).not.toHaveProperty('replace_legacy')
 

@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
+import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { MuseModels } from '../src/models.ts'
 import * as modelAccess from '../src/model-access.ts'
@@ -71,6 +73,74 @@ it('requests the catalog for the login that replaced the account during retired-
   removal.release(); await refreshing
   expect(f.fetcher.mock.calls.map(([, init]) => new Headers(init?.headers).get('cookie'))).toEqual(['__Host-muse=bob-session'])
   expect(f.ctx.llm.listProviders().map(provider => provider.id)).toEqual(['muse-cloud-studio'])
+})
+
+it('stops refresh if withdrawing old providers triggers disposal', async () => {
+  const f = await fixture()
+  await f.models.refresh()
+  f.fetcher.mockClear()
+  let disposal: Promise<void> | undefined
+  const off = f.ctx.on('llm/adapters-updated', () => {
+    off()
+    disposal = f.models.dispose()
+  })
+  await writeMuseSession(f.sessionFile, { baseUrl: f.baseUrl, username: 'bob', cookie: '__Host-muse=bob-session' })
+  const read = vi.spyOn(sessionStorage, 'readMuseSession')
+  await f.models.refresh()
+  expect(disposal).toBeDefined()
+  await disposal
+  expect(read).toHaveBeenCalledTimes(1)
+  expect(f.fetcher).not.toHaveBeenCalled()
+  expect(f.ctx.llm.listProviders()).toEqual([])
+})
+
+it('defers the provider request when a second session read observes a different login', async () => {
+  const f = await fixture(), entered = gate(), release = gate()
+  f.cleanups.push(async () => { release.resolve() })
+  const actualRead = sessionStorage.readMuseSession
+  let reads = 0
+  vi.spyOn(sessionStorage, 'readMuseSession').mockImplementation(async (...args) => {
+    if (++reads === 2) { entered.resolve(); await release.promise }
+    return await actualRead(...args)
+  })
+  const refreshing = f.models.refresh()
+  await entered.promise
+  await writeMuseSession(f.sessionFile, { baseUrl: f.baseUrl, username: 'bob', cookie: '__Host-muse=bob-session' })
+  release.resolve()
+  await refreshing
+  expect(f.fetcher).not.toHaveBeenCalled()
+
+  await f.models.refresh()
+  expect(f.fetcher.mock.calls.map(([, init]) => new Headers(init?.headers).get('cookie'))).toEqual(['__Host-muse=bob-session'])
+  expect(f.ctx.llm.listProviders().map(provider => provider.id)).toEqual(['muse-cloud-studio'])
+})
+
+it('keeps an unrecognized provider finish diagnostic out of the model result and warning', async () => {
+  const f = await fixture()
+  await f.models.refresh()
+  const provider = 'muse-cloud-studio', model = 'writer'
+  const warn = vi.spyOn(f.ctx.logger, 'warn').mockImplementation(() => {})
+  // oxlint-disable-next-line typescript/unbound-method -- The wrapper supplies the original receiver.
+  const original = PiAiAdapter.prototype.prepareCall
+  vi.spyOn(PiAiAdapter.prototype, 'prepareCall').mockImplementation(async function (this: PiAiAdapter, ...args) {
+    const prepared = await original.apply(this, args)
+    async function* stream(): AsyncGenerator<StreamChunk> {
+      yield { type: 'finish', reason: { kind: 'error', failure: { code: 'private diagnostic', message: 'Private vendor detail' } } }
+    }
+    return { ...prepared, stream }
+  })
+
+  const call = await f.ctx.llm.prepareCall({ provider, model })
+  const chunks: StreamChunk[] = []
+  for await (const chunk of call.stream({ ...call.config, messages: [] })) chunks.push(chunk)
+  expect(chunks).toEqual([
+    { type: 'finish', reason: { kind: 'error', failure: {
+      code: 'UNKNOWN', message: 'Muse model request failed. Please retry or contact the Muse administrator.',
+    } } },
+  ])
+  expect(warn).toHaveBeenCalledWith(
+    'Muse model failure reported as UNKNOWN: provider="muse-cloud-studio" model="writer" source=finish errorClass=null code=null message=null',
+  )
 })
 
 it('ignores an old provider-catalog rejection after a new login replaces the account', async () => {

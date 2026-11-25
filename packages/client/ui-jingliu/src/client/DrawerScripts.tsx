@@ -91,8 +91,7 @@ function compact(value: number, t: Text): string {
   return new Intl.NumberFormat(t('numberLocale'), { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
-function day(value: string | null, t: Text): string {
-  if (value === null) return ''
+function day(value: string, t: Text): string {
   const time = new Date(value)
   return Number.isNaN(time.getTime()) ? '' : new Intl.DateTimeFormat(t('numberLocale'), { dateStyle: 'medium' }).format(time)
 }
@@ -267,7 +266,9 @@ function OriginCard({ workId, epoch, t, useResource }: { workId: string; epoch: 
 
 function OriginWork({ work, t }: { work: MuseDataWorkDetail; t: Text }) {
   const platform = PLATFORMS[work.platform]
-  const metrics = work.metrics.filter(metric => metric.value !== null).slice(0, ORIGIN_METRICS)
+  const metrics = work.metrics
+    .filter((metric): metric is typeof metric & { readonly value: number } => metric.value !== null)
+    .slice(0, ORIGIN_METRICS)
   const facts = [
     work.rank === null ? work.board : t('originRank', { board: work.board, rank: String(work.rank) }),
     work.episodeCount === null ? '' : t('episodeCount', { count: String(work.episodeCount) }),
@@ -280,7 +281,7 @@ function OriginWork({ work, t }: { work: MuseDataWorkDetail; t: Text }) {
     </div>
     {facts.length > 0 && <p className={data.quiet}>{facts.join(' · ')}</p>}
     {metrics.length > 0 && <dl className={css.metrics}>{metrics.map(metric => <div key={metric.key}>
-      <dt>{metric.label}</dt><dd>{compact(metric.value ?? 0, t)}</dd>
+      <dt>{metric.label}</dt><dd>{compact(metric.value, t)}</dd>
     </div>)}</dl>}
     {work.tags.length > 0 && <p className={data.quiet}>{work.tags.slice(0, 6).join(' · ')}</p>}
     {day(work.observedAt, t) !== '' && <small className={data.quiet}>{t('observedAt', { date: day(work.observedAt, t) })}</small>}

@@ -20,6 +20,7 @@
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
     "./typert": {
       "types": "./lib/typert.host.d.ts",
       "default": "./lib/typert.host.js"
@@ -28,12 +29,17 @@
       "types": "./lib/typert.remote-client.d.ts",
       "default": "./lib/typert.remote-client.js"
     },
+    "./media": {
+      "types": "./lib/types/media-api.d.ts",
+      "default": "./lib/types/media-api.js"
+    },
     "./types": {
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
     }
   },
   "files": [
+    "locale/*.json",
     "lib/index.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",

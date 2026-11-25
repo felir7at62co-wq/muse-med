@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +8,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { JingliuSession, LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
 import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { installDraft } from '../src/delivery.ts'
-import { workflowTools } from '../src/index.ts'
+import { workflowTools } from '../src/workflow-tools.ts'
 
 async function temporary(prefix: string) {
   const dir = await mkdtemp(join(tmpdir(), prefix))
@@ -56,7 +57,8 @@ it('downloads draft materials once into the production folder and fills their pa
   const receipt = await installDraft(studio, result, root, 'session:call', new AbortController().signal, folder)
   expect(fake.download).toHaveBeenCalledWith(['/fw/media/generated/a.mp4'], folder, expect.any(AbortSignal))
   expect(fake.media.mock.calls.map(([path]) => path)).toEqual(['/fw/media/exports/jianying/p.zip'])
-  const draft = String(receipt.path)
+  const draft = receipt.path
+  assert(typeof draft === 'string')
   expect(await readFile(join(draft, 'media', 'a.mp4'))).toEqual(shot)
   expect(await readFile(join(folder, 'generated', 'a.mp4'))).toEqual(shot)
   const content = JSON.parse(await readFile(join(draft, 'draft_content.json'), 'utf8')) as { materials: { videos: { path: string }[] } }
@@ -72,7 +74,8 @@ it('streams draft materials into the draft when the session keeps no local files
   const { media } = session({ '/fwp/media/generated/a.mp4': shot }, pack(materials))
   const result = { url: '/fw/media/exports/jianying/p.zip', shots: 1, materials: 1 }
   const receipt = await installDraft({ identity: 'u', request: vi.fn(), media }, result, root, 'session:call', new AbortController().signal, join(root, 'unused'))
-  expect(await readFile(join(String(receipt.path), 'media', 'a.mp4'))).toEqual(shot)
+  assert(typeof receipt.path === 'string')
+  expect(await readFile(join(receipt.path, 'media', 'a.mp4'))).toEqual(shot)
   await expect(stat(join(root, 'unused'))).rejects.toMatchObject({ code: 'ENOENT' })
   const wrong = session({ '/fw/media/generated/a.mp4': Buffer.from('short') }, pack([{ ...materials[0]!, url: '/fw/media/generated/a.mp4' }]))
   await expect(installDraft({ identity: 'u', request: vi.fn(), ...wrong }, result, root, 'session:other', new AbortController().signal, join(root, 'm')))
@@ -81,45 +84,84 @@ it('streams draft materials into the draft when the session keeps no local files
 
 const allow = () => vi.fn(async (_exec: ToolRunContext, _reason: string) => true)
 
-function tool(studio: JingliuSession, approve = allow(), cwd: string | null = '/work') {
-  const tools = workflowTools({ connect: async () => studio, approve, selected: async () => ({ id: 'p1', title: '雨夜' }) })
+function tool(studio: JingliuSession, {
+  approve = allow(), cwd = '/work', projectId = 'p1', hasSession = true,
+}: { approve?: ReturnType<typeof allow>; cwd?: string | null; projectId?: string | null; hasSession?: boolean } = {}) {
+  const tools = workflowTools({ connect: async () => studio, approve,
+    selected: async () => projectId === null ? null : { id: projectId, title: '雨夜' } })
   const definition = tools.find(entry => entry.name === 'jingliu_media')!
-  return (args: Record<string, unknown>) => {
+  const call = (args: Record<string, unknown>) => {
     const id = ToolCallId('call-1')
+    const agent = { session: { id: 'session-9', header: { cwd: cwd ?? undefined } } } as ToolRunContext['agent'] & object
     const ctx: ToolRunContext = {
       callId: id, rootCallId: id, token: Symbol() as ToolExecutionToken, arguments: args, name: 'jingliu_media',
-      agent: { session: { id: 'session-9', header: { cwd: cwd ?? undefined } } } as ToolRunContext['agent'] & object,
+      ...(hasSession ? { agent } : {}),
       signal: new AbortController().signal, deferContext() {}, concludeTurn() {},
     }
     return definition.execute(args, ctx)
   }
+  return { call, definition }
 }
 
 it('downloads studio files into the project folder only on a Host that keeps local files', async () => {
   const workspace = await temporary('jingliu-workspace-')
   const fake = session({ '/fw/media/generated/a.png': Buffer.from('png') }, Buffer.alloc(0))
-  const call = tool({ identity: 'u', request: vi.fn(), ...fake }, undefined, workspace)
-  await expect(call({ action: 'download', paths: ['/fwp/media/generated/a.png'] })).resolves.toEqual({ project_id: 'p1', files: [
+  const { call, definition } = tool({ identity: 'u', request: vi.fn(), ...fake }, { cwd: workspace })
+  const args = { action: 'download', paths: ['/fwp/media/generated/a.png'] }
+  const receipt = { project_id: 'p1', files: [
     { path: '/fw/media/generated/a.png', file: join(workspace, 'jingliu', 'p1', 'generated', 'a.png'), size: 3, content_type: 'video/mp4' },
-  ] })
+  ] }
+  await expect(call(args)).resolves.toEqual(receipt)
+  expect(definition.presentCall?.(args)).toMatchObject({ title: '镜流 · 素材下载', rawInput: args })
+  expect(definition.output.render(args, receipt)).toEqual([{ type: 'text', text: JSON.stringify(receipt) }])
   await expect(call({ action: 'download', project_id: 'p2', paths: ['/fw/media/generated/a.png'] })).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
   await expect(call({ action: 'download', paths: [] })).rejects.toMatchObject({ code: 'JINGLIU_INVALID_ARGUMENTS' })
-  const web = tool({ identity: 'u', request: vi.fn(), media: fake.media })
+  const { call: web } = tool({ identity: 'u', request: vi.fn(), media: fake.media })
   await expect(web({ action: 'download', paths: ['/fw/media/generated/a.png'] })).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_LOCAL_DISABLED' })
 })
 
+it('requires a Muse session, project and workspace before asking the studio to download', async () => {
+  const download = vi.fn<NonNullable<JingliuSession['download']>>()
+  const studio = { identity: 'u', request: vi.fn(), download }
+  const args = { action: 'download', paths: ['/fw/media/generated/a.png'] }
+  await expect(tool(studio, { hasSession: false }).call(args)).rejects.toMatchObject({ code: 'JINGLIU_SESSION_REQUIRED' })
+  await expect(tool(studio, { projectId: null }).call(args)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
+  await expect(tool(studio, { cwd: null }).call(args)).rejects.toMatchObject({ code: 'JINGLIU_WORKSPACE_REQUIRED' })
+  await expect(tool(studio).call({ action: 'download', paths: Array.from({ length: 201 }, (_, index) => `/fw/media/${index}.png`) }))
+    .rejects.toMatchObject({ code: 'JINGLIU_INVALID_ARGUMENTS' })
+  expect(download).not.toHaveBeenCalled()
+})
+
 it('uploads a workspace file only after the user approves it', async () => {
+  const workspace = await temporary('jingliu-upload-')
+  const file = join(workspace, 'faces', 'a.png')
   const upload = vi.fn(async () => ({ path: '/fw/media/uploads/u1.png', size: 3 }))
   const approve = vi.fn(async (_exec: ToolRunContext, _reason: string) => false)
-  const call = tool({ identity: 'u', request: vi.fn(), upload }, approve)
+  const studio = { identity: 'u', request: vi.fn(), upload }
+  const { call } = tool(studio, { approve, cwd: workspace })
   await expect(call({ action: 'upload', file: 'faces/a.png' })).rejects.toMatchObject({ code: 'JINGLIU_APPROVAL_REQUIRED' })
   expect(upload).not.toHaveBeenCalled()
   approve.mockResolvedValueOnce(true)
-  await expect(call({ action: 'upload', file: 'faces/a.png' })).resolves.toEqual({ path: '/fw/media/uploads/u1.png', size: 3, file: join('/work', 'faces', 'a.png') })
-  expect(upload).toHaveBeenCalledWith(join('/work', 'faces', 'a.png'), 'p1', expect.any(AbortSignal))
-  expect(approve.mock.calls.at(-1)?.[1]).toContain(join('/work', 'faces', 'a.png'))
+  await expect(call({ action: 'upload', file: 'faces/a.png' })).resolves.toEqual({ path: '/fw/media/uploads/u1.png', size: 3, file })
+  expect(upload).toHaveBeenCalledWith(file, 'p1', expect.any(AbortSignal))
+  expect(approve.mock.calls.at(-1)?.[1]).toContain(file)
   await expect(call({ action: 'upload' })).rejects.toMatchObject({ code: 'JINGLIU_INVALID_ARGUMENTS' })
-  await expect(tool({ identity: 'u', request: vi.fn(), upload }, approve, null)({ action: 'upload', file: 'a.png' })).rejects.toMatchObject({ code: 'JINGLIU_WORKSPACE_REQUIRED' })
+  await expect(tool(studio, { approve, cwd: null }).call({ action: 'upload', file: 'a.png' })).rejects.toMatchObject({ code: 'JINGLIU_WORKSPACE_REQUIRED' })
+})
+
+it('asks for approval of an absolute upload without selecting a project or workspace', async () => {
+  const file = join(await temporary('jingliu-upload-'), 'a.png')
+  const upload = vi.fn<NonNullable<JingliuSession['upload']>>(async () => ({ path: '/fw/media/uploads/unbound.png', size: 3 }))
+  const studio = { identity: 'u', request: vi.fn() }
+  const args = { action: 'upload', file }
+  const approve = allow()
+  const { call, definition } = tool({ ...studio, upload }, { approve, cwd: null, projectId: null })
+  await expect(call(args)).resolves.toEqual({ path: '/fw/media/uploads/unbound.png', size: 3, file })
+  expect(approve).toHaveBeenCalledWith(expect.anything(), `将本机文件上传到镜流\n${file}`)
+  expect(upload).toHaveBeenCalledWith(file, undefined, expect.any(AbortSignal))
+  expect(definition.presentCall?.(args)).toMatchObject({ title: '镜流 · 素材上传', rawInput: args })
+  await expect(tool(studio, { approve }).call(args)).rejects.toMatchObject({ code: 'JINGLIU_UPLOAD_UNSUPPORTED' })
+  expect(approve).toHaveBeenCalledTimes(1)
 })
 
 it('returns the studio export result instead of installing a draft on a Host that keeps no local media', async () => {

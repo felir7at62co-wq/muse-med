@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及交给 `jianying_draft` 的同一组媒体程序。它需要工具注册表、系统提示、Muse 账号服务和 subprocess provider；镜流项目还需要可选的、保存本机素材的 `jingliuConnection`。
+Muse Desktop 随安装包提供此私有插件，在 Office 组合中挂载它，并传入随附运行时目录以及交给 `jianying_draft` 的同一组媒体程序。插件需要工具注册表、系统提示、Muse 账号服务和 subprocess provider。镜流项目还需要可选的、保存本机素材的 `jingliuConnection`。
 
 ```yaml
 - id: tool-episode-subtitles
@@ -53,9 +53,9 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 
 `build` 读取锁定分包 `episode_packages/NN/package.json` 和已审核选片 `reviews/epNN-pMM.json`，写出 `prepare` 与草稿读取的镜头清单 `editing/NN-shots.json`，并用渲染器的画面时钟测量时长。某个分包没有审核、审核后分包变化或审核后素材变化时，本集被阻止，并写出这些分包。
 
-没有转写缓存（`transcript/shots/<audio_sha256>.json`）的镜头会拼进 `transcript/packs/` 下按内容命名的 WAV，通过 `audio_transcribe` 的执行器以 `subtitles` 用途转写。待完成的拼包只按其收据查询或续传；失败或状态不确定的拼包会阻止其镜头，且这些镜头不会再被拼包。字词按中点归回所在镜头，落在间隔里或跨越镜头边界的字词列为 `boundary` 待核项。
+没有转写缓存（`transcript/shots/<audio_sha256>.json`）的镜头会拼进 `transcript/packs/` 下按内容命名的 WAV，通过 `audio_transcribe` 的执行器以 `subtitles` 用途转写。WAV 使用每段音频摘要对应的实测采样数和暂存的 PCM。待完成的拼包只按其收据查询或续传；失败或状态不确定的拼包会阻止其镜头，且这些镜头不会再被拼包。字词按中点归回所在镜头，落在间隔里或跨越镜头边界的字词列为 `boundary` 待核项。
 
-纠正和切条每次调用只运行一次随附的 `subtitle_rules/run.py`。每个镜头的结果缓存在 `subtitles/NN.state.json`，键由它的转写、台词、人名、规则摘要和它自己的选择构成。时钟每次调用都重新排布：超出裁剪后镜头的字幕会被截短或删除并列为 `cut_by_trim`，快于渲染器阅读上限的字幕列为 `too_fast`。只有所有镜头都到达终态时，SRT 与第 2 版回执才发布到 `editing/NN.srt`；仍在转写或被阻止的集保留原有文件。回执还记下本集台词、人名和选择的摘要，所以改了剧本后即使素材没变，草稿也会拒绝这份 SRT。该路径上已有、却没有 `episode_subtitles` 回执覆盖的 SRT（手做或手改过的）会连同其回执移到 `NN.srt.manual-<时间>`，再发布新的，结果在 `manual_srt_kept` 里写出它。
+纠正和切条每次调用只运行一次随附的 `subtitle_rules/run.py`。每个镜头的结果缓存在 `subtitles/NN.state.json`，键由它的转写、台词、人名、规则摘要和它自己的选择构成。时钟每次调用都重新排布：超出裁剪后镜头的字幕会被截短或删除并列为 `cut_by_trim`，快于渲染器阅读上限的字幕列为 `too_fast`。只有所有镜头都到达终态时，SRT 与第 2 版回执才发布到 `editing/NN.srt`；仍在转写或被阻止的集保留原有文件。回执还记下本集台词、人名和选择的摘要，所以改了剧本后即使素材没变，草稿也会拒绝这份 SRT。字幕字节和回执记录的输入都一致时，重建会复用已有的 SRT 和回执。该路径上已有、却没有 `episode_subtitles` 回执覆盖的 SRT（手做或手改过的）会连同其回执移到 `NN.srt.manual-<时间>`，再发布新的，结果在 `manual_srt_kept` 里写出它。
 
 `review` 分页列出 `subtitles/NN.review.json` 中的待核项。带 `decisions` 时写入 `subtitles/NN.decisions.json`，并在不新转写的情况下重排受影响的集。选择按待核项 ID 保存，因此其他镜头修改后仍然有效，自身镜头变化后自动失效。
 
@@ -84,7 +84,7 @@ Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及�
 | [`src/hash-cache.ts`](src/hash-cache.ts) | `<root>/.muse-hash-cache.json` 中按文件状态缓存的摘要和按摘要缓存的探测结果 |
 | [`src/asr-pack.ts`](src/asr-pack.ts) | 纯函数的拼包规划、标点附着和按中点拆分 |
 | [`src/asr.ts`](src/asr.ts) | 拼包清单、WAV 组装和执行器调用 |
-| [`src/rules.ts`](src/rules.ts) | 规则摘要和受管 Python 进程 |
+| [`src/rules.ts`](src/rules.ts) | 规则摘要和以 UTF-8 JSON 通信的隔离 Python 进程 |
 | [`src/clock.ts`](src/clock.ts) | 取片窗口与变速到整集时钟的映射 |
 | [`src/build.ts`](src/build.ts) | 逐镜缓存键、时钟排布、待核项和发布 |
 | [`src/types.ts`](src/types.ts) | 仅类型声明 |

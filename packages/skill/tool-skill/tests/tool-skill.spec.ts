@@ -1,20 +1,21 @@
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest'
 import { unsupportedModel, provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
-import { createUserMessage, ToolCallId, type Message } from '@deepseek-ai/dsh-llm'
+import { createToolResultMessage, createUserMessage, ToolCallId, type Message } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, MessageSource } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import {
-  SESSION_FORMAT_VERSION, Session, SessionId, type SessionEvent, type UserMessage,
+  SESSION_FORMAT_VERSION, Session, SessionId, SessionLogOffset, type SessionEvent, type UserMessage,
 } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import AgentRegistry, { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -55,7 +56,7 @@ async function writeSkill(root: string, name: string, description: string, body:
   await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`)
 }
 
-async function setup(home: string, config: toolSkill.Config = {}): Promise<Context> {
+async function setupServices(home: string): Promise<Context> {
   const ctx = new Context()
   provideWorkingDirectoryFixture(ctx, home)
   await ctx.plugin(SystemPrompt)
@@ -65,6 +66,11 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
   await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), museHome: join(home, '.muse'), agentsHome: join(home, '.agents'), watch: false })
+  return ctx
+}
+
+async function setup(home: string, config: toolSkill.Config = {}): Promise<Context> {
+  const ctx = await setupServices(home)
   await ctx.plugin(toolSkill, config)
   return ctx
 }
@@ -213,7 +219,7 @@ describe('dsh-tool-skill', () => {
     expect(ctx.tools.schemas()).toEqual([])
     expect(await composePrefix(ctx, '/workspace')).toEqual([])
 
-    toolSkill.apply(ctx)
+    await toolSkill.apply(ctx)
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['skill'])
   })
 
@@ -1431,6 +1437,155 @@ describe('dsh-tool-skill', () => {
     const vanishedBlock = vanished.content[0]
     if (vanishedBlock?.type !== 'text') throw new Error('expected text tool result')
     expect(vanishedBlock.text).toContain('skill "vanishing-skill" is unknown or no longer available')
+  })
+})
+
+describe('task-skill recovery', () => {
+  const name = 'draft-review'
+  const body = 'Review the ending before delivering the draft.'
+  type ResultData = Extract<SessionEvent, { type: 'tool/result' }>['data']
+
+  async function fixture(config: toolSkill.Config = { taskSkills: [name] }) {
+    const ctx = await setup(await tempDir('task-skill'), config)
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const id = SessionId('task-skill')
+    const session = Session.create(id)
+    const start = session.append('turn/start', { turn: 1 })
+    return { ctx, session, start, agent: sessionAgent(session, id) }
+  }
+
+  function registerSkill(ctx: Context, userInvocable = true) {
+    return ctx.skills.register({ name, source: 'runtime', description: 'Review a draft.', content: body,
+      invocation: { modelInvocable: true, userInvocable } })
+  }
+
+  function toolCall(ctx: Context, agent: Agent, tool: string, args: object) {
+    return executeToolFixture(ctx, { agent, signal: testToolSignal, name: tool, arguments: args,
+      callId: ToolCallId(tool + '-fixture') })
+  }
+
+  function recordResult(session: Session, content: ResultData['message']['content'], meta: NonNullable<ResultData['meta']> | null) {
+    return session.append('tool/result', {
+      turn: 1, step: 1, meta,
+      message: createToolResultMessage({ callId: ToolCallId('saved-skill-' + session.seq), content, isError: false }),
+    }, { surfaceOp: 'append' })
+  }
+
+  async function recovery(ctx: Context, agent: Agent) {
+    const signal = new AbortController().signal
+    await composePrefixForAgent(ctx, agent, signal)
+    return (await ctx.systemPrompt.assemble({ signal, agent })).contexts.find(context => context.name === 'task-skill')?.text
+  }
+
+  it.each([
+    { config: { taskSkills: ['Bad_Name'] }, error: 'invalid task skill name' },
+    { config: { taskSkillLimit: 17 }, error: 'taskSkillLimit must not exceed 16' },
+  ])('refuses invalid task-skill configuration: $error', ({ config, error }) => {
+    expect(() => { void toolSkill.apply(new Context(), config) }).toThrow(error)
+  })
+
+  it('refuses a recovery budget that cannot contain an explicitly configured skill name', async () => {
+    const ctx = await setupServices(await tempDir('task-skill-budget'))
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    await expect(toolSkill.apply(ctx, { taskSkills: ['x'.repeat(512)], taskSkillMaxChars: 512 }))
+      .rejects.toThrow('taskSkillMaxChars must fit the reload notice')
+  })
+
+  it('reconstructs full instructions from a partial skill result only for its owning Agent', async () => {
+    const { ctx, agent, session, start } = await fixture()
+    registerSkill(ctx)
+    const loaded = await toolCall(ctx, agent, 'skill', { name })
+    if (loaded.isError || loaded.meta === undefined) throw new Error('Expected durable skill metadata')
+    const activation = recordResult(session, [{ type: 'text', text: 'Partial instructions.' }, { type: 'text', text: 'Retained excerpt.' }], loaded.meta)
+    expect(await recovery(ctx, agent)).toContain(body)
+    const promptWithoutAgent = await ctx.systemPrompt.assemble()
+    expect(promptWithoutAgent.contexts.find(context => context.name === 'task-skill')?.text ?? '').toBe('')
+
+    const childId = SessionId('inherited-task-skill')
+    const inherited = Session.create(childId, [start, activation], {
+      version: SESSION_FORMAT_VERSION, id: childId, createdAt: 0, isSeeded: true,
+    }, SessionLogOffset(2))
+    await expect(toolCall(ctx, sessionAgent(inherited, childId), 'end_task_skill', { name }))
+      .resolves.toMatchObject({ isError: true, error: { info: { code: 'TASK_SKILL_NOT_ACTIVE' } } })
+  })
+
+  it('ignores unrelated, malformed, and stale tool metadata when recovering the active skill', async () => {
+    const { ctx, agent, session } = await fixture()
+    registerSkill(ctx)
+    const loaded = await toolCall(ctx, agent, 'skill', { name })
+    if (loaded.isError || loaded.meta === undefined) throw new Error('Expected durable skill metadata')
+    const active = recordResult(session, loaded.content, loaded.meta)
+    const oldMetadata = [
+      null,
+      { [TOOL_BODY_META_KEY]: null },
+      { [TOOL_BODY_META_KEY]: { kind: 'task-skill-loaded', name, version: 'invalid' } },
+      { [TOOL_BODY_META_KEY]: { kind: 'other-tool-record' } },
+      { [TOOL_BODY_META_KEY]: { kind: 'task-skill-ended', name, activation: active.seq + 1 } },
+    ] satisfies ResultData['meta'][]
+    for (const meta of oldMetadata) recordResult(session, [], meta)
+    expect(ctx.tools.get('end_task_skill', agent)?.presentCall?.({ name })).toEqual({ card: 'generic', title: 'End task skill draft-review', kind: 'other' })
+    await expect(toolCall(ctx, agent, 'end_task_skill', { name }))
+      .resolves.toMatchObject({ isError: false, value: { name, activation: active.seq } })
+  })
+
+  it('warns when the saved explicit invocation is no longer allowed to recover', async () => {
+    const { ctx, agent, session } = await fixture()
+    const unregister = registerSkill(ctx)
+    const request = createUserMessage({ content: [{ type: 'text', text: '/draft-review' }], source: { kind: 'user' } })
+    const decision = await proposeStep(ctx, agent, [request])
+    if (decision.kind !== 'enter') throw new Error('Expected the task invocation')
+    const activation = decision.messages.find(message => message.source.kind === 'skill-invocation')
+    if (activation === undefined) throw new Error('Expected the skill activation')
+    session.append('user/message', activation, { surfaceOp: 'append' })
+    unregister()
+    registerSkill(ctx, false)
+
+    const context = await recovery(ctx, agent)
+    expect(context).toContain('previously loaded version of "draft-review" is unavailable')
+    expect(context).not.toContain(body)
+  })
+
+  it('leaves the skill behind when the continuation cannot invoke its loader', async () => {
+    const { ctx, agent, session } = await fixture()
+    registerSkill(ctx)
+    const loaded = await toolCall(ctx, agent, 'skill', { name })
+    if (loaded.isError || loaded.meta === undefined) throw new Error('Expected durable skill metadata')
+    recordResult(session, loaded.content, loaded.meta)
+    const continuation = sessionAgent(Session.create(SessionId('continuation')), 'continuation')
+    const { scope } = await mintAgentScope(ctx, continuation)
+    const reveal = scope.ctx.tools.restrict({ deny: ['skill'] })
+
+    ctx.emit('task-skill/carry', { from: agent, to: continuation })
+    reveal()
+    const messages = await composePrefixForAgent(ctx, continuation)
+    expect(messages.filter(message => message.source.kind === 'skill-invocation')).toEqual([])
+  })
+
+  it('reports missing prerequisites only for Agents using this loader', async () => {
+    const { ctx, agent } = await fixture({ taskSkills: ['draft-review', 'delivery-check'], taskSkillLimit: 2,
+      toolSkills: [
+        { tools: ['deliver'], skill: 'draft-review' },
+        { tools: ['deliver'], skill: 'delivery-check' },
+      ],
+    })
+    ctx.tools.register(defineContentToolFixture({
+      name: 'deliver', description: 'Deliver a checked draft.', parameters: {},
+      execute: () => Promise.resolve([{ type: 'text', text: 'Delivery completed.' }]),
+    }))
+
+    await expect(toolCall(ctx, agent, 'deliver', {})).resolves.toMatchObject({ error: { info: { code: 'TASK_SKILL_REQUIRED' } } })
+    await composePrefixForAgent(ctx, agent)
+    const retried = await toolCall(ctx, agent, 'deliver', {})
+    expect(retried).toMatchObject({ isError: true, error: { info: { code: 'TASK_SKILL_UNAVAILABLE' } } })
+    expect(JSON.stringify(retried.content)).toContain('Load them with the skill tool')
+    expect(JSON.stringify(retried.content)).not.toContain('Delivery completed.')
+
+    const foreign = sessionAgent(Session.create(SessionId('foreign-task-loader')), 'foreign-task-loader')
+    const { scope } = await mintAgentScope(ctx, foreign)
+    scope.ctx.tools.restrict({ deny: ['skill'] })
+    await expect(toolCall(ctx, foreign, 'deliver', {})).resolves.toMatchObject({
+      isError: false, content: [{ type: 'text', text: 'Delivery completed.' }],
+    })
   })
 })
 

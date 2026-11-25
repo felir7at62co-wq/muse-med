@@ -3,7 +3,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, onTestFinished } from 'vitest'
+import { releaseFamily } from './release/families.ts'
 import {
   isPublicExperimentalPackageDirectory,
   PRIVATE_EXPERIMENTAL_PACKAGE_DIRECTORIES,
@@ -333,6 +335,17 @@ describe('dsh family version coherence', () => {
 })
 
 describe('package payload constraints', () => {
+  it('excludes the Desktop subtitle tool and its private skills dependency from npm release members', () => {
+    const dir = 'packages/drama/tool-episode-subtitles'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, private: false, publishConfig: { access: 'public' } } }))
+      .toEqual([expect.stringContaining('must set "private": true'), expect.stringContaining('must omit publishConfig')])
+    const members = releaseFamily('dsh').members(fileURLToPath(new URL('../', import.meta.url))).map(member => member.name)
+    expect(members).not.toContain('@deepseek-ai/dsh-tool-episode-subtitles')
+    expect(members).not.toContain('@deepseek-ai/dsh-drama-skills')
+  })
+
   it('keeps only the named Skill publication service private and limits its runtime payload', () => {
     const dir = 'packages/host/muse-market'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
@@ -791,6 +804,23 @@ it('requires the Desktop Host public leaf bundles, presets, skills, and configur
   expect(checkWorkspaceManifest({ dir, manifest: {
     ...manifest, files: [...manifest.files!.filter(file => !file.startsWith('lib/')), 'lib/*.js'],
   } })).toEqual([expect.stringContaining('package.json files must be')])
+})
+
+it.each([
+  ['packages/drama/tool-audio-transcribe', ['lib/runner.js', 'lib/shared-*.js']],
+  ['packages/drama/tool-episode-render', ['lib/subtitles.js', 'lib/shared-*.js']],
+  ['packages/drama/tool-episode-subtitles', ['lib/selection.js', 'lib/shared-*.js']],
+  ['packages/drama/tool-jingliu', ['lib/library.js', 'lib/shared-*.js']],
+  ['packages/drama/workbench-connection', ['lib/types/**/*.js']],
+  ['packages/skill/tool-skill', ['licenses']],
+])('requires runtime and license payloads declared by %s', (dir, required) => {
+  const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  for (const omitted of required) {
+    const files = manifest.files!.filter(file => file !== omitted)
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
+      .toEqual([expect.stringContaining('package.json files must be')])
+  }
 })
 
 it('keeps the noncommercial music analysis package private with its complete runtime payload', () => {

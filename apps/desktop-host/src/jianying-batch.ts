@@ -22,7 +22,8 @@ import { changedInputs, changedShots, createMediaToolkit, ENDING_AUDIO_ASSET, EN
   fileSha256, prepareEpisode, readProjectDelivery, readSubtitleClockReceipt, subtitleClockPath, subtitleClockRows, type MediaToolkit }
   from '@deepseek-ai/dsh-tool-episode-render/subtitles'
 import { legacyChoice, localEpisodeSelection } from '@deepseek-ai/dsh-tool-episode-subtitles/selection'
-import { projectMediaFolder, type JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
+import type { JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
+import { projectMediaFolder } from '@deepseek-ai/dsh-jingliu-connection/media'
 import { plannedDrafts } from '@deepseek-ai/dsh-tool-jingliu/library'
 
 /** Switches of one batch; omitted values keep the project's delivery policy. */

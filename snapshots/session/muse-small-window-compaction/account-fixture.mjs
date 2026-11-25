@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
+import { importSnapshotModule } from '../muse-fixture-import.mjs'
 import { selectedModelProviders } from '../../../services/muse-accounts/selected-models.mjs'
 import { desktopModelCatalog } from '../../../services/muse-accounts/desktop-models.mjs'
 
@@ -87,9 +87,11 @@ export async function apply(ctx) {
   const ordinaryScript = script.filter(step => !step.summary)
   const summaryScript = script.find(step => step.summary)
   assert.ok(summaryScript)
-  const catalog = desktopModelCatalog({ metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) })
-  // This recording exercises the smaller account configuration that produced the original loop.
-  const recordedModel = catalog.providers.find(provider => provider.id === 'yunying').models.find(model => model.id === selection.model)
+  // The complete catalog exposes the historical route used by this recording.
+  const directory = { metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) }
+  const catalog = desktopModelCatalog(directory, undefined, undefined, 'all')
+  const recordedModel = catalog.providers.find(provider => provider.id === 'yunying')?.models.find(model => model.id === selection.model)
+  assert.ok(recordedModel, 'The historical Yunying model must be in the complete account catalog')
   Object.assign(recordedModel, { contextWindow: 128000, maxTokens: 32768 })
   const requests = []
   const results = []

@@ -5,7 +5,7 @@ import { HarnessError } from '@deepseek-ai/dsh-error'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
-import type { Dependencies } from './index.ts'
+import type { Dependencies } from './workflow-tools.ts'
 import { existingSubmission, submitOnce } from './submit-once.ts'
 
 const output = { schema: { type: 'object', additionalProperties: true },
@@ -32,7 +32,7 @@ export function projectsTool(deps: Dependencies): ToolDefinition {
       }
       if (action === 'search') {
         if (!Number.isSafeInteger(offset) || offset < 0) throw new HarnessError('搜索起点无效。', 'JINGLIU_INVALID_ARGUMENTS')
-        const data = await session.request('/projects?' + new URLSearchParams({ q: query?.trim() ?? '' }), { signal: exec.signal })
+        const data = await session.request(`/projects?${new URLSearchParams({ q: query?.trim() ?? '' }).toString()}`, { signal: exec.signal })
         if (!isFields(data) || !Array.isArray(data.projects)) throw new HarnessError('镜流项目目录无法读取。', 'JINGLIU_INVALID_RESULT')
         return { total: data.projects.length, projects: data.projects.slice(offset, offset + 24).filter(isFields).map(p => ({
           id: p.id ?? null, title: p.title ?? null, episodes: p.episodes_count ?? null,
@@ -91,7 +91,7 @@ export function imageTool(deps: Dependencies): ToolDefinition {
         body: { name: 'cost_estimate', project_id: pid, args: { project_id: pid, kind: 'image' }, call_id: call.join(':') + ':quote' } })
       if (!isFields(quote) || quote.ok !== true || quote.kind !== 'image' || typeof quote.estimate_fen !== 'number' || !Number.isSafeInteger(quote.estimate_fen) || quote.estimate_fen < 0) throw new HarnessError('未取得镜流生图报价。', 'JINGLIU_INVALID_QUOTE')
       const price = quote.estimate_fen > 0 ? '预计 ¥' + (quote.estimate_fen * count / 100).toFixed(2) : '镜流未给出金额，费用以实际结算为准'
-      if (!await deps.approve(exec, '镜流生图 · ' + model + ' · ' + count + ' 张 · ' + size + '\n' + price + '\n' + payload.prompt)) throw new HarnessError('本次生图未获确认。', 'JINGLIU_APPROVAL_REQUIRED')
+      if (!await deps.approve(exec, `镜流生图 · ${model} · ${count} 张 · ${size}\n${price}\n${payload.prompt}`)) throw new HarnessError('本次生图未获确认。', 'JINGLIU_APPROVAL_REQUIRED')
       return submitOnce(dir, call, key, () => session.request('/jobs', { method: 'POST', body: { kind: 'image', payload }, signal: exec.signal }))
     },
   })

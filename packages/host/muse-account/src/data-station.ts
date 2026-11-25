@@ -207,7 +207,10 @@ export class MuseDataStationClient {
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
     catch (_error) { throw new MuseDataError('invalid-response') }
     if (text.includes(token)) throw new MuseDataError('invalid-response')
-    try { return JSON.parse(text) as unknown }
+    try {
+      const value: unknown = JSON.parse(text)
+      return value
+    }
     catch (_error) { throw new MuseDataError('invalid-response') }
   }
 

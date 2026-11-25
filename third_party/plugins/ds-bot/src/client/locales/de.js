@@ -1668,6 +1668,7 @@ export const DE = {
   'Failed': 'Fehlgeschlagen',
 
   // HOST_ZH + lines 1601-1653
+  'The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.': 'Die Antwort auf die Browserübergabe steht möglicherweise bereits in der Warteschlange. Ob sie gespeichert wurde, ist noch unklar. Prüfe den Chat, bevor du eine weitere Anfrage sendest.',
   'Request failed': 'Anfrage fehlgeschlagen',
   'Permissions are not available in this DeepSeek Harness': 'Berechtigungen werden in diesem DeepSeek Harness nicht unterstützt',
   'Avatar images must be PNG, JPEG, WebP, or GIF': 'Avatar-Bilder müssen im Format PNG, JPEG, WebP oder GIF vorliegen',

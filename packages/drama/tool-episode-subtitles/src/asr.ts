@@ -14,7 +14,7 @@ import type { AudioAccount, AudioMediaOperations, AudioRunnerConfig, AudioRunRes
   from '@deepseek-ai/dsh-tool-audio-transcribe/runner'
 import { extractSpeechPcm, finishAudioTranscription, probeMediaDuration, readPublishedSegments, SPEECH_SAMPLE_RATE,
   speechWavHeader, startAudioTranscriptionBatch } from '@deepseek-ai/dsh-tool-audio-transcribe/runner'
-import { planPacks, splitPack, type PackMember } from './asr-pack.ts'
+import { planPacks, splitPack, type PackMember, type PackPlan } from './asr-pack.ts'
 import type { BlockReason, ShotTranscript } from './types.ts'
 
 /** Lifecycle of one pack manifest. */
@@ -92,11 +92,11 @@ Promise<{ transcript: ShotTranscript; sha256: string } | undefined> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
-  const transcript = JSON.parse(text) as ShotTranscript
+  const transcript = JSON.parse(text) as Partial<Record<keyof ShotTranscript, unknown>>
   if (transcript.version !== 1 || transcript.audio_sha256 !== audioSha || !Array.isArray(transcript.words)) {
     throw new Error(`${join(dirs(root).shots, `${audioSha}.json`)}: 镜头转写缓存无效，请删除该文件后重跑。`)
   }
-  return { transcript, sha256: createHash('sha256').update(text).digest('hex') }
+  return { transcript: transcript as ShotTranscript, sha256: createHash('sha256').update(text).digest('hex') }
 }
 
 async function writeJson(file: string, value: unknown): Promise<void> {
@@ -143,7 +143,8 @@ export async function transcribeShots(requests: readonly AsrRequest[], deps: Asr
   for (const request of requests) if (!wanted.has(request.audio_sha256)) wanted.set(request.audio_sha256, request.audio)
   const deadline = Date.now() + options.waitMs
   let newSeconds = 0, retryAfter: number | undefined
-  const runnerProbe = deps.media?.runner?.probe
+  const mediaRunner = deps.media?.runner
+  const runnerProbe = mediaRunner?.probe.bind(mediaRunner)
     ?? ((file: string, probeSignal?: AbortSignal) => probeMediaDuration(file, deps.runner, probeSignal))
 
   const finishPack = async (pack: PackManifest, result: AudioRunResult | { readonly error: string }): Promise<PackManifest> => {
@@ -154,12 +155,11 @@ export async function transcribeShots(requests: readonly AsrRequest[], deps: Asr
     let status: PackStatus = 'pending'
     if (result.status === 'complete' && result.output_json !== undefined) {
       const words = splitPack(await readPublishedSegments(result.output_json, signal), pack)
-      for (const member of pack.members) {
-        const own = words.get(member.audio_sha256) ?? { words: [], flags: [] }
+      for (const { member, words: ownWords, flags } of words.values()) {
         const transcript: ShotTranscript = { version: 1, audio_sha256: member.audio_sha256, samples: member.samples,
           pack: { sha256: pack.sha256, receipt: result.receipt, offset_samples: member.offset_samples },
           ...(result.service_version === undefined ? {} : { service_version: result.service_version }),
-          silent: own.words.length === 0, words: own.words, flags: own.flags }
+          silent: ownWords.length === 0, words: ownWords, flags }
         await writeJson(join(dirs(deps.root).shots, `${member.audio_sha256}.json`), transcript)
       }
       status = 'complete'
@@ -212,12 +212,11 @@ export async function transcribeShots(requests: readonly AsrRequest[], deps: Asr
     return out
   }
 
-  const poll = async (pack: PackManifest): Promise<PackManifest> => {
-    if (pack.receipt === undefined) return (await start([pack]))[0] ?? pack
+  const poll = async (pack: PackManifest, receipt: string): Promise<PackManifest> => {
     const waitMs = Math.max(0, Math.min(30_000, deadline - Date.now()))
     let result: AudioRunResult
     try {
-      result = await finishAudioTranscription(deps.root, pack.receipt, deps.account, signal, true,
+      result = await finishAudioTranscription(deps.root, receipt, deps.account, signal, true,
         { waitMs, pollIntervalMs: deps.pollIntervalMs, probe: runnerProbe }, deps.pacing)
     } catch (error) {
       signal?.throwIfAborted()
@@ -234,8 +233,14 @@ export async function transcribeShots(requests: readonly AsrRequest[], deps: Asr
     const pack = known.get(sha)
     if (pack === undefined || touched.has(pack.sha256)) continue
     touched.add(pack.sha256)
-    // A finished pack is queried again only to republish a member transcript that is missing locally.
-    settled.set(pack.sha256, pack.status === 'failed' || pack.status === 'uncertain' ? pack : await poll(pack))
+    if (pack.status === 'failed' || pack.status === 'uncertain') settled.set(pack.sha256, pack)
+    else if (pack.receipt === undefined) {
+      settled.set(pack.sha256, pack)
+      for (const started of await start([pack])) settled.set(started.sha256, started)
+    } else {
+      // A finished pack is queried again only to republish a member transcript that is missing locally.
+      settled.set(pack.sha256, await poll(pack, pack.receipt))
+    }
   }
 
   const fresh = [...wanted.entries()].filter(([sha]) => !known.has(sha))
@@ -268,7 +273,7 @@ export async function transcribeShots(requests: readonly AsrRequest[], deps: Asr
     const created: PackManifest[] = []
     for (const plan of plans) {
       const wav = join(packs, `${plan.sha256}.wav`)
-      await writePackWav(wav, plan.members, plan.gap_samples, measured)
+      await writePackWav(wav, plan, pcm)
       const manifest: PackManifest = { version: 1, sha256: plan.sha256, rate, gap_samples: plan.gap_samples,
         members: plan.members, wav, status: 'staged' }
       await writeJson(join(packs, `${plan.sha256}.json`), manifest)
@@ -296,18 +301,14 @@ export async function transcribeShots(requests: readonly AsrRequest[], deps: Asr
     ...(retryAfter === undefined ? {} : { retryAfter }) }
 }
 
-async function writePackWav(target: string, members: readonly PackMember[], gapSamples: number,
-  measured: readonly { audio_sha256: string; file: string }[]): Promise<void> {
-  const dataBytes = members.reduce((total, member) => total + (member.samples + gapSamples) * 2, 0)
+async function writePackWav(target: string, plan: PackPlan, pcmDirectory: string): Promise<void> {
   const temporary = `${target}.${String(process.pid)}.tmp`
   const handle = await open(temporary, 'w', 0o600)
   try {
-    await handle.write(speechWavHeader(dataBytes))
-    const silence = Buffer.alloc(gapSamples * 2)
-    for (const member of members) {
-      const source = measured.find(row => row.audio_sha256 === member.audio_sha256)
-      if (source === undefined) throw new Error('Pack member PCM is missing')
-      const pcm = await readFile(source.file)
+    await handle.write(speechWavHeader(plan.samples * 2))
+    const silence = Buffer.alloc(plan.gap_samples * 2)
+    for (const member of plan.members) {
+      const pcm = await readFile(join(pcmDirectory, `${member.audio_sha256}.pcm`))
       await handle.write(pcm.subarray(0, member.samples * 2))
       await handle.write(silence)
     }

@@ -283,6 +283,26 @@ it('accepts trimmed decimal identities and a BOM-prefixed project binding', asyn
   await expect(validateProjectBinding(directory, 2708)).rejects.toMatchObject({ code: 'PROJECT_BINDING_INVALID' })
 })
 
+it('reports an unreadable project configuration separately from a missing file', async () => {
+  const directory = join(root, 'unreadable-config')
+  await mkdir(join(directory, 'project_config.json'), { recursive: true })
+  const rejected = validateProjectBinding(directory, 2708)
+  await expect(rejected).rejects.toMatchObject({ code: 'PROJECT_BINDING_INVALID' })
+  await expect(rejected).rejects.toThrow('无法读取 project_config.json')
+})
+
+it.each([
+  ['[]', '必须是 JSON 对象'],
+  ['{}', '缺少 jubian_script_id'],
+  ['{"jubian_script_id":0}', 'jubian_script_id 必须是正整数'],
+])('refuses invalid project binding data %s', async (content, message) => {
+  const directory = await project()
+  await writeFile(join(directory, 'project_config.json'), content)
+  const rejected = validateProjectBinding(directory, 2708)
+  await expect(rejected).rejects.toMatchObject({ code: 'PROJECT_BINDING_INVALID' })
+  await expect(rejected).rejects.toThrow(message)
+})
+
 it.each([
   { label: 'wrong storyboard', board: { ...STORYBOARD, id: 1 }, rows: SUBJECT_ROWS, assets: ASSETS },
   { label: 'wrong parent identity', board: STORYBOARD, rows: SUBJECT_ROWS, assets: { ...ASSETS, '81285': { ...ASSETS['81285'], id: 1 } } },

@@ -1,10 +1,10 @@
 /** Move studio files between the conversation's workspace and the studio's media store. */
 import { isAbsolute, resolve } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { projectMediaFolder } from '@deepseek-ai/dsh-jingliu-connection'
+import { projectMediaFolder } from '@deepseek-ai/dsh-jingliu-connection/media'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { Dependencies } from './index.ts'
+import type { Dependencies } from './workflow-tools.ts'
 
 // The studio resolves at most this many addresses per request; one call stays within one batch.
 const MAX_PATHS = 200
@@ -43,8 +43,11 @@ export function mediaTool(deps: Dependencies): ToolDefinition {
       }
       if (!session.upload) throw new HarnessError('当前镜流连接不支持上传。', 'JINGLIU_UPLOAD_UNSUPPORTED')
       if (!file?.trim()) throw new HarnessError('请指定要上传的本机文件。', 'JINGLIU_INVALID_ARGUMENTS')
-      if (!isAbsolute(file) && !workspace) throw new HarnessError('这段对话没有本机工作区，请使用绝对路径。', 'JINGLIU_WORKSPACE_REQUIRED')
-      const target = isAbsolute(file) ? file : resolve(workspace ?? '', file)
+      let target = file
+      if (!isAbsolute(file)) {
+        if (!workspace) throw new HarnessError('这段对话没有本机工作区，请使用绝对路径。', 'JINGLIU_WORKSPACE_REQUIRED')
+        target = resolve(workspace, file)
+      }
       if (!await deps.approve(exec, '将本机文件上传到镜流' + (project ? '项目 ' + project : '') + '\n' + target)) {
         throw new HarnessError('本次上传未获确认。', 'JINGLIU_APPROVAL_REQUIRED')
       }

@@ -12,6 +12,7 @@ import { StreamableHTTPClientTransport, type Transport } from '@modelcontextprot
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../../scripts/coverage-partitions.ts'
 import { startConnection, resolveReconnectPolicy } from '../src/connection.ts'
 import { McpStatusCell } from '../src/status.ts'
 import { Config } from '../src/index.ts'
@@ -24,6 +25,7 @@ const config = Config({
   toolCallTimeoutMs: 60_000, startupTimeoutMs: 30_000, failOnStartupError: false,
 })
 const fixture = fileURLToPath(new URL('./fixtures/negotiation-lifecycle.mjs', import.meta.url))
+const retryTimeout = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 5_000
 
 async function connection(factory: () => Transport, retry: boolean) {
   const ctx = new Context()
@@ -116,7 +118,7 @@ describe('SDK negotiation lifecycle', () => {
     const handle = await connection(() => new StreamableHTTPClientTransport(url), true)
     expect((await handle.ready).error).toBeDefined()
     expect(handle.errors).toEqual([])
-    await vi.waitFor(() => { expect(handle.errors.some(line => line.includes('giving up after 3'))).toBe(true) })
+    await expect.poll(() => handle.errors.some(line => line.includes('giving up after 3')), { timeout: retryTimeout }).toBe(true)
     expect(requests).toBe(4)
     expect(handle.warns.filter(line => line.includes('connection failed; retrying'))).toHaveLength(3)
   })
@@ -127,7 +129,7 @@ describe('SDK negotiation lifecycle', () => {
     }), true)
     expect((await handle.ready).error).toBeDefined()
     expect(handle.errors).toEqual([])
-    await vi.waitFor(() => { expect(handle.errors.some(line => line.includes('giving up after 3'))).toBe(true) })
+    await expect.poll(() => handle.errors.some(line => line.includes('giving up after 3')), { timeout: retryTimeout }).toBe(true)
     expect(handle.transports).toHaveLength(4)
     expect(handle.warns.filter(line => line.includes('connection failed; retrying'))).toHaveLength(3)
   })

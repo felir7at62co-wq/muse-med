@@ -33,6 +33,8 @@ description: "在 Muse 会话中查找并调用镜流影视制作工作流。"
 
 其他 Host 工具使用 `@deepseek-ai/dsh-tool-jingliu/library`。`plannedDrafts` 按 `POST /projects/{pid}/jianying/plan` 安装批量剪映草稿，每次请求最多十集：已存字幕过期、缺失或未核验的集被拒绝并列出镜号，调用方为选择保留老数据的用户设了 `keepLegacy` 时接受未核验的集；每个素材只下载一次到 `<工作区>/jingliu/<项目>`，再链接进各份草稿，封面用调用方的 FFmpeg 抽取，草稿以重命名方式装入。草稿指纹由账号、项目、集号和计划的 `draft_sha256` 组成，所以重复调用返回已装好的草稿，计划变化时在旁边装一份新的；没有这条路由的服务器使所有集报 `jingliu_outdated`。`submitOnce` 是解说剧与生图工具使用的只提交一次的任务提交。`jingliu_run export_jianying` 仍安装镜流的 zip 草稿包。
 
+安装草稿时，Windows 上的暂时性重命名错误会在限定时间内重试。发布前取消或安装失败时会清理暂存目录。
+
 <a id="model-experience"></a>
 ## 模型体验
 

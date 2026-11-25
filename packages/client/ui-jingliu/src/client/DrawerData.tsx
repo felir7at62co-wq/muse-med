@@ -195,14 +195,26 @@ function RankRows({ period, platform, t, quote, rush }: Pick<DrawerDataProps, 't
       return <div key={work.id} className={css.row} role="row">
         <span role="cell" className={css.rank}>{position ?? ''}</span>
         <span role="cell" className={css.text}><strong>{title}</strong><small>{work.tags.slice(0, 3).join(' · ')}</small></span>
-        {platform.columns.map(([key]) => <span key={key} role="cell" className={css.num}>{metricOf(work, key, t)}</span>)}
-        <span role="cell" className={css.acts}>
-          <QuoteButton t={t} title={title} onQuote={() => { quote(t('workReference', { platform: t(platform.name), board: period.board, rank: String(position ?? '—'), title })) }} />
-          {platform.id === 'hongguo' && <RushButton t={t} workId={work.id} rush={rush} kind="transcribe" />}
-        </span>
+        <WorkCells work={work} platform={platform} t={t} rush={rush} title={title}
+          onQuote={() => { quote(t('workReference', { platform: t(platform.name), board: period.board, rank: String(position ?? '—'), title })) }} />
       </div>
     })}
   </div>
+}
+
+function WorkCells({ work, platform, t, rush, title, onQuote }: Pick<DrawerDataProps, 't' | 'rush'> & {
+  work: MuseDataWork
+  platform: typeof PLATFORMS[number]
+  title: string
+  onQuote: () => void
+}) {
+  return <>
+    {platform.columns.map(([key]) => <span key={key} role="cell" className={css.num}>{metricOf(work, key, t)}</span>)}
+    <span role="cell" className={css.acts}>
+      <QuoteButton t={t} title={title} onQuote={onQuote} />
+      {platform.id === 'hongguo' && <RushButton t={t} workId={work.id} rush={rush} kind="transcribe" />}
+    </span>
+  </>
 }
 
 function Collected({ epoch, platform, t, useResource, quote, rush }: Pick<DrawerDataProps, 't' | 'useResource' | 'quote' | 'rush'> & { epoch: number; platform: typeof PLATFORMS[number] }) {
@@ -241,11 +253,8 @@ function CollectedRows({ works, platform, t, quote, rush }: Pick<DrawerDataProps
       const meta = [work.tags.slice(0, 2).join(' · '), work.episodeCount === null ? '' : t('episodeCount', { count: String(work.episodeCount) })].filter(Boolean).join(' · ')
       return <div key={work.id} className={`${css.row} ${css.collectedRow}`} role="row">
         <span role="cell" className={css.text}><strong>{title}</strong>{meta !== '' && <small>{meta}</small>}</span>
-        {platform.columns.map(([key]) => <span key={key} role="cell" className={css.num}>{metricOf(work, key, t)}</span>)}
-        <span role="cell" className={css.acts}>
-          <QuoteButton t={t} title={title} onQuote={() => { quote(t('collectedReference', { platform: t(platform.name), title, id: work.id })) }} />
-          {platform.id === 'hongguo' && <RushButton t={t} workId={work.id} rush={rush} kind="transcribe" />}
-        </span>
+        <WorkCells work={work} platform={platform} t={t} rush={rush} title={title}
+          onQuote={() => { quote(t('collectedReference', { platform: t(platform.name), title, id: work.id })) }} />
       </div>
     })}
   </div>

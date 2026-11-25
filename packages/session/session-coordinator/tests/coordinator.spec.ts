@@ -60,6 +60,26 @@ describe('routing-only Main Session', () => {
     expect(events.filter(e => e.type === 'user/message' && e.data.source.kind === 'muse-router-opening')).toHaveLength(1)
     await expect(test.service.requireMain(agent)).rejects.toThrow(/owner request/i)
   })
+
+  it('does not enqueue a greeting when a human turn completes during the history read', async () => {
+    const test = await fixture(undefined, { greetOnOpen: true })
+    const readSession = test.ctx.sessionQuery.readSession.bind(test.ctx.sessionQuery)
+    const read = vi.spyOn(test.ctx.sessionQuery, 'readSession').mockImplementationOnce(async (id) => {
+      const history = await readSession(id)
+      const agent = test.ctx.agents.get(id)!
+      agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'My request arrived first.' }] }))
+      await agent.whenIdle()
+      return history
+    })
+    onTestFinished(() => { read.mockRestore() })
+    const id = await test.service.openMain()
+    const agent = test.ctx.agents.get(id)!
+    await agent.whenIdle()
+    const messages = agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.source.kind] : [])
+    expect(messages).toContain('user')
+    expect(messages).not.toContain('muse-router-opening')
+  })
+
   it('opens the same dedicated Main Session in the existing default Workspace', async () => {
     const test = await fixture()
     const controller = new AbortController()
@@ -127,7 +147,7 @@ describe('routing-only Main Session', () => {
     expect(latest(await waitStatus(test, 'needs-report')).status).toBe('needs-report')
   })
 
-  it('passes the confirmed cloud project to the assigned worker and its task brief', async () => {
+  it('passes the confirmed cloud project to the worker and retains it on reconciliation', async () => {
     const test = await fixture()
     const project = { owner: 'studio-user', id: 'film-1', title: '雨夜' }
     const inherit = vi.fn()
@@ -146,6 +166,35 @@ describe('routing-only Main Session', () => {
     expect(JSON.stringify(briefing)).toContain('Confirmed Jingliu production')
     expect(JSON.stringify(briefing)).toContain('film-1')
     expect(JSON.stringify(briefing)).toContain('雨夜')
+    await waitStatus(test, 'needs-report')
+    const reconciled = await test.service.reconcile(test.main, { taskId: task.id, expectedRevision: 1,
+      key: 'inspect-project', instructions: 'Summarize the completed project work', reason: 'The worker ended without a report' })
+    expect(latest(reconciled)).toMatchObject({ revision: 2, studioProject: project, sessionId: worker.id })
+    await worker.whenIdle()
+  })
+
+  it('reuses a worker tied to a cloud production only when owner and production match', async () => {
+    const test = await fixture()
+    const worker = await test.makeAgent('studio-worker')
+    const project = { owner: 'studio-user', id: 'film-1', title: '雨夜' }
+    let selected: typeof project | null = null
+    const inherit = vi.fn()
+    await test.ctx.plugin(class Studio extends Service {
+      constructor(ctx: Context) { super(ctx, 'jingliuConnection') }
+      assignmentProject(id: SessionId) { return id === test.main.id ? selected : project }
+      inheritProject = inherit
+    }).await()
+    const dispatch = () => test.service.dispatch(test.main, { ...request, sessionId: worker.id })
+    for (const different of [null, { ...project, owner: 'another-user' }, { ...project, id: 'film-2' }]) {
+      selected = different
+      await expect(dispatch()).rejects.toThrow('Choose a worker for the current production or create a new Session')
+    }
+    expect(inherit).not.toHaveBeenCalled()
+    selected = project
+    const task = await dispatch()
+    await worker.whenIdle()
+    expect(latest(task).sessionId).toBe(worker.id)
+    expect(inherit).toHaveBeenCalledWith(worker.id, project)
   })
 
   it('reuses an idle ordinary Session and preserves its existing history and preset', async () => {
@@ -821,5 +870,29 @@ describe('worker limit', () => {
     expect(latest(await test.service.stop(test.main.id, queued.id, 1)).status).toBe('stopped')
     const retried = await test.service.dispatch(test.main, { ...second, key: 'goal-2-retry', taskId: queued.id, expectedRevision: 1 })
     expect(latest(retried).status).toBe('accepted')
+  })
+
+  it('interrupts a waiting production assignment when the Jingliu connection is unavailable', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const holder = holdWorkers(test)
+    const first = await test.service.dispatch(test.main, request)
+    holder.active = false
+    const project = { owner: 'studio-user', id: 'film-1', title: '雨夜' }
+    const studio = test.ctx.plugin(class Studio extends Service {
+      constructor(ctx: Context) { super(ctx, 'jingliuConnection') }
+      assignmentProject() { return project }
+      inheritProject = vi.fn()
+    })
+    await studio.await()
+    try {
+      const queued = await test.service.dispatch(test.main, second)
+      expect(latest(queued)).toMatchObject({ status: 'dispatching', studioProject: project })
+      await studio.dispose()
+      await holder.release(latest(first).sessionId)
+      const failed = await waitTask(test, queued.id, task => latest(task).notifiedStatus === 'interrupted')
+      expect(latest(failed).issue).toContain('The assigned production requires the Jingliu connection')
+      const workerLog = await test.ctx.sessionQuery.readSession(latest(queued).sessionId)
+      expect(workerLog.events).toEqual(expect.not.arrayContaining([expect.objectContaining({ type: 'user/message' })]))
+    } finally { await holder.release(latest(first).sessionId) }
   })
 })

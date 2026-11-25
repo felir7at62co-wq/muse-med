@@ -83,12 +83,16 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       expect(rows.find(row => row.id === id), id).toMatchObject({ disabled: true })
     }
     expect(rows.find(row => row.id === 'ui-permission')).toMatchObject({ disabled: false })
+    expect(rows.find(row => row.id === 'ui-approval')).toEqual({ id: 'ui-approval', name: '@deepseek-ai/dsh-client-ui-approval' })
     expect(rows.find(row => row.id === 'goal-round-driver')?.config).toMatchObject({
       transientErrorResume: { maxAttempts: 3, delayMs: 120_000, codes: ['SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED'] },
     })
-    expect(rows.find(row => row.id === 'permission')?.config).toMatchObject({ defaultPreset: 'danger-full-access', registerCommand: true })
+    expect(rows.find(row => row.id === 'permission')?.config).toMatchObject({
+      defaultPreset: 'danger-full-access', registerCommand: true,
+      presets: { 'danger-full-access': { sandbox: 'danger-full-access', approval: 'ask' } },
+    })
     expect(rows.find(row => row.id === 'sandbox-policy')?.config).toMatchObject({ mode: 'danger-full-access' })
-    expect(rows.find(row => row.id === 'approval')?.config).toEqual({ policy: 'never' })
+    expect(rows.find(row => row.id === 'approval')?.config).toEqual({ policy: 'ask' })
     expect(rows.find(row => row.id === 'ui-settings-models')?.config).toEqual({ welcomeNotice: false })
     // Execution roots use the official Agent Teams service and board (`teamByDefault` in short-drama).
     expect(['agent-team', 'tool-agent-team', 'ui-agent-team'].map(id => rows.find(row => row.id === id))).toEqual([

@@ -13,17 +13,17 @@ import { balance, billingLedger, billingUserId, catalog, createdProject, episode
 import type { StudioBalance, StudioBillingDetails, StudioCatalog, StudioConfig, StudioEpisode, StudioImage, StudioLibrary, StudioLibraryQuery, StudioNewProject, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia, StudioVideoRequest } from './types.ts'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-muse-account'
-import { WorkbenchSessions } from '@deepseek-ai/dsh-workbench-connection'
+import { WorkbenchSessions } from '@deepseek-ai/dsh-workbench-connection/transport'
 import type { WorkbenchDefinition, WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
 import type {} from '@deepseek-ai/dsh-commands'
 import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { boundedBytes, isRecord, JINGLIU, JingliuHttpError, studioOrigin } from './http.ts'
 import type { JingliuRequest } from './http.ts'
-import { JingliuMedia, mediaPath, projectMediaFolder } from './media.ts'
+import { JingliuMedia, projectMediaFolder } from './media.ts'
 import type { LocalMedia, UploadedMedia } from './media.ts'
 
-export { JingliuHttpError, boundedBytes, mediaPath, projectMediaFolder }
+export { JingliuHttpError }
 export type { LocalMedia, UploadedMedia }
 
 // Without local files, a video and a thumbnail are held in Host memory; the bounds keep one request finite.
@@ -185,18 +185,25 @@ export class JingliuConnection extends TypertRemoteService {
     })
   }
 
+  private async readMedia<T>(
+    session: WorkbenchSession, path: string, signal: AbortSignal, consume: (response: Response) => Promise<T>,
+  ): Promise<T> {
+    await session.check()
+    const response = await this.media.open(session, path, signal)
+    let result: T
+    try { result = await consume(response) }
+    finally { if (!response.bodyUsed) await response.body?.cancel() }
+    await session.check()
+    return result
+  }
+
   private studio(session: WorkbenchSession): JingliuSession {
     let studio = this.studios.get(session)
     if (studio) return studio
     studio = {
       identity: session.identity,
-      media: async (path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>) => {
-        await session.check()
-        const response = await this.media.open(session, path, signal)
-        try { await consume(response) }
-        finally { if (!response.bodyUsed) await response.body?.cancel() }
-        await session.check()
-      },
+      media: (path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>) =>
+        this.readMedia(session, path, signal, consume),
       ...(this.localMedia && {
         download: (paths: readonly string[], folder: string, signal: AbortSignal) =>
           this.media.files(session, paths, folder, { keep: true, evict: false, signal }),
@@ -468,7 +475,7 @@ export class JingliuConnection extends TypertRemoteService {
     // read_shots pages by text size; an episode rarely needs more than a few pages.
     for (let page = 0; page < 40; page += 1) {
       const result = await this.workflow('read_shots', projectId, { episode, max_shots: 60, ...(from === null ? {} : { from_order: from }) }, signal)
-      if (Array.isArray(result.shots)) rows.push(...result.shots)
+      if (Array.isArray(result.shots)) for (const shot of result.shots) rows.push(shot)
       if (typeof result.next_from_order !== 'number') break
       from = result.next_from_order
     }
@@ -538,15 +545,13 @@ export class JingliuConnection extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   async *video(path: string, signal: AbortSignal): AsyncIterable<string> {
-    const session = await this.connection()
-    let type = ''
-    let bytes: Buffer | undefined
-    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs * 4)]), async (response) => {
-      type = response.headers.get('content-type')?.split(';')[0] ?? ''
+    const session = await this.sessions.connection()
+    const lifetime = AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs * 4)])
+    const { type, bytes } = await this.readMedia(session, path, lifetime, async (response) => {
+      const type = response.headers.get('content-type')?.split(';')[0] ?? ''
       if (!VIDEO_TYPES.includes(type)) throw new HarnessError('镜流素材不是可播放的视频。', 'JINGLIU_INVALID_MEDIA')
-      bytes = await boundedBytes(response, VIDEO_MAX_BYTES)
+      return { type, bytes: await boundedBytes(response, VIDEO_MAX_BYTES) }
     })
-    if (!bytes) throw new HarnessError('镜流没有返回这段视频。', 'JINGLIU_INVALID_MEDIA')
     yield type
     for (let start = 0; start < bytes.length; start += VIDEO_CHUNK_BYTES) yield bytes.subarray(start, start + VIDEO_CHUNK_BYTES).toString('base64')
   }

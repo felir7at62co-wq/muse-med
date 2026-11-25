@@ -278,6 +278,7 @@ External packages **directly declared** for development, tests, types, or toolin
 | [`lightningcss`](https://github.com/parcel-bundler/lightningcss) | MPL-2.0 |
 | [`mermaid`](https://github.com/mermaid-js/mermaid) | MIT |
 | [`micromark-util-types`](https://github.com/micromark/micromark/tree/main/packages/micromark-util-types) | MIT |
+| [`open-bot-avatar`](https://github.com/DominikScholz/open-bot-avatar) | MIT |
 | [`oxlint`](https://github.com/oxc-project/oxc) | MIT |
 | [`oxlint-tsgolint`](https://github.com/oxc-project/tsgolint) | MIT |
 | [`parse5`](https://github.com/inikulin/parse5) | MIT |

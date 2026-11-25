@@ -18,7 +18,7 @@ export interface DrawerLibraryProps {
   useResource: Read
   useAccountEpoch<T>(select: (value: number) => T): T
   /** Put text into the message box of the drawer's conversation. */
-  compose(text: string): void
+  compose: (text: string) => void
 }
 
 /**
@@ -46,7 +46,7 @@ function Library({ epoch, t, useResource, compose }: DrawerLibraryProps & { epoc
   const reference = (asset: StudioAsset) => t('libraryReference', { kind: t(served(asset.kind as Kind) ? asset.kind as Served : 'asset'), name: asset.name })
   const pick = (next: Kind) => { setKind(next); setQuery(''); setDraft(''); setOffset(0) }
   const failed = kindOf !== undefined && (list.status === 'failed' || list.status === 'none')
-  const notice = failed ? <Failure t={t} retry={() => refresh(n => n + 1)} />
+  const notice = failed ? <Failure t={t} retry={() => { refresh(n => n + 1) }} />
     : kindOf !== undefined && list.status !== 'live' ? <p className={css.quiet}>{t('loading')}</p>
       : items.length === 0 ? <p className={css.quiet}>{t('noneFound')}</p> : null
   return <section className={css.library}>
@@ -56,11 +56,11 @@ function Library({ epoch, t, useResource, compose }: DrawerLibraryProps & { epoc
     </form>
     <div className={css.kinds} role="group" aria-label={t('assetType')}>
       {KINDS.map(value => <button key={value} type="button" className={css.kind} aria-pressed={query === '' && kind === value}
-        onClick={() => pick(value)}>{t(value)}</button>)}
+        onClick={() => { pick(value) }}>{t(value)}</button>)}
     </div>
     {notice ?? <ul className={css.rows}>{items.map(asset => <li key={asset.id}>
       <button type="button" className={css.row} draggable aria-label={t('libraryRow', { name: asset.name, count: String(asset.uses) })}
-        onClick={() => compose(reference(asset))}
+        onClick={() => { compose(reference(asset)) }}
         onDragStart={(e) => { e.dataTransfer.setData('text/plain', reference(asset)); e.dataTransfer.effectAllowed = 'copy' }}>
         <span className={css.thumb}><Picture path={asset.thumbnail} epoch={epoch} useResource={useResource} name={asset.name} unavailable={t('imageFailed')} /></span>
         <span className={css.text}>
@@ -70,8 +70,8 @@ function Library({ epoch, t, useResource, compose }: DrawerLibraryProps & { epoc
       </button>
     </li>)}</ul>}
     {(total > PAGE || offset > 0) && <div className={css.pages}>
-      <Button variant="ghost" size="sm" disabled={offset === 0} onClick={() => setOffset(n => Math.max(0, n - PAGE))}>{t('previous')}</Button>
-      <Button variant="ghost" size="sm" disabled={offset + PAGE >= total} onClick={() => setOffset(n => n + PAGE)}>{t('next')}</Button>
+      <Button variant="ghost" size="sm" disabled={offset === 0} onClick={() => { setOffset(n => Math.max(0, n - PAGE)) }}>{t('previous')}</Button>
+      <Button variant="ghost" size="sm" disabled={offset + PAGE >= total} onClick={() => { setOffset(n => n + PAGE) }}>{t('next')}</Button>
     </div>}
   </section>
 }

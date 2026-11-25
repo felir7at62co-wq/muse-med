@@ -11,7 +11,12 @@ export { Config, name } from '@deepseek-ai/dsh-drama-settings'
  */
 export function apply(ctx: Context, config: DramaConfig): void {
   applyDramaSettings(ctx, {
-    ...config,
+    deliveryDir: config.deliveryDir,
+    jianyingDraftDir: config.jianyingDraftDir,
+    deliverySpec: config.deliverySpec,
+    bgmDir: config.bgmDir,
+    imageStandardId: config.imageStandardId,
+    seriesBudgetCents: config.seriesBudgetCents,
     localProjectOnly: true,
     standaloneStudioAddress: process.env.MUSE_LOCALMINIDRAMA_URL ?? config.standaloneStudioAddress ?? '',
   })

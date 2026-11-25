@@ -2,12 +2,9 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {randomUUID} from 'node:crypto';
-import {mkdtemp,readFile,readdir,rm,writeFile} from 'node:fs/promises';
+import {mkdtemp,readFile,readdir,realpath,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {tmpdir as systemTmpdir} from 'node:os';
-import {realpathSync as realpathOfTmpdir} from 'node:fs';
-// Private-directory checks compare real paths; the system temp directory can be reached through a link (macOS /var).
-const tmpdir=()=>realpathOfTmpdir(systemTmpdir());
+import {tmpdir} from 'node:os';
 import {once} from 'node:events';
 import {openUsageLedger} from './usage-ledger.mjs';
 import {accountGroups} from './account-groups.mjs';
@@ -24,7 +21,8 @@ async function files(root){
  return Promise.all(entries.filter(entry=>entry.isFile()).map(entry=>readFile(join(entry.parentPath,entry.name),'utf8')));
 }
 async function fixture(t){
- const root=await mkdtemp(join(tmpdir(),'muse-account-details-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ // The ledger requires a canonical path even when the OS exposes TMP through a symlink or a Windows short name.
+ const root=await mkdtemp(join(await realpath(tmpdir()),'muse-account-details-'));t.after(()=>rm(root,{recursive:true,force:true}));
  let clock=Date.parse('2026-11-16T15:59:59.000Z');const now=()=>clock,store=await openStore(join(root,'accounts.json'));
  const owner=await store.create('writer','pw'),other=await store.create('another','pw'),admin=await store.create('administrator','pw',{admin:true}),ledger=await openUsageLedger(join(root,'usage'),{now});
  /** Settle one relay request the way the desktop relay does, with supplier usage or null. */

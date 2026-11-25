@@ -101,7 +101,7 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 
 `ds-bot/` 中的 DS Bot 源码是产品的 Bot 工作区。默认构建通过[桌面兼容层](compatibility/muse-bot-desktop.mjs)打包它：兼容层只接受已评审的版本和 Muse 自己的组合补丁，并去掉上游的网页搜索组件、`bin/` 诊断脚本和 `@deepseek-ai/dsh-web` 对等依赖。[`MUSE_SOURCE.json`](ds-bot/MUSE_SOURCE.json) 列出 Muse 改动的文件及原因。
 
-构建会从 `src/client` 重新生成 Client 包，因此仓库中提交的 `client.js` 保持上游内容。`pnpm --dir third_party/plugins/toolchain run test:bot` 检查兼容层和打包结果。Bot 数据位于 Harness 主目录的 `bot` 目录；此前 Muse Bot 留在 `muse-bot` 中的数据保持原样，不做迁移。
+构建会在私有暂存区从 `src/client` 生成 Client 包。手机上的长确认卡片可在停靠区内滚动，控件宽高至少为 44 像素。`pnpm --dir third_party/plugins/toolchain run test:bot` 检查兼容层和打包结果。Bot 数据位于 Harness 主目录的 `bot` 目录。旧版 Muse Bot 数据保留在 `muse-bot`。
 
 通过客户端 ID 元数据文档登录的连接器出示的是上游的 `https://dsbot.app/oauth/client.json`，因此授权页显示 DS Bot。[`muse-oauth-client.json`](compatibility/muse-oauth-client.json) 是 Muse 自己的文档。将它原样部署到其 `client_id` 地址后，在[组合补丁](ds-bot/cordis.patch.yml)和桌面兼容层的 Bot 行中把 `oauthClientDocument` 设为该地址。此后新的登录使用它；此前已登录的连接器继续用登录时的文档刷新。
 

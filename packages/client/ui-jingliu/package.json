@@ -62,15 +62,16 @@
     "@deepseek-ai/dsh-client-ui-character-library": "workspace:*",
     "@deepseek-ai/dsh-client-resources": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:*",
     "@deepseek-ai/dsh-api-workspace-controller": "workspace:*",
-    "@deepseek-ai/dsh-client-ui-conversation": "workspace:*"
+    "@deepseek-ai/dsh-client-ui-conversation": "workspace:*",
+    "@deepseek-ai/dsh-brand": "workspace:*",
+    "@deepseek-ai/dsh-client-store": "workspace:*",
+    "@deepseek-ai/dsh-jingliu-connection": "workspace:*",
+    "@deepseek-ai/dsh-workbench-connection": "workspace:*"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-client-store": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~",
-    "@deepseek-ai/dsh-jingliu-connection": "workspace:*",
-    "@deepseek-ai/dsh-workbench-connection": "workspace:*",
-    "@deepseek-ai/dsh-brand": "workspace:*"
+    "@deepseek-ai/schemastery": "workspace:~"
   },
   "files": [
     "locale/*.json",

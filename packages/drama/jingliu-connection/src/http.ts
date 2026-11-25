@@ -1,9 +1,9 @@
 /** Jingliu names, origin validation and media addresses over the shared workbench requests. */
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { boundedBytes as readBounded, workbenchOrigin, WorkbenchHttpError } from '@deepseek-ai/dsh-workbench-connection'
-import type { WorkbenchLabel, WorkbenchRequest } from '@deepseek-ai/dsh-workbench-connection'
+import { WorkbenchHttpError, type WorkbenchLabel, type WorkbenchRequest } from '@deepseek-ai/dsh-workbench-connection'
+import { boundedBytes as readBounded, workbenchOrigin } from '@deepseek-ai/dsh-workbench-connection/transport'
 
-export { isRecord } from '@deepseek-ai/dsh-workbench-connection'
+export { isRecord } from '@deepseek-ai/dsh-workbench-connection/transport'
 
 /** Jingliu's name in failures and error codes. */
 export const JINGLIU: WorkbenchLabel = { name: '镜流', code: 'JINGLIU' }

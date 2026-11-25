@@ -9,7 +9,7 @@ description: 以当前登录的 Muse 用户身份连接剧本工坊，并提供�
 
 ## 概述
 
-默认导出 Host 服务 `workshopConnection`。它以当前登录 Muse 的用户身份打开剧本工坊会话，工坊工具因此使用该用户自己的工坊账号，只看得到该用户的任务。本包还导出 `WorkbenchSessions`，即 `@deepseek-ai/dsh-jingliu-connection` 连接镜流时使用的登录与请求核心。工坊和镜流的原生令牌只留在 Host 内存中，不会进入模型输入、工具参数或工具结果。
+默认导出 Host 服务 `workshopConnection`。它以当前登录 Muse 的用户身份打开剧本工坊会话，工坊工具因此使用该用户自己的工坊账号，只看得到该用户的任务。`@deepseek-ai/dsh-workbench-connection/transport` 导出 `WorkbenchSessions`，即 `@deepseek-ai/dsh-jingliu-connection` 连接镜流时使用的登录与请求核心。工坊和镜流的原生令牌只留在 Host 内存中，不会进入模型输入、工具参数或工具结果。
 
 ## 目录
 
@@ -45,6 +45,8 @@ Desktop Host 用 `MUSE_SCRIPT_WORKSHOP_ORIGIN` 挂载本服务；该变量未设
 `ctx.workshopConnection.connection()` 返回 `WorkbenchSession`，并发调用共用一次登录。`request(path, options)` 在 API 根路径下发送 JSON 并返回解析后的响应；非 2xx 响应抛出 `WorkbenchHttpError`，带 HTTP `status`、服务的 `detail.code` 或 `WORKSHOP_HTTP_ERROR` 以及其消息。`identity` 是部署与工坊用户 ID 的摘要。`fetch(url, init)` 和 `check()` 用于读取原始媒体；镜流用它们读取制片素材。
 
 `WorkbenchSessions` 接收 `WorkbenchDefinition`（受众、网关挂载路径、API 根路径、凭据字段和面向用户的名称）与 `WorkbenchDeployment`（已校验的源站、超时和可选的回环预览凭据）。`disconnect(signal)` 在独立源站下到 `/auth/logout` 注销原生令牌；在网关挂载下只丢弃会话。
+
+`@deepseek-ai/dsh-workbench-connection/scripts` 导出解析器，用于读取工坊接口返回的定稿剧本列表、详情和摘要。
 
 `workshopConnection` 同时是供客户端「剧本」标签使用的 Typert Remote 服务：`scripts` 读取定稿库的一页及各阶段计数，`script` 读取一个剧本的版本列表和某一版的各集正文，`pickScript` 选用一版投产，`scriptProduction` 登记被选用剧本投产成的镜流项目。所有成员都能读定稿库；没有 `script_pick` 权限时工坊拒绝 `pickScript` 和 `scriptProduction`。`scriptList`、`scriptDetail` 和 `scriptOf` 校验响应，不符合时以 `WORKSHOP_INVALID_RESULT` 失败。
 

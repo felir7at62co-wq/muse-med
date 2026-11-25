@@ -4,8 +4,9 @@ import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { setTimeout as delay } from 'node:timers/promises'
-import { chmod, link, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { MuseAsrError, parseMuseAsrMetadata, type MuseAsrMetadata, type MuseAsrJob, type MuseAsrPurpose, type MuseAsrSegment, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 
 /** Host-only account service methods consumed by the model tool. */
@@ -309,14 +310,7 @@ async function createReceipt(file: string, receipt: Receipt, signal?: AbortSigna
 }
 
 async function save(file: string, receipt: Receipt, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted()
-  const staged = `${file}.${randomUUID()}.tmp`
-  try {
-    await writeFile(staged, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
-    signal?.throwIfAborted()
-    await rename(staged, file)
-  }
-  finally { await rm(staged, { force: true }) }
+  await writeFileAtomic(file, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600, dirMode: 0o700, signal })
 }
 
 async function readReceipt(file: string): Promise<Receipt> {

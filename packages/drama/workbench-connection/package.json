@@ -29,6 +29,14 @@
       "types": "./lib/typert.remote-client.d.ts",
       "default": "./lib/typert.remote-client.js"
     },
+    "./scripts": {
+      "types": "./lib/types/scripts.d.ts",
+      "default": "./lib/types/scripts.js"
+    },
+    "./transport": {
+      "types": "./lib/types/transport.d.ts",
+      "default": "./lib/transport.js"
+    },
     "./types": {
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
@@ -37,10 +45,12 @@
   "files": [
     "locale/*.json",
     "lib/index.js",
+    "lib/transport.js",
+    "lib/shared-*.js",
+    "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "lib/**/*.js.map",
-    "lib/types/**/*.js",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",

@@ -25,11 +25,11 @@
   "files": [
     "locale/*.json",
     "lib/index.js",
+    "licenses",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "lib/**/*.js.map",
-    "src",
-    "licenses"
+    "src"
   ],
   "license": "MIT",
   "peerDependencies": {

@@ -21,7 +21,8 @@
     presets:
       read-only: { sandbox: read-only, approval: ask }
       workspace-write: { sandbox: workspace-write, approval: ask }
-      danger-full-access: { sandbox: danger-full-access, approval: never }
+      # File access stays unrestricted while tools can ask before submitting paid or state-changing work.
+      danger-full-access: { sandbox: danger-full-access, approval: ask }
 
 # Muse supplies its signed-in cloud catalog; users may configure their own native models.
 - id: llm-deepseek

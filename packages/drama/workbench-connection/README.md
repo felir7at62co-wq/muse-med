@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The default export is the Host service `workshopConnection`. It opens Script Workshop sessions as the user signed in to Muse, so Workshop tools act with that user's own Workshop account and see only that user's jobs. The package also exports `WorkbenchSessions`, the sign-in and request core that `@deepseek-ai/dsh-jingliu-connection` uses for Jingliu. Native Workshop and Jingliu tokens stay in Host memory and never reach model input, tool arguments or tool results.
+The default export is the Host service `workshopConnection`. It opens Script Workshop sessions as the user signed in to Muse, so Workshop tools act with that user's own Workshop account and see only that user's jobs. The `@deepseek-ai/dsh-workbench-connection/transport` entry exports `WorkbenchSessions`, the sign-in and request core that `@deepseek-ai/dsh-jingliu-connection` uses for Jingliu. Native Workshop and Jingliu tokens stay in Host memory and never reach model input, tool arguments or tool results.
 
 ## Table of Contents
 
@@ -45,6 +45,8 @@ A session belongs to the Muse login that opened it. It is discarded when Muse an
 `ctx.workshopConnection.connection()` resolves a `WorkbenchSession`. Concurrent callers share one sign-in. `request(path, options)` sends JSON below the API root and returns the parsed response; a non-2xx response throws `WorkbenchHttpError` with the HTTP `status`, the service's `detail.code` or `WORKSHOP_HTTP_ERROR`, and its message. `identity` is a digest of the deployment and the Workshop user ID. `fetch(url, init)` and `check()` serve raw media reads; Jingliu uses them for studio media.
 
 `WorkbenchSessions` takes a `WorkbenchDefinition` naming the audience, gateway mount, API root, credential field and user-facing name, and a `WorkbenchDeployment` with the validated origin, timeout and an optional loopback preview credential. `disconnect(signal)` revokes a dedicated deployment's native token at `/auth/logout`; on the gateway mount it only discards the session.
+
+`@deepseek-ai/dsh-workbench-connection/scripts` exports parsers for finalized-script lists, details and summaries returned by the Workshop API.
 
 `workshopConnection` is also a Typert Remote service for the Client's 剧本 tab: `scripts` reads one page of the finalized-script library with counts per stage, `script` reads one script with its versions and one version's episodes, `pickScript` picks a version for production, and `scriptProduction` records the Jingliu project a picked script became. Every member can read the library; the Workshop refuses `pickScript` and `scriptProduction` without the `script_pick` permission. `scriptList`, `scriptDetail` and `scriptOf` check the responses; one that does not match fails with `WORKSHOP_INVALID_RESULT`.
 

@@ -77,30 +77,38 @@ const CONTENT = /[\p{L}\p{N}]/u
  * Attach the punctuation and spaces of a segment's text to the words that precede them.
  * @param text - Segment text as recognized.
  * @param words - The segment's words, in order.
- * @returns Word texts with following punctuation, or the original texts when they do not match the segment text.
+ * @returns One text per word, with following punctuation when the words match the segment text.
  */
 export function attachPunctuation(text: string, words: readonly { readonly text: string }[]): string[] {
-  const out = words.map(word => word.text)
+  return wordsWithPunctuation(text, words).map(word => word.text)
+}
+
+function wordsWithPunctuation<T extends { readonly text: string }>(text: string, words: readonly T[]): { word: T; text: string }[] {
+  const original = () => words.map(word => ({ word, text: word.text }))
+  const out = original()
   let cursor = 0
-  for (const [index, word] of words.entries()) {
-    const token = word.text.trim()
+  for (const [index, entry] of out.entries()) {
+    const token = entry.text.trim()
     if (!token) continue
     const at = text.indexOf(token, cursor)
-    if (at < 0) return words.map(row => row.text)
+    if (at < 0) return original()
     const between = text.slice(cursor, at)
-    if (CONTENT.test(between)) return words.map(row => row.text)
-    if (index > 0) out[index - 1] += between
-    out[index] = token
+    if (CONTENT.test(between)) return original()
+    const previous = out[index - 1]
+    if (previous !== undefined) previous.text += between
+    entry.text = token
     cursor = at + token.length
   }
   const rest = text.slice(cursor)
-  if (CONTENT.test(rest)) return words.map(row => row.text)
-  if (out.length > 0) out[out.length - 1] += rest
+  if (CONTENT.test(rest)) return original()
+  const last = out.at(-1)
+  if (last !== undefined) last.text += rest
   return out
 }
 
 /** Words and flags that one pack's recognition assigns to one member. */
 export interface MemberWords {
+  readonly member: PackMember
   readonly words: TimedWord[]
   readonly flags: TranscriptFlag[]
 }
@@ -109,12 +117,16 @@ export interface MemberWords {
  * Split a pack's recognized segments back to its members in member-local seconds.
  * @param segments - Recognition of the whole pack, in pack seconds.
  * @param pack - The pack the recognition belongs to.
- * @returns Words and boundary flags per member audio digest.
+ * @returns Member timing, words and boundary flags for every audio digest, including members with no recognized words.
  */
 export function splitPack(segments: readonly MuseAsrSegment[], pack: Pick<PackPlan, 'members' | 'rate'>): Map<string, MemberWords> {
-  const out = new Map<string, MemberWords>(pack.members.map(member => [member.audio_sha256, { words: [], flags: [] }]))
-  const spans = pack.members.map(member => ({ member, start: member.offset_samples / pack.rate,
-    end: (member.offset_samples + member.samples) / pack.rate }))
+  const out = new Map<string, MemberWords>()
+  const spans = pack.members.map((member) => {
+    const previous = out.get(member.audio_sha256)
+    const target: MemberWords = { member, words: previous?.words ?? [], flags: previous?.flags ?? [] }
+    out.set(member.audio_sha256, target)
+    return { target, start: member.offset_samples / pack.rate, end: (member.offset_samples + member.samples) / pack.rate }
+  })
   const [firstSpan] = spans
   if (firstSpan === undefined) return out
   const owner = (mid: number) => {
@@ -128,21 +140,18 @@ export function splitPack(segments: readonly MuseAsrSegment[], pack: Pick<PackPl
   }
   for (const [seg, segment] of segments.entries()) {
     const timed = segment.words !== undefined && segment.words.length > 0
-      ? (() => { const texts = attachPunctuation(segment.text, segment.words)
-        return segment.words.map((word, index) => ({ start: word.start, end: word.end, text: texts[index] ?? word.text })) })()
+      ? wordsWithPunctuation(segment.text, segment.words).map(({ word, text }) => ({ start: word.start, end: word.end, text }))
       : [{ start: segment.start, end: segment.end, text: segment.text }]
     for (const word of timed) {
       if (!word.text.trim()) continue
       const { span, inGap } = owner((word.start + word.end) / 2)
-      const target = out.get(span.member.audio_sha256)
-      if (target === undefined) continue
       const length = span.end - span.start
       const start = Math.min(Math.max(word.start - span.start, 0), length)
       const end = Math.min(Math.max(word.end - span.start, start), length)
-      target.words.push({ start: round(start), end: round(end), text: word.text, seg,
+      span.target.words.push({ start: round(start), end: round(end), text: word.text, seg,
         ...(segment.speaker_id === undefined ? {} : { speaker_id: segment.speaker_id }) })
       if (inGap || word.start < span.start || word.end > span.end) {
-        target.flags.push({ kind: 'boundary', start: round(start), end: round(end) })
+        span.target.flags.push({ kind: 'boundary', start: round(start), end: round(end) })
       }
     }
   }

@@ -24,19 +24,23 @@ const POSTER_RATIOS = ['1:1', '2:3', '3:4', '7:10', '9:16', '16:9'] as const
 
 /**
  * One Jingliu tab: the list of productions, or the workbench of the production the tab shows.
+ * Project actions require the current conversation's live selection.
  * @param props - The Bot's conversation, the tab's production, the studio resources and the message-box callbacks.
  * @returns The project list or the workbench, with the project forms over them.
  */
 export function DrawerJingliu(props: Props) {
   const { sessionId, project, openProject, chooseProject, useResource, useAccountEpoch, t } = props
   const epoch = useAccountEpoch(n => n)
-  const selected = useResource<'jingliu-selected'>(address('jingliu-selected', epoch, 0, { id: sessionId }))
+  const [selectionRevision, refreshSelection] = useState(0)
+  const selected = useResource<'jingliu-selected'>(address('jingliu-selected', epoch, selectionRevision, { id: sessionId }))
   const [card, setCard] = useState<Card | null>(null)
   const [revision, refresh] = useState(0)
   const projects = useResource<'jingliu-projects'>(address('jingliu-projects', epoch, revision))
   const tying = useAction()
-  const close = () => setCard(null)
-  if (selected.status === 'failed') return <section className={css.drawer}><Failure t={t} retry={() => refresh(n => n + 1)} /></section>
+  const close = () => { setCard(null) }
+  if (selected.status === 'failed') return <section className={css.drawer}>
+    <Failure t={t} retry={() => { refreshSelection(n => n + 1) }} />
+  </section>
   if (selected.status !== 'live') return <section className={css.drawer}><p className={css.quiet}>{t('loading')}</p></section>
   // The production Muse works on in this conversation. Looking at another one leaves it as it is.
   const tied = selected.value?.id ?? null
@@ -56,8 +60,8 @@ export function DrawerJingliu(props: Props) {
   </>
   if (!project) {
     return <section className={css.drawer}>
-      <ProjectList {...props} epoch={epoch} data={projects} tied={tied} onRetry={() => refresh(n => n + 1)} onNew={() => setCard('new')}
-        onSearch={() => setCard('search')} onPick={open} />
+      <ProjectList {...props} epoch={epoch} data={projects} tied={tied} onRetry={() => { refresh(n => n + 1) }} onNew={() => { setCard('new') }}
+        onSearch={() => { setCard('search') }} onPick={open} />
       {forms}
     </section>
   }
@@ -115,7 +119,7 @@ function ProjectList({ t, useResource, epoch, data, tied, onRetry, onNew, onSear
     {data.status === 'failed' ? <Failure t={t} retry={onRetry} /> : data.status !== 'live' ? <p className={css.quiet}>{t('loading')}</p>
       : rows.length === 0 ? <p className={css.quiet}>{t('emptyProjects')}</p>
         : <div className={css.projects}>{rows.map(p =>
-          <button key={p.id} type="button" className={css.project} disabled={act.busy} onClick={() => pick(p)}>
+          <button key={p.id} type="button" className={css.project} disabled={act.busy} onClick={() => { pick(p) }}>
             <span className={css.letter} aria-hidden="true">{firstLetter(p.title)}</span>
             <span className={css.projectText}>
               <strong>{p.title}</strong>
@@ -146,9 +150,9 @@ function ProjectSearch({ t, useResource, epoch, projects, tied, onClose, onPick 
   const rows = projects.filter(p => p.title.toLocaleLowerCase().includes(needle)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   const pick = (project: StudioProject) => { void act.run(() => onPick(project)) }
   return <Modal open title={t('searchProjects')} closeLabel={t('close')} onClose={onClose}>
-    <Input data-modal-autofocus aria-label={t('searchProjects')} placeholder={t('searchProjects')} value={query} onChange={e => setQuery(e.target.value)} />
+    <Input data-modal-autofocus aria-label={t('searchProjects')} placeholder={t('searchProjects')} value={query} onChange={(e) => { setQuery(e.target.value) }} />
     {rows.length === 0 ? <p className={css.quiet}>{t('noSuchProject')}</p> : <div className={css.results}>{rows.map(p =>
-      <button key={p.id} type="button" className={css.result} disabled={act.busy} onClick={() => pick(p)}>
+      <button key={p.id} type="button" className={css.result} disabled={act.busy} onClick={() => { pick(p) }}>
         <span className={css.letter} aria-hidden="true">{firstLetter(p.title)}</span>
         <span className={css.projectText}><strong>{p.title}</strong><small>{projectTags(t, p, catalog, tied).join(' · ')}</small></span>
         <small className={css.date}>{dateOf(p.createdAt)}</small>
@@ -177,15 +181,18 @@ function ProjectForm(props: FormProps) {
   const { t, useResource, epoch, mode, projectId } = props
   const catalog = useResource<'jingliu-catalog'>(address('jingliu-catalog', epoch, 0))
   const config = useResource<'jingliu-config'>(mode === 'config' ? address('jingliu-config', epoch, 0, { id: projectId }) : 'studio://inactive')
-  const ready = catalog.value && (mode === 'new' || config.value)
+  const fields = mode === 'new' ? { mode, config: null } as const : config.value && { mode, config: config.value } as const
   return <Modal open title={mode === 'new' ? t('newProject') : t('projectConfig')} closeLabel={t('close')} onClose={props.onClose}>
     {catalog.status === 'failed' || config.status === 'failed' ? <Failure t={t} retry={props.onClose} />
-      : !ready ? <p className={css.quiet}>{t('loading')}</p>
-        : <FormFields {...props} catalog={catalog.value} config={config.value ?? null} />}
+      : !catalog.value || !fields ? <p className={css.quiet}>{t('loading')}</p>
+        : <FormFields {...props} {...fields} catalog={catalog.value} />}
   </Modal>
 }
 
-type FieldsProps = FormProps & { catalog: StudioCatalog; config: StudioConfig | null }
+type FieldsProps = Omit<FormProps, 'mode'> & { catalog: StudioCatalog } & (
+  | { mode: 'new'; config: null }
+  | { mode: 'config'; config: StudioConfig }
+)
 
 function FormFields(props: FieldsProps) {
   const { t, mode, sessionId, projectId, project, catalog, config, createProject, renameProject, saveOption, onClose, onDone } = props
@@ -207,9 +214,9 @@ function FormFields(props: FieldsProps) {
   const act = useAction()
   const submit = () => { void act.run(async () => {
     if (editing) {
-      const renamed = title.trim() !== (config?.title ?? '')
+      const renamed = title.trim() !== config.title
       if (renamed) await renameProject(projectId, title)
-      if (resolution !== (config?.resolution ?? '')) await saveOption(projectId, 'resolution', resolution)
+      if (resolution !== config.resolution) await saveOption(projectId, 'resolution', resolution)
       onDone(renamed ? { id: projectId, title: title.trim() } : null)
     } else {
       const input: StudioNewProject = { title, mode: modeKey, artStyle: style, aspect, resolution, videoModel, imageModel, generationMode }
@@ -227,15 +234,16 @@ function FormFields(props: FieldsProps) {
       ? <SegmentedControl id={id} label={label} value={value} options={options} onChange={onChange} disabled={fixed}
         className={css.choice} />
       : <span className={css.picks} role="radiogroup" aria-label={label}>{options.map(o =>
-        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} disabled={fixed || o.disabled === true} onClick={() => onChange(o.value)}>{o.label}</button>)}</span>)
+        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} disabled={fixed || o.disabled === true} onClick={() => { onChange(o.value) }}>{o.label}</button>)}</span>)
   const select = (label: string, value: string, options: { id: string; name: string }[], onChange: (next: string) => void, fixed = false) =>
-    row(label, <select className={css.select} aria-label={label} value={value} disabled={fixed} onChange={e => onChange(e.target.value)}>
+    row(label, <select className={css.select} aria-label={label} value={value} disabled={fixed}
+      onChange={(e) => { onChange(e.target.value) }}>
       <option value="">{t('platformDefault')}</option>
       {options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
       {value && !options.some(o => o.id === value) && <option value={value}>{value}</option>}
     </select>)
   return <div className={css.form}>
-    {row(t('projectName'), <Input data-modal-autofocus aria-label={t('projectName')} placeholder={t('projectNamePlaceholder')} maxLength={255} value={title} onChange={e => setTitle(e.target.value)} />)}
+    {row(t('projectName'), <Input data-modal-autofocus aria-label={t('projectName')} placeholder={t('projectNamePlaceholder')} maxLength={255} value={title} onChange={(e) => { setTitle(e.target.value) }} />)}
     {choice('jl-story', t('projectType'), story, [{ value: 'drama', label: t('typeDrama') }, { value: 'narration', label: t('typeNarration') }], setStory, editing)}
     {choice('jl-look', t('look'), look, [{ value: 'live', label: t('lookLive') }, { value: '3d', label: t('look3d') }], setLook, editing)}
     {styles.length > 0 && choice('jl-style', t('artStyle'), style, styles.map(s => ({ value: s.key, label: s.label, disabled: !s.enabled })), setArtStyle, editing)}
@@ -274,23 +282,23 @@ function Workbench(props: BenchProps) {
   const generation = catalog?.generationModes.find(m => m.id === props.generationMode)?.name ?? props.generationMode
   return <>
     <div className={css.bar}>
-      <button type="button" className={css.projectPill} aria-label={t('switchProjectLabel', { title })} onClick={() => setCard('search')}>
+      <button type="button" className={css.projectPill} aria-label={t('switchProjectLabel', { title })} onClick={() => { setCard('search') }}>
         <span className={css.letter} aria-hidden="true">{firstLetter(title)}</span><strong>{title}</strong><IconChevronDownOutlineRegular size={14} />
       </button>
-      <button type="button" className={css.round} aria-label={t('newProject')} title={t('newProject')} aria-pressed={card === 'new'} onClick={() => setCard(card === 'new' ? null : 'new')}><IconPlusOutlineRegular size={18} /></button>
+      <button type="button" className={css.round} aria-label={t('newProject')} title={t('newProject')} aria-pressed={card === 'new'} onClick={() => { setCard('new') }}><IconPlusOutlineRegular size={18} /></button>
       <SegmentedControl id="jl-page" label={t('workbenchPages')} value={page} className={css.pages}
         options={[{ value: 'assets', label: t('assetsPage') }, { value: 'videos', label: t('videosPage') }]} onChange={(next) => { setPage(next); setCard(null) }} />
       <span className={css.spacer} />
-      <Button size="sm" variant="outline" icon={<IconSlidersTwoOutlineRegular size={15} />} aria-pressed={card === 'config'} onClick={() => setCard(card === 'config' ? null : 'config')}>{t('projectConfig')}</Button>
-      <Button size="sm" className={css.export} icon={<IconShareOutlineRegular size={15} />} aria-pressed={card === 'export'} onClick={() => setCard(card === 'export' ? null : 'export')}>{t('batchExport')}</Button>
+      <Button size="sm" variant="outline" icon={<IconSlidersTwoOutlineRegular size={15} />} aria-pressed={card === 'config'} onClick={() => { setCard('config') }}>{t('projectConfig')}</Button>
+      <Button size="sm" className={css.export} icon={<IconShareOutlineRegular size={15} />} aria-pressed={card === 'export'} onClick={() => { setCard('export') }}>{t('batchExport')}</Button>
     </div>
     <div className={css.body}>
       {page === 'assets'
-        ? <AssetsPage t={t} useResource={useResource} epoch={epoch} projectId={projectId} quote={props.quote} onPoster={() => setCard('poster')} />
+        ? <AssetsPage t={t} useResource={useResource} epoch={epoch} projectId={projectId} quote={props.quote} onPoster={() => { setCard('poster') }} />
         : <VideosPage {...props} config={config.value ?? null} generation={generation} />}
     </div>
-    {card === 'export' && <ExportCard t={t} projectId={projectId} episodes={episodes.value ?? []} compose={props.compose} onClose={() => setCard(null)} />}
-    {card === 'poster' && <PosterCard t={t} title={title} leads={characters} compose={props.compose} onClose={() => setCard(null)} />}
+    {card === 'export' && <ExportCard t={t} projectId={projectId} episodes={episodes.value ?? []} compose={props.compose} onClose={() => { setCard(null) }} />}
+    {card === 'poster' && <PosterCard t={t} title={title} leads={characters} compose={props.compose} onClose={() => { setCard(null) }} />}
   </>
 }
 
@@ -327,7 +335,7 @@ function AssetsPage({ t, useResource, epoch, projectId, quote, onPoster }: Asset
             : <p className={css.quiet}>{t('emptyAssets')}</p>)
           : items.length === 0 ? <p className={css.quiet}>{t('emptyAssets')}</p>
             : <div className={css.grid}>{items.map(a =>
-              <button key={a.id} type="button" className={css.asset} title={t('quoteAsset')} onClick={() => quote(t('assetQuote', { name: a.name }))}>
+              <button key={a.id} type="button" className={css.asset} title={t('quoteAsset')} onClick={() => { quote(t('assetQuote', { name: a.name })) }}>
                 <span className={frame}>{a.imagePath
                   ? <Picture path={a.imagePath} epoch={epoch} useResource={useResource} name={a.name} unavailable={t('imageFailed')} />
                   : <small>{t('notGenerated')}</small>}</span>
@@ -351,12 +359,12 @@ function VideosPage(props: BenchProps & { config: StudioConfig | null; generatio
   if (episode === null) return <p className={css.quiet}>{t('emptyEpisodes')}</p>
   return <div className={css.videos}>
     <nav className={css.episodes} aria-label={t('episodes')}>{list.map(e =>
-      <button key={e.number} type="button" aria-current={e.number === episode ? 'true' : undefined} className={e.hasShots ? undefined : css.noShots} onClick={() => choose(e.number)}>{e.number}</button>)}</nav>
+      <button key={e.number} type="button" aria-current={e.number === episode ? 'true' : undefined} className={e.hasShots ? undefined : css.noShots} onClick={() => { choose(e.number) }}>{e.number}</button>)}</nav>
     <div className={css.cards}>
       {shots.status === 'failed' ? <p className={css.quiet}>{t('failed')}</p> : shots.status !== 'live' ? <p className={css.quiet}>{t('loading')}</p>
         : !shots.value?.length ? <p className={css.quiet}>{t('emptyShots')}</p>
           : shots.value.map(shot =>
-            <ShotCard key={shot.id} {...props} assets={assets} shot={shot} episode={episode} onDeleted={() => refresh(n => n + 1)} />)}
+            <ShotCard key={shot.id} {...props} assets={assets} shot={shot} episode={episode} onDeleted={() => { refresh(n => n + 1) }} />)}
     </div>
   </div>
 }
@@ -413,11 +421,11 @@ function ShotCard(props: CardProps) {
         {confirming
           ? <>
             <Button size="sm" variant="ghost" className={css.danger} disabled={act.busy} onClick={remove}>{t('deleteShot')}</Button>
-            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>{t('cancel')}</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setConfirming(false) }}>{t('cancel')}</Button>
           </>
           : <>
-            <button type="button" className={css.icon} aria-label={t('copyShotLabel', { shot: label })} title={t('copyShot')} onClick={() => compose(t('copyRequest', { shot: label }))}><IconCopyOutlineRegular size={16} /></button>
-            <button type="button" className={css.icon} aria-label={t('deleteShotLabel', { shot: label })} title={t('deleteShot')} onClick={() => setConfirming(true)}><IconTrashOutlineRegular size={16} /></button>
+            <button type="button" className={css.icon} aria-label={t('copyShotLabel', { shot: label })} title={t('copyShot')} onClick={() => { compose(t('copyRequest', { shot: label })) }}><IconCopyOutlineRegular size={16} /></button>
+            <button type="button" className={css.icon} aria-label={t('deleteShotLabel', { shot: label })} title={t('deleteShot')} onClick={() => { setConfirming(true) }}><IconTrashOutlineRegular size={16} /></button>
           </>}
       </header>
       {act.error && <p role="alert" className={css.failed}>{t('deleteFailed')}</p>}
@@ -429,7 +437,7 @@ function ShotCard(props: CardProps) {
         ? <ShotVideo key={shown?.videoPath ?? 'none'} sessionId={props.sessionId} projectId={projectId} path={shown?.videoPath ?? ''} poster={media.value?.firstFramePath ?? ''} current={current} epoch={epoch} useResource={useResource} loadVideo={loadVideo} t={t} />
         : <div className={css.videoEmpty}>{t('notGenerated')}</div>}
       {versions.length > 1 && <div className={css.versions} role="group" aria-label={t('versions')}>{versions.map(v =>
-        <button key={v.number} type="button" aria-pressed={v.number === current} title={t('versionLabel', { number: v.number })} onClick={() => setVersion(v.number)}>{v.number}</button>)}</div>}
+        <button key={v.number} type="button" aria-pressed={v.number === current} title={t('versionLabel', { number: v.number })} onClick={() => { setVersion(v.number) }}>{v.number}</button>)}</div>}
     </div>
     <div className={css.side}>
       <dl className={css.params}>
@@ -448,11 +456,11 @@ function ShotCard(props: CardProps) {
             </span>
             <small>{a.name}</small>
           </span>)}
-        <button type="button" className={css.materialAdd} aria-label={t('pickAsset')} title={t('pickAsset')} onClick={() => compose(t('pickAssetRequest', { shot: label }))}><IconPlusOutlineRegular size={18} /></button>
+        <button type="button" className={css.materialAdd} aria-label={t('pickAsset')} title={t('pickAsset')} onClick={() => { compose(t('pickAssetRequest', { shot: label })) }}><IconPlusOutlineRegular size={18} /></button>
       </div>
       <footer className={css.cardFoot}>
         <Button size="sm" variant="primary" aria-pressed={quoted} onClick={() => { if (!quoted) quote(label); setQuoted(!quoted) }}>{quoted ? t('quoted') : t('quoteShot')}</Button>
-        <Button size="sm" variant="outline" className={css.grow} onClick={() => compose(t(shot.hasVideo ? 'againRequest' : 'generateRequest', { shot: label }))}>{shot.hasVideo ? t('again') : t('generate')}</Button>
+        <Button size="sm" variant="outline" className={css.grow} onClick={() => { compose(t(shot.hasVideo ? 'againRequest' : 'generateRequest', { shot: label })) }}>{shot.hasVideo ? t('again') : t('generate')}</Button>
       </footer>
     </div>
   </article>
@@ -527,22 +535,22 @@ function ExportCard({ t, projectId, episodes, compose, onClose }: ExportProps) {
     <span className={css.optionName}>{label}</span>
     {options[key] && extra}
     <span className={css.spacer} />
-    <Switch checked={options[key]} label={label} onChange={on => setOptions(o => ({ ...o, [key]: on }))} />
+    <Switch checked={options[key]} label={label} onChange={(on) => { setOptions(o => ({ ...o, [key]: on })) }} />
   </div>
   const summary = [picked.length > 0 ? t('exportPicked', { count: picked.length }) : t('exportNone'),
     missing.length > 0 ? t('exportMissing', { episodes: rangeText(missing, t) }) : ''].filter(Boolean).join(' · ')
   return <Modal open title={t('batchExport')} closeLabel={t('close')} onClose={onClose}
     footer={<><Button variant="ghost" onClick={onClose}>{t('cancel')}</Button><Button variant="primary" disabled={picked.length === 0} onClick={send}>{t('exportDrafts')}</Button></>}>
-    <div className={css.exportHead}><Button size="sm" variant="ghost" disabled={ready.length === 0} aria-pressed={all} onClick={() => setPicked(all ? [] : ready)}>{t('selectAll')}</Button></div>
+    <div className={css.exportHead}><Button size="sm" variant="ghost" disabled={ready.length === 0} aria-pressed={all} onClick={() => { setPicked(all ? [] : ready) }}>{t('selectAll')}</Button></div>
     <div className={css.exportEpisodes}>{episodes.map(e =>
       <button key={e.number} type="button" aria-pressed={picked.includes(e.number)} disabled={!e.hasShots}
-        aria-label={e.hasShots ? t('episodeNumber', { number: e.number }) : t('episodeNoVideo', { number: e.number })} onClick={() => toggle(e.number)}>{e.number}</button>)}</div>
+        aria-label={e.hasShots ? t('episodeNumber', { number: e.number }) : t('episodeNoVideo', { number: e.number })} onClick={() => { toggle(e.number) }}>{e.number}</button>)}</div>
     <div className={css.exportOptions} role="group" aria-label={t('withOptions')}>
       <small className={css.quiet}>{t('withOptions')}</small>
       {option('subtitles', t('optionSubtitles'))}
       {option('music', t('optionMusic'))}
       {option('ending', t('optionEnding'), <span className={css.chips}><span className={css.chip}>{t('endingEffect')}</span><span className={css.chip}>{t('endingSound')}</span></span>)}
-      {option('watermark', t('optionWatermark'), <Input aria-label={t('watermarkText')} className={css.markInput} maxLength={40} value={mark} onChange={e => setMark(e.target.value)} />)}
+      {option('watermark', t('optionWatermark'), <Input aria-label={t('watermarkText')} className={css.markInput} maxLength={40} value={mark} onChange={(e) => { setMark(e.target.value) }} />)}
     </div>
     <p className={css.quiet}>{summary}</p>
   </Modal>
@@ -550,14 +558,13 @@ function ExportCard({ t, projectId, episodes, compose, onClose }: ExportProps) {
 
 // "1–3, 5" for a sorted list of episode numbers.
 function rangeText(numbers: number[], t: Text): string {
-  const runs: string[] = []
-  for (let i = 0; i < numbers.length; i += 1) {
-    let j = i
-    while (j + 1 < numbers.length && numbers[j + 1] === (numbers[j] ?? 0) + 1) j += 1
-    runs.push(j > i ? `${numbers[i]}–${numbers[j]}` : String(numbers[i]))
-    i = j
+  const runs: [first: number, last: number][] = []
+  for (const number of numbers) {
+    const run = runs.at(-1)
+    if (run && number === run[1] + 1) run[1] = number
+    else runs.push([number, number])
   }
-  return runs.join(t('listJoin'))
+  return runs.map(([first, last]) => first === last ? String(first) : `${first}–${last}`).join(t('listJoin'))
 }
 
 type PosterProps = { t: Text; title: string; leads: string[]; compose: (text: string) => void; onClose: () => void }
@@ -577,13 +584,13 @@ function PosterCard({ t, title, leads, compose, onClose }: PosterProps) {
     footer={<><Button variant="ghost" onClick={onClose}>{t('cancel')}</Button><Button variant="primary" disabled={count === 0 || name.trim() === ''} onClick={send}>{t('generatePoster')}</Button></>}>
     <div className={css.form}>
       <div className={css.field}><span className={css.fieldLabel}>{t('posterTitle')}</span>
-        <div className={css.fieldControl}><Input data-modal-autofocus aria-label={t('posterTitle')} value={name} onChange={e => setName(e.target.value)} /><small className={css.quiet}>{t('posterTitleHint')}</small></div></div>
+        <div className={css.fieldControl}><Input data-modal-autofocus aria-label={t('posterTitle')} value={name} onChange={(e) => { setName(e.target.value) }} /><small className={css.quiet}>{t('posterTitleHint')}</small></div></div>
       <div className={css.field}><span className={css.fieldLabel}>{t('posterRatios')}</span>
         <div className={css.fieldControl}><span className={css.picks}>{POSTER_RATIOS.map(r =>
-          <button key={r} type="button" aria-pressed={ratios.includes(r)} onClick={() => setRatios(list => flip(list, r))}>{r}</button>)}</span></div></div>
+          <button key={r} type="button" aria-pressed={ratios.includes(r)} onClick={() => { setRatios(list => flip(list, r)) }}>{r}</button>)}</span></div></div>
       {leads.length > 0 && <div className={css.field}><span className={css.fieldLabel}>{t('posterLeads')}</span>
         <div className={css.fieldControl}><span className={css.picks}>{leads.map(p =>
-          <button key={p} type="button" aria-pressed={people.includes(p)} onClick={() => setPeople(list => flip(list, p))}>{p}</button>)}</span></div></div>}
+          <button key={p} type="button" aria-pressed={people.includes(p)} onClick={() => { setPeople(list => flip(list, p)) }}>{p}</button>)}</span></div></div>}
       <p className={css.quiet}>{t('posterCount', { count })}</p>
     </div>
   </Modal>

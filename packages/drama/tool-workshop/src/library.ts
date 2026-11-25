@@ -8,7 +8,8 @@ import { HarnessError } from '@deepseek-ai/dsh-error'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { defineTool, ToolArgsError, type ToolDefinition, type ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { scriptDetail, scriptOf, type ScriptEpisode, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import type { ScriptEpisode, WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { scriptDetail, scriptOf } from '@deepseek-ai/dsh-workbench-connection/scripts'
 import type { Fields } from './finalize.ts'
 
 /** Workspace folder that holds scripts read from the library. */
@@ -28,6 +29,8 @@ export interface LibraryArgs {
 /** What `script_library` reports: the action, the script ID and its stage, then the action's fields. */
 export type LibraryReport = { action: typeof LIBRARY_ACTIONS[number]; id: number; status: string } & Fields
 
+type LibraryReadContext = ToolRunContext & { readonly agent: NonNullable<ToolRunContext['agent']> }
+
 /** One script version as workspace files: the folder and one Markdown file per episode. */
 export interface EpisodeFiles {
   folder: string
@@ -37,10 +40,13 @@ export interface EpisodeFiles {
 /** Writes one workspace file as text; the caller resolves paths against the conversation's workspace. */
 export type WriteFile = (path: string, text: string, signal: AbortSignal) => Promise<void>
 
-/** Authenticated Workshop access and workspace writes. */
-export interface LibraryDependencies {
+/**
+ * Authenticated Workshop access and workspace writes.
+ * @template Exec - Tool context required by the writer.
+ */
+export interface LibraryDependencies<Exec extends ToolRunContext = ToolRunContext> {
   connect(): Promise<WorkbenchSession>
-  write(exec: ToolRunContext): WriteFile
+  write(exec: Exec): WriteFile
 }
 
 /**
@@ -63,7 +69,13 @@ export function episodeFiles(title: string, version: number, episodes: readonly 
   }
 }
 
-async function read(deps: LibraryDependencies, session: WorkbenchSession, args: LibraryArgs, exec: ToolRunContext): Promise<LibraryReport> {
+function requireLibraryAgent(exec: ToolRunContext): asserts exec is LibraryReadContext {
+  if (exec.agent === undefined) throw new HarnessError('请在 Muse 会话中取出剧本。', 'WORKSHOP_SESSION_REQUIRED')
+}
+
+async function read(
+  deps: LibraryDependencies<LibraryReadContext>, session: WorkbenchSession, args: LibraryArgs, exec: LibraryReadContext,
+): Promise<LibraryReport> {
   if (args.version !== undefined && (!Number.isSafeInteger(args.version) || args.version < 1)) throw new ToolArgsError(['version 是从 1 开始的版本号'])
   const query = args.version === undefined ? '' : '?version=' + String(args.version)
   const detail = scriptDetail(await session.request('/script-library/' + String(args.id) + query, { signal: exec.signal }))
@@ -97,7 +109,7 @@ async function link(session: WorkbenchSession, args: LibraryArgs, exec: ToolRunC
  * @param deps - Workshop connection and workspace writes.
  * @returns The tool definition; Workshop credentials never appear in its arguments or results.
  */
-export function libraryTool(deps: LibraryDependencies): ToolDefinition {
+export function libraryTool(deps: LibraryDependencies<LibraryReadContext>): ToolDefinition {
   return defineTool({
     name: 'script_library',
     description: '剧本工坊定稿库：全组定稿的剧本，组长从中选用投产。'
@@ -119,9 +131,9 @@ export function libraryTool(deps: LibraryDependencies): ToolDefinition {
     },
     async execute(args, exec): Promise<LibraryReport> {
       if (!Number.isSafeInteger(args.id) || args.id < 1) throw new ToolArgsError(['id 是剧本库编号'])
-      if (args.action === 'read' && !exec.agent) throw new HarnessError('请在 Muse 会话中取出剧本。', 'WORKSHOP_SESSION_REQUIRED')
-      const session = await deps.connect()
-      return args.action === 'read' ? await read(deps, session, args, exec) : await link(session, args, exec)
+      if (args.action === 'link') return await link(await deps.connect(), args, exec)
+      requireLibraryAgent(exec)
+      return await read(deps, await deps.connect(), args, exec)
     },
     presentCall: args => ({ card: 'generic', kind: 'other', title: (args.action === 'link' ? '登记投产 · 剧本 ' : '取出定稿剧本 · 剧本 ') + String(args.id) }),
     presentResult: (args, result) => {
@@ -145,7 +157,7 @@ export function applyLibrary(ctx: Context): void {
     const tool = libraryTool({
       connect: () => scope.workshopConnection.connection(),
       write: exec => async (path, text, signal) => {
-        const policy = scope.sandboxPolicy.resolve(exec.agent ? { session: exec.agent.session } : {})
+        const policy = scope.sandboxPolicy.resolve({ session: exec.agent.session })
         const target = await scope.fs.resolve(path, { cwd: policy.workspaceRoot, signal })
         await scope.fs.writeText(target, text, undefined, signal, policy)
       },

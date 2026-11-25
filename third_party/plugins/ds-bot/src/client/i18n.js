@@ -1862,6 +1862,7 @@ const HOST_ZH = {
   'Another dsh has this Bot team open, so phones connect to that one': '另一个 dsh 打开了这个 Bot 团队，手机会连到那一个',
   'This dsh runs on a Node without WebSocket': '这个 dsh 用的 Node 不支持 WebSocket',
   'Phones are paired and removed on the computer': '配对和删除手机只能在电脑上做',
+  'The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.': '浏览器交接答复可能已被接收，但尚未确认保存成功。发送新请求前，请先检查会话',
   'Request failed': '请求失败',
   'Permissions are not available in this DeepSeek Harness': '这个 DeepSeek Harness 不支持权限设置',
   'Avatar images must be PNG, JPEG, WebP, or GIF': '头像图片必须是 PNG、JPEG、WebP 或 GIF',

@@ -10,7 +10,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import Sessions, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import Approval from '@deepseek-ai/dsh-user-approval'
+import Approval, { type ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { expect, it, vi } from 'vitest'
 import { createScope } from '../../../packages/core/scope/src/index.ts'
 import Commands from '../../../packages/interaction/commands/src/index.ts'
@@ -84,7 +84,7 @@ async function commandAgent(ctx: Context, session: Session) {
   return { agent, inject }
 }
 
-it('starts new Desktop sessions at Full access and exposes the native permission command', async () => {
+it('routes approvals to the answerer in new Desktop sessions with Full access', async () => {
   const { ctx } = await bench()
   const session = (await ctx.agents.create({ sessionId: SessionId('desktop-fresh-full') })).agent.session
   const { agent } = await commandAgent(ctx, session)
@@ -93,24 +93,34 @@ it('starts new Desktop sessions at Full access and exposes the native permission
   expect(ctx.sandboxPolicy.resolve({ session }).mode).toBe('danger-full-access')
   expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({ currentValue: 'danger-full-access' })
   expect(session.snapshotEvents()).toEqual(expect.arrayContaining([
-    expect.objectContaining({ type: 'approval/policy', data: { policy: 'never' } }),
+    expect.objectContaining({ type: 'approval/policy', data: { policy: 'ask' } }),
   ]))
   expect(ctx.commands.list(agent).map(command => command.name)).toContain('permission')
   const answer = await ctx.commands.execute(agent, '/permission', [], new AbortController().signal)
   expect(answer?.result).toEqual({
     kind: 'success', text: 'current preset danger-full-access (available: read-only, workspace-write, danger-full-access)',
   })
+  const answerer = vi.fn<() => Promise<ApprovalOutcome>>()
+    .mockResolvedValueOnce('rejected')
+    .mockResolvedValueOnce('allowed-once')
+  ctx.on('approval/request', answerer)
+  session.append('turn/start', { turn: 1 })
+  const request = { agent, toolName: 'jingliu_run', reason: 'Import script into the selected project' }
+  await expect(ctx.approval.request(request)).resolves.toBe('rejected')
+  await expect(ctx.approval.request(request)).resolves.toBe('allowed-once')
+  expect(answerer).toHaveBeenCalledTimes(2)
 })
 
-it('retains an older session until the user switches it, and restores the logged switch after Host restart', async () => {
+it('retains an older Full access session until the user reapplies the preset and restores the switch after restart', async () => {
   const { ctx, start } = await bench()
   const legacy = Session.create(SessionId('desktop-legacy-source'))
-  legacy.append('permission/preset', { preset: 'workspace-write' })
-  legacy.append('sandbox/mode', { mode: 'workspace-write' })
-  legacy.append('approval/policy', { policy: 'ask' })
+  legacy.append('permission/preset', { preset: 'danger-full-access' })
+  legacy.append('sandbox/mode', { mode: 'danger-full-access' })
+  legacy.append('approval/policy', { policy: 'never' })
   const session = (await ctx.agents.create({ sessionId: SessionId('desktop-legacy'), seed: legacy.snapshotEvents() })).agent.session
-  expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
-  expect(ctx.sandboxPolicy.resolve({ session }).mode).toBe('workspace-write')
+  expect(ctx.permissionPresets.current(session)).toBe('custom')
+  expect(ctx.sandboxPolicy.resolve({ session }).mode).toBe('danger-full-access')
+  expect(ctx.approval.overrideOf(session)).toBe('never')
   const before = session.snapshotEvents()
   const { agent, inject } = await commandAgent(ctx, session)
   const response = await ctx.commands.execute(agent, '/permission danger-full-access', [], new AbortController().signal)
@@ -119,8 +129,7 @@ it('retains an older session until the user switches it, and restores the logged
     'permission/preset', 'sandbox/mode', 'approval/policy',
   ].includes(event.type)).map(event => [event.type, event.data])).toEqual([
     ['permission/preset', { preset: 'danger-full-access' }],
-    ['sandbox/mode', { mode: 'danger-full-access' }],
-    ['approval/policy', { policy: 'never' }],
+    ['approval/policy', { policy: 'ask' }],
   ])
   expect(inject).toHaveBeenCalledOnce()
   expect(ctx.sandboxPolicy.resolve({ session }).mode).toBe('danger-full-access')
@@ -130,7 +139,7 @@ it('retains an older session until the user switches it, and restores the logged
   const restored = (await restarted.agents.create({ sessionId: SessionId('desktop-legacy-restored'), seed: saved })).agent.session
   expect(restarted.permissionPresets.current(restored)).toBe('danger-full-access')
   expect(restarted.sandboxPolicy.resolve({ session: restored }).mode).toBe('danger-full-access')
-  expect(restored.snapshotEvents().filter(event => event.type === 'approval/policy').at(-1)?.data).toEqual({ policy: 'never' })
+  expect(restarted.approval.overrideOf(restored)).toBe('ask')
 })
 
 it('persists a General default for future sessions without changing current sessions and reads it after restart', async () => {
@@ -157,13 +166,19 @@ it('persists a General default for future sessions without changing current sess
 
 it('preserves an explicit saved permission configuration on upgrade and refuses invalid Settings writes', async () => {
   const saved = {
-    ...(composeEntries([[{ insert: [{ id: 'permission', name: 'cordis:permission' }] }], permissionDefaults])[0]!.config as Record<string, unknown>),
     defaultPreset: 'workspace-write',
+    presets: {
+      'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+      'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+    },
   }
   const { ctx, profile } = await bench(saved)
   const before = readFileSync(profile.patchPath, 'utf8')
+  const session = (await ctx.agents.create({ sessionId: SessionId('desktop-upgraded-default') })).agent.session
   expect(ctx.permissionPresets.defaultPreset).toBe('workspace-write')
-  expect(ctx.permissionPresets.current((await ctx.agents.create({ sessionId: SessionId('desktop-upgraded-default') })).agent.session)).toBe('workspace-write')
+  expect(ctx.permissionPresets.current(session)).toBe('workspace-write')
+  ctx.permissionPresets.set(session, 'danger-full-access')
+  expect(ctx.approval.overrideOf(session)).toBe('never')
   expect(readFileSync(profile.patchPath, 'utf8')).toBe(before)
   await expect(ctx.settings.mutate('permission', [{ op: 'set', path: ['defaultPreset'], value: 42 }])).rejects.toThrow()
   expect(readFileSync(profile.patchPath, 'utf8')).toBe(before)

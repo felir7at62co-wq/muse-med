@@ -11,8 +11,8 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { isRecord, WorkbenchHttpError } from '@deepseek-ai/dsh-workbench-connection'
-import type { WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { WorkbenchHttpError, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { isRecord } from '@deepseek-ai/dsh-workbench-connection/transport'
 import { mediaUrl } from './http.ts'
 
 // The studio answers at most this many addresses per resolve request.
@@ -138,7 +138,7 @@ function trusted(value: unknown, hosts: readonly string[], code: string): URL {
 }
 
 const etagOf = (value: string | null) => (value ?? '').replace(/^W\//u, '').replaceAll('"', '').trim()
-const typeOf = (value: string | null) => (value ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
+const typeOf = (value: string | null) => (value ?? '').replace(/;[\s\S]*/u, '').trim().toLowerCase()
 const typeOfName = (path: string) => UPLOAD_TYPES[extname(path).toLowerCase()] ?? ''
 
 /**
@@ -215,7 +215,7 @@ export class JingliuMedia {
    * @param session - Verified studio session.
    * @param paths - Stored addresses.
    * @param signal - Cancellation.
-   * @returns One source per normalized address.
+   * @returns One source per normalized address in its first requested order.
    */
   async resolve(session: WorkbenchSession, paths: readonly string[], signal: AbortSignal): Promise<Map<string, MediaSource>> {
     const wanted = [...new Set(paths.map(p => mediaPath(p).path))]
@@ -235,15 +235,20 @@ export class JingliuMedia {
       }
       if (!isRecord(result) || !Array.isArray(result.items)) throw invalidResult()
       const refused: string[] = []
+      const resolved = new Map<string, MediaSource>()
       for (const item of result.items) {
         const source = parseSource(item, this.config.hosts, refused)
-        if (source && batch.includes(source.path)) sources.set(source.path, source)
+        if (source && batch.includes(source.path)) resolved.set(source.path, source)
       }
       if (refused.length) {
         this.config.warn?.(`Jingliu media links point to ${[...new Set(refused)].join(', ')}, which is not in mediaHosts; `
           + `reading ${String(refused.length)} file(s) through the Host instead.`)
       }
-      if (batch.some(path => !sources.has(path))) throw invalidResult()
+      for (const path of batch) {
+        const source = resolved.get(path)
+        if (!source) throw invalidResult()
+        sources.set(path, source)
+      }
     }
     return sources
   }
@@ -285,11 +290,7 @@ export class JingliuMedia {
       else missing.push(path)
     }
     const sources = missing.length ? await this.resolve(session, missing, options.signal) : new Map<string, MediaSource>()
-    const settled = await Promise.allSettled(missing.map(async (path) => {
-      const source = sources.get(path)
-      if (!source) throw invalidResult()
-      return await this.download(session, folder, source, options.signal)
-    }))
+    const settled = await Promise.allSettled(Array.from(sources.values(), source => this.download(session, folder, source, options.signal)))
     const added = settled.flatMap(outcome => outcome.status === 'fulfilled' ? [outcome.value] : [])
     for (const { local } of added) found.set(local.path, local)
     await this.commit(folder, [...found.values()], added, options)
@@ -515,12 +516,13 @@ export class JingliuMedia {
     let text: string
     try { text = await readFile(join(folder, INDEX_FILE), 'utf8') }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, files: {} }; throw error }
-    try { return parseIndex(JSON.parse(text)) }
-    catch (error) {
-      if (!(error instanceof SyntaxError)) throw error
+    let decoded: unknown
+    try { decoded = JSON.parse(text) }
+    catch (_error) {
       // A damaged index only loses download records; files are checked again by size before reuse.
       return { version: 1, files: {} }
     }
+    return parseIndex(decoded)
   }
 
   private async commit(folder: string, used: readonly LocalMedia[], added: readonly Downloaded[], options: FileOptions): Promise<void> {

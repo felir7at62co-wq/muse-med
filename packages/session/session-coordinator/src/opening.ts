@@ -4,6 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createUserMessage, type MessageId } from '@deepseek-ai/dsh-llm'
 import type { MuseAccountDetails } from '@deepseek-ai/dsh-muse-account/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 
 /** Minimal personal facts available to a local routing Agent. */
 export interface RouterProfile { id: string; name: string; groups: string[] | null; departments: string[] }
@@ -25,13 +26,13 @@ export function routerProfile(details: MuseAccountDetails): RouterProfile {
  * Enqueue the first greeting once on an idle Router.
  * @param agent - Retained local Router.
  * @param profile - Verified profile, or null for an unidentified local chat.
+ * @param history - Router events read at the current Session sequence.
  * @returns Whether a new opening turn was enqueued.
  */
-export function greetRouter(agent: Agent, profile: RouterProfile | null): boolean {
+export function greetRouter(agent: Agent, profile: RouterProfile | null, history: readonly SessionEvent[]): boolean {
   const id = brandString<MessageId>('muse-opening-' + createHash('sha256').update(agent.id).digest('hex').slice(0, 32))
   const messages = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
   if (messages.length || agent.status !== 'idle') return false
-  const history = agent.session.snapshotEvents()
   if (history.some(e => (e.type === 'user/message' && (e.data.id === id || e.data.source.kind === 'user')) ||
       (e.type === 'agent/inbox/spliced' && e.data.inserted.some(m => m.id === id || m.source.kind === 'user')))) return false
   agent.followup({ ...createUserMessage({

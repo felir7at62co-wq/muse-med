@@ -17,7 +17,8 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { mediaPath, type JingliuSession, type LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
+import type { JingliuSession, LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
+import { mediaPath } from '@deepseek-ai/dsh-jingliu-connection/media'
 import { existingSubmission, missingRoute, submitOnce } from '@deepseek-ai/dsh-tool-jingliu/library'
 import { episodeNumberOf, type ResolvedShot } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
 import type { BlockedEpisode, BlockReason, DecisionAction, EpisodeFiles, EpisodeSource, RemoteSubtitles, ResolvedEpisode,
@@ -31,7 +32,7 @@ import type { BlockedEpisode, BlockReason, DecisionAction, EpisodeFiles, Episode
  */
 export function unavailableJingliuSource(root: string, project: string): EpisodeSource {
   return { kind: 'jingliu', root, clockReview: false, filesPattern: filesPattern(project),
-    resolve: async episodes => episodes.map(episode => ({ kind: 'blocked', episode, reason: 'jingliu_outdated', shots: [] })) }
+    resolve: episodes => Promise.resolve(episodes.map(episode => ({ kind: 'blocked', episode, reason: 'jingliu_outdated', shots: [] }))) }
 }
 
 function filesPattern(project: string): string {
@@ -88,7 +89,7 @@ function planShot(value: unknown): PlanShot {
   if (speed <= 0) throw invalidPlan()
   return { shotId: value.shot_id, order: value.order as number, videoPath: value.video_path ? mediaPath(value.video_path).path : null,
     etag: typeof value.video_etag === 'string' ? value.video_etag : '', clipInSec: finite(value.clip_in_sec, 0),
-    clipDurSec: finite(value.clip_dur_sec, 0), speed, outputSec: finite(value.output_sec, 0), lines: value.lines as string[],
+    clipDurSec: finite(value.clip_dur_sec, 0), speed, outputSec: finite(value.output_sec, 0), lines: value.lines,
     // A server that does not count legacy rows reports them only as `unverified`; treat that as legacy rows.
     remote: { status: status as RemoteSubtitles['status'], legacy: typeof legacy === 'number' ? legacy : status === 'unverified' ? 1 : 0 } }
 }
@@ -127,9 +128,9 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
     if (!Array.isArray(row.shots)) throw invalidPlan()
     const shots = row.shots.map(planShot)
     if (shots.length === 0) return blocked('shots_missing', [])
-    const unmade = shots.filter(shot => shot.videoPath === null).map(shot => shot.order)
-    if (unmade.length > 0) return blocked('video_missing', unmade)
-    const paths = shots.map(shot => shot.videoPath ?? '')
+    const filmed = shots.filter((shot): shot is PlanShot & { readonly videoPath: string } => shot.videoPath !== null)
+    if (filmed.length !== shots.length) return blocked('video_missing', shots.filter(shot => shot.videoPath === null).map(shot => shot.order))
+    const paths = filmed.map(shot => shot.videoPath)
     let local: Map<string, LocalMedia>
     try { local = await download(paths, signal) }
     catch (error) {
@@ -137,17 +138,19 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
       if (error instanceof HarnessError && error.code === 'JINGLIU_MEDIA_LOCAL_DISABLED') throw error
       // One failed file rejects the batch after the others are indexed; find which shots cannot be read.
       const settled = await Promise.allSettled(paths.map(async path => await download([path], signal)))
-      const failed = shots.filter((_shot, index) => settled[index]?.status === 'rejected').map(shot => shot.order)
+      const failed = filmed.filter((_shot, index) => settled[index]?.status === 'rejected').map(shot => shot.order)
       if (failed.length > 0) return blocked('media_unavailable', failed)
       local = await download(paths, signal)
     }
     const sources: SourceShot[] = [], clock: ResolvedShot[] = []
-    for (const shot of shots) {
-      const file = local.get(shot.videoPath ?? '')
+    for (const shot of filmed) {
+      const file = local.get(shot.videoPath)
       if (file === undefined) return blocked('media_unavailable', [shot.order])
       sources.push({ shot: shot.order, audio: file.file, lines: shot.lines, remote: shot.remote,
         window: { clipInUs: micro(shot.clipInSec), durationUs: micro(shot.clipDurSec), speed: shot.speed },
-        jingliu: { shot_id: shot.shotId, video_path: shot.videoPath ?? '', etag: shot.etag, clip_in_us: micro(shot.clipInSec), speed: shot.speed } })
+        jingliu: {
+          shot_id: shot.shotId, video_path: shot.videoPath, etag: shot.etag, clip_in_us: micro(shot.clipInSec), speed: shot.speed,
+        } })
       clock.push({ source: { shot: shot.order, video: file.file, audio: file.file }, video: file.file, audio: file.file,
         durationUs: Math.max(1, micro(shot.outputSec)) })
     }
@@ -173,18 +176,19 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
   const store = async (episode: ResolvedEpisode, shots: readonly StoreShot[], choice: StoreOptions,
     signal: AbortSignal): Promise<StoreOutcome> => {
     const kept = new Map<number, { items: readonly ReviewItem[]; stored: StoredMark }>()
-    const send: StoreShot[] = [], legacy: number[] = []
+    const send: (StoreShot & { readonly jingliu: NonNullable<SourceShot['jingliu']> })[] = [], legacy: number[] = []
     for (const row of shots) {
       const { shot, state } = row
-      const videoPath = shot.jingliu?.video_path ?? ''
-      const current = state.stored?.key === state.key && state.stored.video_path === videoPath
-      if (shot.remote?.status === 'fresh' && current) continue
-      if ((shot.remote?.legacy ?? 0) > 0 && !choice.replaceLegacy) { legacy.push(shot.shot); continue }
-      send.push(row)
+      const { jingliu, remote } = shot
+      if (jingliu === undefined || remote === undefined) throw invalidPlan()
+      const current = state.stored?.key === state.key && state.stored.video_path === jingliu.video_path
+      if (remote.status === 'fresh' && current) continue
+      if (remote.legacy > 0 && !choice.replaceLegacy) { legacy.push(shot.shot); continue }
+      send.push({ ...row, jingliu })
     }
     if (send.length === 0) return { kind: 'stored', shots: kept, legacy }
-    const byId = new Map(send.map(row => [row.shot.jingliu?.shot_id ?? '', row]))
-    const segments = send.map(({ shot, rules }) => ({ shot_id: shot.jingliu?.shot_id ?? '', video_url: shot.jingliu?.video_path ?? '',
+    const byId = new Map(send.map(row => [row.jingliu.shot_id, row]))
+    const segments = send.map(({ jingliu, rules }) => ({ shot_id: jingliu.shot_id, video_url: jingliu.video_path,
       source_sha256: rules.audio_sha256, words: rules.words, decisions: rules.decisions, flags: rules.flags }))
     const payload = { project_id: project, episode: episode.episode, ...(choice.replaceLegacy ? { replace_legacy: true } : {}), segments }
     const digest = createHash('sha256').update(JSON.stringify(payload)).digest('hex')
@@ -241,8 +245,9 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
     }
     const changed: number[] = [], failed: number[] = []
     for (const refused of result.refused) {
-      const row = isFields(refused) && typeof refused.shot_id === 'string' ? byId.get(refused.shot_id) : undefined
-      if (row === undefined || !isFields(refused)) throw invalidPlan()
+      if (!isFields(refused) || typeof refused.shot_id !== 'string') throw invalidPlan()
+      const row = byId.get(refused.shot_id)
+      if (row === undefined) throw invalidPlan()
       if (refused.reason === 'video_changed') changed.push(row.shot.shot)
       else if (refused.reason === 'legacy_subtitles') legacy.push(row.shot.shot)
       else failed.push(row.shot.shot)
@@ -250,10 +255,11 @@ export function jingliuSource(options: JingliuSourceOptions): EpisodeSource {
     if (changed.length > 0) return { kind: 'waiting', changed: changed.sort((a, b) => a - b) }
     if (failed.length > 0) return { kind: 'blocked', reason: 'subtitle_job_failed', shots: failed.sort((a, b) => a - b) }
     for (const written of result.shots) {
-      const row = isFields(written) && typeof written.shot_id === 'string' ? byId.get(written.shot_id) : undefined
-      if (row === undefined || !isFields(written) || !Array.isArray(written.items)) throw invalidPlan()
+      if (!isFields(written) || typeof written.shot_id !== 'string' || !Array.isArray(written.items)) throw invalidPlan()
+      const row = byId.get(written.shot_id)
+      if (row === undefined) throw invalidPlan()
       kept.set(row.shot.shot, { items: written.items.map(reviewItem),
-        stored: { video_path: row.shot.jingliu?.video_path ?? '', key: row.state.key, job: String(receipt.job_id) } })
+        stored: { video_path: row.jingliu.video_path, key: row.state.key, job: String(receipt.job_id) } })
     }
     const unwritten = send.filter(row => !kept.has(row.shot.shot) && !legacy.includes(row.shot.shot)).map(row => row.shot.shot)
     if (unwritten.length > 0) return { kind: 'blocked', reason: 'subtitle_job_failed', shots: unwritten }

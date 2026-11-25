@@ -158,8 +158,11 @@ export function desktopPackageSteps(
     },
     {
       id: 'S4',
-      title: 'pack the drama skills tarball',
-      artifacts: [packedTarball('packages/drama/skills', 'drama skills')],
+      title: 'pack the drama skills and subtitle tool tarballs',
+      artifacts: [
+        packedTarball('packages/drama/skills', 'drama skills'),
+        packedTarball('packages/drama/tool-episode-subtitles', 'episode subtitles'),
+      ],
     },
     {
       id: 'S5',

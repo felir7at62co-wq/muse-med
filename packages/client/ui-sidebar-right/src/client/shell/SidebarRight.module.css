@@ -173,7 +173,7 @@
   box-sizing: content-box;
   height: 32px;
   padding-block: 6px;
-  border-bottom: 1px solid var(--dsw-alias-border-l4);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l4);
 }
 
 .panelBody :global([data-dockkit-tab]) {

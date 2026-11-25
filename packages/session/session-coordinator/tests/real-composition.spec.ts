@@ -4,7 +4,8 @@ import { createRequire } from 'node:module'
 import { dirname, basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
+import { LOADER_SMOKE_TEST_TIMEOUT_MS, loaderSmokeProcessTimeout, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
+import { COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from '../../../../scripts/coverage-partitions.ts'
 
 const profilePackages = [
   '@deepseek-ai/dsh-client-connection', '@deepseek-ai/dsh-client-file-upload',
@@ -12,13 +13,15 @@ const profilePackages = [
   '@deepseek-ai/dsh-api-workspace-controller', '@deepseek-ai/dsh-agent-preset-registry',
   '@deepseek-ai/dsh-agent-preset', '@deepseek-ai/dsh-session-coordinator',
 ] as const
+const laneTimeout = coverageTestTimeoutOptions(process.env[COVERAGE_TEST_TIMEOUT_ENV]).testTimeout
 
 it('reconciles direct worker input without replaying its human message through the real profile', {
-  timeout: LOADER_SMOKE_TEST_TIMEOUT_MS,
-}, async () => {
+  timeout: Math.max(LOADER_SMOKE_TEST_TIMEOUT_MS, laneTimeout ?? 0),
+}, async ({ task }) => {
   const patch = fileURLToPath(new URL('./fixtures/reconciliation/reconciliation.patch.yml', import.meta.url))
   const result = await runLoaderSmoke({
     label: 'Muse task reconciliation',
+    processTimeoutMs: loaderSmokeProcessTimeout(task.timeout),
     binScript: fileURLToPath(new URL('../../../../apps/cli/src/bin.ts', import.meta.url)),
     configPath: patch,
     sourceImport: 'tsx/esm',

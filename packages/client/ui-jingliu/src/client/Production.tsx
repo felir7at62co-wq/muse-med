@@ -18,7 +18,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * The Bot team's details drawer: the asset tab of the Bot or group whose conversation is `sessionId`.
      * `compose` puts text into that conversation's message box.
      */
-    'bot.drawer.assets': { kind: 'single'; scope: 'root'; owner: { sessionId: SessionId; quote(text: string): void; compose(text: string): void } }
+    'bot.drawer.assets': { kind: 'single'; scope: 'root'; owner: { sessionId: SessionId; quote: (text: string) => void; compose: (text: string) => void } }
     /**
      * The Bot team's details drawer: the Jingliu tabs of the Bot or group whose conversation is `sessionId`.
      * `project` is the production the tab in view shows, or null on the tab that lists them;
@@ -31,9 +31,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: {
         sessionId: SessionId
         project: SelectedProject | null
-        openProject(project: SelectedProject): void
-        quote(text: string): void
-        compose(text: string): void
+        openProject: (project: SelectedProject) => void
+        quote: (text: string) => void
+        compose: (text: string) => void
       }
     }
     /**
@@ -48,8 +48,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         sessionId: SessionId
         script: { id: string; title: string } | null
         openScript(script: { id: string; title: string }): void
-        quote(text: string): void
-        compose(text: string): void
+        quote: (text: string) => void
+        compose: (text: string) => void
       }
     }
     /**
@@ -64,8 +64,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         sessionId: SessionId
         platform: string | null
         openPlatform(platform: { id: string; title: string }): void
-        quote(text: string): void
-        compose(text: string): void
+        quote: (text: string) => void
+        compose: (text: string) => void
       }
     }
   }
@@ -205,7 +205,7 @@ export function WorkspaceTab({ sessionId, t, useWorkspaceList, useDirectoryFlow,
     {renderSlot('workspace.environment.directoryFlow', {
       open: pick && directoryFlowAvailable, busy: act.busy,
       onPicked: (path) => { setPick(false); void act.run(() => addWorkspace(path)) },
-      onCancel: () => setPick(false), onError: () => { setPick(false); setPickerError(true) },
+      onCancel: () => { setPick(false) }, onError: () => { setPick(false); setPickerError(true) },
     })}
     {(act.error || pickerError) && <small role="alert">{t('workspaceUnavailable')}</small>}
   </section>
@@ -232,16 +232,16 @@ function AssetBrowser({ epoch, t, useResource }: { epoch: number; t: Text; useRe
   const tab = (value: StudioLibraryQuery['kind']) => ({ value, label: t(value), id: 'studio-kind-' + value, panelId: 'studio-assets' })
   const tabs = [tab('all'), tab('character'), tab('location'), tab('prop')] as const
   return <section className={css.page}>
-    <div className={css.heading}><h1>{t('shared')}</h1><Button variant="ghost" onClick={() => refresh(n => n + 1)}>{t('refresh')}</Button></div>
+    <div className={css.heading}><h1>{t('shared')}</h1><Button variant="ghost" onClick={() => { refresh(n => n + 1) }}>{t('refresh')}</Button></div>
     <form className={css.toolbar} onSubmit={(e) => { e.preventDefault(); setQuery(draft.trim()); setOffset(0) }}>
-      <Input aria-label={t('searchAssets')} placeholder={t('searchAssets')} maxLength={200} value={draft} onChange={e => setDraft(e.target.value)} />
+      <Input aria-label={t('searchAssets')} placeholder={t('searchAssets')} maxLength={200} value={draft} onChange={(e) => { setDraft(e.target.value) }} />
       <Button type="submit" variant="outline">{t('search')}</Button>
     </form>
     <SegmentedTabs items={tabs} value={kind} onChange={(v) => { setKind(v); setOffset(0) }} label={t('assetType')} size="sm" />
     <div role="tabpanel" id="studio-assets" aria-labelledby={'studio-kind-' + kind}>
-      {list.status === 'failed' || list.status === 'none' ? <Failure t={t} retry={() => refresh(n => n + 1)} /> : list.status !== 'live' ? <p>{t('loading')}</p> :
+      {list.status === 'failed' || list.status === 'none' ? <Failure t={t} retry={() => { refresh(n => n + 1) }} /> : list.status !== 'live' ? <p>{t('loading')}</p> :
         !list.value?.items.length ? <p>{t('emptyAssets')}</p> : <div className={css.grid}>{list.value.items.map(a =>
-          <button key={a.id} className={css.card} type="button" onClick={() => select(a)} aria-label={a.name}>
+          <button key={a.id} className={css.card} type="button" onClick={() => { select(a) }} aria-label={a.name}>
             <div className={a.kind === 'character' ? css.portrait : css.poster}>
               <Picture path={a.thumbnail} epoch={epoch} useResource={useResource} name={a.name} unavailable={t('imageFailed')} />
             </div>
@@ -251,10 +251,10 @@ function AssetBrowser({ epoch, t, useResource }: { epoch: number; t: Text; useRe
         )}</div>}
     </div>
     {((list.value?.total ?? 0) > 24 || offset > 0) && <div className={css.toolbar}>
-      <Button disabled={!offset} onClick={() => setOffset(n => n - 24)}>{t('previous')}</Button>
-      <Button disabled={offset + 24 >= (list.value?.total ?? 0)} onClick={() => setOffset(n => n + 24)}>{t('next')}</Button>
+      <Button disabled={!offset} onClick={() => { setOffset(n => n - 24) }}>{t('previous')}</Button>
+      <Button disabled={offset + 24 >= (list.value?.total ?? 0)} onClick={() => { setOffset(n => n + 24) }}>{t('next')}</Button>
     </div>}
-    {selected && <Modal open title={selected.name} closeLabel={t('close')} onClose={() => select(null)}
+    {selected && <Modal open title={selected.name} closeLabel={t('close')} onClose={() => { select(null) }}
       {...(selected.referenceOnly && { description: t('referenceOnly') })} className={css.previewDialog as string}>
       <div className={css.fullImage}><Picture path={selected.thumbnail} epoch={epoch} useResource={useResource}
         name={selected.name} unavailable={t('imageFailed')} /></div>
@@ -281,10 +281,10 @@ export function ProductionSettings({ t, useResource, useAccountEpoch, savePrefer
   const data = options.value
   const preference = prefs.value
   return <section className={css.page}>
-    <div className={css.heading}><h1>{t('studioSettings')}</h1><Button variant="ghost" onClick={() => refresh(n => n + 1)}>{t('refresh')}</Button></div>
+    <div className={css.heading}><h1>{t('studioSettings')}</h1><Button variant="ghost" onClick={() => { refresh(n => n + 1) }}>{t('refresh')}</Button></div>
     <div className={css.amount}><span>{t('balance')}</span><strong>{credit.value ? credit.value.unlimited ? t('unlimited') : '¥' + credit.value.available : '—'}</strong></div>
     {credit.value && <small>{t('usage', { spent: (credit.value.usedFen / 100).toFixed(2), held: (credit.value.heldFen / 100).toFixed(2) })}</small>}
-    {projects.value?.length ? <><label className={css.setting}>{t('project')}<select value={id} onChange={e => select(e.target.value)}>{projects.value.map(p => <option value={p.id} key={p.id}>{p.title}</option>)}</select></label>
+    {projects.value?.length ? <><label className={css.setting}>{t('project')}<select value={id} onChange={(e) => { select(e.target.value) }}>{projects.value.map(p => <option value={p.id} key={p.id}>{p.title}</option>)}</select></label>
       {data && (['character', 'location', 'prop', 'resolution'] as const).map((key) => {
         const items = key === 'resolution' ? data.resolutions.map(value => ({ id: value, name: value })) : data.models
         return <label key={key} className={css.setting}>{t(key)}<select value={data[key]} disabled={act.busy} onChange={(event) => {
@@ -297,7 +297,7 @@ export function ProductionSettings({ t, useResource, useAccountEpoch, savePrefer
         const value = { projectId: preference.projectId, hidePromptChips: e.target.checked }
         void act.run(async () => { await savePreferences(value); refresh(n => n + 1) })
       }} /></label>}</> : null}
-    {(credit.status === 'failed' || projects.status === 'failed' || prefs.status === 'failed' || options.status === 'failed' || act.error) && <Failure t={t} retry={() => refresh(n => n + 1)} />}
+    {(credit.status === 'failed' || projects.status === 'failed' || prefs.status === 'failed' || options.status === 'failed' || act.error) && <Failure t={t} retry={() => { refresh(n => n + 1) }} />}
   </section>
 }
 

@@ -10,6 +10,7 @@ import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import * as EditingPolicy from '../src/editing-policy.ts'
+import * as ShortDramaGuidance from '../src/short-drama-guidance.ts'
 
 interface PresetRow {
   readonly id: string
@@ -28,9 +29,11 @@ function rows(id: string): readonly PresetRow[] {
 
 it('combines editing delivery guidance with the short-drama production tools', () => {
   const combined = rows('short-drama')
-  expect(combined.find(row => row.id === 'tool-skill')?.config).toEqual({ scopedCatalogOwner: true })
-  for (const id of ['editing-policy', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render',
-    'tool-fs', 'tool-skill', 'tool-audio-transcribe', 'tool-video-inspect', 'present']) {
+  expect(combined.find(row => row.id === 'tool-skill')?.config).toEqual({
+    scopedCatalogOwner: true, taskSkills: ['*'], taskSkillMaxChars: 20_000, taskSkillLimit: 4,
+  })
+  for (const id of ['editing-policy', 'short-drama-guidance', 'tool-workshop', 'tool-shot-script',
+    'tool-bgm-compose', 'tool-episode-render', 'tool-fs', 'tool-office', 'tool-audio-transcribe', 'tool-video-inspect', 'present']) {
     expect(combined.some(row => row.id === id), id).toBe(true)
   }
 })
@@ -47,10 +50,11 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     ctx.systemPrompt.variable('cwd', () => '/editing-workspace')
     ctx.systemPrompt.section({ name: 'tool:guidance', order: 100, text: 'Load skills first.' })
     ctx.systemPrompt.context({ name: 'runtime:guidance', order: 1, text: 'Runtime instructions.' })
-    const key = { preset: 'editing' }
+    const key = { preset: 'short-drama' }
     const scope = createScope(ctx, key)
     const config = rows('short-drama').find(row => row.id === 'persona')?.config as Persona.Config
     await scope.ctx.plugin(Persona, Persona.Config(config))
+    await scope.ctx.plugin(ShortDramaGuidance)
     scope.ctx.on('system-prompt/assemble', async (assembly, _context, next) => {
       assembly.sections.push({ name: 'late:guidance', text: 'Late instructions.' })
       return next()
@@ -74,17 +78,13 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     expect(prompt).toContain('你是 muse-med 短剧编导 Agent。')
     expect(config.prefix).not.toContain('deepseek-flash')
     expect(prompt).toMatch(/整部或多集剧本的转写、改编或洗稿时，在收到请求的这一轮调用 create_goal/u)
-    expect(prompt).toContain('不因提示词长、镜头多、固定秒数或已有空卡数量机械拆包')
-    expect(prompt).toContain('先决定内容、时长和包数，再填写已有视频卡')
-    expect(prompt).toContain('多余空卡不用，卡不足才新增，不为少建卡强行合包')
-    expect(prompt).toContain('后续镜头再次提及同一资产时继续内联引用')
-    expect(prompt).toContain('不能只在包首集中列一排素材代替正文引用')
-    expect(prompt).toContain('不为补齐引用而新增、补生成资产或站位图')
-    expect(prompt).toContain('站位图展示各主体唯一位置、相对距离、遮挡、视线和固定环境锚点')
-    expect(prompt).toContain('视频包固定自检清单')
-    expect(prompt).toContain('最终回复提供可核对证据')
-    expect(prompt).toContain('引用与选材绑定一致，不编造key')
-    expect(prompt).toContain('不是视频包时长上限，也不限制每包镜头数量')
+    expect(prompt).toContain('不因提示词长、镜头多、固定秒数机械拆包')
+    expect(prompt).toContain('先用 jingliu_workflows 查找当前服务提供的工作流和参数')
+    expect(prompt).toContain('保存用户确认的修改后回读项目、集号、镜头、时长、素材和提示词')
+    expect(first.sections.some(section => section.name === ShortDramaGuidance.SHORT_DRAMA_GUIDANCE_SECTION)).toBe(true)
+    expect(prompt).toContain('按镜流该项目的引用顺序及实际素材写法核对，不往原台词中插素材编号')
+    expect(prompt).toContain('核对全部在场角色身份、人数、位置关系、固定物及机位轴线')
+    expect(prompt).toContain('视频包总时长不是单镜时长')
     expect(prompt).toContain('不省略原台词、必要表演或参考素材')
     expect(prompt).toContain('Load skills first.')
     expect(prompt).toContain('Late instructions.')
@@ -117,8 +117,10 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     expect(renderPrompt(await ctx.systemPrompt.assemble())).not.toContain('文件交付默认使用 Word')
     await policy.dispose()
     expect(ctx.tools.get('subagent', key)?.description).toBe('Late local tool')
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).toContain('Inherited screenplay_project')
-    expect(renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))).not.toContain('FS_STALE_VERSION')
+    const afterPolicy = renderPrompt(await ctx.systemPrompt.assemble({ scope: key }))
+    expect(afterPolicy).toContain('Inherited screenplay_project')
+    expect(afterPolicy).not.toContain('FS_STALE_VERSION')
+    expect(afterPolicy).toContain('短剧制作：镜头、人物与节奏')
   } finally {
     await ctx.fiber.dispose()
   }

@@ -1,9 +1,10 @@
 import { mkdir, readdir, readFile, realpath, rename, symlink, truncate, unlink } from 'node:fs/promises'
 import { dirname, join, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
-import { resolveCall, resolveSettings } from '../src/index.ts'
+import { Config, resolveCall, resolveSettings } from '../src/index.ts'
 import { episodePaths } from '../src/paths.ts'
 import { buildSourceRecord, readSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from '../src/source-record.ts'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
@@ -607,7 +608,11 @@ describe('stageEpisodeDelivery', () => {
 
   it('publishes only one verified MP4 and gives identical concurrent callers the same candidate', async () => {
     const f = await fixture()
-    const reports = await Promise.all([stageEpisodeDelivery(f.input, f.draft), stageEpisodeDelivery(f.input, f.draft)])
+    const outcomes = await Promise.allSettled([stageEpisodeDelivery(f.input, f.draft), stageEpisodeDelivery(f.input, f.draft)])
+    const reports = outcomes.map((outcome) => {
+      if (outcome.status === 'rejected') throw outcome.reason
+      return outcome.value
+    })
     expect(reports.map(report => report.delivery_package?.reused).sort()).toEqual([false, true])
     for (const report of reports) expect(report).toMatchObject({
       ok: true, method: 'stage_delivery', output: f.video,
@@ -618,6 +623,48 @@ describe('stageEpisodeDelivery', () => {
     expect(JSON.parse(await readFile(f.receipt, 'utf8'))).toMatchObject({ status: 'candidate', episode: '26' })
     expect(await readFile(f.paths.output, 'utf8')).toBe('verified render bytes')
     expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+  })
+
+  it('validates the delivery writer lock budget', () => {
+    expect(resolveSettings(Config({})).stageDeliveryLockWaitMs).toBe(60_000)
+    expect(resolveSettings(Config({ stageDeliveryLockWaitMs: 12_000 })).stageDeliveryLockWaitMs).toBe(12_000)
+    for (const value of [0, 1.5, 600_001]) expect(() => Config({ stageDeliveryLockWaitMs: value })).toThrow()
+  })
+
+  it.each(['receipt', 'video bans'] as const)('cancels a blocked %s writer before publication', async (which) => {
+    const f = await fixture()
+    const target = which === 'receipt' ? f.receipt : join(f.project, 'video-bans.json')
+    const locked = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const waiting = Promise.withResolvers<undefined>()
+    const cancellation = new AbortController()
+    const owner = withFileLock(target, async () => { locked.resolve(undefined); await release.promise })
+    let pending: ReturnType<typeof stageEpisodeDelivery> | undefined
+    try {
+      await Promise.race([locked.promise, owner.then(() => { throw new Error('Fixture lock released before the delivery started') })])
+      storage.beforeRead = async (path) => { if (path === `${target}.lock`) waiting.resolve(undefined) }
+      pending = stageEpisodeDelivery({ ...f.input, signal: cancellation.signal,
+        settings: { ...f.input.settings, stageDeliveryLockWaitMs: 5_000 } }, f.draft)
+      await Promise.race([waiting.promise, pending.then(() => { throw new Error('Delivery completed before waiting for its writer lock') })])
+      cancellation.abort()
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+      await expectNoDelivery(f)
+      expect(await readFile(`${target}.lock`, 'utf8')).toBe(`${process.pid}\n`)
+    } finally {
+      cancellation.abort()
+      release.resolve(undefined)
+      await Promise.allSettled([owner, pending])
+    }
+  })
+
+  it('cleans the staged copy and writer locks if the caller cancels before publication', async () => {
+    const f = await fixture(), cancellation = new AbortController()
+    const { stageDeliveryLockWaitMs: _wait, ...settings } = f.input.settings
+    storage.afterCopy = async (source) => { if (source === f.paths.output) cancellation.abort() }
+    await expect(stageEpisodeDelivery({ ...f.input, settings, signal: cancellation.signal }, f.draft))
+      .rejects.toMatchObject({ name: 'AbortError' })
+    await expectNoDelivery(f)
+    expect((await readdir(f.project)).filter(name => name.startsWith('.delivery-stage-') || name.endsWith('.lock'))).toEqual([])
   })
 
   it('resumes an interrupted publication with an identical receipt and empty upload folder', async () => {

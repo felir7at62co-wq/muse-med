@@ -10,9 +10,7 @@ import { applyFinalize } from './finalize.ts'
 import { applyLibrary } from './library.ts'
 import { applyScriptEditor } from './editor.ts'
 
-export { checkEpisodes, finalizeTool, KINDS, LIMITS, RIGHTS, splitEpisodes, STYLES } from './finalize.ts'
 export type { FinalizeArgs, FinalizeDependencies, FinalizeReport, ReadFile, UploadEpisode } from './finalize.ts'
-export { episodeFiles, LIBRARY_ACTIONS, LIBRARY_FOLDER, libraryTool } from './library.ts'
 export type { EpisodeFiles, LibraryArgs, LibraryDependencies, LibraryReport, WriteFile } from './library.ts'
 
 /** Cordis plugin name. */

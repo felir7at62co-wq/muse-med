@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** The coordinator client plugin mounts its Remote, hides the retained Main Session and reports failures. */
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -66,7 +66,7 @@ async function mount(options: {
   const handlers: (() => void)[] = []
   const guards = new Map<string, () => () => void>()
   const entries: Entry[] = []
-  const accountChanges: (() => Promise<void>)[] = []
+  const accountChanges: (() => void)[] = []
   const current = { id: SessionId('main') }
   const hidden: SessionId[] = []
   const unhidden: SessionId[] = []
@@ -102,7 +102,7 @@ async function mount(options: {
     remoteAccess: { whenAccess: (action: string, install: () => () => void) => { guards.set(action, install); return () => {} } },
     get: () => ({ list: { getSnapshot: () => ({ byId: { [current.id]: { retainedBy: { mainView: 1 } } } }) } }),
     remote: {
-      $on: (_event: string, handler: () => Promise<void>) => track(accountChanges, handler),
+      $on: (_event: string, handler: () => void) => track(accountChanges, handler),
       sessionCoordinator: {
         openMain: options.openMain ?? (async () => ({ ok: true as const, value: SessionId('main') })),
         watchMain: options.watchMain ?? (() => channel<SessionId | null>().stream()),
@@ -140,12 +140,73 @@ it('switches an open Router to the next signed-in account and preserves an ordin
   const m = await mount({ openMain: async () => ({ ok: true, value: id }) })
   await m.openMain()
   id = SessionId('second')
-  await m.accountChanges[0]!()
-  expect(m.opened.at(-1)).toBe(id)
+  m.accountChanges[0]!()
+  await vi.waitFor(() => { expect(m.opened.at(-1)).toBe(id) })
   m.current.id = SessionId('working')
   const count = m.opened.length
-  await m.accountChanges[0]!()
+  m.accountChanges[0]!()
   expect(m.opened).toHaveLength(count)
+})
+
+it('keeps the current Router if re-opening returns the same Session or fails', async () => {
+  const sessionId = SessionId('main')
+  const same = Promise.withResolvers<Ok<SessionId>>()
+  const openMain = vi.fn<() => Promise<Ok<SessionId>>>()
+    .mockResolvedValueOnce({ ok: true, value: sessionId })
+    .mockReturnValueOnce(same.promise)
+    .mockResolvedValueOnce({ ok: false })
+  const m = await mount({ openMain })
+  onTestFinished(m.dispose)
+  await m.openMain()
+  m.accountChanges[0]!()
+  same.resolve({ ok: true, value: sessionId })
+  await same.promise
+  expect(m.opened).toEqual([sessionId])
+
+  m.accountChanges[0]!()
+  await vi.waitFor(() => { expect(m.notice()).toMatchObject({ key: 'failedMain', success: false }) })
+  expect(m.opened).toEqual([sessionId])
+  expect(m.unhidden).toEqual([])
+})
+
+it('keeps the current conversation if the user leaves the Router before the refresh completes', async () => {
+  const sessionId = SessionId('main')
+  const refresh = Promise.withResolvers<Ok<SessionId>>()
+  const openMain = vi.fn<() => Promise<Ok<SessionId>>>()
+    .mockResolvedValueOnce({ ok: true, value: sessionId })
+    .mockReturnValueOnce(refresh.promise)
+  const m = await mount({ openMain })
+  onTestFinished(m.dispose)
+  await m.openMain()
+  m.accountChanges[0]!()
+  expect(openMain).toHaveBeenCalledTimes(2)
+  m.current.id = SessionId('working')
+  refresh.resolve({ ok: true, value: SessionId('obsolete') })
+  await refresh.promise
+  expect(m.opened).toEqual([sessionId])
+  expect(m.hidden).toEqual([sessionId])
+})
+
+it('reports Router transport failures until the coordinator is disposed', async () => {
+  const sessionId = SessionId('main')
+  const failure = new Error('connection closed')
+  const late = Promise.withResolvers<Ok<SessionId>>()
+  const openMain = vi.fn<() => Promise<Ok<SessionId>>>()
+    .mockResolvedValueOnce({ ok: true, value: sessionId })
+    .mockRejectedValueOnce(failure)
+    .mockReturnValueOnce(late.promise)
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const m = await mount({ openMain })
+  await m.openMain()
+  m.accountChanges[0]!()
+  await vi.waitFor(() => { expect(warn).toHaveBeenCalledExactlyOnceWith('Signed-in Main Session unavailable:', failure) })
+
+  m.accountChanges[0]!()
+  await m.dispose()
+  late.reject(failure)
+  await expect(late.promise).rejects.toBe(failure)
+  expect(warn).toHaveBeenCalledOnce()
+  expect(m.opened).toEqual([sessionId])
 })
 
 it('declares the Browser services it uses before mounting', () => {

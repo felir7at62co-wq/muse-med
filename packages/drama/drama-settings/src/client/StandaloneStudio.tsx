@@ -22,7 +22,7 @@ function StudioFrame({ origin, t, retry }: { origin: string; t: Translate; retry
   const frame = useRef<HTMLIFrameElement>(null)
   const [state, setState] = useState<FrameState>('loading')
   useEffect(() => {
-    const timeout = setTimeout(() => { setState(current => current === 'loading' ? 'unavailable' : current) }, READY_TIMEOUT_MS)
+    const timeout = setTimeout(() => { setState('unavailable') }, READY_TIMEOUT_MS)
     const receive = (event: MessageEvent<unknown>): void => {
       if (event.origin !== origin || event.source !== frame.current?.contentWindow) return
       const data = event.data

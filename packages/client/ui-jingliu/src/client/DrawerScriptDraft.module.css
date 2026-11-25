@@ -38,11 +38,16 @@
   min-height:30px;
   padding:0 8px;
   border:0;
-  border-radius:8px;
+  border-radius:var(--dsw-radius-sm);
   background:var(--dsw-alias-bg-layer-2);
   color:inherit;
   font:inherit;
   text-overflow:ellipsis;
+}
+
+.reading, .historyPreview {
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .reading {
@@ -52,7 +57,7 @@
   gap:12px;
   min-height:0;
   padding:12px 4px 24px 0;
-  border-block-start:1px solid var(--dsw-alias-bg-layer-2);
+  border-block-start:0.5px solid var(--dsw-alias-border-l1);
   overflow:auto;
 }
 
@@ -74,8 +79,8 @@ textarea.manuscript {
   min-height:15lh;
   padding:10px 12px;
   box-sizing:border-box;
-  border:1px solid var(--dsw-alias-bg-layer-2);
-  border-radius:8px;
+  border:0.5px solid var(--dsw-alias-border-l2);
+  border-radius:var(--dsw-radius-sm);
   background:var(--dsw-alias-bg-layer-1);
   color:inherit;
   resize:vertical;
@@ -113,8 +118,8 @@ textarea.manuscript {
 .source::file-selector-button {
   margin-inline-end:8px;
   padding:6px 10px;
-  border:1px solid var(--dsw-alias-bg-layer-3);
-  border-radius:6px;
+  border:0.5px solid var(--dsw-alias-border-l2);
+  border-radius:var(--dsw-radius-sm);
   background:var(--dsw-alias-bg-layer-2);
   color:inherit;
   font:inherit;
@@ -125,7 +130,7 @@ textarea.manuscript {
   max-height:45vh;
   overflow:auto;
   padding-block-start:10px;
-  border-block-start:1px solid var(--dsw-alias-bg-layer-2);
+  border-block-start:0.5px solid var(--dsw-alias-border-l1);
 }
 
 .scenes, .sceneLines {
@@ -141,8 +146,8 @@ textarea.manuscript {
   gap:8px;
   min-width:0;
   padding:10px 12px;
-  border:1px solid var(--dsw-alias-bg-layer-2);
-  border-radius:9px;
+  border:0.5px solid var(--dsw-alias-border-l1);
+  border-radius:var(--dsw-radius-md);
 }
 
 .scene header, .sceneToolbar {
@@ -157,7 +162,7 @@ textarea.manuscript {
   margin:0;
   color:var(--dsw-alias-label-primary);
   font-size:13px;
-  font-weight:600;
+  font-weight:500;
 }
 
 .scene header span, .sceneNote { color:var(--dsw-alias-label-secondary); }
@@ -170,7 +175,7 @@ textarea.manuscript {
   overflow-wrap:anywhere;
 }
 
-.sceneLines { padding-inline-start:10px; border-inline-start:2px solid var(--dsw-alias-bg-layer-2); }
+.sceneLines { padding-inline-start:10px; border-inline-start:0.5px solid var(--dsw-alias-border-l2); }
 
 .sceneFields {
   display:grid;
@@ -179,15 +184,15 @@ textarea.manuscript {
 }
 
 .sceneLine, .sceneElements { display:grid; gap:8px; min-width:0; }
-.sceneLine { padding-inline-start:8px; border-inline-start:2px solid var(--dsw-alias-bg-layer-2); }
+.sceneLine { padding-inline-start:8px; border-inline-start:0.5px solid var(--dsw-alias-border-l2); }
 
 .sceneInput {
   width:100%;
   min-width:0;
   padding:6px 8px;
   box-sizing:border-box;
-  border:1px solid var(--dsw-alias-bg-layer-2);
-  border-radius:6px;
+  border:0.5px solid var(--dsw-alias-border-l2);
+  border-radius:var(--dsw-radius-sm);
   background:var(--dsw-alias-bg-layer-1);
   font:inherit;
   font-size:13px;

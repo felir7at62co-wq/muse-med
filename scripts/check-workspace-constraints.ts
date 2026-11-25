@@ -85,11 +85,11 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh': ['lib/*.js', 'lib/*.js.map', 'lib/types/*.d.ts', 'lib/types/*.d.ts.map', 'docs', 'src'],
   '@deepseek-ai/dsh-desktop-host': [
     'lib/index.js', 'lib/native-preset.js', 'config/desktop.cordis.patch.yml',
-    'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
-    'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
+    'presets', 'skills', 'craft-skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
+    'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js', 'lib/craft.js',
     'lib/manuscript-revisions.js', 'lib/manuscript-continuity-preset.js', 'lib/manuscript-source-review.js',
     'lib/jianying-draft.js', 'lib/feishu-migration.js',
-    'lib/source-recovery.js', 'lib/retired-bot.js', 'lib/product-drama-settings.js', 'licenses', 'lib/computer-use.js',
+    'lib/source-recovery.js', 'lib/office.js', 'lib/retired-bot.js', 'lib/product-drama-settings.js', 'licenses', 'lib/computer-use.js',
     'lib/computer-input-worker.js', 'lib/delegation-policy.js',
     'lib/approved-episode-render.js', 'lib/episode-render-worker.js',
     'lib/workspace-owned-storage.js', 'lib/workspace-owner-lease.js',
@@ -244,8 +244,15 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice': ['runtime/assets.json'],
   // Local OCR executes these fixed bridges relative to the bundled plugin entry.
   '@deepseek-ai/dsh-tool-video-inspect': ['scripts/ocr_bridge.ps1', 'scripts/ocr_bridge.py', 'lib/source-qa.js', 'lib/shared-*.js'],
-  // Desktop delivery reuses the same source review and project lookup implementations.
-  '@deepseek-ai/dsh-tool-episode-render': ['lib/source-qa.js', 'lib/delivery.js', 'lib/shared-*.js'],
+  // Standalone drama exports import the same runtime chunks as their tool entry points.
+  '@deepseek-ai/dsh-tool-audio-transcribe': ['lib/runner.js', 'lib/shared-*.js'],
+  '@deepseek-ai/dsh-tool-episode-render': ['lib/source-qa.js', 'lib/delivery.js', 'lib/subtitles.js', 'lib/shared-*.js'],
+  '@deepseek-ai/dsh-tool-episode-subtitles': ['lib/selection.js', 'lib/shared-*.js'],
+  '@deepseek-ai/dsh-tool-jingliu': ['lib/library.js', 'lib/shared-*.js'],
+  // The workbench plugin and transport bundle share the HTTP error class.
+  '@deepseek-ai/dsh-workbench-connection': ['lib/transport.js', 'lib/shared-*.js'],
+  // Tool Skill ships the Agent Zero attribution and license with its adapted code.
+  '@deepseek-ai/dsh-tool-skill': ['licenses'],
   // Node profile configuration and process bootstraps have separate bundles.
   '@deepseek-ai/dsh-ptc-runtime-node': ['lib/configuration.js', 'lib/process.js', 'lib/persistent-process.js'],
   // The Inspector owns a Worker and a mirrored frontend outside package export paths.
@@ -579,6 +586,9 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
   } else if (dir === 'packages/host/muse-market' && manifest.name === '@deepseek-ai/dsh-muse-market') {
     if (manifest.private !== true) errors.push(`${label}: Skill publication package must set "private": true`)
     if (manifest.publishConfig !== undefined) errors.push(`${label}: Skill publication package must omit publishConfig`)
+  } else if (dir === 'packages/drama/tool-episode-subtitles' && manifest.name === '@deepseek-ai/dsh-tool-episode-subtitles') {
+    if (manifest.private !== true) errors.push(`${label}: Desktop subtitle tool must set "private": true`)
+    if (manifest.publishConfig !== undefined) errors.push(`${label}: Desktop subtitle tool must omit publishConfig`)
   } else if (dir === marketWebApplicationDirectory && manifest.name === '@deepseek-ai/dsh-market-web') {
     if (manifest.private !== true) errors.push(`${label}: Skill website must set "private": true`)
     if (manifest.publishConfig !== undefined) errors.push(`${label}: Skill website must omit publishConfig`)

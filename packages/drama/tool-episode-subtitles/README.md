@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Desktop mounts the plugin inside its Office composition with the bundled runtime directory and the media executables it gives `jianying_draft`. It needs the tool registry, the system prompt, the Muse account service and a subprocess provider; Jingliu projects also need the optional `jingliuConnection` with local media.
+Muse Desktop bundles this private plugin and mounts it in its Office composition with the bundled runtime directory and the media executables it supplies to `jianying_draft`. The plugin needs the tool registry, the system prompt, the Muse account service and a subprocess provider. Jingliu projects also need the optional `jingliuConnection` with local media.
 
 ```yaml
 - id: tool-episode-subtitles
@@ -53,9 +53,9 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 `build` resolves the locked package plan `episode_packages/NN/package.json` and the approved selections `reviews/epNN-pMM.json`, writes the shot manifest `editing/NN-shots.json` that `prepare` and drafts read, and measures durations with the renderer's picture clock. A package without approval, a plan changed after approval, or media changed after approval blocks the episode and names the packages.
 
-Shots without a cached transcript (`transcript/shots/<audio_sha256>.json`) are packed into content-named WAV files under `transcript/packs/` and transcribed through the `audio_transcribe` runner with purpose `subtitles`. A pending pack is only queried or resumed under its receipt; a pack that failed or became uncertain blocks its shots and is never packed again. Words go back to the shot whose range contains their midpoint, and words in a gap or across a boundary become `boundary` review items.
+Shots without a cached transcript (`transcript/shots/<audio_sha256>.json`) are packed into content-named WAV files under `transcript/packs/` and transcribed through the `audio_transcribe` runner with purpose `subtitles`. The WAV uses the measured sample count and the staged PCM for each audio digest. A pending pack is only queried or resumed under its receipt; a pack that failed or became uncertain blocks its shots and is never packed again. Words go back to the shot whose range contains their midpoint, and words in a gap or across a boundary become `boundary` review items.
 
-Correction and layout run once per call through the vendored `subtitle_rules/run.py`. Each shot's result is cached in `subtitles/NN.state.json` under a key of its transcript, lines, names, rules digest and its own decisions. The clock is laid out again on every call: a cue past a trimmed shot is clipped or dropped with a `cut_by_trim` item, and a cue faster than the renderer's reading limit becomes `too_fast`. The SRT and its version 2 receipt are published at `editing/NN.srt` only when every shot is terminal; an episode with recognition pending or blocked keeps its previous files. The receipt also records digests of the episode's script lines, names and decisions, so drafts refuse the SRT after a script edit even when no media changed. An SRT already at that path that no `episode_subtitles` receipt covers, because it was made or edited by hand, is moved to `NN.srt.manual-<stamp>` with its receipt before the new one is published, and the result names it under `manual_srt_kept`.
+Correction and layout run once per call through the vendored `subtitle_rules/run.py`. Each shot's result is cached in `subtitles/NN.state.json` under a key of its transcript, lines, names, rules digest and its own decisions. The clock is laid out again on every call: a cue past a trimmed shot is clipped or dropped with a `cut_by_trim` item, and a cue faster than the renderer's reading limit becomes `too_fast`. The SRT and its version 2 receipt are published at `editing/NN.srt` only when every shot is terminal; an episode with recognition pending or blocked keeps its previous files. The receipt also records digests of the episode's script lines, names and decisions, so drafts refuse the SRT after a script edit even when no media changed. A rebuild reuses the existing SRT and receipt when the bytes and recorded inputs still match. An SRT already at that path that no `episode_subtitles` receipt covers, because it was made or edited by hand, is moved to `NN.srt.manual-<stamp>` with its receipt before the new one is published, and the result names it under `manual_srt_kept`.
 
 `review` pages the items in `subtitles/NN.review.json`. With `decisions` it writes `subtitles/NN.decisions.json` and rebuilds the affected episodes without new recognition. Decisions are keyed by item ID, so they survive edits to other shots and stop applying when their own shot changes.
 
@@ -84,7 +84,7 @@ Corrected words are stored on Jingliu by one `auto_subtitles` segments job per e
 | [`src/hash-cache.ts`](src/hash-cache.ts) | Stat-keyed digests and digest-keyed probe memo in `<root>/.muse-hash-cache.json` |
 | [`src/asr-pack.ts`](src/asr-pack.ts) | Pure pack planning, punctuation attachment and midpoint splitting |
 | [`src/asr.ts`](src/asr.ts) | Pack manifests, WAV assembly and the runner calls |
-| [`src/rules.ts`](src/rules.ts) | The rules digest and the managed Python process |
+| [`src/rules.ts`](src/rules.ts) | Rules digest and isolated Python subprocess with UTF-8 JSON |
 | [`src/clock.ts`](src/clock.ts) | Window and speed mapping onto the episode clock |
 | [`src/build.ts`](src/build.ts) | Per-shot cache keys, clock layout, review items and publication |
 | [`src/types.ts`](src/types.ts) | Type declarations only |

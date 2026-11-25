@@ -1,10 +1,14 @@
 /** The build reuses transcripts by audio digest, corrections by content key, and lays out the clock on every call. */
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
-import { changedShots, readSubtitleClockReceipt, subtitleClockRows, type SubtitleClockReceiptV2 } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
+import { afterEach, expect, it, vi } from 'vitest'
+import { changedShots, readSubtitleClockReceipt, subtitleClockPath, subtitleClockRows,
+  type SubtitleClockReceiptV2 } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
+import * as Runner from '@deepseek-ai/dsh-tool-audio-transcribe/runner'
+import { readDecisions, readReview } from '../src/build.ts'
 import { HashCache } from '../src/hash-cache.ts'
 import { localSource } from '../src/shots.ts'
+import * as ShotSources from '../src/shots.ts'
 import { runEpisodeSubtitles } from '../src/tool.ts'
 import { fakeRules, gateway, project, services, settings, toolkit } from './fixture.ts'
 
@@ -49,9 +53,137 @@ it('packs every shot into one upload, waits, then publishes the SRT with a versi
   const receipt = (await readSubtitleClockReceipt(srt))?.receipt as SubtitleClockReceiptV2
   expect(receipt).toMatchObject({ version: 2, producer: 'episode_subtitles', episode: '01', review_pending: 0 })
   expect(changedShots(receipt, await currentRows(f.root))).toEqual([])
-  expect(JSON.parse(await readFile(join(f.root, 'editing', '01-shots.json'), 'utf8')).shots[0]).toMatchObject({ shot: 1, package: 1 })
+  const shotList = JSON.parse(await readFile(join(f.root, 'editing', '01-shots.json'), 'utf8')) as { shots: readonly unknown[] }
+  expect(shotList.shots[0]).toMatchObject({ shot: 1, package: 1 })
   await build()
   expect(rules.calls).toHaveLength(1)
+})
+
+it('refuses an incomplete correction response before publishing an episode', async () => {
+  const { g, rules, build, srt } = await setup(1)
+  await build()
+  g.complete()
+  const run = vi.spyOn(rules, 'run').mockResolvedValueOnce([])
+  try {
+    await expect(build()).rejects.toThrow('缺少字幕规则结果')
+    await expect(readFile(srt)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(build()).resolves.toMatchObject({ status: 'ready' })
+    expect(g.submits).toHaveLength(1)
+  } finally { run.mockRestore() }
+})
+
+it('reports blocked recognition for all affected shots and leaves the episode unpublished', async () => {
+  const { build, rules, srt } = await setup(2)
+  const start = vi.spyOn(Runner, 'startAudioTranscriptionBatch').mockImplementation(async (_root, inputs) => ({
+    items: inputs.map(input => ({ input, status: 'failed', receipt: 'failed-pack', job_id: 'failed-job' })),
+  }))
+  try {
+    expect(await build()).toMatchObject({ status: 'blocked', blocked: [{ episode: 1, reason: 'asr_failed', shots: [1, 2] }] })
+    expect(await build()).toMatchObject({ status: 'blocked', blocked: [{ episode: 1, reason: 'asr_failed', shots: [1, 2] }] })
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(rules.calls).toEqual([])
+    await expect(readFile(srt)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally { start.mockRestore() }
+})
+
+it('reports the transcription service retry delay while the episode waits', async () => {
+  const { build, rules, srt } = await setup(1)
+  const start = vi.spyOn(Runner, 'startAudioTranscriptionBatch').mockImplementation(async (_root, inputs) => ({
+    items: inputs.map(input => ({ input, status: 'processing', receipt: 'queued-pack', job_id: 'queued-job',
+      error_code: 'queue_full', retry_after_seconds: 7 })),
+  }))
+  try {
+    expect(await build()).toMatchObject({ status: 'waiting', waiting: [1], asr: { pending_packs: 1, retry_after: 7 } })
+    expect(rules.calls).toEqual([])
+    await expect(readFile(srt)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally { start.mockRestore() }
+})
+
+it.each([
+  { kind: 'missing measured duration', message: '镜头与实测时长数量不一致' },
+  { kind: 'missing requested episode', message: '没有构建结果' },
+] as const)('fails before publication for $kind', async ({ kind, message }) => {
+  const { build, g, srt } = await setup(1)
+  const source = ShotSources.localSource
+  const stub = vi.spyOn(ShotSources, 'localSource').mockImplementation((...args) => {
+    const actual = source(...args)
+    return { ...actual, resolve: async (...request) => {
+      if (kind === 'missing requested episode') return []
+      return (await actual.resolve(...request)).map(episode => episode.kind === 'ok' ? { ...episode, clock: [] } : episode)
+    } }
+  })
+  try {
+    await expect(build()).rejects.toThrow(message)
+    expect(g.submits).toEqual([])
+    await expect(readFile(srt)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally { stub.mockRestore() }
+})
+
+it('reports an unreadable receipt without moving the existing subtitle', async () => {
+  const { build, g, srt } = await setup(1)
+  await build()
+  g.complete()
+  await mkdir(subtitleClockPath(srt), { recursive: true })
+  await writeFile(srt, 'manual subtitle')
+  await expect(build()).rejects.toMatchObject({ code: 'EISDIR' })
+  await expect(readFile(srt, 'utf8')).resolves.toBe('manual subtitle')
+})
+
+it('reports a directory at the subtitle path without replacing it', async () => {
+  const { build, g, srt } = await setup(1)
+  await build()
+  g.complete()
+  await mkdir(srt, { recursive: true })
+  await expect(build()).rejects.toMatchObject({ code: 'EISDIR' })
+  await expect(readdir(srt)).resolves.toEqual([])
+})
+
+it('keeps manual subtitles when a backup path is an unresolvable link', async () => {
+  const { build, g, srt } = await setup(1)
+  await build()
+  g.complete()
+  await writeFile(srt, 'manual subtitle')
+  const instant = new Date('2026-11-25T09:30:00.000Z')
+  const backup = `${srt}.manual-${instant.toISOString().replace(/[-:.]/gu, '')}`
+  await symlink(backup, backup, process.platform === 'win32' ? 'junction' : 'file')
+  vi.setSystemTime(instant)
+  try {
+    await expect(build()).rejects.toMatchObject({ code: 'ELOOP' })
+    await expect(readFile(srt, 'utf8')).resolves.toBe('manual subtitle')
+  } finally {
+    vi.useRealTimers()
+    await unlink(backup)
+  }
+})
+
+it('keeps manual subtitle bytes and an invalid receipt next to a fresh measured subtitle', async () => {
+  const { f, g, build, srt } = await setup(1)
+  await mkdir(join(f.root, 'editing'), { recursive: true })
+  await build()
+  g.complete()
+  const manual = '我的手工字幕\n'
+  const invalid = '{"version":2,'
+  const original = srt + '.clock.json'
+  const now = new Date('2026-11-25T17:40:00.000Z')
+  const occupied = `${srt}.manual-20261125T174000000Z`
+  await Promise.all([writeFile(srt, manual), writeFile(original, invalid), writeFile(occupied, '已有备份')])
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(now)
+    await expect(build()).resolves.toMatchObject({ status: 'ready' })
+    expect(await readFile(occupied, 'utf8')).toBe('已有备份')
+    expect(await readFile(occupied + '-2', 'utf8')).toBe(manual)
+    expect(await readFile(occupied + '-2.clock.json', 'utf8')).toBe(invalid)
+    expect((await readSubtitleClockReceipt(srt))?.receipt).toMatchObject({ version: 2, producer: 'episode_subtitles' })
+  } finally { vi.useRealTimers() }
+})
+
+it('surfaces malformed saved review and decision files rather than pretending they are absent', async () => {
+  const { f } = await setup(1)
+  const review = join(f.root, 'review.json'), decisions = join(f.root, 'decisions.json')
+  await Promise.all([writeFile(review, '{'), mkdir(decisions)])
+  await expect(readReview(review)).rejects.toBeInstanceOf(SyntaxError)
+  await expect(readDecisions(decisions)).rejects.toMatchObject({ code: 'EISDIR' })
 })
 
 it('redoes recognition only for new audio, correction only for a script edit, and neither for a trim', async () => {
@@ -120,6 +252,53 @@ it('pages review items and rebuilds with decisions without new recognition', asy
   expect((await readSubtitleClockReceipt(srt))?.receipt).toMatchObject({ review_pending: 0 })
 })
 
+it('passes two choices to the correction rules in stable ID order', async () => {
+  const { f, g, rules, build } = await setup(1)
+  await f.speak(1, '好吗吗')
+  await build()
+  g.complete()
+  await build()
+  const review = { method: 'review', source: 'local', project: f.root, episodes: [1] } as const
+  const page = await runEpisodeSubtitles(review, settings, services(g.account, rules))
+  const ids = (page.items as { id: string }[]).map(({ id }) => id).sort()
+  expect(ids).toHaveLength(2)
+  const decisions = [...ids].reverse().map(id => ({ id, action: 'drop' as const }))
+  const result = await runEpisodeSubtitles({ ...review, decisions }, settings, services(g.account, rules))
+  expect(result).toMatchObject({ applied: 2, pending: 0 })
+  expect(rules.calls.at(-1)?.flatMap(({ decisions }) => decisions.map(({ id }) => id))).toEqual(ids)
+  expect(g.submits).toHaveLength(1)
+})
+
+it('uses the played window for clock findings and omits dropped cues without another upload', async () => {
+  const { f, g, rules, build, srt } = await setup(1)
+  await f.trim(1, 1)
+  await build()
+  g.complete()
+  const text = '这段密集台词需要更多时间才能读完'
+  const run = vi.spyOn(rules, 'run').mockImplementation(async shots => shots.map(shot => ({
+    key: shot.key, pending: 0,
+    cues: [{ start: 0.5, end: 1.5, text }, { start: 1.55, end: 1.75, text: '片段之外' }],
+    items: [{ id: 'context', kind: 'doubt', heard: '这段', script: '这段', start: 0.5, end: 0.8, decision: null }],
+  })))
+  try {
+    expect(await build()).toMatchObject({ status: 'needs_review', needs_review: { 1: 4 } })
+    const page = await runEpisodeSubtitles({ method: 'review', source: 'local', project: f.root, episodes: [1] },
+      settings, services(g.account, rules))
+    expect(page.items).toMatchObject([
+      { id: 'context', kind: 'doubt', start: 0.5, end: 0.8 },
+      { kind: 'cut_by_trim', heard: text, start: 0.5, end: 1 },
+      { kind: 'too_fast', heard: text, start: 0.5, end: 1 },
+      { kind: 'cut_by_trim', heard: '片段之外', start: 1, end: 1 },
+    ])
+    const decisions = (page.items as { id: string }[]).map(({ id }) => ({ id, action: 'drop' as const }))
+    const resolved = await runEpisodeSubtitles({ method: 'review', source: 'local', project: f.root, episodes: [1], decisions },
+      settings, services(g.account, rules))
+    expect(resolved).toMatchObject({ applied: 4 })
+    expect(await cueStarts(srt)).toEqual([])
+    expect(g.submits).toHaveLength(1)
+  } finally { run.mockRestore() }
+})
+
 it('moves a hand-made or hand-edited SRT aside with its receipt before publishing and reports where it went', async () => {
   const { f, g, build, srt } = await setup(2)
   await mkdir(join(f.root, 'editing'), { recursive: true })
@@ -128,7 +307,7 @@ it('moves a hand-made or hand-edited SRT aside with its receipt before publishin
   await build(); g.complete()
   const first = await build()
   const kept = (first.manual_srt_kept as Record<string, string>)['1']!
-  expect(kept).toMatch(/^editing\/01\.srt\.manual-\d{8}T\d{9}Z$/u)
+  expect(kept.replaceAll('\\', '/')).toMatch(/^editing\/01\.srt\.manual-\d{8}T\d{9}Z$/u)
   expect(await readFile(join(f.root, kept), 'utf8')).toBe(manual)
   expect(await readFile(srt, 'utf8')).not.toContain('用户手改过的字幕')
 
@@ -148,7 +327,7 @@ it('records the line, name and decision digests in the receipt so a script edit 
   const { f, g, build, srt } = await setup(2)
   await build(); g.complete(); await build()
   const before = (await readSubtitleClockReceipt(srt))?.receipt as SubtitleClockReceiptV2
-  expect(before.inputs).toMatchObject({ lines_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) })
+  expect(before.inputs?.lines_sha256).toMatch(/^[0-9a-f]{64}$/u)
   await f.editLine(2, '第2句改过的台词')
   await build()
   const after = (await readSubtitleClockReceipt(srt))?.receipt as SubtitleClockReceiptV2

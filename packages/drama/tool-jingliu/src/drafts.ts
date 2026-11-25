@@ -11,7 +11,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { JingliuHttpError, mediaPath, type JingliuSession, type LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
+import { JingliuHttpError, type JingliuSession, type LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
+import { mediaPath } from '@deepseek-ai/dsh-jingliu-connection/media'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
 import { commitDraft, fill, installedDraft, invalid, leaf, placeholderPaths, trackCounts } from './delivery.ts'
@@ -147,7 +148,8 @@ Promise<{ readonly path: string; readonly existing: boolean }> {
   const directory = join(resolve(batch.root), folderName(plan.name) + ' - Muse ' + fingerprint.slice(0, 10))
   if (await installedDraft(directory, fingerprint) !== undefined) return { path: directory, existing: true }
   if (await exists(directory)) throw invalid()
-  const { download, place } = session
+  const download = session.download?.bind(session)
+  const place = session.place?.bind(session)
   if (!download || !place) throw new HarnessError('只有桌面版 Muse 能把镜流素材下载到本机。', 'JINGLIU_MEDIA_LOCAL_DISABLED')
   const wanted = [...new Set([...plan.materials.map(material => material.path), ...plan.cover === null ? [] : [plan.cover.path]])]
   const local = wanted.length === 0 ? new Map<string, LocalMedia>() : await download(wanted, batch.mediaFolder, signal)

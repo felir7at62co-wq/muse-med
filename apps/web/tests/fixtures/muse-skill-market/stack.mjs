@@ -93,7 +93,7 @@ export async function apply(ctx) {
   await catalogContext.plugin(cloudHost, { policyFile }).await()
   proxy = await createMarketProxy({ upstream: catalogContext.webServer.getOrigin(), secretFile,
     archiveBytes: limits.archiveBytes, jsonRequestBytes: 16384, jsonResponseBytes: 1048576,
-    requestTimeoutMs: 30000, requestRatePerMinute: 10000 })
+    requestTimeoutMs: 30000, requestRatePerMinute: 10000, web: 'skills' })
   const store = await openStore(join(root, 'accounts.json'))
   const roles = {
     creator: await store.create('market_creator', password),

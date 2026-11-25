@@ -95,7 +95,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       }, signal),
       (error) => { console.warn('Initial Main Session unavailable:', error); showNotice('failedMain', false) },
     ))
-    scope.effect(() => scope.remote.$on('muse-account/session-changed', async () => {
+    const followSignedInMain = async (): Promise<void> => {
       const current = mainId
       if (!current || !scope.get('sessions')?.list.getSnapshot().byId[current]?.retainedBy.mainView) return
       const epoch = ++identityEpoch
@@ -105,6 +105,11 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       rememberMain(result.value)
       mainIdKnown = true
       if (current !== result.value) scope.uiWorkspace.openSession(result.value)
+    }
+    scope.effect(() => scope.remote.$on('muse-account/session-changed', () => {
+      void followSignedInMain().catch((error: unknown) => {
+        if (!lifetime.signal.aborted) console.warn('Signed-in Main Session unavailable:', error)
+      })
     }), 'coordination: follow the signed-in Router')
     scope.remoteAccess.whenAccess('sessionCoordinator/watchMain', () => {
       let reader: AbortController | undefined

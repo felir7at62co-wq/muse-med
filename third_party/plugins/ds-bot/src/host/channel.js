@@ -848,21 +848,28 @@ export function install(rt) {
           const hold = rt.browserChannel.holdOf(botId)
           if (hold === null) return fail('This browser is not held', 'bot/forbidden')
           if (body.callId !== undefined && body.callId !== hold.callId) return fail('This handoff is no longer open', 'bot/stale')
-          // Claim the hold before queueing so a second answer is refused.
+          if (hold.callId === undefined) {
+            rt.browserChannel.setHold(botId, null)
+            return ok(true)
+          }
+          // An answer belongs to the thread that requested the handoff.
+          const sessionForHandoff = bot => threadCurrentOfPart(bot, hold.sessionId) ?? rt.chatOf(botId)
+          const sessionId = sessionForHandoff(rt.botOf(botId))
+          const reply = handoffReply(hold, body.outcome)
+          await rt.ensureCapabilities(sessionId)
+          const agent = await rt.resolveAgent(sessionId)
+          const currentBot = rt.botOf(botId)
+          if (rt.browserChannel.holdOf(botId) !== hold || !currentBot || sessionForHandoff(currentBot) !== sessionId) {
+            return fail('This handoff is no longer open', 'bot/stale')
+          }
+          // Dispatch may throw after inbox admission. Keep the hold consumed so the answer cannot be sent twice.
           rt.browserChannel.setHold(botId, null)
-          if (hold.callId === undefined) return ok(true)
           try {
-            // The answer goes back to the thread that raised the handoff: a background
-            // part the user was not reading must not be answered in the foreground chat.
-            const sessionId = threadCurrentOfPart(rt.botOf(botId), hold.sessionId) ?? rt.chatOf(botId)
-            const reply = handoffReply(hold, body.outcome)
-            await rt.ensureCapabilities(sessionId)
-            const agent = await rt.resolveAgent(sessionId)
             agent.followup(createUserMessage({ content: [{ type: 'text', text: reply.text }], source: reply.source }))
             await ctx.sessions.flush(agent.session)
-          } catch (error) {
-            if (rt.browserChannel.holdOf(botId) === null) rt.browserChannel.setHold(botId, hold)
-            throw error
+          } catch (cause) {
+            throw Object.assign(new Error('The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.', { cause }),
+              { code: 'bot/handoff-unconfirmed' })
           }
           return ok(true)
         }
@@ -934,7 +941,10 @@ export function install(rt) {
     } catch (error) {
       const code = errorCode(error)
       const message = error?.message ?? String(error)
-      if (code === 'bot/internal') rt.noteFailure({ source: 'api', text: `${endpoint}: ${message}`, code: error?.code ?? error?.name, stack: error?.stack })
+      if (code === 'bot/internal' || code === 'bot/handoff-unconfirmed') {
+        const detail = code === 'bot/handoff-unconfirmed' ? error.cause : error
+        rt.noteFailure({ source: 'api', text: `${endpoint}: ${detail?.message ?? String(detail)}`, code: detail?.code ?? detail?.name, stack: detail?.stack })
+      }
       return fail(message, code)
     }
   }

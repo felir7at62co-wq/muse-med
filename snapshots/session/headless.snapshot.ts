@@ -20,6 +20,7 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, sep, win32 } 
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'
+import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { deriveEventMessage, foldSurface, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { releasedV0SessionFormatCodec } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import type { SessionFormatEvent, SessionFormatMigrationContext } from '@deepseek-ai/dsh-session-format'
@@ -2940,6 +2941,9 @@ describe('headless recorded-session snapshots', () => {
       ]
       const patchRoot = '.snapshot-patches'
       const patches = patchSources.map((source, index) => join(patchRoot, `${String(index)}-${basename(source)}`))
+      const desktopPermissionPatch = scenario.name === 'muse-jingliu-script-read'
+        ? join(patchRoot, 'desktop-permissions.yml') : undefined
+      if (desktopPermissionPatch !== undefined) patches.push(desktopPermissionPatch)
       // `test:snapshot:built` prepares this directory; MUSE_MAIN_DEEP_VIEW_PACKAGE names another unpacked artifact.
       const preparedDeepView = join(repoRoot, '.artifacts/snapshot-deep-view/package')
       const deepViewPackage = scenario.name !== 'muse-session-views' ? undefined
@@ -3027,6 +3031,14 @@ describe('headless recorded-session snapshots', () => {
             patchSources.forEach((source, index) => {
               materializeProfilePatch(source, cwd, 'headless', join(cwd, patchRoot), index)
             })
+            if (desktopPermissionPatch !== undefined) {
+              const defaults = loadOverlayPatches('muse-med', join(repoRoot, 'apps/desktop-host/config/defaults.cordis.patch.yml'))
+              const desktop = loadOverlayPatches('muse-med', join(repoRoot, 'apps/desktop-host/config/desktop.cordis.patch.yml'))
+              await writeFile(join(cwd, desktopPermissionPatch), JSON.stringify([
+                ...defaults.filter(row => row.id === 'permission'),
+                ...desktop.filter(row => row.id === 'approval'),
+              ]))
+            }
             if (deepViewPackage !== undefined && deepViewPatch !== undefined) {
               const profileModules = join(cwd, '.dsh/profiles/headless/node_modules')
               await mkdir(profileModules, { recursive: true })

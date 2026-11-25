@@ -59,7 +59,8 @@
       "uiautomation": "2.0.29",
       "comtypes": "1.4.17",
       "pymediainfo": "7.0.1",
-      "pycryptodome": "3.23.0"
+      "pycryptodome": "3.23.0",
+      "pypinyin": "0.55.0"
     }
   }
 }

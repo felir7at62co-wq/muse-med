@@ -1,5 +1,5 @@
 /** Sidebar terminal screen and connection recovery. */
-import { useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Button, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -38,7 +38,9 @@ export type PanelTerminalProps = PropsRuntime<'bot.drawer.terminal'> & PropsLoca
 export function PanelTerminal({ sessionId, tabId, terminalId, visible, replace, panelView, useTheme, t }: PanelTerminalProps): ReactNode {
   // One lookup per tab: a lookup after the tab's terminal closed would start another terminal.
   const model = useMemo(() => panelView(sessionId, tabId, terminalId), [panelView, sessionId, tabId, terminalId])
-  const state = useSyncExternalStore(model.state.subscribe, model.state.getSnapshot)
+  const subscribe = useCallback((listener: () => void) => model.state.subscribe(listener), [model])
+  const getSnapshot = useCallback(() => model.state.getSnapshot(), [model])
+  const state = useSyncExternalStore(subscribe, getSnapshot)
   return <TerminalPane model={model} state={state} theme={useTheme(value => value)} visible={visible} t={t} replace={replace} />
 }
 

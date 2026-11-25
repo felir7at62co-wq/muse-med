@@ -650,6 +650,8 @@ export interface RenderSettings {
   readonly normalizeSubtitleText?: boolean
   /** Deployment ceiling for the final BGM multiplier; omitted retains the legacy limit of 8. */
   readonly maxBgmVolume?: number
+  /** Maximum time spent acquiring each delivery writer lock, in milliseconds. */
+  readonly stageDeliveryLockWaitMs?: number
   /** ffmpeg executable to start. */
   readonly ffmpeg: string
   /** ffprobe executable to start. */

@@ -38,6 +38,8 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'config/defaults.cordis.patch.yml',
   'presets/short-drama/agent.cordis.yml',
   'presets/short-drama/preset.yml',
+  'presets/short-drama-v2/agent.cordis.yml',
+  'presets/short-drama-v2/preset.yml',
   'lib/native-preset.js',
   'lib/computer-use.js',
   'lib/computer-input-worker.js',

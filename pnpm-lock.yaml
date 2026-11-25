@@ -150,6 +150,9 @@ importers:
       '@deepseek-ai/dsh-pwsh-local':
         specifier: workspace:*
         version: link:packages/shell/pwsh-local
+      '@deepseek-ai/dsh-scope':
+        specifier: workspace:*
+        version: link:packages/core/scope
       '@deepseek-ai/dsh-skill-office':
         specifier: workspace:*
         version: link:packages/skill/skill-office
@@ -1548,6 +1551,9 @@ importers:
       http-server:
         specifier: ^14.1.1
         version: 14.1.1(debug@4.4.3(supports-color@9.4.0))(supports-color@9.4.0)
+      open-bot-avatar:
+        specifier: 0.3.1
+        version: 0.3.1
       playwright:
         specifier: ^1.49.0
         version: 1.61.1
@@ -5473,18 +5479,6 @@ importers:
 
   packages/client/ui-jingliu:
     dependencies:
-      '@deepseek-ai/dsh-brand':
-        specifier: workspace:*
-        version: link:../../util/brand
-      '@deepseek-ai/dsh-client-store':
-        specifier: workspace:*
-        version: link:../store
-      '@deepseek-ai/dsh-jingliu-connection':
-        specifier: workspace:*
-        version: link:../../drama/jingliu-connection
-      '@deepseek-ai/dsh-workbench-connection':
-        specifier: workspace:*
-        version: link:../../drama/workbench-connection
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -5498,12 +5492,18 @@ importers:
       '@deepseek-ai/dsh-api-workspace-controller':
         specifier: workspace:*
         version: link:../../api/workspace-controller
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:*
         version: link:../locale
       '@deepseek-ai/dsh-client-resources':
         specifier: workspace:*
         version: link:../resources
+      '@deepseek-ai/dsh-client-store':
+        specifier: workspace:*
+        version: link:../store
       '@deepseek-ai/dsh-client-ui-character-library':
         specifier: workspace:*
         version: link:../ui-character-library
@@ -5537,15 +5537,24 @@ importers:
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:*
         version: link:../../host/webserver
+      '@deepseek-ai/dsh-jingliu-connection':
+        specifier: workspace:*
+        version: link:../../drama/jingliu-connection
       '@deepseek-ai/dsh-muse-account':
         specifier: workspace:*
         version: link:../../host/muse-account
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
+      '@deepseek-ai/dsh-typert-protocol':
+        specifier: workspace:*
+        version: link:../../typert/protocol
       '@deepseek-ai/dsh-util-crypto':
         specifier: workspace:*
         version: link:../../util/crypto
+      '@deepseek-ai/dsh-workbench-connection':
+        specifier: workspace:*
+        version: link:../../drama/workbench-connection
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -10017,6 +10026,9 @@ importers:
 
   packages/drama/tool-audio-transcribe:
     dependencies:
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: workspace:*
+        version: link:../../util/atomic-write
       '@deepseek-ai/dsh-muse-account':
         specifier: workspace:*
         version: link:../../host/muse-account
@@ -10325,6 +10337,9 @@ importers:
 
   packages/drama/tool-jingliu:
     dependencies:
+      '@deepseek-ai/dsh-atomic-write':
+        specifier: workspace:*
+        version: link:../../util/atomic-write
       '@deepseek-ai/dsh-drama-settings':
         specifier: workspace:*
         version: link:../drama-settings
@@ -28155,6 +28170,9 @@ packages:
   oniguruma-to-es@4.3.6:
     resolution: {integrity: sha512-csuQ9x3Yr0cEIs/Zgx/OEt9iBw9vqIunAPQkx19R/fiMq2oGVTgcMqO/V3Ybqefr1TBvosI6jU539ksaBULJyA==}
 
+  open-bot-avatar@0.3.1:
+    resolution: {integrity: sha512-TvX876wtLlmMCGY7d0Mo98Mn7pSIJAZ4swy5NhFcgyI0oMzZX0zuo8p+BedIop+yEOPLZbWZONusu4zh8C43kQ==}
+
   open@11.0.4:
     resolution: {integrity: sha512-++Zlftm0kVLPmzC06t6epuWmcRMDbI4z5P3NNX979WA/k23+NtSOynEGzsVfZwguKw2mi5umVgnBlJQMwRz4Pg==}
     engines: {node: '>=20'}
@@ -36362,6 +36380,8 @@ snapshots:
       oniguruma-parser: 0.12.2
       regex: 6.1.0
       regex-recursion: 6.0.2
+
+  open-bot-avatar@0.3.1: {}
 
   open@11.0.4:
     dependencies:

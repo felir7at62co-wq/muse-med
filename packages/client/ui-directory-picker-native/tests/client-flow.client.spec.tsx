@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import type { ReactNode } from 'react'
 import { act, cleanup, render } from '@testing-library/react'
-import { afterEach } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { StaticRemoteAccess } from '@deepseek-ai/dsh-client-test-runtime'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
@@ -85,6 +85,23 @@ describe('directory-picker-native client half', () => {
     after.declare()
     await Promise.resolve()
     for (const hole of HOLES) expect(after.slots.entries(hole)).toHaveLength(1)
+  })
+
+  it.each([false, true])('exposes the environment chooser only when the Peer can pick (%s)', async (allowsPick) => {
+    const b = await bench(action => allowsPick && action === 'directoryPicker/pick')
+    onTestFinished(async () => { await b.ctx.fiber.dispose() })
+    const slot = 'workspace.environment.directoryFlow'
+    const environment = ({ renderSlot }: {
+      renderSlot: (key: typeof slot, owner: DirectoryFlowOwnerProps) => ReactNode
+    }): ReactNode => renderSlot(slot, owner())
+    b.slots.register({ name: 'root', children: { [slot]: { kind: 'single', scope: 'root' } } }, environment)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+
+    expect(b.slots.entries(slot)).toHaveLength(allowsPick ? 1 : 0)
+    for (const hole of HOLES) expect(b.slots.entries(hole)).toHaveLength(0)
+    await fiber.dispose()
+    expect(b.slots.entries(slot)).toHaveLength(0)
   })
 
   it('fails loudly instead of deduplicating a duplicate package row', async () => {

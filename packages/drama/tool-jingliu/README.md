@@ -32,6 +32,8 @@ The plugin reads the catalog at invocation time. Project workflows use the selec
 
 Other Host tools use `@deepseek-ai/dsh-tool-jingliu/library`. `plannedDrafts` installs batch Jianying drafts from `POST /projects/{pid}/jianying/plan`, at most ten episodes per request: it refuses an episode whose stored subtitles are stale, missing or unverified and names the shot orders, and accepts unverified ones when the caller sets `keepLegacy` for a user who chose to keep legacy rows, downloads each material once into `<workspace>/jingliu/<project>`, links it into each draft, cuts the cover with the caller's FFmpeg and installs the draft by rename. A draft's fingerprint is the account, project, episode and the plan's `draft_sha256`, so a repeated call returns the installed draft and a changed plan installs a new one beside it; a server without the route makes every episode `jingliu_outdated`. `submitOnce` is the once-only job submission the narration and image tools use. `jingliu_run export_jianying` keeps installing the studio's zip package.
 
+Draft installation retries transient Windows rename errors for a bounded interval. Cancellation before publication or a failed installation removes the staging directory.
+
 ## Model Experience
 
 ### Finding and running workflows

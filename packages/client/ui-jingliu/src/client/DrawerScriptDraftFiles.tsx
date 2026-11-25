@@ -16,13 +16,15 @@ function readSource(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
-      if (typeof reader.result !== 'string' || !reader.result.includes(',')) {
+      const dataUrl = reader.result
+      if (typeof dataUrl !== 'string' || !dataUrl.includes(',')) {
         reject(new Error('Workshop source was not read'))
         return
       }
-      resolve(reader.result.slice(reader.result.indexOf(',') + 1))
+      // MIME parameters can contain commas. The base64 payload cannot.
+      resolve(dataUrl.slice(dataUrl.lastIndexOf(',') + 1))
     }
-    reader.onerror = () => { reject(reader.error) }
+    reader.onerror = () => { reject(reader.error ?? new Error('Workshop source was not read')) }
     reader.readAsDataURL(file)
   })
 }
