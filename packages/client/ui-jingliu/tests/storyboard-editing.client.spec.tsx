@@ -166,13 +166,15 @@ it('keeps one storyboard save in flight and requires the new revision after a co
   fireEvent.click(view.getByRole('button', { name: en.editStoryboard }))
   const save = () => view.getByRole('button', { name: en.save })
   const action = () => view.getByRole('textbox', { name: en.draftSceneAction })
+  const form = save().closest('form')
+  if (form === null) throw new Error('Expected storyboard editor form')
   fireEvent.change(action(), { target: { value: 'The reel snaps.' } })
   try {
     fireEvent.click(save())
     expect(save()).toHaveProperty('disabled', true)
     expect(action()).toHaveProperty('disabled', true)
     expect(layer).toHaveProperty('disabled', true)
-    fireEvent.click(save())
+    act(() => { form.requestSubmit() })
     expect(saveStoryboard).toHaveBeenCalledTimes(1)
   } finally {
     await act(async () => { release.resolve(undefined) })
@@ -182,6 +184,7 @@ it('keeps one storyboard save in flight and requires the new revision after a co
   fireEvent.click(save())
   expect((await view.findByText(en.draftConflict)).textContent).toBe(en.draftConflict)
   expect(save()).toHaveProperty('disabled', true)
+  act(() => { form.requestSubmit() })
   expect(saveStoryboard.mock.calls).toEqual(Array.from({ length: 2 }, () => [{ draftId: draft.id, episode: 2,
     baseRevision: 'board-1', shotsJson: JSON.stringify([{ ...row, action: 'The reel snaps.' }]) }]))
 

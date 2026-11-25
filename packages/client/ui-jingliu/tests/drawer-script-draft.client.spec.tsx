@@ -322,6 +322,8 @@ it('keeps a stale source from being imported when the latest file cannot be read
     const dialog = within(view.getByRole('dialog', { name: en.importDraft }))
     const input = dialog.getByLabelText(new RegExp(en.draftSource, 'u'))
     const submit = dialog.getByRole('button', { name: en.importDraft })
+    const form = submit instanceof HTMLButtonElement ? submit.form : null
+    if (form === null) throw new Error('Expected a form for the draft import')
     const choose = (file: File) => { fireEvent.change(input, { target: { files: [file] } }) }
     choose(new File(['Outdated'], 'first.md'))
     choose(new File(['Unreadable'], 'second.md'))
@@ -330,12 +332,15 @@ it('keeps a stale source from being imported when the latest file cannot be read
     await act(async () => { stale!.dispatchEvent(new ProgressEvent('load')) })
     expect(dialog.getByRole('status').textContent).toBe(en.loading)
     expect(submit).toHaveProperty('disabled', true)
+    act(() => { form.requestSubmit() })
+    expect(createDraft).not.toHaveBeenCalled()
 
     vi.spyOn(currentReader!, 'error', 'get').mockReturnValue(new DOMException('Source became unreadable', 'NotReadableError'))
     await act(async () => { currentReader!.dispatchEvent(new ProgressEvent('error')) })
     expect(dialog.getByRole('alert').textContent).toBe(en.draftCreateFailed)
     expect(dialog.queryByRole('status')).toBeNull()
     expect(submit).toHaveProperty('disabled', true)
+    act(() => { form.requestSubmit() })
     expect(createDraft).not.toHaveBeenCalled()
 
     fireEvent.change(dialog.getByRole('textbox', { name: en.draftName }), { target: { value: 'Recovered draft' } })
