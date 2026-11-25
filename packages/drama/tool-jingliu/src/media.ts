@@ -43,8 +43,11 @@ export function mediaTool(deps: Dependencies): ToolDefinition {
       }
       if (!session.upload) throw new HarnessError('当前镜流连接不支持上传。', 'JINGLIU_UPLOAD_UNSUPPORTED')
       if (!file?.trim()) throw new HarnessError('请指定要上传的本机文件。', 'JINGLIU_INVALID_ARGUMENTS')
-      if (!isAbsolute(file) && !workspace) throw new HarnessError('这段对话没有本机工作区，请使用绝对路径。', 'JINGLIU_WORKSPACE_REQUIRED')
-      const target = isAbsolute(file) ? file : resolve(workspace ?? '', file)
+      let target = file
+      if (!isAbsolute(file)) {
+        if (!workspace) throw new HarnessError('这段对话没有本机工作区，请使用绝对路径。', 'JINGLIU_WORKSPACE_REQUIRED')
+        target = resolve(workspace, file)
+      }
       if (!await deps.approve(exec, '将本机文件上传到镜流' + (project ? '项目 ' + project : '') + '\n' + target)) {
         throw new HarnessError('本次上传未获确认。', 'JINGLIU_APPROVAL_REQUIRED')
       }

@@ -5,6 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { JingliuHttpError, type JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
 import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { workflowArgs } from '../src/catalog.ts'
 import { workflowTools } from '../src/workflow-tools.ts'
 import { submitOnce } from '../src/submit-once.ts'
 
@@ -96,6 +97,23 @@ describe('Jingliu workflow gateway', () => {
     await expect(f.call('jingliu_workflows', { name: 'run_asset_generate' })).resolves.toEqual(produce)
     expect(f.approve).not.toHaveBeenCalled()
   })
+  it.each([
+    { name: 'an incomplete page', response: { count: 3, tools: definitions.tools } },
+    { name: 'a duplicate operation', response: { count: 2, tools: [accountRead, accountRead] } },
+    { name: 'a malformed operation', response: { count: 1, tools: [{ ...produce, needs_confirm: 'yes' }] } },
+    { name: 'an invalid argument schema', response: { count: 1, tools: [{ ...produce, parameters: { ...produce.parameters, required: [1] } }] } },
+  ])('rejects $name before quoting or dispatching a workflow', async ({ response }) => {
+    const f = fixture()
+    f.request.mockResolvedValueOnce(response)
+    await expect(f.call('jingliu_run', { workflow: produce.name, project_id: 'film' }))
+      .rejects.toMatchObject({ code: 'JINGLIU_INVALID_CATALOG' })
+    expect(f.request.mock.calls.map(([route]) => route)).toEqual(['/desktop-agent/tools'])
+    expect(f.approve).not.toHaveBeenCalled()
+  })
+  it('rejects malformed property definitions before validating a workflow call', () => {
+    expect(() => workflowArgs({ ...produce, risk: 'generate', parameters: { type: 'object', properties: [] } }, 'film', {}))
+      .toThrow(expect.objectContaining({ code: 'JINGLIU_INVALID_CATALOG' }))
+  })
   it('invokes a read with the active account and original call identity', async () => {
     const f = fixture()
     f.request.mockResolvedValueOnce(definitions).mockResolvedValueOnce({ rows: [] })
@@ -112,6 +130,7 @@ describe('Jingliu workflow gateway', () => {
   })
   it.each([
     { workflow: 'run_asset_generate' },
+    { workflow: 'list_projects', project_id: 'one' },
     { workflow: 'run_asset_generate', project_id: 'one', args: { project_id: 'other' } },
     { workflow: 'run_asset_generate', project_id: 'one', args: { confirmed: true } },
     { workflow: 'run_asset_generate', project_id: 'one', args: { shot_ids: [7] } },

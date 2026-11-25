@@ -32,7 +32,7 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
   changedBeforeConfirmation?: boolean
   legacyEmptyBoard?: boolean
   storedShots?: string
-  history?: 'live' | 'loading' | 'empty' | 'retry'
+  history?: 'live' | 'loading' | 'empty' | 'retry' | 'stale-preview' | 'preview-retry' | 'multiple'
 } = {}) {
   const reads: URL[] = []
   let latestRevision = draft.revision
@@ -46,6 +46,8 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
     revision: 'board-' + String(episode), version: legacyEmptyBoard ? 1 : 2, exists: episode === 3 && !legacyEmptyBoard, stale: false,
   })
   const old = { id: 21, version: 1, createdAt: '2026-11-23T06:00:00Z', createdBy: '11' }
+  const blank = { id: 22, version: 2, createdAt: null, createdBy: '11', content: '' }
+  const hasBlankHistory = history === 'stale-preview' || history === 'preview-retry' || history === 'multiple'
   const useResource = ((address: string) => {
     const url = new URL(address)
     reads.push(url)
@@ -60,10 +62,17 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
       case 'workshop-draft-history':
         if (history === 'loading') return { status: 'loading', value: undefined, failure: undefined }
         if (history === 'retry' && url.searchParams.get('retry') === '0') return { status: 'failed', value: undefined, failure: undefined }
-        value = { items: history === 'empty' ? [] : [old] }
+        value = { items: history === 'empty' ? [] : hasBlankHistory ? [old, blank] : [old] }
         break
-      case 'workshop-draft-history-entry': value = { ...old, content: url.searchParams.get('layer') === 'storyboard'
-        ? JSON.stringify([{ ...shot, location: 'Market' }]) : 'Jin watches the door.' }; break
+      case 'workshop-draft-history-entry':
+        if (history !== 'stale-preview' && url.searchParams.get('row') === '22') {
+          if (history === 'preview-retry' && url.searchParams.get('retry') === '0') return { status: 'failed', value: undefined, failure: undefined }
+          value = blank
+        } else {
+          value = { ...old, content: url.searchParams.get('layer') === 'storyboard'
+            ? JSON.stringify([{ ...shot, location: 'Market' }]) : 'Jin watches the door.' }
+        }
+        break
     }
     return { status: value === undefined ? 'failed' : 'live', value, failure: undefined }
   }) as DrawerScriptsProps['useResource']
@@ -83,7 +92,7 @@ function setup({ stale = false, canFinalize = true, changedBeforeConfirmation = 
     ...storyRow(request.episode), version: 3, revision: 'board-saved', shotsJson: request.shotsJson, exists: true,
   }))
   const restoreHistory = vi.fn<DrawerScriptsProps['draftActions']['restoreHistory']>().mockImplementation(async request => request.layer === 'chapter'
-    ? { episode: { ...episodeRow(request.episode), content: 'Jin watches the door.', version: 3 }, storyboard: null }
+    ? { episode: { ...episodeRow(request.episode), content: request.historyId === blank.id ? blank.content : 'Jin watches the door.', version: 3 }, storyboard: null }
     : { episode: null, storyboard: { ...storyRow(request.episode), shotsJson: JSON.stringify([{ ...shot, location: 'Market' }]), version: 3 } })
   const exportDraft = vi.fn<DrawerScriptsProps['draftActions']['exportDraft']>().mockResolvedValue({
     filename: 'source.md', mime: 'text/markdown', base64: 'U2NyaXB0',
@@ -340,6 +349,47 @@ it.each(['loading', 'empty'] as const)('blocks restore while episode history is 
   expect(view.queryByRole('dialog')).toBeNull()
 })
 
+it('keeps the previous preview from enabling restore after the version selection changes', () => {
+  const { props, restoreHistory } = setup({ history: 'stale-preview' })
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+  const versions = dialog.getByRole('combobox', { name: en.chooseDraftVersion })
+  const restore = dialog.getByRole('button', { name: en.restoreDraftVersion })
+
+  fireEvent.change(versions, { target: { value: '21' } })
+  expect(dialog.getByText('Jin watches the door.')).toBeTruthy()
+  expect(restore).toHaveProperty('disabled', false)
+
+  fireEvent.change(versions, { target: { value: '22' } })
+  expect(dialog.queryByText('Jin watches the door.')).toBeNull()
+  expect(dialog.getByRole('status').textContent).toBe(en.loading)
+  expect(restore).toHaveProperty('disabled', true)
+  expect(restoreHistory).not.toHaveBeenCalled()
+})
+
+it('retries the failed preview and restores the selected empty chapter', async () => {
+  const { props, reads, restoreHistory } = setup({ history: 'preview-retry' })
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+  const restore = dialog.getByRole('button', { name: en.restoreDraftVersion })
+  fireEvent.change(dialog.getByRole('combobox', { name: en.chooseDraftVersion }), { target: { value: '22' } })
+  expect(dialog.getByRole('alert').textContent).toContain(en.draftHistoryFailed)
+  expect(restore).toHaveProperty('disabled', true)
+
+  fireEvent.click(dialog.getByRole('button', { name: en.retry }))
+  expect(reads.some(url => url.hostname === 'workshop-draft-history-entry'
+    && url.searchParams.get('row') === '22' && url.searchParams.get('retry') === '1')).toBe(true)
+  expect(dialog.getByText(en.nothingHere)).toBeTruthy()
+  expect(restore).toHaveProperty('disabled', false)
+  expect(restoreHistory).not.toHaveBeenCalled()
+  fireEvent.click(restore)
+  await waitFor(() => { expect(view.queryByRole('dialog')).toBeNull() })
+  expect(restoreHistory).toHaveBeenCalledExactlyOnceWith({ draftId: 45, episode: 3, layer: 'chapter', historyId: 22, baseRevision: 'episode-3' })
+  expect(view.getByText(en.nothingHere)).toBeTruthy()
+})
+
 it.each([
   ['SCRIPT_EDITOR_VERSION_CHANGED', en.draftConflict, true],
   ['WORKSHOP_UNAVAILABLE', en.draftRestoreFailed, false],
@@ -359,6 +409,25 @@ it.each([
   await waitFor(() => { expect(dialog.getByRole('alert').textContent).toContain(message) })
   expect(restore).toHaveProperty('disabled', blocked)
   expect(restoreHistory).toHaveBeenCalledWith({ draftId: 45, episode: 3, layer: 'chapter', historyId: 21, baseRevision: 'episode-3' })
+})
+
+it('keeps restore blocked after a conflict when the user previews another version', async () => {
+  const { props, restoreHistory } = setup({ history: 'multiple' })
+  restoreHistory.mockRejectedValueOnce(Object.assign(new Error('The episode changed'), { code: 'SCRIPT_EDITOR_VERSION_CHANGED' }))
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+  const versions = dialog.getByRole('combobox', { name: en.chooseDraftVersion })
+  const restore = dialog.getByRole('button', { name: en.restoreDraftVersion })
+
+  fireEvent.change(versions, { target: { value: '21' } })
+  fireEvent.click(restore)
+  await dialog.findByRole('alert')
+  fireEvent.change(versions, { target: { value: '22' } })
+  expect(dialog.getByText(en.nothingHere)).toBeTruthy()
+  expect(dialog.getByRole('alert').textContent).toBe(en.draftConflict)
+  expect(restore).toHaveProperty('disabled', true)
+  expect(restoreHistory).toHaveBeenCalledTimes(1)
 })
 
 it('keeps the history dialog open until a pending restore settles', async () => {

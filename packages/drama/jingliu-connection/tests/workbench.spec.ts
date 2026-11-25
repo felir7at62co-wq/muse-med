@@ -1,6 +1,6 @@
 /** Reading a production's configuration, episodes, shots, shot media and assets for the workbench. */
 import { expect, it } from 'vitest'
-import { balance, catalog, createdProject, episodeList, episodeShots, projectAssets, projectConfig, projects, shotMedia, workflowResult } from '../src/browser.ts'
+import { balance, billingUserId, catalog, createdProject, episodeList, episodeShots, library, options, preferences, projectAssets, projectConfig, projectPath, projects, shotMedia, workflowResult } from '../src/browser.ts'
 
 it('passes a successful workflow result through and reports a refused one with the studio message', () => {
   expect(workflowResult({ ok: true, title: 'x' })).toEqual({ ok: true, title: 'x' })
@@ -29,7 +29,7 @@ it('joins the shot list with the full rows and numbers shots within the episode,
     { id: 'title', order: 12, episode: 2, special: true },
     { id: 's2', order: 13, episode: 2, has_video: false, fail_reason: '超时', stale: true },
   ] }
-  const rows = [{ id: 's2', prompt: '夜市', characters: ['阿桥', { name: '金狮' }], location: '桥头', props: ['灯笼'] }]
+  const rows = [{ id: 's2', prompt: '夜市', characters: ['阿桥', { name: '金狮' }, null, {}], location: '桥头', props: ['灯笼'] }]
   expect(episodeShots(list, rows)).toEqual([
     { id: 's1', order: 11, episode: 2, index: 1, prompt: '', characters: [], location: '', props: [], durationSec: 4.5, hasVideo: true, failReason: '', stale: false },
     { id: 's2', order: 13, episode: 2, index: 2, prompt: '夜市', characters: ['阿桥', '金狮'], location: '桥头', props: ['灯笼'], durationSec: null, hasVideo: false, failReason: '超时', stale: true },
@@ -74,4 +74,77 @@ it('reads the settings a production was created with, and the production the stu
   expect(projects({ projects: [{ id: 'p2', title: 'x', episodes_count: 0, shots_total: 0, shots_done: 0, my_role: 'owner', default_profile: 'not json' }] })[0]?.profile)
     .toEqual({ videoModel: '', generationMode: '', resolution: '' })
   expect(createdProject({ id: 'p3', title: '新项目', base_aspect: '9:16' })).toEqual({ id: 'p3', title: '新项目' })
+})
+
+it('rejects malformed studio lists and project records before displaying them', () => {
+  const project = { id: 'p1', title: '金狮护桥', episodes_count: 1, shots_total: 2, shots_done: 0, my_role: 'owner' }
+  const modes = { modes: { drama: {} } }
+  const image = { models: [] }
+  const video = { providers: [] }
+  for (const read of [
+    () => catalog({}, image, video),
+    () => catalog(modes, null, video),
+    () => catalog(modes, {}, video),
+    () => catalog(modes, image, null),
+    () => catalog(modes, image, {}),
+    () => projects({ projects: null }),
+    () => projects({ projects: [null] }),
+    () => projects({ projects: [{ ...project, episodes_count: -1 }] }),
+    () => projects({ projects: [{ ...project, title: 12 }] }),
+    () => createdProject(null),
+    () => library(null),
+    () => library({ items: [null], total: 1 }),
+    () => balance({ unlimited: 'false' }),
+    () => billingUserId({ user: null }),
+    () => billingUserId({ user: { id: '12' } }),
+    () => episodeList({ episodes: 'empty' }),
+    () => episodeShots({ shots: 'empty' }, []),
+    () => projectAssets({}, {}),
+  ]) expect(read).toThrow('镜流返回的数据格式已变更')
+
+  expect(projects({ projects: [{ ...project, thumb_url: '/fw/media/p1.png' }] })[0]).toMatchObject({
+    thumbnail: '/fw/media/p1.png', profile: { videoModel: '', generationMode: '', resolution: '' },
+  })
+  expect(projectPath('film-1')).toBe('/projects/film-1')
+  expect(() => projectPath('../p1')).toThrow('镜流项目编号无效')
+  expect(() => workflowResult({ ok: false })).toThrow('镜流没有完成这次读取')
+})
+
+it('keeps valid choices when the studio omits labels or adds unsupported catalog rows', () => {
+  expect(catalog({ modes: { drama: { styles: [null, {}, { key: 'night' }] }, archive: {}, bad: 42 } },
+    { models: [null, { id: 'image-1' }] }, { providers: [null, {}, { model_id: 'video-1' }], generation_modes: { reference: '' } }))
+    .toEqual({
+      modes: [{ key: 'drama', label: 'drama', styles: [{ key: 'night', label: 'night', enabled: true }] },
+        { key: 'archive', label: 'archive', styles: [] }],
+      aspects: [], resolutions: [], imageModels: [{ id: 'image-1', name: 'image-1' }],
+      videoModels: [{ id: 'video-1', name: 'video-1' }], generationModes: [{ id: 'reference', name: 'reference' }],
+    })
+  expect(catalog({ modes: {} }, { models: [] }, { providers: [] }).generationModes).toEqual([])
+})
+
+it('reads library assets and keeps a project’s saved resolution when the studio stops offering it', () => {
+  expect(library({ total: 2, items: [
+    { asset_id: 'a', kind: 'character', name: '阿桥', image_url: '/fw/media/a.png', prompt: '少年', reference_only: true, uses: 1 },
+    { asset_id: 'b', kind: 'prop', name: '桥灯', uses: 0 },
+  ] })).toEqual({ total: 2, items: [
+    { id: 'a', kind: 'character', name: '阿桥', thumbnail: '/fw/media/a.png', description: '少年', referenceOnly: true, uses: 1 },
+    { id: 'b', kind: 'prop', name: '桥灯', thumbnail: '', description: '', referenceOnly: false, uses: 0 },
+  ] })
+  const image = { by_kind: {}, models: [{ id: 'one', name: 'One' }, { id: 'two' }] }
+  const video = { tiers: ['480p', '720p', '1080p'], resolution: '480p' }
+  expect(options('p1', image, { ...video, supported: ['1080p'] })).toMatchObject({
+    resolution: '480p', resolutions: ['480p', '1080p'], models: [{ id: 'one', name: 'One' }, { id: 'two', name: 'two' }],
+  })
+  expect(options('p1', image, video).resolutions).toEqual(video.tiers)
+  expect(() => options('p1', { ...image, by_kind: null }, video)).toThrow('镜流返回的数据格式已变更')
+  expect(() => options('p1', { ...image, models: [null] }, video)).toThrow('镜流返回的数据格式已变更')
+})
+
+it('rejects project settings from a different project and accepts an empty version chain', () => {
+  expect(preferences({ project_id: 'p1', prefs: { prompt_chips_hidden: true } }, 'p1'))
+    .toEqual({ projectId: 'p1', hidePromptChips: true })
+  expect(() => preferences({ project_id: 'p2', prefs: { prompt_chips_hidden: true } }, 'p1')).toThrow('镜流返回的数据格式已变更')
+  expect(() => preferences({ project_id: 'p1', prefs: {} }, 'p1')).toThrow('镜流返回的数据格式已变更')
+  expect(shotMedia({ id: 's1' }, {})).toEqual({ shotId: 's1', videoPath: '', firstFramePath: '', adoptedVersion: null, versions: [] })
+  expect(projectAssets({ assets: [] }, {})).toEqual({ assets: [], audio: [] })
 })
