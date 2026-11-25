@@ -15,7 +15,7 @@ With `studioOrigin` mounted at `/jingliu/` on the Muse account gateway, producti
 
 The Bot team's panel has its own **Scripts**, **Jingliu**, **Asset library** and **数据** tabs; see [Use this package](#use-this-package).
 
-Embedded tabs retain the document. Changing accounts opens a fresh sign-in frame.
+Embedded tabs retain the document and listen for sign-in requests as soon as the frame mounts. Changing accounts opens a fresh frame and discards pending sign-in responses from the previous one.
 
 ## Table of Contents
 

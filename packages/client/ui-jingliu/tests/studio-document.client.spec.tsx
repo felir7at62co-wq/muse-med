@@ -15,11 +15,69 @@ const challenge = 'h'.repeat(43)
 
 afterEach(cleanup)
 
-function requestLogin(source: Window, requestId: string): void {
+function requestLogin(source: Window, requestId: string, requestOrigin = origin): void {
   window.dispatchEvent(new MessageEvent('message', {
-    source, origin, data: { type: 'muse-workbench-login', requestId, challenge },
+    source, origin: requestOrigin, data: { type: 'muse-workbench-login', requestId, challenge },
   }))
 }
+
+it('listens during iframe attachment and updates the sign-in handler and audience on the same element', async () => {
+  type Props = Parameters<typeof Studio>[0]
+  const pending = Promise.withResolvers<WorkbenchLoginResult>()
+  const originalIssue = vi.fn<Props['issueLogin']>().mockReturnValue(pending.promise)
+  const updatedIssue = vi.fn<Props['issueLogin']>().mockResolvedValue({ code: 'updated-code' })
+  const props = {
+    studioUrl, titleKey: 'workshopTitle', issueLogin: originalIssue, t: makeTranslate(en),
+    useLoginGeneration: select => select(0),
+  } satisfies Pick<Props, 'studioUrl' | 'titleKey' | 'issueLogin' | 'useLoginGeneration' | 't'>
+  function requestAtCommit(marker: HTMLSpanElement | null): void {
+    if (!marker) return
+    const frame = marker.previousElementSibling?.querySelector('iframe')
+    if (!frame?.contentWindow) throw new Error('Expected workbench Window during attachment')
+    requestLogin(frame.contentWindow, 'attached')
+  }
+
+  const view = render(<><Studio {...props as Props} /><span ref={requestAtCommit} /></>)
+  const frame = view.getByTitle(en.workshopTitle) as HTMLIFrameElement
+  const source = frame.contentWindow!
+  const send = vi.spyOn(source, 'postMessage').mockImplementation(() => {})
+  try {
+    expect(originalIssue).toHaveBeenCalledExactlyOnceWith(challenge)
+    view.rerender(<><Studio {...props as Props} issueLogin={updatedIssue} /><span ref={requestAtCommit} /></>)
+    pending.resolve({ code: 'old-issuer' })
+    await pending.promise
+    expect(send).not.toHaveBeenCalled()
+
+    requestLogin(source, 'updated-handler')
+    await vi.waitFor(() => {
+      expect(send).toHaveBeenCalledExactlyOnceWith({
+        type: 'muse-workbench-login-result', requestId: 'updated-handler', code: 'updated-code',
+      }, origin)
+    })
+
+    const newOrigin = 'https://workshop.test'
+    view.rerender(<>
+      <Studio {...props as Props} issueLogin={updatedIssue} studioUrl={newOrigin + '/embed'} />
+      <span ref={requestAtCommit} />
+    </>)
+    expect(view.getByTitle(en.workshopTitle)).toBe(frame)
+    const newSource = frame.contentWindow!
+    const sendUpdated = vi.spyOn(newSource, 'postMessage').mockImplementation(() => {})
+    sendUpdated.mockClear()
+    requestLogin(newSource, 'old-origin')
+    expect(updatedIssue).toHaveBeenCalledTimes(1)
+    requestLogin(newSource, 'updated-origin', newOrigin)
+    expect(updatedIssue).toHaveBeenCalledTimes(2)
+    await vi.waitFor(() => {
+      expect(sendUpdated).toHaveBeenCalledExactlyOnceWith({
+        type: 'muse-workbench-login-result', requestId: 'updated-origin', code: 'updated-code',
+      }, newOrigin)
+    })
+  } finally {
+    pending.resolve({ code: 'old-issuer' })
+    await pending.promise
+  }
+})
 
 it('remounts the workbench when login changes and discards codes after a replacement or unmount', async () => {
   const login = createSnapshotStore(0)
