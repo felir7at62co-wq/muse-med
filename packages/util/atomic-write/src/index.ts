@@ -27,13 +27,20 @@ function isTransientWindowsRenameError(error: unknown): boolean {
   return WINDOWS_TRANSIENT_RENAME_ERRORS.has((error as NodeJS.ErrnoException | null)?.code ?? '')
 }
 
-/** Replace the target after bounded retries for transient Windows interference. */
-async function renameAtomicTemp(temp: string, filename: string, signal?: AbortSignal): Promise<void> {
+/**
+ * Rename a staged file or directory using native rename semantics, with bounded retries for transient Windows interference.
+ * The caller owns the staging path on failure. Cancellation stops attempts that have not started and rejects with its reason.
+ * @param source - Staged path on the destination filesystem.
+ * @param destination - Final path, subject to the native replacement rules.
+ * @param signal - Cancellation before an attempt or during a retry delay.
+ * @returns A promise that resolves after the rename completes.
+ */
+export async function renameWithWindowsRetry(source: string, destination: string, signal?: AbortSignal): Promise<void> {
   let delay = WINDOWS_RENAME_RETRY_INITIAL_MS
   for (let retries = 0;; retries += 1) {
     signal?.throwIfAborted()
     try {
-      await rename(temp, filename)
+      await rename(source, destination)
       return
     } catch (error) {
       if (!isTransientWindowsRenameError(error)) throw error
@@ -92,7 +99,7 @@ export async function writeFileAtomic(filename: string, content: string | Uint8A
   const temp = `${filename}.${randomBytes(6).toString('hex')}.tmp`
   try {
     await writeFile(temp, content, { mode: options.mode, flag: 'wx' })
-    await renameAtomicTemp(temp, filename, options.signal)
+    await renameWithWindowsRetry(temp, filename, options.signal)
   } catch (error) {
     await rm(temp, { force: true })
     throw error

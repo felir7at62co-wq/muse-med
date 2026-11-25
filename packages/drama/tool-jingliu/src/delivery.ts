@@ -1,11 +1,12 @@
 /** Install a native Jingliu editing package and its declared media into a fresh Jianying draft. */
 import { createHash, randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { unzipSync } from 'fflate'
+import { renameWithWindowsRetry } from '@deepseek-ai/dsh-atomic-write'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import type { JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
 import { boundedBytes, mediaPath } from '@deepseek-ai/dsh-jingliu-connection/media'
@@ -196,12 +197,12 @@ export function trackCounts(content: Record<string, JsonValue>): JsonValue[] {
 }
 
 /**
- * Write a draft in a hidden stage directory under the draft root and rename it into place with its receipt, so a
- * cancelled or failed install leaves no partial draft.
+ * Write a draft in a hidden stage directory under the draft root and rename it into place with its receipt.
+ * Transient Windows rename failures are retried for a bounded interval. Cancellation or failure removes the stage.
  * @param root - User's draft root.
  * @param directory - Final draft directory; it must not exist.
  * @param write - Fills the stage directory and returns the receipt fields.
- * @param signal - Cancellation, checked before the rename.
+ * @param signal - Cancellation before a rename attempt or during a retry delay.
  * @returns The receipt.
  */
 export async function commitDraft(root: string, directory: string,
@@ -210,8 +211,7 @@ export async function commitDraft(root: string, directory: string,
   try {
     const receipt = await write(stage)
     await writeFile(join(stage, RECEIPT_FILE), JSON.stringify(receipt), { flag: 'wx', mode: 0o600 })
-    signal.throwIfAborted()
-    await rename(stage, directory)
+    await renameWithWindowsRetry(stage, directory, signal)
     return receipt
   } finally { await rm(stage, { recursive: true, force: true }) }
 }
