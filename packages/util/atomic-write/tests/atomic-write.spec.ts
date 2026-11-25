@@ -9,6 +9,8 @@ import { withFileLock, writeFileAtomic } from '../src/index.ts'
 
 const state = vi.hoisted(() => ({
   afterClaim: undefined as ((claim: string) => Promise<void>) | undefined,
+  afterTempWrite: undefined as (() => void) | undefined,
+  afterWaitStarts: undefined as ((signal: AbortSignal | undefined) => void) | undefined,
   claimFailure: undefined as string | undefined,
   claimRemovalFails: false,
   lockRemovalFails: false,
@@ -54,8 +56,21 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         if (state.releaseLockBeforeProbe) await actual.rm(String(path))
         throw Object.assign(new Error('EPERM: injected exclusive-create failure'), { code: 'EPERM' })
       }
-      return (actual.writeFile as (path: unknown, ...args: never[]) => Promise<void>)(path, ...rest)
+      await (actual.writeFile as (path: unknown, ...args: never[]) => Promise<void>)(path, ...rest)
+      if (String(path).endsWith('.tmp')) state.afterTempWrite?.()
     }) as typeof actual.writeFile,
+  }
+})
+
+vi.mock('node:timers/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:timers/promises')>()
+  return {
+    ...actual,
+    setTimeout: (...args: Parameters<typeof actual.setTimeout>) => {
+      const waiting = actual.setTimeout(...args)
+      state.afterWaitStarts?.(args[2]?.signal)
+      return waiting
+    },
   }
 })
 
@@ -65,6 +80,8 @@ afterEach(async () => {
   vi.useRealTimers()
   vi.restoreAllMocks()
   state.afterClaim = undefined
+  state.afterTempWrite = undefined
+  state.afterWaitStarts = undefined
   state.claimFailure = undefined
   state.claimRemovalFails = false
   state.lockRemovalFails = false
@@ -216,6 +233,39 @@ describe('writeFileAtomic', () => {
 
     await expect(writeFileAtomic(target, 'new', { mode: 0o600 })).rejects.toMatchObject({ code: 'EPERM' })
     expect(state.renameAttempts).toBe(1)
+  })
+
+  it('keeps the old file when cancellation follows a complete staged write', async () => {
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    await writeFile(target, 'old')
+    const controller = new AbortController()
+    const reason = new Error('cancel after writing the replacement')
+    state.afterTempWrite = () => { controller.abort(reason) }
+
+    await expect(writeFileAtomic(target, 'new', { mode: 0o600, signal: controller.signal })).rejects.toBe(reason)
+    expect(state.renameAttempts).toBe(0)
+    expect(await readFile(target, 'utf8')).toBe('old')
+    expect(await readdir(dir)).toEqual(['document'])
+  })
+
+  it('stops a Windows rename retry when its delay is cancelled', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    await writeFile(target, 'old')
+    const controller = new AbortController()
+    const reason = new Error('cancel while the file is busy')
+    state.renameFailures.push('EPERM')
+    state.afterWaitStarts = (signal) => {
+      expect(signal).toBe(controller.signal)
+      controller.abort(reason)
+    }
+
+    await expect(writeFileAtomic(target, 'new', { mode: 0o600, signal: controller.signal })).rejects.toBe(reason)
+    expect(state.renameAttempts).toBe(1)
+    expect(await readFile(target, 'utf8')).toBe('old')
+    expect(await readdir(dir)).toEqual(['document'])
   })
 })
 

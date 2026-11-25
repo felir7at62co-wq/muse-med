@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scriptDetail, scriptList, scriptOf } from '../src/scripts.ts'
+import { scriptDetail, scriptList, scriptOf } from '@deepseek-ai/dsh-workbench-connection/scripts'
 
 const CARD = {
   id: 7, title: '好一个乖乖女', owner: { id: 1, name: '小林' }, rights: 'licensed', origin_work_id: 'hongguo:7481108346636864536',
@@ -26,10 +26,24 @@ describe('script library responses', () => {
     expect(detail.versions[0]?.by.name).toBe('小林')
   })
 
+  it('returns empty pick and production fields consistently when no one has picked the script', () => {
+    expect(scriptOf({ script: { ...CARD, status: 'waiting', picked: null, project: null } }))
+      .toMatchObject({ status: 'waiting', picked: null, project: null })
+  })
+
   it('rejects a stage or field the library does not define', () => {
     expect(() => scriptOf({ script: { ...CARD, status: 'archived' } })).toThrow(expect.objectContaining({ code: 'WORKSHOP_INVALID_RESULT' }))
     const counts = { waiting: 0, picked: 0, in_production: 0, all: 0 }
     expect(() => scriptList({ items: [], total: 0, page: 1, limit: 50, counts })).toThrow(/剧本库/u)
     expect(() => scriptDetail({ script: CARD, can_pick: true, versions: [], content: { version: 0, episodes: [] } })).toThrow(/剧本库/u)
+  })
+
+  it('rejects malformed cards, overlong pages and invalid permissions', () => {
+    expect(() => scriptOf({ script: null })).toThrow(/剧本库/u)
+    expect(() => scriptOf({ script: { ...CARD, title: 'a'.repeat(201) } })).toThrow(/剧本库/u)
+    const counts = { waiting: 101, picked: 0, in_production: 0, all: 101 }
+    const page = { items: Array.from({ length: 101 }, () => CARD), total: 101, page: 1, limit: 100, counts, can_pick: false }
+    expect(() => scriptList(page)).toThrow(/剧本库/u)
+    expect(() => scriptDetail({ script: CARD, can_pick: 'yes', versions: [], content: { version: 3, episodes: [] } })).toThrow(/剧本库/u)
   })
 })

@@ -38,6 +38,8 @@ await writeFileAtomic('/home/u/.dsh/cordis.patch.yml', text, { mode: 0o600 })
 
 Parent directories are created as needed, and readers observe either the old or the new complete content. On Windows, transient replacement interference reported as `EACCES`, `EBUSY`, or `EPERM` is retried for a bounded interval; any remaining failure removes the temporary file and leaves the target untouched.
 
+Pass `signal` to cancel before replacement or while waiting for another Windows rename attempt. Cancellation before replacement removes the temporary sibling, preserves the existing file, and rejects with the signal's reason.
+
 ### Coordinating writers
 
 For a read-render-commit cycle that a bare atomic commit cannot make safe on its own, hold the writer lock around the operation:

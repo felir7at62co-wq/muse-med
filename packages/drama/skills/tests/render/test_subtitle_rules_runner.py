@@ -21,8 +21,13 @@ def pinned_pypinyin():
 
 
 def run(directory, request):
-    completed = subprocess.run([sys.executable, '-B', '-I', str(directory / 'run.py')], input=json.dumps(request).encode(),
-                               capture_output=True, check=False, timeout=120)
+    completed = subprocess.run(
+        [sys.executable, '-B', '-I', '-X', 'utf8', str(directory / 'run.py')],
+        input=json.dumps(request).encode('utf-8'),
+        capture_output=True,
+        check=False,
+        timeout=120,
+    )
     return completed.returncode, json.loads(completed.stdout.decode('utf-8'))
 
 

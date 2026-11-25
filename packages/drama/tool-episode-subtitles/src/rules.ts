@@ -54,7 +54,7 @@ export interface PythonRulesOptions {
 }
 
 /**
- * Run the rules through `run.py`.
+ * Run the rules through isolated Python with a UTF-8 JSON pipe.
  * @param options - Interpreter, directory, layout width and process limits.
  * @returns Rules whose failures name the interpreter and never yield partial subtitles.
  */
@@ -68,8 +68,8 @@ export function pythonRules(options: PythonRulesOptions): SubtitleRules {
       const timeout = AbortSignal.timeout(options.timeoutMs)
       const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
       const handle = options.subprocess.spawn({
-        argv: [python, '-B', '-I', join(options.directory, 'run.py')], cwd: options.directory,
-        env: { PYTHONUTF8: '1' }, signal: combined, graceMs: options.graceMs,
+        argv: [python, '-B', '-I', '-X', 'utf8', join(options.directory, 'run.py')], cwd: options.directory,
+        signal: combined, graceMs: options.graceMs,
         stdio: { stdin: { data: JSON.stringify({ max_chars: options.maxChars, space_width: options.spaceWidth, shots }) },
           stdout: { maxBytes: options.maxOutputBytes }, stderr: { maxBytes: 65_536 } },
       })

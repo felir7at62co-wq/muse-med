@@ -84,7 +84,7 @@ Corrected words are stored on Jingliu by one `auto_subtitles` segments job per e
 | [`src/hash-cache.ts`](src/hash-cache.ts) | Stat-keyed digests and digest-keyed probe memo in `<root>/.muse-hash-cache.json` |
 | [`src/asr-pack.ts`](src/asr-pack.ts) | Pure pack planning, punctuation attachment and midpoint splitting |
 | [`src/asr.ts`](src/asr.ts) | Pack manifests, WAV assembly and the runner calls |
-| [`src/rules.ts`](src/rules.ts) | The rules digest and the managed Python process |
+| [`src/rules.ts`](src/rules.ts) | Rules digest and isolated Python subprocess with UTF-8 JSON |
 | [`src/clock.ts`](src/clock.ts) | Window and speed mapping onto the episode clock |
 | [`src/build.ts`](src/build.ts) | Per-shot cache keys, clock layout, review items and publication |
 | [`src/types.ts`](src/types.ts) | Type declarations only |

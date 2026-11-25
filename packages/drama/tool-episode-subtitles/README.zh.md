@@ -84,7 +84,7 @@ Muse Desktop 随安装包提供此私有插件，在 Office 组合中挂载它�
 | [`src/hash-cache.ts`](src/hash-cache.ts) | `<root>/.muse-hash-cache.json` 中按文件状态缓存的摘要和按摘要缓存的探测结果 |
 | [`src/asr-pack.ts`](src/asr-pack.ts) | 纯函数的拼包规划、标点附着和按中点拆分 |
 | [`src/asr.ts`](src/asr.ts) | 拼包清单、WAV 组装和执行器调用 |
-| [`src/rules.ts`](src/rules.ts) | 规则摘要和受管 Python 进程 |
+| [`src/rules.ts`](src/rules.ts) | 规则摘要和以 UTF-8 JSON 通信的隔离 Python 进程 |
 | [`src/clock.ts`](src/clock.ts) | 取片窗口与变速到整集时钟的映射 |
 | [`src/build.ts`](src/build.ts) | 逐镜缓存键、时钟排布、待核项和发布 |
 | [`src/types.ts`](src/types.ts) | 仅类型声明 |

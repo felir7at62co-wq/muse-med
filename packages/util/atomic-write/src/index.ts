@@ -28,9 +28,10 @@ function isTransientWindowsRenameError(error: unknown): boolean {
 }
 
 /** Replace the target after bounded retries for transient Windows interference. */
-async function renameAtomicTemp(temp: string, filename: string): Promise<void> {
+async function renameAtomicTemp(temp: string, filename: string, signal?: AbortSignal): Promise<void> {
   let delay = WINDOWS_RENAME_RETRY_INITIAL_MS
   for (let retries = 0;; retries += 1) {
+    signal?.throwIfAborted()
     try {
       await rename(temp, filename)
       return
@@ -38,7 +39,7 @@ async function renameAtomicTemp(temp: string, filename: string): Promise<void> {
       if (!isTransientWindowsRenameError(error)) throw error
       if (retries >= WINDOWS_RENAME_RETRY_LIMIT) throw error
     }
-    await new Promise(resolve => setTimeout(resolve, delay))
+    await wait(delay, undefined, { signal }).finally(() => { signal?.throwIfAborted() })
     delay = Math.min(delay * 2, WINDOWS_RENAME_RETRY_MAX_MS)
   }
 }
@@ -59,6 +60,8 @@ export interface WriteFileAtomicOptions {
    * default — pass `0o700` when the tree holds user-private data.
    */
   dirMode?: number
+  /** Cancel before replacement or during a Windows retry delay. */
+  signal?: AbortSignal | undefined
 }
 
 /**
@@ -71,13 +74,15 @@ export interface WriteFileAtomicOptions {
  * through to its referent, and the same-directory sibling keeps the rename on
  * one filesystem. Windows replacement retries transient `EACCES`, `EBUSY`,
  * and `EPERM` failures for a bounded interval while the complete temp file
- * remains the rename source. On any remaining failure the temp file is
- * removed and the failure rethrown. Crash durability (fsync) is out of scope.
+ * remains the rename source. On failure or cancellation before replacement,
+ * the temp file is removed and the error or cancellation reason is rethrown.
+ * Crash durability (fsync) is out of scope.
  * @param filename - final path receiving the content.
  * @param content - complete next file content.
- * @param options - permission bits for the replacement inode.
+ * @param options - permission bits for the replacement inode and optional cancellation.
  */
 export async function writeFileAtomic(filename: string, content: string | Uint8Array, options: WriteFileAtomicOptions): Promise<void> {
+  options.signal?.throwIfAborted()
   await mkdir(dirname(filename), {
     recursive: true,
     ...options.dirMode === undefined ? {} : { mode: options.dirMode },
@@ -87,7 +92,7 @@ export async function writeFileAtomic(filename: string, content: string | Uint8A
   const temp = `${filename}.${randomBytes(6).toString('hex')}.tmp`
   try {
     await writeFile(temp, content, { mode: options.mode, flag: 'wx' })
-    await renameAtomicTemp(temp, filename)
+    await renameAtomicTemp(temp, filename, options.signal)
   } catch (error) {
     await rm(temp, { force: true })
     throw error

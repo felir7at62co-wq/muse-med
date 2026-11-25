@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -20,6 +20,25 @@ it('restores the confirmed project only for its own conversation and studio iden
   expect(await ctx.jingliuConnection.selected('router', 'me')).toEqual(film)
   expect(await ctx.jingliuConnection.selected('router', 'other')).toBeNull()
   expect(await ctx.jingliuConnection.selected('new-folder', 'me')).toBeNull()
+})
+
+it('reports a wrong conversation in its stored selection and propagates filesystem failures', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-project-'))
+  vi.stubEnv('DSH_HOME', home)
+  onTestFinished(async () => { vi.unstubAllEnvs(); await rm(home, { recursive: true, force: true }) })
+
+  const film = { id: 'film-1', title: '雨夜' }
+  await storeSelection('router', 'me', film)
+  const directory = join(home, 'jingliu', 'sessions')
+  const [name] = await readdir(directory)
+  if (name === undefined) throw new Error('Stored selection file is missing')
+  const file = join(directory, name)
+  await writeFile(file, JSON.stringify({ ...film, version: 1, session: 'other', owner: 'me' }))
+  await expect(readSelection('router')).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
+
+  await unlink(file)
+  await mkdir(file)
+  await expect(readSelection('router')).rejects.toMatchObject({ code: 'EISDIR' })
 })
 
 it('keeps project defaults distinct from category selections and shows the supported resolutions', () => {

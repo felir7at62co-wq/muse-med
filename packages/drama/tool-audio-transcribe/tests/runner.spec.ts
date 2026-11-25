@@ -46,6 +46,45 @@ it('saves an account-bound receipt before submit and publishes versioned timed o
   expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.srt', 'clip-v1.txt'])
 })
 
+it('updates the original receipt after temporary Windows replacement interference', async () => {
+  const fixture = await setup()
+  const fs = await import('node:fs/promises')
+  const rename = vi.spyOn(fs, 'rename').mockRejectedValueOnce(Object.assign(new Error('busy receipt'), { code: 'EPERM' }))
+  const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+  try {
+    const result = await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, shortMedia)
+    expect(rename).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(await readFile(result.receipt, 'utf8'))).toMatchObject({ id: result.job_id, status: 'processing' })
+    expect(fixture.counts().submits).toBe(1)
+    expect((await readdir(join(fixture.project, 'transcript', 'jobs'))).filter(name => name.endsWith('.tmp'))).toEqual([])
+  } finally {
+    platform.mockRestore()
+    rename.mockRestore()
+  }
+})
+
+it('retains a prepared receipt when cancellation occurs before saving the accepted status', async () => {
+  const fixture = await setup()
+  const fs = await import('node:fs/promises')
+  const writeFile = fs.writeFile
+  const controller = new AbortController()
+  const reason = new Error('cancel before replacing the receipt')
+  const write = vi.spyOn(fs, 'writeFile').mockImplementation(async (file, ...args) => {
+    await writeFile(file, ...args)
+    if (typeof file === 'string' && file.endsWith('.tmp')) controller.abort(reason)
+  })
+  const jobs = join(fixture.project, 'transcript', 'jobs')
+  try {
+    const pending = startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, shortMedia, undefined, controller.signal)
+    await expect(pending).rejects.toBe(reason)
+    expect(JSON.parse(await readFile(join(jobs, 'clip-v1.json'), 'utf8'))).toMatchObject({ status: 'prepared' })
+    expect(fixture.counts().submits).toBe(1)
+    expect((await readdir(jobs)).filter(name => name.endsWith('.tmp'))).toEqual([])
+  } finally {
+    write.mockRestore()
+  }
+})
+
 it.each(['probing', 'staging'] as const)('stops overlapping starts at %s before creating a second job', async (phase) => {
   const fixture = await setup()
   const firstEntered = Promise.withResolvers<undefined>(), secondEntered = Promise.withResolvers<undefined>()

@@ -43,6 +43,8 @@ A relative `project` is resolved against the calling Session's workspace (its `c
 
 Cancelling a call stops active media extraction and HTTP requests, prevents later part submissions or queries, and waits for owned work to settle. Cancellation before a receipt is saved removes staged audio; a persisted receipt retains its audio and original IDs for a later explicit `status` call. An already accepted cloud task may still run and incur charges. Local writes already in progress settle before cancellation returns; no later output publication, receipt replacement, or staged-audio deletion starts. Already published files remain available for receipt-based reconciliation.
 
+On Windows, receipt updates retry temporary file-sharing errors for a bounded interval. During that wait the previous complete receipt remains available, and cancellation preserves it and the original task IDs.
+
 Local media commands reject timeout or excessive diagnostic output even when the terminated process exits successfully. Each command limits captured standard output to 65,536 characters and cumulative standard error to 65,536 bytes; extraction failures before a receipt is saved remove staged audio and make no paid submission.
 
 | Config | Default | Meaning |
