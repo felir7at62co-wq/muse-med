@@ -8,7 +8,7 @@ import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import { resolveSlotLabel, type PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   SelectedProject, StudioCatalog, StudioImage, StudioNewProject, StudioPreferences, StudioProject, StudioVideoRequest,
 } from '@deepseek-ai/dsh-jingliu-connection/types'
@@ -17,8 +17,9 @@ import type { IndexInjection, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type {
-  ScriptDraft, ScriptDraftCreateRequest, ScriptDraftExport, ScriptDraftExportRequest,
-  ScriptDraftHistoryRestore, ScriptDraftHistoryRestoreRequest, ScriptDraftStoryboard, ScriptDraftStoryboardSaveRequest,
+  ScriptDraft, ScriptDraftCreateRequest, ScriptDraftEpisode, ScriptDraftExport, ScriptDraftExportRequest,
+  ScriptDraftFinalizeRequest, ScriptDraftHistoryRestore, ScriptDraftHistoryRestoreRequest, ScriptDraftStoryboard,
+  ScriptDraftStoryboardSaveRequest, ScriptSummary,
 } from '@deepseek-ai/dsh-workbench-connection/types'
 import { Fragment, createElement } from 'react'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
@@ -26,10 +27,11 @@ import { studioUrl } from '../src/config.ts'
 import { STUDIO_URL_GLOBAL, WORKSHOP_URL_GLOBAL } from '../src/page.ts'
 import type { DrawerDataProps } from '../src/client/DrawerData.tsx'
 import type { DraftActions } from '../src/client/DrawerScriptDraft.tsx'
+import type { DrawerScriptsProps } from '../src/client/DrawerScripts.tsx'
 import * as host from '../src/index.ts'
 import * as studio from '../src/client/index.ts'
 import type { ProductionActions } from '../src/client/Production.tsx'
-import { en } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
 vi.mock('@deepseek-ai/dsh-jingliu-connection/remote', () => ({ default: {} }))
 
@@ -134,6 +136,18 @@ it('opens and removes the workspace tab independently of the studio connection',
   await injected.addWorkspace('/workspace/story')
   expect(create).toHaveBeenCalledExactlyOnceWith({ path: '/workspace/story' })
   expect(openWorkspace).toHaveBeenCalledExactlyOnceWith('new-workspace')
+  expect(ctx.sidebarRightTabs.guide()[0]?.description?.()).toBe(zh.workspaceTabDescription)
+
+  const { hooks: { directoryFlow } } = entry?.inject?.() as {
+    hooks: { directoryFlow: { getSnapshot(): boolean; subscribe(listener: () => void): () => void } }
+  }
+  const changed = vi.fn(() => directoryFlow.getSnapshot())
+  onTestFinished(directoryFlow.subscribe(changed))
+  expect(directoryFlow.getSnapshot()).toBe(false)
+  const removePicker = slots.register({ name: 'workspace.environment.directoryFlow' }, () => null)
+  await vi.waitFor(() => { expect(changed).toHaveLastReturnedWith(true) })
+  removePicker()
+  await vi.waitFor(() => { expect(changed).toHaveLastReturnedWith(false) })
 
   await active.dispose()
   expect(ctx.sidebarRightTabs.guide()).toHaveLength(0)
@@ -217,6 +231,10 @@ async function setup() {
     'bot.drawer.data': { kind: 'single', scope: 'root' },
     'bot.drawer.scripts': { kind: 'single', scope: 'root' },
     'bot.drawer.jingliu': { kind: 'single', scope: 'root' },
+    'bot.drawer.assets': { kind: 'single', scope: 'root' },
+    'character-library.shared': { kind: 'single', scope: 'root' },
+    'settings.section': { kind: 'list', scope: 'root' },
+    'sidebar.footer.action': { kind: 'list', scope: 'root' },
   } }, NativeDrawer)
 
   const providers = new Map<Provider['protocol'], Provider>()
@@ -260,6 +278,32 @@ const failure = { ok: false, error: new RemoteError('gateway/internal', 'Host un
 function unavailable() {
   return vi.fn<(...args: unknown[]) => Promise<typeof failure>>().mockResolvedValue(failure)
 }
+
+it('shares the signed-in studio library across both asset views and removes its entries on disposal', async () => {
+  const m = await setup()
+  m.bind('museAccount', {})
+  m.bind('jingliuConnection', {})
+  const assetSlots = ['character-library.shared', 'bot.drawer.assets'] as const
+  const studioSlots = ['settings.section', 'sidebar.footer.action'] as const
+  const occupied = [...assetSlots, ...studioSlots]
+  await vi.waitFor(() => {
+    for (const slot of occupied) expect(m.slots.entries(slot)).toHaveLength(1)
+  })
+  const epochs = assetSlots.map((slot) => {
+    const face = m.slots.entries(slot)[0]?.inject?.() as { hooks: { accountEpoch: { getSnapshot(): number } } }
+    return face.hooks.accountEpoch
+  })
+  expect(epochs[0]).toBe(epochs[1])
+  const initial = epochs[0]?.getSnapshot()
+  m.accountChanged()
+  expect(epochs[0]?.getSnapshot()).toBeGreaterThan(initial!)
+  const settings = m.slots.entries('settings.section')[0]?.options
+  expect(settings?.id).toBe('jingliu')
+  expect(resolveSlotLabel(settings?.label)).toBe(en.studioSettings)
+  expect(m.slots.entries('sidebar.footer.action')[0]?.options.id).toBe('jingliu-credit')
+  await m.dispose()
+  for (const slot of occupied) expect(m.slots.entries(slot)).toHaveLength(0)
+})
 
 it('registers Data Station only when the account arrives and decodes work and board addresses', async () => {
   const m = await setup()
@@ -385,6 +429,54 @@ it('forwards a new Workshop draft only while its author remains signed in', asyn
   expect(createScriptDraft.mock.calls).toEqual([[request], [request]])
 })
 
+it('routes Workshop episode decisions, finalization and project links through the registered account actions', async () => {
+  const m = await setup()
+  const save = { draftId: 45, episode: 2, baseRevision: 'episode-1', content: 'An empty market.' }
+  const review = { draftId: 45, episode: 2, candidateId: 'night-market-candidate' }
+  const publish: ScriptDraftFinalizeRequest = { draftId: 45, baseRevision: 'draft-3', rights: 'original', kind: 'drama', style: 'realistic' }
+  const episode: ScriptDraftEpisode = {
+    draftId: save.draftId, episode: save.episode, title: 'Night market', revision: 'episode-2', version: 2, content: save.content, candidate: null,
+  }
+  const script: ScriptSummary = {
+    id: 65, title: 'Night market', owner: { id: 17, name: 'Writer' }, rights: publish.rights,
+    originWorkId: null, originTitle: null, kind: publish.kind, style: publish.style, episodes: 2, words: 1000,
+    status: 'waiting', latestVersion: 1, picked: null, project: null, createdAt: null, updatedAt: null,
+  }
+  const written = { ok: true, value: episode } as const
+  const pending = Promise.withResolvers<typeof written>()
+  const api = {
+    saveScriptDraftEpisode: vi.fn().mockResolvedValue(written),
+    applyScriptDraftCandidate: unavailable(),
+    discardScriptDraftCandidate: vi.fn().mockReturnValue(pending.promise),
+    finalizeScriptDraft: vi.fn().mockResolvedValue({ ok: true, value: script }),
+    pickScript: unavailable(),
+    scriptProduction: vi.fn().mockResolvedValue({ ok: true, value: script }),
+  }
+  m.bind('museAccount', {})
+  m.bind('workshopConnection', api)
+  await vi.waitFor(() => { expect(m.slots.entries('bot.drawer.scripts')).toHaveLength(1) })
+  const actions = m.slots.entries('bot.drawer.scripts')[0]?.inject?.() as Pick<DrawerScriptsProps, 'draftActions' | 'pick' | 'link'>
+
+  await expect(actions.draftActions.saveEpisode(save)).resolves.toBe(episode)
+  await expect(actions.draftActions.applyCandidate(review)).rejects.toBe(failure.error)
+  await expect(actions.draftActions.finalizeDraft(publish)).resolves.toBe(script)
+  const pick = { id: script.id, version: script.latestVersion }
+  const link = { id: script.id, projectId: 'night-production', projectTitle: 'Night market production' }
+  await expect(actions.pick(pick)).rejects.toBe(failure.error)
+  await expect(actions.link(link)).resolves.toBeUndefined()
+
+  const oldAccount = actions.draftActions.discardCandidate(review)
+  expect(api.discardScriptDraftCandidate).toHaveBeenCalledExactlyOnceWith(review)
+  m.accountChanged()
+  pending.resolve(written)
+  await expect(oldAccount).rejects.toThrow('Workshop account changed')
+  expect(api.saveScriptDraftEpisode).toHaveBeenCalledExactlyOnceWith(save)
+  expect(api.applyScriptDraftCandidate).toHaveBeenCalledExactlyOnceWith(review)
+  expect(api.finalizeScriptDraft).toHaveBeenCalledExactlyOnceWith(publish)
+  expect(api.pickScript).toHaveBeenCalledExactlyOnceWith(pick)
+  expect(api.scriptProduction).toHaveBeenCalledExactlyOnceWith(link)
+})
+
 it('keeps embedded thumbnails and serves local image paths from the current Host', async () => {
   const m = await setup()
   const inline = 'data:image/png;base64,AA=='
@@ -440,6 +532,8 @@ it('forwards Jingliu resource addresses and the registry signal to the correspon
     await expect(m.read(protocol, query, signal)).resolves.toEqual([failure])
     expect(call).toHaveBeenCalledExactlyOnceWith(...request, signal)
   }
+  await expect(m.read('jingliu-prefs', '', signal)).resolves.toEqual([failure])
+  expect(api.preferences).toHaveBeenLastCalledWith('', signal)
   for (const kind of ['character', 'location', 'prop']) {
     await m.read('jingliu-library', 'kind=' + kind + '&query=night+market&offset=24', signal)
     expect(api.sharedAssets).toHaveBeenLastCalledWith({ kind, query: 'night market', offset: 24 }, signal)
@@ -456,6 +550,7 @@ it('publishes Jingliu selection changes and surfaces watcher failures only while
   const watchProject = vi.fn<(id: SessionId, signal: AbortSignal) => AsyncIterable<SelectedProject | null>>()
     .mockImplementationOnce(async function* () { yield null; yield selected })
     .mockImplementationOnce(async function* () { throw refused })
+    .mockImplementationOnce(async function* () { yield null })
     .mockImplementation(async function* () { throw disconnected })
   m.bind('jingliuConnection', { watchProject })
   await vi.waitFor(() => { expect(m.slots.entries('bot.drawer.jingliu')).toHaveLength(1) })
@@ -466,6 +561,8 @@ it('publishes Jingliu selection changes and surfaces watcher failures only while
   ])
   expect(watchProject).toHaveBeenCalledExactlyOnceWith('scene work', signal)
   await expect(m.read('jingliu-selected', 'id=scene+work', signal)).resolves.toEqual([{ ok: false, error: refused }])
+  await expect(m.read('jingliu-selected', '', signal)).resolves.toEqual([{ ok: true, value: null }])
+  expect(watchProject).toHaveBeenLastCalledWith('', signal)
   await expect(m.read('jingliu-selected', 'id=scene+work', signal)).resolves.toMatchObject([
     { ok: false, error: { code: 'gateway/internal', cause: disconnected } },
   ])
