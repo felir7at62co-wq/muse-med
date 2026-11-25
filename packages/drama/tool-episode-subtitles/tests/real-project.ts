@@ -106,7 +106,7 @@ export async function scriptedAccount(root: string, words: Map<string, readonly 
   const jobs = new Map<string, { complete: boolean; segments: unknown[] }>()
   const submits: string[][] = []
   const fetcher = async (input: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
-    const url = new URL(String(input))
+    const url = new URL(input instanceof Request ? input.url : input)
     if (init?.method === 'POST' && url.pathname === '/api/asr/jobs') {
       const headers = new Headers(init.headers), id = headers.get('idempotency-key')!
       const receipts = join(root, 'transcript', 'jobs'), packs = join(root, 'transcript', 'packs')

@@ -2,11 +2,11 @@
 import { join } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { projectMediaFolder } from '@deepseek-ai/dsh-jingliu-connection'
+import { projectMediaFolder } from '@deepseek-ai/dsh-jingliu-connection/media'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
-import type { Dependencies } from './index.ts'
+import type { Dependencies } from './workflow-tools.ts'
 import { installDraft } from './delivery.ts'
 import { existingSubmission, submitOnce } from './submit-once.ts'
 
@@ -73,7 +73,7 @@ export function narrationTool(deps: Dependencies): ToolDefinition {
       }
       if (action === 'accept') {
         if (!shot_id || beat === undefined) throw new HarnessError('请提供核对报告中的 shot_id 和 beat。', 'JINGLIU_INVALID_ARGUMENTS')
-        await ask('接受镜头 ' + shot_id + ' 的差异 ' + beat)
+        await ask(`接受镜头 ${shot_id} 的差异 ${beat}`)
         return response(await session.request(scope + '/shots/' + shot_id + '/accept', { method: 'POST', body: { beat }, signal: exec.signal }))
       }
       if (action === 'export') {
@@ -81,7 +81,7 @@ export function narrationTool(deps: Dependencies): ToolDefinition {
         const local = session.download !== undefined && deps.draftRoot !== undefined
         const root = local ? await deps.draftRoot?.() : undefined
         if (local && !root) throw new HarnessError('请先在 Muse 的短剧设置指定剪映草稿根目录。', 'JINGLIU_DRAFT_ROOT_REQUIRED')
-        await ask('导出' + (episode === undefined ? '全剧' : '第 ' + episode + ' 集') + '剪映草稿' + (root ? '到 ' + root : ''))
+        await ask('导出' + (episode === undefined ? '全剧' : `第 ${episode} 集`) + '剪映草稿' + (root ? '到 ' + root : ''))
         const result = response(await session.request(scope + '/export', { method: 'POST', body: { episode: episode ?? null, single_file: !root }, signal: exec.signal }))
         const workspace = exec.agent.session.header.cwd
         const folder = workspace ? projectMediaFolder(workspace, pid) : undefined
@@ -113,7 +113,7 @@ export function narrationTool(deps: Dependencies): ToolDefinition {
       }, signal: exec.signal }))
       if (quote.ok !== true || quote.kind !== kind || typeof quote.estimate_fen !== 'number'
           || !Number.isSafeInteger(quote.estimate_fen) || quote.estimate_fen < 0) throw new HarnessError('无法取得此解说剧任务的报价。', 'JINGLIU_INVALID_QUOTE')
-      const target = shot_id ? '镜头 ' + shot_id : episode ? '第 ' + episode + ' 集' : '全剧'
+      const target = shot_id ? '镜头 ' + shot_id : episode ? `第 ${episode} 集` : '全剧'
       const effect = action === 'produce' ? '出片和核对，自动重出按实际用量计费' : force || episode ? '重拆台词并替换已有分镜' : '为尚未拆解的集拆台词'
       await ask(target + ' · ' + effect + '\n预计 ¥' + (quote.estimate_fen / 100).toFixed(2) + '，按实际用量结算。')
       const body = { kind, payload }

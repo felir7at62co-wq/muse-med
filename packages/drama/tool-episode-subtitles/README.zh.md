@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-Desktop 在 Office 组合中挂载本插件，传入随附运行时目录以及交给 `jianying_draft` 的同一组媒体程序。它需要工具注册表、系统提示、Muse 账号服务和 subprocess provider；镜流项目还需要可选的、保存本机素材的 `jingliuConnection`。
+Muse Desktop 随安装包提供此私有插件，在 Office 组合中挂载它，并传入随附运行时目录以及交给 `jianying_draft` 的同一组媒体程序。插件需要工具注册表、系统提示、Muse 账号服务和 subprocess provider。镜流项目还需要可选的、保存本机素材的 `jingliuConnection`。
 
 ```yaml
 - id: tool-episode-subtitles

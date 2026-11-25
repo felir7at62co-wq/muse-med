@@ -18,10 +18,10 @@ import css from './DrawerScriptDraft.module.css'
 
 /** Mutations permitted by the workshop account and performed through the Host. */
 export interface DraftActions {
-  createDraft(request: ScriptDraftCreateRequest): Promise<ScriptDraft>
+  createDraft: (request: ScriptDraftCreateRequest) => Promise<ScriptDraft>
   saveStoryboard(request: ScriptDraftStoryboardSaveRequest): Promise<ScriptDraftStoryboard>
-  restoreHistory(request: ScriptDraftHistoryRestoreRequest): Promise<ScriptDraftHistoryRestore>
-  exportDraft(request: ScriptDraftExportRequest): Promise<ScriptDraftExport>
+  restoreHistory: (request: ScriptDraftHistoryRestoreRequest) => Promise<ScriptDraftHistoryRestore>
+  exportDraft: (request: ScriptDraftExportRequest) => Promise<ScriptDraftExport>
   saveEpisode(request: ScriptDraftSaveRequest): Promise<ScriptDraftEpisode>
   applyCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode>
   discardCandidate(request: ScriptDraftCandidateRequest): Promise<ScriptDraftEpisode>

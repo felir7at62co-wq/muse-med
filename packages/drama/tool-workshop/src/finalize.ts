@@ -9,7 +9,8 @@ import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { defineTool, ToolArgsError, type ToolDefinition, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import { scriptList, scriptOf, type ScriptSummary, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import type { ScriptSummary, WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { scriptList, scriptOf } from '@deepseek-ai/dsh-workbench-connection/scripts'
 
 /** JSON object fields returned to the model. */
 export type Fields = { [key: string]: JsonValue }
@@ -68,7 +69,8 @@ export function splitEpisodes(files: readonly { path: string; text: string }[]):
     const lines = text.replace(/^﻿/u, '').split(/\r?\n/u)
     const marks = lines.flatMap((line, at) => {
       const match = HEADING.exec(line.trim())
-      return match ? [{ at, order: Number(match[1]), title: ('第' + match[1] + '集 ' + (match[2] ?? '')).trim() }] : []
+      const order = match?.[1]
+      return order === undefined ? [] : [{ at, order: Number(order), title: `第${order}集 ${match?.[2] ?? ''}`.trim() }]
     })
     if (marks.length === 0) {
       const named = /([0-9]{1,3})(?:\.[A-Za-z]+)?$/u.exec(path.split(/[\\/]/u).at(-1) ?? '')

@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { requestJson } from '@deepseek-ai/dsh-workbench-connection'
+import { requestJson } from '@deepseek-ai/dsh-workbench-connection/transport'
 import type { WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { JINGLIU } from '../src/http.ts'

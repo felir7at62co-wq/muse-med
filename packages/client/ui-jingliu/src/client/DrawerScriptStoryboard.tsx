@@ -118,7 +118,9 @@ function makeEditable(data: Scene): EditableScene {
 function SceneFields({ row, t, busy, change }: { row: Scene; t: Text; busy: boolean; change: (scene: Scene) => void }) {
   const set = (key: string, value: string) => { change({ ...row, [key]: value }) }
   const usesElements = Array.isArray(row.elements) && row.elements.length > 0
-  const lines = usesElements && Array.isArray(row.elements) ? row.elements : Array.isArray(row.lines) ? row.lines : null
+  const lines: readonly unknown[] | null = usesElements && Array.isArray(row.elements)
+    ? row.elements
+    : Array.isArray(row.lines) ? row.lines : null
   const linesKey = usesElements ? 'elements' : 'lines'
   return <>
     <div className={css.sceneFields}>

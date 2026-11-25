@@ -5,7 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { JingliuHttpError, type JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
 import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { workflowTools } from '../src/index.ts'
+import { workflowTools } from '../src/workflow-tools.ts'
 import { submitOnce } from '../src/submit-once.ts'
 
 const accountRead = { name: 'list_projects', description: '列项目', role: 'viewer', risk: 'read',

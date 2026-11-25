@@ -62,8 +62,11 @@ async function bibleNames(project: string): Promise<string[]> {
   const config = parse(bytes, join(project, 'project_config.json'))
   const bible = config.project_bible
   if (!record(bible) || !Array.isArray(bible.characters)) return []
-  return bible.characters.flatMap((row: unknown) => !record(row) ? []
-    : [row.name, ...(Array.isArray(row.aliases) ? row.aliases : [])].filter((name): name is string => typeof name === 'string'))
+  return bible.characters.flatMap((row: unknown) => {
+    if (!record(row)) return []
+    const aliases: readonly unknown[] = Array.isArray(row.aliases) ? row.aliases : []
+    return [row.name, ...aliases].filter((name): name is string => typeof name === 'string')
+  })
 }
 
 /**

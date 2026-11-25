@@ -49,7 +49,8 @@ it('packs every shot into one upload, waits, then publishes the SRT with a versi
   const receipt = (await readSubtitleClockReceipt(srt))?.receipt as SubtitleClockReceiptV2
   expect(receipt).toMatchObject({ version: 2, producer: 'episode_subtitles', episode: '01', review_pending: 0 })
   expect(changedShots(receipt, await currentRows(f.root))).toEqual([])
-  expect(JSON.parse(await readFile(join(f.root, 'editing', '01-shots.json'), 'utf8')).shots[0]).toMatchObject({ shot: 1, package: 1 })
+  const shotList = JSON.parse(await readFile(join(f.root, 'editing', '01-shots.json'), 'utf8')) as { shots: readonly unknown[] }
+  expect(shotList.shots[0]).toMatchObject({ shot: 1, package: 1 })
   await build()
   expect(rules.calls).toHaveLength(1)
 })
@@ -128,7 +129,7 @@ it('moves a hand-made or hand-edited SRT aside with its receipt before publishin
   await build(); g.complete()
   const first = await build()
   const kept = (first.manual_srt_kept as Record<string, string>)['1']!
-  expect(kept).toMatch(/^editing\/01\.srt\.manual-\d{8}T\d{9}Z$/u)
+  expect(kept.replaceAll('\\', '/')).toMatch(/^editing\/01\.srt\.manual-\d{8}T\d{9}Z$/u)
   expect(await readFile(join(f.root, kept), 'utf8')).toBe(manual)
   expect(await readFile(srt, 'utf8')).not.toContain('用户手改过的字幕')
 
@@ -148,7 +149,7 @@ it('records the line, name and decision digests in the receipt so a script edit 
   const { f, g, build, srt } = await setup(2)
   await build(); g.complete(); await build()
   const before = (await readSubtitleClockReceipt(srt))?.receipt as SubtitleClockReceiptV2
-  expect(before.inputs).toMatchObject({ lines_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) })
+  expect(before.inputs?.lines_sha256).toMatch(/^[0-9a-f]{64}$/u)
   await f.editLine(2, '第2句改过的台词')
   await build()
   const after = (await readSubtitleClockReceipt(srt))?.receipt as SubtitleClockReceiptV2

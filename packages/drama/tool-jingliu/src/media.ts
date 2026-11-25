@@ -1,10 +1,10 @@
 /** Move studio files between the conversation's workspace and the studio's media store. */
 import { isAbsolute, resolve } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { projectMediaFolder } from '@deepseek-ai/dsh-jingliu-connection'
+import { projectMediaFolder } from '@deepseek-ai/dsh-jingliu-connection/media'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { Dependencies } from './index.ts'
+import type { Dependencies } from './workflow-tools.ts'
 
 // The studio resolves at most this many addresses per request; one call stays within one batch.
 const MAX_PATHS = 200

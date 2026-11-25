@@ -66,7 +66,7 @@ describe('conditional bounded catalog ownership', () => {
   it('rejects an oversized direct registration before altering the existing loader', async () => {
     const f = await fixture()
     const existing = f.ctx.tools.get('skill', f.agent)
-    expect(() => { ToolSkill.apply(f.ctx, { catalogPageSize: 101 }) }).toThrow('catalogPageSize must not exceed 100')
+    expect(() => { void ToolSkill.apply(f.ctx, { catalogPageSize: 101 }) }).toThrow('catalogPageSize must not exceed 100')
     expect(f.ctx.tools.get('skill', f.agent)).toBe(existing)
   })
 

@@ -47,9 +47,9 @@ describe('workshop_script_editor', () => {
       action: 'list', drafts: [{ id: 12, title: '雨巷', status: 'draft', episode_count: 2 }], next_offset: 10,
     })
     expect(workshop.scriptDrafts).toHaveBeenCalledWith({ query: '雨巷', offset: 0, limit: 10 })
-    expect((await call({ action: 'open', draft_id: 12 })).value).toMatchObject({
-      episodes: [{ episode: 1 }, { episode: 2 }], context: { outline: expect.stringContaining('发现账本') },
-    })
+    const opened = (await call({ action: 'open', draft_id: 12 })).value
+    expect(opened).toMatchObject({ episodes: [{ episode: 1 }, { episode: 2 }] })
+    expect((opened as { context: { outline: string } }).context.outline).toContain('发现账本')
     expect((await call({ action: 'read', draft_id: 12, episode: 2 })).value).toMatchObject({
       draft_id: 12, episode: 2, content: EPISODE.content, revision: EPISODE.revision, pending_candidate_id: null,
     })

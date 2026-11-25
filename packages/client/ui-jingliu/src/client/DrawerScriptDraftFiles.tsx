@@ -22,7 +22,7 @@ function readSource(file: File): Promise<string> {
       }
       resolve(reader.result.slice(reader.result.indexOf(',') + 1))
     }
-    reader.onerror = () => { reject(reader.error) }
+    reader.onerror = () => { reject(reader.error ?? new Error('Workshop source was not read')) }
     reader.readAsDataURL(file)
   })
 }

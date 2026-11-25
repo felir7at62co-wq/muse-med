@@ -8,7 +8,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { JingliuSession, LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
 import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { installDraft } from '../src/delivery.ts'
-import { workflowTools } from '../src/index.ts'
+import { workflowTools } from '../src/workflow-tools.ts'
 
 async function temporary(prefix: string) {
   const dir = await mkdtemp(join(tmpdir(), prefix))

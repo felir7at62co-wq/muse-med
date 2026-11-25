@@ -2,9 +2,7 @@
   "name": "@deepseek-ai/dsh-tool-episode-subtitles",
   "description": "Per-episode subtitles from packed cloud transcription, corrected toward the locked script by Jingliu's shared rules",
   "version": "0.2.2-rc.2",
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",

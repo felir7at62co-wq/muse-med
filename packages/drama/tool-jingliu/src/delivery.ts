@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises'
 import { unzipSync } from 'fflate'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import type { JingliuSession } from '@deepseek-ai/dsh-jingliu-connection'
-import { boundedBytes, mediaPath } from '@deepseek-ai/dsh-jingliu-connection'
+import { boundedBytes, mediaPath } from '@deepseek-ai/dsh-jingliu-connection/media'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
 
@@ -102,7 +102,9 @@ export async function installDraft(
   const old = await installedDraft(directory, fingerprint)
   if (old) return old
   const declared = manifest.materials, shots = result.shots
-  const media = session.media, download = session.download, place = session.place
+  const media = session.media.bind(session)
+  const download = session.download?.bind(session)
+  const place = session.place?.bind(session)
   return await commitDraft(root, directory, async (stage) => {
     const mediaDir = join(stage, 'media')
     await mkdir(mediaDir)

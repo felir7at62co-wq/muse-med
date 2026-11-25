@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, normalize } from 'node:path'
 import * as timers from 'node:timers/promises'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MuseAsrError, type MuseAsrJob } from '@deepseek-ai/dsh-muse-account'
@@ -1581,7 +1581,9 @@ it('refuses a batch input whose ended receipt has no source digest instead of pa
   await writeFile(legacy.receipt, JSON.stringify(receipt))
   const before = { encodes: f.calls.encodes.length, submits: f.calls.submits.length }
   const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
-  expect(result.items).toEqual([{ input: f.inputs[0], error: expect.stringContaining('without a source digest') }])
+  expect(result.items.map(item => item.input)).toEqual([f.inputs[0]])
+  const failed = result.items[0]
+  expect(failed !== undefined && 'error' in failed ? failed.error : undefined).toContain('without a source digest')
   expect(result.not_started).toEqual([f.inputs[1]])
   expect({ encodes: f.calls.encodes.length, submits: f.calls.submits.length }).toEqual(before)
   expect((await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)).receipt).toContain('ep1-v2.json')
@@ -1782,12 +1784,12 @@ it('starts a new version when a regenerated source keeps its path but changes it
   f.setJob({ id: first && 'job_id' in first ? first.job_id : '', status: 'complete', segments: [{ start: 0, end: 1, text: '旧镜头' }] })
   await finishAudioTranscription(f.project, (first as { receipt: string }).receipt, f.account)
   const reused = (await startAudioTranscriptionBatch(f.project, [f.input], 'zh', f.account, config, shortMedia)).items[0]
-  expect(reused).toMatchObject({ status: 'complete', receipt: join(f.project, 'transcript', 'jobs', 'clip-v1.json') })
+  expect(reused).toMatchObject({ status: 'complete', receipt: join(f.project, 'transcript', 'jobs', 'clip-v1.json').replaceAll('\\', '/') })
   expect(f.counts().submits).toBe(1)
 
   await writeFile(f.input, 'regenerated video fixture')
   const fresh = (await startAudioTranscriptionBatch(f.project, [f.input], 'zh', f.account, config, shortMedia)).items[0]
-  expect(fresh).toMatchObject({ status: 'processing', receipt: join(f.project, 'transcript', 'jobs', 'clip-v2.json') })
+  expect(fresh).toMatchObject({ status: 'processing', receipt: join(f.project, 'transcript', 'jobs', 'clip-v2.json').replaceAll('\\', '/') })
   expect(f.counts().submits).toBe(2)
   expect(JSON.parse(await readFile(join(f.project, 'transcript', 'jobs', 'clip-v2.json'), 'utf8')))
     .toMatchObject({ version: 2, source: f.input })
@@ -1799,7 +1801,7 @@ it('does not return a pending receipt for bytes that no longer exist at its path
   expect((await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)).receipt).toBe(first.receipt)
   await writeFile(f.input, 'regenerated video fixture')
   const second = await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)
-  expect(second.receipt).toBe(join(f.project, 'transcript', 'jobs', 'clip-v2.json'))
+  expect(second.receipt).toBe(join(f.project, 'transcript', 'jobs', 'clip-v2.json').replaceAll('\\', '/'))
   expect(second.job_id).not.toBe(first.job_id)
   expect(f.counts().submits).toBe(2)
 })
@@ -1813,9 +1815,10 @@ it('neither reuses nor silently pays again over a finished legacy receipt that c
   delete receipt.sourceSha256
   await writeFile(first.receipt, JSON.stringify(receipt))
   const next = (await startAudioTranscriptionBatch(f.project, [f.input], 'zh', f.account, config, shortMedia)).items[0]
-  expect(next).toMatchObject({ input: f.input, error: expect.stringContaining(first.receipt) })
+  expect(next?.input).toBe(f.input)
+  expect(next !== undefined && 'error' in next ? next.error : undefined).toContain(normalize(first.receipt))
   expect(f.counts().submits).toBe(1)
   expect((await startAudioTranscription(f.project, f.input, 'zh', f.account, config, shortMedia)).receipt)
-    .toBe(join(f.project, 'transcript', 'jobs', 'clip-v2.json'))
+    .toBe(join(f.project, 'transcript', 'jobs', 'clip-v2.json').replaceAll('\\', '/'))
   expect(f.counts().submits).toBe(2)
 })

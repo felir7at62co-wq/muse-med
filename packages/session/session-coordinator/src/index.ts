@@ -303,11 +303,15 @@ export class SessionCoordinator extends TypertRemoteService {
       if (this.ctx.workspaceRegistry.archivedSessionIds.includes(id)) await this.ctx.workspaceRegistry.unarchiveSession(id)
       const result = await this.ctx.sessionController.resolveAgent(id)
       if ('error' in result) throw result.error
+      const seq = result.agent.session.seq
+      const history = greet ? (await this.ctx.sessionQuery.readSession(id)).events : undefined
       if (ticket && account) {
         if (ticket !== 'login-' + await account.workbenchIdentity()) throw new Error('Muse account changed while opening its conversation')
         if (this.entry.get(ticket) !== id) await this.entry.put(ticket, id)
       }
-      if (greet && greetRouter(result.agent, person)) await this.ctx.sessions.flush(result.agent.session)
+      if (history !== undefined && result.agent.session.seq === seq && greetRouter(result.agent, person, history)) {
+        await this.ctx.sessions.flush(result.agent.session)
+      }
       this.changed()
       return id
     })
@@ -613,7 +617,7 @@ export class SessionCoordinator extends TypertRemoteService {
       const project = await studio?.assignmentProject(main.id)
       if (studio && targetHeader) {
         const existingProject = await studio.assignmentProject(target)
-        if (existingProject && (existingProject.owner !== project?.owner || existingProject.id !== project?.id)) {
+        if (existingProject && (project == null || existingProject.owner !== project.owner || existingProject.id !== project.id)) {
           throw new ToolArgsError(['Choose a worker for the current production or create a new Session'])
         }
       }

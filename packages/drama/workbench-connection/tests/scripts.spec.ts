@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scriptDetail, scriptList, scriptOf } from '../src/index.ts'
+import { scriptDetail, scriptList, scriptOf } from '../src/scripts.ts'
 
 const CARD = {
   id: 7, title: '好一个乖乖女', owner: { id: 1, name: '小林' }, rights: 'licensed', origin_work_id: 'hongguo:7481108346636864536',

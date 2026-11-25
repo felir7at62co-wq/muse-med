@@ -10,8 +10,9 @@ import {
 import { workbenchOrigin } from './http.ts'
 import type { WorkbenchRequest } from './http.ts'
 import { WorkbenchSessions } from './sessions.ts'
-import type { WorkbenchDefinition, WorkbenchSession } from './sessions.ts'
+import type { WorkbenchSession } from './sessions.ts'
 import { scriptDetail, scriptList, scriptOf } from './scripts.ts'
+import { SCRIPT_WORKSHOP } from './workshop.ts'
 import type { ScriptDetail, ScriptList, ScriptListRequest, ScriptPickRequest, ScriptProductionRequest, ScriptReadRequest, ScriptSummary } from './types.ts'
 import type {
   ScriptDraft, ScriptDraftCandidate, ScriptDraftCandidateRequest, ScriptDraftCreateRequest, ScriptDraftEpisode, ScriptDraftEpisodeRequest,
@@ -21,24 +22,15 @@ import type {
   ScriptDraftStoryboard, ScriptDraftStoryboardSaveRequest,
 } from './editor-types.ts'
 
-export { boundedBytes, isRecord, requestJson, workbenchOrigin, WorkbenchHttpError } from './http.ts'
+export { WorkbenchHttpError } from './http.ts'
 export type { TransportRequest, WorkbenchLabel, WorkbenchRequest } from './http.ts'
-export { WorkbenchSessions } from './sessions.ts'
 export type { WorkbenchDefinition, WorkbenchDeployment, WorkbenchSession } from './sessions.ts'
-export { scriptDetail, scriptList, scriptOf, scriptSummary } from './scripts.ts'
 export type * from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     workshopConnection: WorkshopConnection
   }
-}
-
-/** Script Workshop as a Muse workbench: its `/v1` API, the `jubengongfang` gateway mount and its JWT sign-in response. */
-export const SCRIPT_WORKSHOP: WorkbenchDefinition = {
-  audience: 'script-workshop', name: '剧本工坊', code: 'WORKSHOP', mount: 'jubengongfang', api: '/v1',
-  credential: 'access_token', profileUser: profile => profile,
-  changed: '剧本工坊连接已变更。请核对原账号下已提交的任务。',
 }
 
 /** Server address and limits for this installation, after `WorkshopConnection.Config` applied its defaults. */

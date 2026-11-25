@@ -13,17 +13,17 @@ import { balance, billingLedger, billingUserId, catalog, createdProject, episode
 import type { StudioBalance, StudioBillingDetails, StudioCatalog, StudioConfig, StudioEpisode, StudioImage, StudioLibrary, StudioLibraryQuery, StudioNewProject, StudioOptions, StudioPreferences, StudioProject, StudioProjectAssets, StudioSetting, StudioShot, StudioShotMedia, StudioVideoRequest } from './types.ts'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-muse-account'
-import { WorkbenchSessions } from '@deepseek-ai/dsh-workbench-connection'
+import { WorkbenchSessions } from '@deepseek-ai/dsh-workbench-connection/transport'
 import type { WorkbenchDefinition, WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
 import type {} from '@deepseek-ai/dsh-commands'
 import { CommandDefinitionId } from '@deepseek-ai/dsh-commands/brand'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 import { boundedBytes, isRecord, JINGLIU, JingliuHttpError, studioOrigin } from './http.ts'
 import type { JingliuRequest } from './http.ts'
-import { JingliuMedia, mediaPath, projectMediaFolder } from './media.ts'
+import { JingliuMedia, projectMediaFolder } from './media.ts'
 import type { LocalMedia, UploadedMedia } from './media.ts'
 
-export { JingliuHttpError, boundedBytes, mediaPath, projectMediaFolder }
+export { JingliuHttpError }
 export type { LocalMedia, UploadedMedia }
 
 // Without local files, a video and a thumbnail are held in Host memory; the bounds keep one request finite.
@@ -468,7 +468,7 @@ export class JingliuConnection extends TypertRemoteService {
     // read_shots pages by text size; an episode rarely needs more than a few pages.
     for (let page = 0; page < 40; page += 1) {
       const result = await this.workflow('read_shots', projectId, { episode, max_shots: 60, ...(from === null ? {} : { from_order: from }) }, signal)
-      if (Array.isArray(result.shots)) rows.push(...result.shots)
+      if (Array.isArray(result.shots)) for (const shot of result.shots) rows.push(shot)
       if (typeof result.next_from_order !== 'number') break
       from = result.next_from_order
     }

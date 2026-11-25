@@ -81,7 +81,8 @@ export async function apply(ctx) {
   assert.ok(!excludesStandaloneAa || !preservesNewerDefault)
   const home = await mkdtemp(join(tmpdir(), 'muse-selected-snapshot-'))
   ctx.effect(() => () => rm(home, { recursive: true, force: true }))
-  const catalog = desktopModelCatalog({ metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) })
+  const directory = { metadata: () => ({ providers: selectedModelProviders('https://wy6688.token6688.com/v1') }) }
+  const catalog = desktopModelCatalog(directory, undefined, undefined, 'all')
   if (flashModelId !== 'deepseek-flash') {
     const official = catalog.providers.find(provider => provider.id === 'deepseek-official')
     assert.ok(official)

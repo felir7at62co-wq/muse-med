@@ -8,7 +8,7 @@ import type { CommandDefinition, CommandInvocation } from '@deepseek-ai/dsh-comm
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import JingliuConnection, { type Config } from '../src/index.ts'
-import { requestJson } from '@deepseek-ai/dsh-workbench-connection'
+import { requestJson } from '@deepseek-ai/dsh-workbench-connection/transport'
 import { JINGLIU, studioOrigin } from '../src/http.ts'
 
 afterEach(() => vi.unstubAllEnvs())
@@ -368,5 +368,5 @@ it('keeps thumbnails in the account cache and plays videos from the conversation
   await expect(ctx.jingliuConnection.localVideo({ ...request, projectId: '../p' }, signal)).rejects.toMatchObject({ code: 'JINGLIU_INVALID_PROJECT' })
   const web = await mount({ studioOrigin: origin + '/jingliu', mediaHosts: [new URL(origin).host] })
   expect(await web.ctx.jingliuConnection.localVideo(request, signal)).toBeNull()
-  expect((await web.ctx.jingliuConnection.connection()).download).toBeUndefined()
+  expect(typeof (await web.ctx.jingliuConnection.connection()).download).toBe('undefined')
 })

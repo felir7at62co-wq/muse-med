@@ -286,19 +286,20 @@ export function apply(ctx) {
   let failed = false, failure
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
-  const ids = ['short-drama', 'main-session', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const ids = ['short-drama', 'short-drama-v2', 'main-session', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
   const reviewerId = 'muse-manuscript-continuity-reviewer'
   const roster = [...ids, reviewerId]
   const presets = await ctx.agentPresets.list()
   if (presets.length !== roster.length || roster.some(id => !presets.some(preset => preset.id === id))) {
     throw new Error('desktop runtime: product preset roster differs; expected ' + roster.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
   }
-  if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
+  if (ctx.agentPresets.defaultId !== 'short-drama-v2') throw new Error('desktop runtime: product default preset changed')
   if ((await ctx.agentPresets.resolve('editing')).id !== 'short-drama') {
     throw new Error('desktop runtime: retired editing preset must resolve to short-drama')
   }
   const inventory = await ctx.agentPresets.compositionInventory()
   for (const id of ids) {
+  const creative = id === 'short-drama' || id === 'short-drama-v2'
   const handles = []
   const failures = []
   let index = -1
@@ -346,7 +347,7 @@ export function apply(ctx) {
       throw new Error('desktop runtime: retired built-in account MCP remains active: ' + name + ' in ' + id)
     }
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-    const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
+    const required = creative ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'ask_user_question', 'todo_write', 'todo_update',
       'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'read', 'present', 'video_inspect', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
@@ -377,8 +378,10 @@ export function apply(ctx) {
       const local = [...names].filter(name => !inherited.has(name))
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
+    if (creative && !ctx.agentTeams.isEnabled(handle.agent)) {
+      throw new Error('desktop runtime: new ' + id + ' Session must enable official Team tasks')
+    }
     if (id === 'short-drama') {
-      if (!ctx.agentTeams.isEnabled(handle.agent)) throw new Error('desktop runtime: new short-drama Session must enable official Team tasks')
       const assembly = modelInput
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
       if (!persona?.startsWith(editingModelInput.personaPrefix)) {
@@ -677,6 +680,7 @@ export async function smokeDesktopRuntime(
   const hostEnvironment = {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !/^(?:npm|pnpm|corepack)_/iu.test(name))),
     DSH_HOME: home, MUSE_HOME: home, HOME: home, USERPROFILE: home,
+    MUSE_DEFAULT_PRESET: '',
     XDG_CONFIG_HOME: home, XDG_CACHE_HOME: home, XDG_STATE_HOME: home,
     APPDATA: home, LOCALAPPDATA: home,
     npm_config_userconfig: join(home, 'npmrc'), npm_config_globalconfig: join(home, 'npmrc'),

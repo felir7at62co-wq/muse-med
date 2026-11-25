@@ -43,12 +43,12 @@ function setup(selected: { id: string; title: string } | null, shown: { id: stri
     return { status: 'live', failure: undefined, value: url.hostname === 'jingliu-selected' ? selected : data[url.hostname] }
   }) as Props['useResource']
   const props = {
-    sessionId: 'part-1', t: makeTranslate(en), useResource, useAccountEpoch: <T,>(select: (value: number) => T) => select(1),
+    sessionId: 'part-1' as Props['sessionId'], t: makeTranslate(en), useResource, useAccountEpoch: <T,>(select: (value: number) => T) => select(1),
     project: shown, openProject: vi.fn(),
     quote: vi.fn(), compose: vi.fn(), chooseProject: vi.fn(async () => {}), loadVideo: vi.fn(async () => 'blob:video'),
     createProject: vi.fn(async () => ({ id: 'p9', title: 'Lantern Bridge' })), renameProject: vi.fn(async () => {}),
-    deleteShot: vi.fn(async () => {}), saveOption: vi.fn(async () => {}),
-  } as unknown as Props
+    deleteShot: vi.fn(async () => {}), saveOption: vi.fn(async () => {}), savePreferences: vi.fn(async () => {}),
+  } as Props
   return { props, reads }
 }
 
@@ -62,7 +62,7 @@ it('lists the newest production first with its tags; the first one picked become
   expect(cards[0]?.textContent).toContain('Reference')
   expect(cards[1]?.textContent).toContain('3D')
   fireEvent.click(view.getByRole('button', { name: /Bridge Lions/u }))
-  await waitFor(() => expect(props.openProject).toHaveBeenCalledWith({ id: 'p1', title: 'Bridge Lions' }))
+  await waitFor(() => { expect(props.openProject).toHaveBeenCalledWith({ id: 'p1', title: 'Bridge Lions' }) })
   expect(props.chooseProject).toHaveBeenCalledWith('part-1', project)
   view.unmount()
 })
@@ -72,7 +72,7 @@ it('opens another production in a tab without changing the one the conversation 
   const view = render(<DrawerJingliu {...props} />)
   expect(view.getByRole('button', { name: /Bridge Lions/u }).textContent).toContain('Current')
   fireEvent.click(view.getByRole('button', { name: /Harbor Night/u }))
-  await waitFor(() => expect(props.openProject).toHaveBeenCalledWith({ id: 'p0', title: 'Harbor Night' }))
+  await waitFor(() => { expect(props.openProject).toHaveBeenCalledWith({ id: 'p0', title: 'Harbor Night' }) })
   expect(props.chooseProject).not.toHaveBeenCalled()
   view.unmount()
 })
@@ -81,7 +81,7 @@ it('makes a production the conversation\'s before a request made from its tab re
   const { props } = setup({ id: 'p1', title: 'Bridge Lions' }, { id: 'p0', title: 'Harbor Night' })
   const view = render(<DrawerJingliu {...props} />)
   fireEvent.click(view.getByRole('button', { name: 'Make another' }))
-  await waitFor(() => expect(props.compose).toHaveBeenCalledWith('Make another version of Episode 1 · Shot 1: '))
+  await waitFor(() => { expect(props.compose).toHaveBeenCalledWith('Make another version of Episode 1 · Shot 1: ') })
   expect(props.chooseProject).toHaveBeenCalledWith('part-1', { id: 'p0', title: 'Harbor Night' })
   view.unmount()
 })
@@ -94,10 +94,12 @@ it('creates a 3D story production with the chosen style and studio-default model
   fireEvent.click(view.getByRole('tab', { name: '3D' }))
   fireEvent.click(view.getByRole('tab', { name: '3D real' }))
   fireEvent.click(view.getByRole('button', { name: 'Create' }))
-  await waitFor(() => expect(props.createProject).toHaveBeenCalledWith('part-1', {
-    title: 'Lantern Bridge', mode: 'anime', artStyle: 'anime_3d', aspect: '9:16', resolution: '1080p', videoModel: '', imageModel: '', generationMode: '',
-  }))
-  await waitFor(() => expect(props.openProject).toHaveBeenCalledWith({ id: 'p9', title: 'Lantern Bridge' }))
+  await waitFor(() => {
+    expect(props.createProject).toHaveBeenCalledWith('part-1', {
+      title: 'Lantern Bridge', mode: 'anime', artStyle: 'anime_3d', aspect: '9:16', resolution: '1080p', videoModel: '', imageModel: '', generationMode: '',
+    })
+  })
+  await waitFor(() => { expect(props.openProject).toHaveBeenCalledWith({ id: 'p9', title: 'Lantern Bridge' }) })
   view.unmount()
 })
 
@@ -122,8 +124,8 @@ it('deletes a shot only after the second press, then reads the episode again', a
   fireEvent.click(view.getByRole('button', { name: 'Delete Episode 1 · Shot 1' }))
   expect(props.deleteShot).not.toHaveBeenCalled()
   fireEvent.click(view.getByRole('button', { name: 'Delete' }))
-  await waitFor(() => expect(props.deleteShot).toHaveBeenCalledWith('p1', 's1'))
-  await waitFor(() => expect(reads.some(url => url.hostname === 'jingliu-shots' && url.searchParams.get('revision') === '1')).toBe(true))
+  await waitFor(() => { expect(props.deleteShot).toHaveBeenCalledWith('p1', 's1') })
+  await waitFor(() => { expect(reads.some(url => url.hostname === 'jingliu-shots' && url.searchParams.get('revision') === '1')).toBe(true) })
   view.unmount()
 })
 
@@ -132,7 +134,7 @@ it('plays a shot only when asked, through the Host', async () => {
   const view = render(<DrawerJingliu {...props} />)
   expect(props.loadVideo).not.toHaveBeenCalled()
   fireEvent.click(view.getByRole('button', { name: 'Play' }))
-  await waitFor(() => expect(props.loadVideo).toHaveBeenCalledWith({ sessionId: 'part-1', projectId: 'p1', path: '/fw/media/generated/s1.mp4' }, expect.any(AbortSignal)))
+  await waitFor(() => { expect(props.loadVideo).toHaveBeenCalledWith({ sessionId: 'part-1', projectId: 'p1', path: '/fw/media/generated/s1.mp4' }, expect.any(AbortSignal)) })
   view.unmount()
 })
 
@@ -199,7 +201,7 @@ it('opens another production from the search card', async () => {
   fireEvent.click(view.getByRole('button', { name: 'Bridge Lions, switch or search projects' }))
   fireEvent.change(view.getByRole('textbox', { name: 'Search cloud projects' }), { target: { value: 'harbor' } })
   fireEvent.click(view.getByRole('button', { name: /Harbor Night/u }))
-  await waitFor(() => expect(props.openProject).toHaveBeenCalledWith({ id: 'p0', title: 'Harbor Night' }))
+  await waitFor(() => { expect(props.openProject).toHaveBeenCalledWith({ id: 'p0', title: 'Harbor Night' }) })
   expect(props.chooseProject).not.toHaveBeenCalled()
   view.unmount()
 })

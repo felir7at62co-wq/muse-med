@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import { expect, it, vi } from 'vitest'
-import WorkshopConnection, { SCRIPT_WORKSHOP } from '../src/index.ts'
+import WorkshopConnection from '../src/index.ts'
 import { WorkbenchSessions, type WorkbenchDeployment } from '../src/sessions.ts'
+import { SCRIPT_WORKSHOP } from '../src/workshop.ts'
 import { host, workbench, type Reply } from './fixture.ts'
 
 const challenge = 'C'.repeat(43)

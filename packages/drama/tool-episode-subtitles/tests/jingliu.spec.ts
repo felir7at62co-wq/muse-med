@@ -191,7 +191,7 @@ it('asks the user about legacy rows instead of rebuilding over them, and replace
     ask: { keep: { tool: 'jianying_draft', args: { source: 'jingliu', project: 'p1', episodes: [1], keep_legacy_subtitles: true } },
       remake: { tool: 'episode_subtitles', args: { method: 'build', source: 'jingliu', project: 'p1', episodes: [1], replace_legacy: true } } } })
   expect(built).not.toHaveProperty('next')
-  expect(String((built.ask as { question: string }).question)).toContain('EP1')
+  expect((built.ask as { question: string }).question).toContain('EP1')
   expect(jobs.map(segments => segments.map(segment => segment.shot_id))).toEqual([['b2']])
   expect(payloads[0]).not.toHaveProperty('replace_legacy')
 

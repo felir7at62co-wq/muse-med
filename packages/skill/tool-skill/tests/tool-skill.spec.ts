@@ -213,7 +213,7 @@ describe('dsh-tool-skill', () => {
     expect(ctx.tools.schemas()).toEqual([])
     expect(await composePrefix(ctx, '/workspace')).toEqual([])
 
-    toolSkill.apply(ctx)
+    await toolSkill.apply(ctx)
     expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['skill'])
   })
 

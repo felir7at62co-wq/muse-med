@@ -81,7 +81,7 @@ export function apply(ctx: Context, input: Config): void {
   const config = Config(input)
   const account = ctx.get('museAccount') as MuseAccountService
   const { pythonPath, source } = config
-  const python = pythonPath !== undefined ? async () => pythonPath
+  const python = pythonPath !== undefined ? () => Promise.resolve(pythonPath)
     : source === undefined ? undefined
       : async () => process.platform === 'win32' ? join(dirname(source), 'media', 'python', 'python.exe')
         : (await resolvePrimaryRuntime(source)).python

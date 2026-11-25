@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Desktop mounts the plugin inside its Office composition with the bundled runtime directory and the media executables it gives `jianying_draft`. It needs the tool registry, the system prompt, the Muse account service and a subprocess provider; Jingliu projects also need the optional `jingliuConnection` with local media.
+Muse Desktop bundles this private plugin and mounts it in its Office composition with the bundled runtime directory and the media executables it supplies to `jianying_draft`. The plugin needs the tool registry, the system prompt, the Muse account service and a subprocess provider. Jingliu projects also need the optional `jingliuConnection` with local media.
 
 ```yaml
 - id: tool-episode-subtitles

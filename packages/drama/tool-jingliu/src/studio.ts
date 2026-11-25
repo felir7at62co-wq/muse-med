@@ -3,7 +3,7 @@ import { HarnessError } from '@deepseek-ai/dsh-error'
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { isFields } from './catalog.ts'
-import type { Dependencies } from './index.ts'
+import type { Dependencies } from './workflow-tools.ts'
 
 /**
  * Expose episode, subtitle, HD history and shared asset operations in chat.
@@ -36,7 +36,7 @@ export function studioTool(deps: Dependencies): ToolDefinition {
         else if (action === 'hd_history') result = await session.request(path + '/video-upscale-jobs?limit=30', { signal: exec.signal })
         else if (action === 'import_assets') {
           if (!asset_ids?.length || asset_ids.some(id => !/^[\w-]+$/u.test(id))) throw new HarnessError('请指定共享库中的素材。', 'JINGLIU_INVALID_ARGUMENTS')
-          if (!await deps.approve(exec, '将 ' + asset_ids.length + ' 项共享素材导入镜流项目 ' + pid)) throw new HarnessError('素材导入未获确认。', 'JINGLIU_APPROVAL_REQUIRED')
+          if (!await deps.approve(exec, `将 ${asset_ids.length} 项共享素材导入镜流项目 ${pid}`)) throw new HarnessError('素材导入未获确认。', 'JINGLIU_APPROVAL_REQUIRED')
           result = await session.request('/library/import', { method: 'POST', body: { project_id: pid, asset_ids }, signal: exec.signal })
         } else {
           const list = await session.request(path + '/subtitle-clips', { signal: exec.signal })

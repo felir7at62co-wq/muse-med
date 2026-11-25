@@ -7,7 +7,7 @@ const login = { type: 'muse-workbench-login', requestId: 'req-1', challenge: 'h'
 
 function fixture() {
   const frame = document.body.appendChild(document.createElement('iframe'))
-  onTestFinished(() => frame.remove())
+  onTestFinished(() => { frame.remove() })
   const target = frame.contentWindow!
   const send = vi.spyOn(target, 'postMessage').mockImplementation(() => undefined)
   const issue = vi.fn<(challenge: string) => Promise<WorkbenchLoginResult>>()
@@ -57,4 +57,33 @@ it('reports a safe reason when sign-in is required or a request cannot complete'
   receive()
   await Promise.resolve()
   expect(send).toHaveBeenLastCalledWith({ type: 'muse-workbench-login-result', requestId: 'req-1', error: 'unavailable' }, origin)
+})
+
+it('returns unavailable for a second login while the original request is still pending', async () => {
+  const { issue, send, receive } = fixture()
+  const pending = Promise.withResolvers<WorkbenchLoginResult>()
+  issue.mockReturnValue(pending.promise)
+  receive()
+  receive({ ...login, requestId: 'req-2' })
+  expect(issue).toHaveBeenCalledExactlyOnceWith(login.challenge)
+  expect(send).toHaveBeenCalledExactlyOnceWith({ type: 'muse-workbench-login-result', requestId: 'req-2', error: 'unavailable' }, origin)
+
+  pending.resolve({ code: 'issued-code' })
+  await pending.promise
+  expect(send).toHaveBeenLastCalledWith({ type: 'muse-workbench-login-result', requestId: 'req-1', code: 'issued-code' }, origin)
+})
+
+it('drops a resolved login code if the frame is replaced before delivery', async () => {
+  const { frame, issue, send, receive } = fixture()
+  const target = frame.contentWindow
+  const pending = Promise.withResolvers<WorkbenchLoginResult>()
+  issue.mockReturnValue(pending.promise)
+  receive()
+  expect(issue).toHaveBeenCalledExactlyOnceWith(login.challenge)
+
+  pending.resolve({ code: 'stale-code' })
+  frame.src = 'about:blank'
+  expect(frame.contentWindow === target).toBe(false)
+  await pending.promise
+  expect(send).not.toHaveBeenCalled()
 })

@@ -68,9 +68,10 @@ it('installs a planned draft once, refuses stale subtitles by shot order and rep
   expect(path).toMatch(/测试剧-第1集 - Muse [0-9a-f]{10}$/u)
   expect((await readdir(join(path, 'media'))).sort()).toEqual(['a1-2.mp4', 'a1.mp4'])
   const content = JSON.parse(await readFile(join(path, 'draft_content.json'), 'utf8')) as { materials: { videos: { path: string }[] } }
-  expect(content.materials.videos[0]!.path).toBe(`${path.split('\\').join('/')}/media/a1.mp4`)
+  const draftPath = path.split('\\').join('/')
+  expect(content.materials.videos[0]!.path).toBe(`${draftPath}/media/a1.mp4`)
   const meta = JSON.parse(await readFile(join(path, 'draft_meta_info.json'), 'utf8')) as Record<string, string>
-  expect(meta).toMatchObject({ draft_fold_path: path, draft_root_path: root, draft_cover: `${path}/draft_cover.jpg` })
+  expect(meta).toMatchObject({ draft_fold_path: draftPath, draft_root_path: root.split('\\').join('/'), draft_cover: `${draftPath}/draft_cover.jpg` })
   expect((await stat(join(path, 'draft_cover.jpg'))).size).toBe(3)
   expect(await readFile(join(path, 'draft_info.json'), 'utf8')).toBe(await readFile(join(path, 'draft_content.json'), 'utf8'))
 

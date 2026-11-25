@@ -188,9 +188,11 @@ it('creates a blank numbered draft from the draft collection and reuses the same
   await waitFor(() => { expect(dialog.getByRole('alert').textContent).toBe(en.draftCreateFailed) })
   fireEvent.click(dialog.getByRole('button', { name: en.newDraft }))
   await waitFor(() => { expect(openScript).toHaveBeenCalledWith({ id: 'draft:45', title: draft.title }) })
+  const request = createDraft.mock.calls[0]?.[0]
+  expect(request?.requestId).toBeTypeOf('string')
   expect(createDraft.mock.calls).toEqual([
-    [{ title: 'New screenplay', episodeCount: 3, requestId: expect.any(String) }],
-    [createDraft.mock.calls[0]?.[0]],
+    [{ title: 'New screenplay', episodeCount: 3, requestId: request?.requestId }],
+    [request],
   ])
 })
 
@@ -206,7 +208,9 @@ it('passes a selected source file to Workshop and opens the returned draft', asy
   await waitFor(() => { expect(submit).toHaveProperty('disabled', false) })
   fireEvent.click(submit)
   await waitFor(() => { expect(openScript).toHaveBeenCalledWith({ id: 'draft:45', title: draft.title }) })
-  expect(createDraft).toHaveBeenCalledWith({ title: 'Side story', requestId: expect.any(String),
+  const request = createDraft.mock.calls[0]?.[0]
+  expect(request?.requestId).toBeTypeOf('string')
+  expect(createDraft).toHaveBeenCalledWith({ title: 'Side story', requestId: request?.requestId,
     file: { filename: 'Side story.txt', base64: 'RXBpc29kZSAx' } })
 })
 

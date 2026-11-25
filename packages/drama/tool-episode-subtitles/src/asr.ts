@@ -92,11 +92,11 @@ Promise<{ transcript: ShotTranscript; sha256: string } | undefined> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
-  const transcript = JSON.parse(text) as ShotTranscript
+  const transcript = JSON.parse(text) as Partial<Record<keyof ShotTranscript, unknown>>
   if (transcript.version !== 1 || transcript.audio_sha256 !== audioSha || !Array.isArray(transcript.words)) {
     throw new Error(`${join(dirs(root).shots, `${audioSha}.json`)}: 镜头转写缓存无效，请删除该文件后重跑。`)
   }
-  return { transcript, sha256: createHash('sha256').update(text).digest('hex') }
+  return { transcript: transcript as ShotTranscript, sha256: createHash('sha256').update(text).digest('hex') }
 }
 
 async function writeJson(file: string, value: unknown): Promise<void> {
@@ -143,7 +143,8 @@ export async function transcribeShots(requests: readonly AsrRequest[], deps: Asr
   for (const request of requests) if (!wanted.has(request.audio_sha256)) wanted.set(request.audio_sha256, request.audio)
   const deadline = Date.now() + options.waitMs
   let newSeconds = 0, retryAfter: number | undefined
-  const runnerProbe = deps.media?.runner?.probe
+  const mediaRunner = deps.media?.runner
+  const runnerProbe = mediaRunner?.probe.bind(mediaRunner)
     ?? ((file: string, probeSignal?: AbortSignal) => probeMediaDuration(file, deps.runner, probeSignal))
 
   const finishPack = async (pack: PackManifest, result: AudioRunResult | { readonly error: string }): Promise<PackManifest> => {

@@ -6,7 +6,8 @@ import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import ToolRuntime, { type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { WorkbenchRequest, WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import { checkEpisodes, episodeFiles, finalizeTool, libraryTool, splitEpisodes } from '../src/index.ts'
+import { checkEpisodes, finalizeTool, splitEpisodes } from '../src/finalize.ts'
+import { episodeFiles, libraryTool } from '../src/library.ts'
 
 type Route = (path: string, options: WorkbenchRequest) => unknown
 

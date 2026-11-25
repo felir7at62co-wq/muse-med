@@ -9,7 +9,8 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { TerminalView, TerminalViewState } from '@deepseek-ai/dsh-api-terminal-controller/client'
 import type { WebTerminalId } from '@deepseek-ai/dsh-api-terminal-controller/types'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { PanelTerminal, TerminalBody, type PanelTerminalProps, type TerminalBodyProps } from '../src/client/terminal.tsx'
+import { LazyPanelTerminal } from '../src/client/LazyTerminalBody.tsx'
+import { TerminalBody, type PanelTerminalProps, type TerminalBodyProps } from '../src/client/terminal.tsx'
 import { TerminalTitle } from '../src/client/TerminalTitle.tsx'
 import { en, zh } from '../src/client/locales.ts'
 
@@ -501,7 +502,7 @@ it('keeps the screen on a temporary disconnect and presents reconnection without
   expect(h.openTab).not.toHaveBeenCalled()
 })
 
-it('shows a Bot panel tab\'s terminal, looks its model up once per tab and opens a new terminal through the panel', () => {
+it('shows a Bot panel tab\'s terminal, looks its model up once per tab and opens a new terminal through the panel', async () => {
   const state = createSnapshotStore<TerminalViewState>({ ...idle, info: { ...info, state: 'exited', exitCode: 0 }, phase: 'failed' })
   const detach = vi.fn()
   const model: Pick<TerminalView, 'state' | 'mount' | 'refresh' | 'connect' | 'write' | 'resize' | 'acknowledge'> = {
@@ -521,12 +522,13 @@ it('shows a Bot panel tab\'s terminal, looks its model up once per tab and opens
     const props: Pick<PanelTerminalProps, 'sessionId' | 'tabId' | 'visible' | 'replace' | 'panelView' | 'useTheme' | 't'> = {
       sessionId: 'session' as PanelTerminalProps['sessionId'], tabId, visible: true, replace, panelView, useTheme, t: makeTranslate(en),
     }
-    return <PanelTerminal {...props as PanelTerminalProps} />
+    return <LazyPanelTerminal {...props as PanelTerminalProps} />
   }
   const view = render(panel('bot-terminal:1'))
+  const status = await view.findByRole('status')
   expect(panelView).toHaveBeenCalledExactlyOnceWith('session', 'bot-terminal:1', undefined)
   expect(model.mount).toHaveBeenCalledOnce()
-  expect(view.getByRole('status').textContent).toContain('Process exited (0)')
+  expect(status.textContent).toContain('Process exited (0)')
   view.rerender(panel('bot-terminal:1'))
   expect(panelView).toHaveBeenCalledOnce()
   fireEvent.click(view.getByRole('button', { name: en.new }))

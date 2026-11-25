@@ -637,9 +637,9 @@ export async function packageTarget(
       }
     },
     S4: async () => {
-      await execute([
-        '--dir', 'packages/drama/skills', 'pack', '--pack-destination', buildPaths.packedDsh,
-      ], buildEnv, REPOSITORY_ROOT)
+      for (const directory of ['packages/drama/skills', 'packages/drama/tool-episode-subtitles']) {
+        await execute(['--dir', directory, 'pack', '--pack-destination', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
+      }
     },
     S5: async () => {
       await execute([

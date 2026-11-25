@@ -56,12 +56,14 @@ describe('desktop package-set selection', () => {
     ])
   })
 
-  it('requires drama skills, BGM and Muse account Host and UI packages in Desktop release inputs', () => {
+  it('requires the drama skills, subtitle tool, BGM and Muse account packages in Desktop release inputs', () => {
     const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../../desktop-host/package.json', import.meta.url)), 'utf8')) as { dependencies: Record<string, string> }
     const names = Object.keys(manifest.dependencies)
     const available = new Map(names.map(name => [name, packed(name)]))
     available.set('@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', manifest))
-    for (const name of ['@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-perception-bgm', '@deepseek-ai/dsh-muse-account', '@deepseek-ai/dsh-client-ui-muse-account']) {
+    const required = ['@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-tool-episode-subtitles', '@deepseek-ai/dsh-perception-bgm',
+      '@deepseek-ai/dsh-muse-account', '@deepseek-ai/dsh-client-ui-muse-account']
+    for (const name of required) {
       expect(names).toContain(name)
       const requiredPackage = available.get(name)
       if (requiredPackage === undefined) throw new Error(`Missing Desktop dependency ${name}`)
@@ -70,8 +72,7 @@ describe('desktop package-set selection', () => {
       available.set(name, requiredPackage)
     }
     expect(selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }).map(entry => entry.manifest.name)).toEqual(expect.arrayContaining([
-      '@deepseek-ai/dsh-tool-jubian', '@deepseek-ai/dsh-drama-skills', '@deepseek-ai/dsh-perception-bgm',
-      '@deepseek-ai/dsh-muse-account', '@deepseek-ai/dsh-client-ui-muse-account',
+      '@deepseek-ai/dsh-tool-jubian', ...required,
     ]))
   })
 
@@ -203,7 +204,7 @@ describe('desktop package-set selection', () => {
       'package/lib/computer-input-worker.js',
       'package/lib/approved-episode-render.js',
       'package/lib/episode-render-worker.js',
-      ...['standard', 'ptc', 'minimal', 'cordis'].flatMap(id => [
+      ...['short-drama-v2', 'standard', 'ptc', 'minimal', 'cordis'].flatMap(id => [
         `package/presets/${id}/agent.cordis.yml`, `package/presets/${id}/preset.yml`,
       ]),
       'package/presets/cordis/skills/cordis-plugin-development/SKILL.md',

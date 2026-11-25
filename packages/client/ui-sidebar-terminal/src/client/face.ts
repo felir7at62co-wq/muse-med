@@ -40,7 +40,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'bot.drawer.terminal': {
       kind: 'single'
       scope: 'root'
-      owner: { sessionId: SessionId; tabId: string; terminalId?: WebTerminalId; visible: boolean; replace(): void }
+      owner: { sessionId: SessionId; tabId: string; terminalId?: WebTerminalId; visible: boolean; replace: () => void }
     }
   }
 }

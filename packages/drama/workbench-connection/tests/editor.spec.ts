@@ -28,7 +28,10 @@ it('sends the base revision and exact episode when staging a candidate and prese
   await expect(api.applyScriptDraftCandidate({ ...target, candidateId: proposed.id })).rejects.toMatchObject({
     status: 409, code: 'SCRIPT_EDITOR_VERSION_CHANGED',
   })
-  expect(requests.slice(2).map(row => [row.method, row.url, row.authorization, row.body ? JSON.parse(row.body) : null])).toEqual([
+  expect(requests.slice(2).map((row) => {
+    const body: unknown = row.body ? JSON.parse(row.body) : null
+    return [row.method, row.url, row.authorization, body]
+  })).toEqual([
     ['GET', root, 'Bearer fixture-token', null],
     ['POST', root + '/candidates', 'Bearer fixture-token', { baseRevision, content: proposed.content, summary: proposed.summary }],
     ['POST', root + '/apply', 'Bearer fixture-token', { candidateId: candidate.id }],

@@ -62,15 +62,19 @@ function supervisor(failure?: string) {
   return { run, stages }
 }
 
-it('packs the private Skill-market Host before assembling the Desktop package set', async () => {
+it('packs the private Skill-market Host and subtitle tool before assembling the Desktop package set', async () => {
   const { run, stages } = supervisor()
   await packageTarget(parseDesktopPackageInvocation(['mac-arm64', '--unsigned'], 'darwin', 'arm64'), environment, run)
   const desktop = stages.findIndex(stage => stage.startsWith('--dir apps/desktop-host pack '))
   const market = stages.findIndex(stage => stage.startsWith('--dir packages/host/muse-market pack '))
+  const skills = stages.findIndex(stage => stage.startsWith('--dir packages/drama/skills pack '))
+  const subtitles = stages.findIndex(stage => stage.startsWith('--dir packages/drama/tool-episode-subtitles pack '))
   const packages = stages.findIndex(stage => stage.startsWith('run prepare:packages'))
   expect(desktop).toBeGreaterThanOrEqual(0)
   expect(market).toBeGreaterThan(desktop)
-  expect(packages).toBeGreaterThan(market)
+  expect(skills).toBeGreaterThan(market)
+  expect(subtitles).toBeGreaterThan(skills)
+  expect(packages).toBeGreaterThan(subtitles)
 })
 
 it.each(['pack', 'runtime'] as const)('overlaps Windows preparation and waits for both before signing when %s finishes first', async (first) => {

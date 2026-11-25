@@ -11,8 +11,8 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { isRecord, WorkbenchHttpError } from '@deepseek-ai/dsh-workbench-connection'
-import type { WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { WorkbenchHttpError, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { isRecord } from '@deepseek-ai/dsh-workbench-connection/transport'
 import { mediaUrl } from './http.ts'
 
 // The studio answers at most this many addresses per resolve request.

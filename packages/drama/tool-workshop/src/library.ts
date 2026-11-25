@@ -8,7 +8,8 @@ import { HarnessError } from '@deepseek-ai/dsh-error'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { defineTool, ToolArgsError, type ToolDefinition, type ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { scriptDetail, scriptOf, type ScriptEpisode, type WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import type { ScriptEpisode, WorkbenchSession } from '@deepseek-ai/dsh-workbench-connection'
+import { scriptDetail, scriptOf } from '@deepseek-ai/dsh-workbench-connection/scripts'
 import type { Fields } from './finalize.ts'
 
 /** Workspace folder that holds scripts read from the library. */

@@ -89,13 +89,15 @@ export function attachPunctuation(text: string, words: readonly { readonly text:
     if (at < 0) return words.map(row => row.text)
     const between = text.slice(cursor, at)
     if (CONTENT.test(between)) return words.map(row => row.text)
-    if (index > 0) out[index - 1] += between
+    const previous = out[index - 1]
+    if (previous !== undefined) out[index - 1] = previous + between
     out[index] = token
     cursor = at + token.length
   }
   const rest = text.slice(cursor)
   if (CONTENT.test(rest)) return words.map(row => row.text)
-  if (out.length > 0) out[out.length - 1] += rest
+  const last = out.at(-1)
+  if (last !== undefined) out[out.length - 1] = last + rest
   return out
 }
 

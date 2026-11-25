@@ -17,7 +17,8 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { HarnessError } from '@deepseek-ai/dsh-error'
-import { mediaPath, type JingliuSession, type LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
+import type { JingliuSession, LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
+import { mediaPath } from '@deepseek-ai/dsh-jingliu-connection/media'
 import { existingSubmission, missingRoute, submitOnce } from '@deepseek-ai/dsh-tool-jingliu/library'
 import { episodeNumberOf, type ResolvedShot } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
 import type { BlockedEpisode, BlockReason, DecisionAction, EpisodeFiles, EpisodeSource, RemoteSubtitles, ResolvedEpisode,
@@ -31,7 +32,7 @@ import type { BlockedEpisode, BlockReason, DecisionAction, EpisodeFiles, Episode
  */
 export function unavailableJingliuSource(root: string, project: string): EpisodeSource {
   return { kind: 'jingliu', root, clockReview: false, filesPattern: filesPattern(project),
-    resolve: async episodes => episodes.map(episode => ({ kind: 'blocked', episode, reason: 'jingliu_outdated', shots: [] })) }
+    resolve: episodes => Promise.resolve(episodes.map(episode => ({ kind: 'blocked', episode, reason: 'jingliu_outdated', shots: [] }))) }
 }
 
 function filesPattern(project: string): string {
@@ -88,7 +89,7 @@ function planShot(value: unknown): PlanShot {
   if (speed <= 0) throw invalidPlan()
   return { shotId: value.shot_id, order: value.order as number, videoPath: value.video_path ? mediaPath(value.video_path).path : null,
     etag: typeof value.video_etag === 'string' ? value.video_etag : '', clipInSec: finite(value.clip_in_sec, 0),
-    clipDurSec: finite(value.clip_dur_sec, 0), speed, outputSec: finite(value.output_sec, 0), lines: value.lines as string[],
+    clipDurSec: finite(value.clip_dur_sec, 0), speed, outputSec: finite(value.output_sec, 0), lines: value.lines,
     // A server that does not count legacy rows reports them only as `unverified`; treat that as legacy rows.
     remote: { status: status as RemoteSubtitles['status'], legacy: typeof legacy === 'number' ? legacy : status === 'unverified' ? 1 : 0 } }
 }
