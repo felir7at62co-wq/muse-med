@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { changedShots, readSubtitleClockReceipt, subtitleClockRows, type SubtitleClockReceiptV2 } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
+import * as Runner from '@deepseek-ai/dsh-tool-audio-transcribe/runner'
 import { readDecisions, readReview } from '../src/build.ts'
 import { HashCache } from '../src/hash-cache.ts'
 import { localSource } from '../src/shots.ts'
@@ -67,6 +68,33 @@ it('refuses an incomplete correction response before publishing an episode', asy
     await expect(build()).resolves.toMatchObject({ status: 'ready' })
     expect(g.submits).toHaveLength(1)
   } finally { run.mockRestore() }
+})
+
+it('reports blocked recognition for all affected shots and leaves the episode unpublished', async () => {
+  const { build, rules, srt } = await setup(2)
+  const start = vi.spyOn(Runner, 'startAudioTranscriptionBatch').mockImplementation(async (_root, inputs) => ({
+    items: inputs.map(input => ({ input, status: 'failed', receipt: 'failed-pack', job_id: 'failed-job' })),
+  }))
+  try {
+    expect(await build()).toMatchObject({ status: 'blocked', blocked: [{ episode: 1, reason: 'asr_failed', shots: [1, 2] }] })
+    expect(await build()).toMatchObject({ status: 'blocked', blocked: [{ episode: 1, reason: 'asr_failed', shots: [1, 2] }] })
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(rules.calls).toEqual([])
+    await expect(readFile(srt)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally { start.mockRestore() }
+})
+
+it('reports the transcription service retry delay while the episode waits', async () => {
+  const { build, rules, srt } = await setup(1)
+  const start = vi.spyOn(Runner, 'startAudioTranscriptionBatch').mockImplementation(async (_root, inputs) => ({
+    items: inputs.map(input => ({ input, status: 'processing', receipt: 'queued-pack', job_id: 'queued-job',
+      error_code: 'queue_full', retry_after_seconds: 7 })),
+  }))
+  try {
+    expect(await build()).toMatchObject({ status: 'waiting', waiting: [1], asr: { pending_packs: 1, retry_after: 7 } })
+    expect(rules.calls).toEqual([])
+    await expect(readFile(srt)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally { start.mockRestore() }
 })
 
 it('keeps manual subtitle bytes and an invalid receipt next to a fresh measured subtitle', async () => {
