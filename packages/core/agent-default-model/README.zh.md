@@ -43,7 +43,7 @@ kind: "package-reference"
 | `provider` | 必填 | 新 agent 使用的已注册提供方路由 |
 | `model` | 必填 | 新 agent 使用的、由提供方持有的模型 id |
 
-生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-default-model) 列出所有接受的字段。`reasoningEffort` 是可选的；保存不含此字段的选择，会从 profile 的完整配置覆盖中移除此字段。
+生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-agent-default-model)列出所有接受的字段。保存不含 `reasoningEffort` 的选择时，从 profile 的配置覆盖中移除该字段。可选的 `appliedDefaultRevision` 记录该 profile 已应用的部署版本。手动更改模型时保留该版本。
 
 ### 读取与更改默认值
 

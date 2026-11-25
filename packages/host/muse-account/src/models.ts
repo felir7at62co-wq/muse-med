@@ -135,6 +135,7 @@ export interface MuseModelsOptions {
   readonly excludedProviderIds?: readonly string[]
   readonly hiddenProviderIds?: readonly string[]
   readonly visibleModels?: readonly { providerId: string; modelId: string }[]
+  readonly defaultModelRollout?: { readonly revision: string; readonly providerId: string; readonly modelId: string }
   /** Base64 image-byte budget resolved by the provider adapter; omission keeps its default. */
   readonly modelRequestImageMaxBytes?: number
   /** Provider retry policy given to every account route; omission keeps the adapter default. */
@@ -562,29 +563,49 @@ export class MuseModels {
       .some(item => provider === `muse-cloud-${item.providerId}` && item.modelId === model)
   }
 
+  private async isCurrentSession(revision: string): Promise<boolean> {
+    const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+    return !this.isStopped() && current?.revision === revision
+  }
+
   private async selectInitialDefault(providers: Record<string, PiAiProviderProfile>, revision: string): Promise<void> {
     const settings = this.ctx.get('settings')
     const section = settings?.describe().find(row => String(row.ns) === 'agent-default-model')
     if (!settings || !section) return
-    const user = section.user as { provider?: string; model?: string }
+    const user = section.user as { provider?: string; model?: string; appliedDefaultRevision?: string }
     const selectable: Record<string, PiAiProviderProfile> = {}
     for (const [provider, profile] of Object.entries(providers)) {
       const models = profile.models?.filter(model => this.modelSelectable(provider, model.id))
       if (this.providerSelectable(provider) && models?.length) selectable[provider] = { ...profile, models }
     }
-    const matchingCloud = user.provider ? `muse-cloud-${user.provider}` : undefined
-    if (user.provider && !user.provider.startsWith('muse-cloud-')
-      && (!matchingCloud || !selectable[matchingCloud] || !await this.directRouteMissingCredential(user.provider))) return
-    if (user.provider && selectable[user.provider]?.models?.some(model => model.id === user.model)) return
-    const first = matchingCloud && selectable[matchingCloud]
-      ? [matchingCloud, selectable[matchingCloud]] as const
-      : Object.entries(selectable).find(([provider]) => !this.providerHidden(provider)) ?? Object.entries(selectable)[0]
-    const model = first?.[1].models?.find(model => model.id === user.model) ?? first?.[1].models?.[0]
-    const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
-    if (this.stop.signal.aborted || current?.revision !== revision) return
-    if (first && model) {
-      try { await settings.replace('agent-default-model', { provider: first[0], model: model.id }, section.revision) }
-      catch (error) { if (!(error instanceof SettingsConflictError)) throw error }
+    const rollout = this.options.defaultModelRollout
+    const target = rollout && { provider: `muse-cloud-${rollout.providerId}`, model: rollout.modelId, appliedDefaultRevision: rollout.revision }
+    const applyRollout = target && user.appliedDefaultRevision !== target.appliedDefaultRevision
+      && selectable[target.provider]?.models?.some(model => model.id === target.model)
+    let next: { provider: string; model: string; appliedDefaultRevision?: string }
+    if (applyRollout) {
+      next = target
+    } else {
+      const matchingCloud = user.provider ? `muse-cloud-${user.provider}` : undefined
+      if (user.provider && !user.provider.startsWith('muse-cloud-')
+        && (!matchingCloud || !selectable[matchingCloud] || !await this.directRouteMissingCredential(user.provider))) return
+      if (user.provider && selectable[user.provider]?.models?.some(model => model.id === user.model)) return
+      const first = matchingCloud && selectable[matchingCloud]
+        ? [matchingCloud, selectable[matchingCloud]] as const
+        : Object.entries(selectable).find(([provider]) => !this.providerHidden(provider)) ?? Object.entries(selectable)[0]
+      const model = first?.[1].models?.find(model => model.id === user.model) ?? first?.[1].models?.[0]
+      if (!first || !model) return
+      next = { provider: first[0], model: model.id,
+        ...(user.appliedDefaultRevision === undefined ? {} : { appliedDefaultRevision: user.appliedDefaultRevision }) }
+    }
+    if (!await this.isCurrentSession(revision)) return
+    try { await settings.replace('agent-default-model', next, section.revision) }
+    catch (error) {
+      if (!(error instanceof SettingsConflictError)) throw error
+      if (applyRollout && await this.isCurrentSession(revision)) {
+        // A concurrent explicit choice wins. Retain it when this profile restarts.
+        await settings.update('agent-default-model', { appliedDefaultRevision: target.appliedDefaultRevision })
+      }
     }
   }
 }

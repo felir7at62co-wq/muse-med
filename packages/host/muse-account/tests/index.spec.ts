@@ -102,6 +102,16 @@ it('defaults account provider filters to empty lists and rejects malformed IDs b
   }
 })
 
+it('accepts the optional rollout only with a complete deployment revision and exact route', () => {
+  expect(Config({ baseUrl }).defaultModelRollout).toBeUndefined()
+  const defaultModelRollout = { revision: 'jubian-flash-v1', providerId: 'jubian', modelId: 'deepseek-v4-flash' }
+  expect(Config({ baseUrl, defaultModelRollout }).defaultModelRollout).toEqual(defaultModelRollout)
+  expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, defaultModelRollout: { ...defaultModelRollout, modelId: '' } }]) }).toThrow()
+  expect(() => {
+    Reflect.apply(Config, undefined, [{ baseUrl, defaultModelRollout: { providerId: 'jubian', modelId: 'deepseek-v4-flash' } }])
+  }).toThrow()
+})
+
 it('rejects invalid model image budgets before activation', () => {
   expect(Config({ baseUrl }).modelRequestImageMaxBytes).toBeUndefined()
   expect(Config({ baseUrl, modelRequestImageMaxBytes: 1048576 }).modelRequestImageMaxBytes).toBe(1048576)
@@ -142,6 +152,21 @@ it('applies the configured retry policy to account model routes', async () => {
   await account(ctx).status({})
   expect(ctx.llm.providerRetryPolicy('muse-cloud-studio'))
     .toMatchObject({ mode: 'normal', maxRetries: 8, initialDelayMs: 2000, maxDelayMs: 60000, jitterRatio: 0.1 })
+})
+
+it('switches the default through the account entry point while retaining a saved session model', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-default-rollout-')); homes.push(home)
+  const { ctx, agent, initialSelection } = await oldSessionFixture(true, home)
+  await writeMuseSession(join(home, 'session.json'), { baseUrl, username: 'alice', cookie: '__Host-muse=rollout-session' })
+  await ctx.agentDefaultModel.saveSelection(initialSelection)
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => Response.json(catalog)))
+
+  await apply(ctx, Config({ baseUrl, accountHome: home,
+    defaultModelRollout: { revision: 'studio-writer-v1', providerId: 'studio', modelId: 'writer' } }))
+  await account(ctx).status({})
+
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'muse-cloud-studio', model: 'writer' })
+  expect(agent.model.current()).toEqual(initialSelection)
 })
 
 it('keeps company media opt-in and validates its destination and resource limits', async () => {

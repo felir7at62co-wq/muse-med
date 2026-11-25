@@ -979,6 +979,106 @@ it('preserves a configured Muse default that is still advertised', async () => {
   expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'muse-cloud-studio', model: 'writer' })
 })
 
+const defaultModelRollout = { revision: 'jubian-deepseek-v4-flash-v1', providerId: 'jubian', modelId: 'deepseek-v4-flash' }
+const jubianCatalogue = { ...catalog.providers[0]!, id: 'jubian', name: '剧变', models: [
+  { ...catalog.providers[0]!.models[0]!, id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+  { ...catalog.providers[0]!.models[0]!, id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+] }
+
+it.each([false, true])('applies the exact deployment default on a new profile or over a saved default (%s)', async (saved) => {
+  const desktopRow = loadOverlayPatches('muse-rollout-test', fileURLToPath(new URL(
+    '../../../../apps/desktop-host/config/desktop.cordis.patch.yml', import.meta.url,
+  ))).flatMap(patch => patch.insert ?? []).find(row => row.id === 'muse-account')
+  expect(desktopRow?.config).toMatchObject({ defaultModelRollout })
+  const fixture = await directProviderFixture(false)
+  if (saved) await fixture.ctx.settings.replace('agent-default-model', { provider: 'personal', model: 'private-model' })
+  await login()
+  const options = { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, defaultModelRollout,
+    fetcher: async () => Response.json({ providers: [...catalog.providers, jubianCatalogue] }) }
+  models = new MuseModels(fixture.ctx, options)
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'muse-cloud-jubian', model: 'deepseek-v4-flash' })
+  const savedRevision = () => fixture.ctx.settings.describe().find(row => row.ns === 'agent-default-model')?.user
+  expect(savedRevision()).toMatchObject({ appliedDefaultRevision: defaultModelRollout.revision })
+
+  await fixture.ctx.agentDefaultModel.saveSelection({ provider: 'personal', model: 'private-model' })
+  await models.dispose()
+  models = new MuseModels(fixture.ctx, options)
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'personal', model: 'private-model' })
+  expect(savedRevision()).toMatchObject({ appliedDefaultRevision: defaultModelRollout.revision })
+})
+
+it('waits for the target route and keeps its applied revision when the default later becomes unavailable', async () => {
+  const fixture = await directProviderFixture(false)
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'muse-cloud-studio', model: 'writer' })
+  await login()
+  let available = false
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, defaultModelRollout,
+    fetcher: async () => Response.json({ providers: available ? [...catalog.providers, jubianCatalogue] : catalog.providers }) })
+  const savedDefault = () => fixture.ctx.settings.describe().find(row => row.ns === 'agent-default-model')?.user
+
+  await models.refresh()
+  expect(savedDefault()).toMatchObject({ provider: 'muse-cloud-studio', model: 'writer' })
+  expect(savedDefault()).not.toHaveProperty('appliedDefaultRevision')
+
+  available = true
+  await models.refresh()
+  expect(savedDefault()).toMatchObject({ provider: 'muse-cloud-jubian', model: 'deepseek-v4-flash',
+    appliedDefaultRevision: defaultModelRollout.revision })
+
+  available = false
+  await models.refresh()
+  available = true
+  await models.refresh()
+  expect(savedDefault()).toMatchObject({ provider: 'muse-cloud-studio', model: 'writer',
+    appliedDefaultRevision: defaultModelRollout.revision })
+})
+
+it('keeps a model chosen during the rollout after a restart', async () => {
+  const fixture = await directProviderFixture(false)
+  await login()
+  const choice = { provider: 'personal', model: 'private-model' }
+  const replace = fixture.ctx.settings.replace.bind(fixture.ctx.settings)
+  vi.spyOn(fixture.ctx.settings, 'replace').mockImplementationOnce(async (ns, section, expectedRevision) => {
+    await fixture.ctx.agentDefaultModel.saveSelection(choice)
+    await replace(ns, section, expectedRevision)
+  })
+  const options = { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, defaultModelRollout,
+    fetcher: async () => Response.json({ providers: [...catalog.providers, jubianCatalogue] }) }
+  models = new MuseModels(fixture.ctx, options)
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(choice)
+  await models.dispose()
+  models = new MuseModels(fixture.ctx, options)
+  await models.refresh()
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(choice)
+})
+
+it.each(['account changes', 'service stops'] as const)('leaves a conflicted rollout pending when the %s', async (interruption) => {
+  const fixture = await directProviderFixture(false)
+  await login()
+  const choice = { provider: 'personal', model: 'private-model' }
+  const options = { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, defaultModelRollout,
+    fetcher: async () => Response.json({ providers: [...catalog.providers, jubianCatalogue] }) }
+  const subject = new MuseModels(fixture.ctx, options)
+  models = subject
+  let stopped: Promise<void> | undefined
+  const replace = fixture.ctx.settings.replace.bind(fixture.ctx.settings)
+  vi.spyOn(fixture.ctx.settings, 'replace').mockImplementationOnce(async (ns, section, expectedRevision) => {
+    await fixture.ctx.agentDefaultModel.saveSelection(choice)
+    if (interruption === 'account changes') await login('bob')
+    else stopped = subject.dispose()
+    await replace(ns, section, expectedRevision)
+  })
+
+  await subject.refresh()
+  await stopped
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(choice)
+  expect(fixture.ctx.settings.describe().find(row => row.ns === 'agent-default-model')?.user)
+    .not.toHaveProperty('appliedDefaultRevision')
+})
+
 it('moves a hidden Muse default to the first selectable account provider', async () => {
   const fixture = await directProviderFixture(false)
   await fixture.ctx.settings.replace('agent-default-model', { provider: 'muse-cloud-yunying', model: 'gpt-6-sol' })

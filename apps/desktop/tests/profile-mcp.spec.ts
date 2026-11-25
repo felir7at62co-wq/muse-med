@@ -115,6 +115,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
         excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
         visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' },
           { providerId: 'yunying', modelId: 'gpt-6.1-sol' }], requestTimeoutMs: 60000,
+        defaultModelRollout: { revision: 'jubian-deepseek-v4-flash-v1', providerId: 'jubian', modelId: 'deepseek-v4-flash' },
         modelRetryPolicy: { mode: 'normal', maxRetries: 8, backoff: { initialDelayMs: 2000, maxDelayMs: 60000 },
           consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 },
           retryableCodes: ['EMPTY_RESPONSE', 'INVALID_TOOL_ARGUMENTS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'PROMPT_USAGE_SHORTFALL'] },

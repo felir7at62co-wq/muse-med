@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/muse-jubian-chat-default/guide.md
+/:
+  en: f0622e7eadc864f4
+  zh: 6ecd3f98dd2d694b
+/muse-desktop-chat-default-uses-jubian:
+  en: ed443eeaa4f4a840
+  zh: 6ac67642a32edb06
+/muse-desktop-chat-default-uses-jubian/change:
+  en: 2a46edb84decdb2c
+  zh: f0f83ea8461b1797
+/muse-desktop-chat-default-uses-jubian/migration:
+  en: e7953d2cc76efa8f
+  zh: 4c13e3a395d1f6a9

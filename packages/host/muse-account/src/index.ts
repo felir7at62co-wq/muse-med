@@ -72,6 +72,15 @@ export interface Config {
     /** Exact model ID selectable only for the specified provider. */
     modelId: string
   }[]
+  /** One deployment revision of the new-session default, applied when its exact account route is selectable. */
+  readonly defaultModelRollout?: {
+    /** Deployment revision recorded with the new default so later manual choices are retained. */
+    readonly revision: string
+    /** Exact provider ID in the account gateway catalog. */
+    readonly providerId: string
+    /** Exact model ID within the configured provider. */
+    readonly modelId: string
+  }
   /** Product-private account directory; omission selects the active DSH home. */
   readonly accountHome?: string
   /** Timeout for account gateway requests in milliseconds. */
@@ -167,6 +176,11 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
     providerId: Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/).required(),
     modelId: Schema.string().min(1).max(200).required(),
   })).default([]),
+  defaultModelRollout: Schema.union([Schema.object({
+    revision: Schema.string().pattern(/^[a-z0-9][a-z0-9-]{0,63}$/).required(),
+    providerId: Schema.string().pattern(/^[a-z][a-z0-9-]{0,63}$/).required(),
+    modelId: Schema.string().min(1).max(200).required(),
+  })]),
   accountHome: Schema.string(),
   requestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(15_000),
   webSearch: Schema.boolean().default(false),
@@ -261,6 +275,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,
     excludedProviderIds: config.excludedProviderIds, hiddenProviderIds: config.hiddenProviderIds,
     visibleModels: config.visibleModels,
+    ...(config.defaultModelRollout === undefined ? {} : { defaultModelRollout: config.defaultModelRollout }),
     ...(config.modelRequestImageMaxBytes === undefined ? {} : { modelRequestImageMaxBytes: config.modelRequestImageMaxBytes }),
     ...(config.modelRetryPolicy === undefined ? {} : { modelRetryPolicy: config.modelRetryPolicy }) })
   let remote: MuseDesktopRemote | undefined
