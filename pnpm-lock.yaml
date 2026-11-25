@@ -1551,6 +1551,9 @@ importers:
       http-server:
         specifier: ^14.1.1
         version: 14.1.1(debug@4.4.3(supports-color@9.4.0))(supports-color@9.4.0)
+      open-bot-avatar:
+        specifier: 0.3.1
+        version: 0.3.1
       playwright:
         specifier: ^1.49.0
         version: 1.61.1
@@ -28167,6 +28170,9 @@ packages:
   oniguruma-to-es@4.3.6:
     resolution: {integrity: sha512-csuQ9x3Yr0cEIs/Zgx/OEt9iBw9vqIunAPQkx19R/fiMq2oGVTgcMqO/V3Ybqefr1TBvosI6jU539ksaBULJyA==}
 
+  open-bot-avatar@0.3.1:
+    resolution: {integrity: sha512-TvX876wtLlmMCGY7d0Mo98Mn7pSIJAZ4swy5NhFcgyI0oMzZX0zuo8p+BedIop+yEOPLZbWZONusu4zh8C43kQ==}
+
   open@11.0.4:
     resolution: {integrity: sha512-++Zlftm0kVLPmzC06t6epuWmcRMDbI4z5P3NNX979WA/k23+NtSOynEGzsVfZwguKw2mi5umVgnBlJQMwRz4Pg==}
     engines: {node: '>=20'}
@@ -36374,6 +36380,8 @@ snapshots:
       oniguruma-parser: 0.12.2
       regex: 6.1.0
       regex-recursion: 6.0.2
+
+  open-bot-avatar@0.3.1: {}
 
   open@11.0.4:
     dependencies:

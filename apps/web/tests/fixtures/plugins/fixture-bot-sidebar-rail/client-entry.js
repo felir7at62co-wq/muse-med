@@ -1,9 +1,11 @@
 /** Real Bot sidebar and CSS, with only its roster and row operations replaced by local data. */
-import { createElement as h, useState } from 'react'
+import { createElement as h, useState, useSyncExternalStore } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { TeamSidebar, SIDEBAR_CSS } from '../../../../../../third_party/plugins/ds-bot/src/client/sidebar.js'
-import { SHELL_CSS } from '../../../../../../third_party/plugins/ds-bot/src/client/styles.js'
-import { listedOpener } from '../../../../../../third_party/plugins/ds-bot/src/client/open-listed.js'
+import { installCompiledStyles, SHELL_CSS } from '../../../../../../third_party/plugins/ds-bot/src/client/styles.js'
+import { FALLBACK_SIDEBAR_WIDTH, toggledPref } from '../../../../../../third_party/plugins/ds-bot/src/client/frame-layout.js'
+import { installFrameWatch } from '../../../../../../third_party/plugins/ds-bot/src/client/frame-watch.js'
+import { createSource } from '../../../../../../third_party/plugins/ds-bot/src/client/sources.js'
 
 export const inject = ['slots', 'layout', 'locale']
 
@@ -16,16 +18,28 @@ export function apply(ctx) {
   const roster = { bots, rooms: [], agents: [], byId: Object.fromEntries(bots.map(bot => [bot.id, bot])),
     roomsById: {}, agentOf: {}, mainBotId: 'chief', mainBotIds: ['chief'], ready: true, exchangeTurns: {} }
   const sessions = { ids: [], byId: {} }
+  const frame = createSource({ viewport: window.innerWidth, sidebarWidth: FALLBACK_SIDEBAR_WIDTH, collapsedWidth: 0, collapsed: false })
+  const sidebarPref = createSource('open')
+  const ui = createSource({ unread: {}, leftDrawer: false })
+  let shown = 'open'
+  const useSource = (source, select) => select(useSyncExternalStore(source.subscribe, source.getSnapshot))
   const noStatus = new Map()
   const note = (id) => { document.documentElement.dataset.fixtureBotSelected = id }
-  const landing = listedOpener({ list: { getSnapshot: () => sessions, subscribe: () => () => {} }, open: note })
-  const actions = { toggleSidebar: () => ctx.layout.toggleSidebar(), openSession: (id) => { landing.cancel(); note(id) },
-    prepareLanding: () => landing.guard(),
+  const actions = { toggleSidebar: () => ctx.layout.toggleSidebar(), openSession: note,
+    setSidebarPref: (pref) => { if (pref !== 'hidden') shown = pref; sidebarPref.set(pref) },
+    setSidebarWidth: (sidebarWidth) => frame.set(state => ({ ...state, sidebarWidth })),
+    setLeftDrawer: (leftDrawer) => ui.set(state => ({ ...state, leftDrawer })),
+    setPanelYield() {},
+    toggleLeftHidden: () => {
+      actions.setLeftDrawer(false)
+      actions.setSidebarPref(toggledPref(sidebarPref.getSnapshot(), shown))
+    },
     openPalette: () => note('search'), openSettings: () => note('settings'), openNewChat: () => note('new'),
-    prepareLanding: () => () => true, clearUnread() {}, landOn() {}, openMenu() {} }
+    clearUnread() {}, landOn() {}, openMenu() {} }
   function Sidebar(props) {
     return h(TeamSidebar, { ...props, actions,
-      useRoster: select => select(roster), useUi: select => select({ unread: {} }),
+      useRoster: select => select(roster), useUi: select => useSource(ui, select),
+      useFrame: select => useSource(frame, select), useSidebarPref: select => useSource(sidebarPref, select),
       useRegistry: select => select({}), useSessions: select => select(sessions),
       useSessionStatus: select => select(noStatus), useSessionRetainInfo: (_id, select) => select(undefined),
       useActivity: select => select({}), useWork: select => select({ approvals: [], rooms: {}, waiting: {} }),
@@ -34,22 +48,15 @@ export function apply(ctx) {
   }
   let releaseShell
   const activate = () => {
-    const releaseRail = ctx.layout.retainSidebarRail()
-    const style = document.createElement('style')
-    style.dataset.plugin = '@fixture/bot-sidebar-rail'
-    // The current workspace seat is a max-content grid row; its occupant owns
-    // the bounded viewport used for scrolling its rows.
-    style.textContent = SHELL_CSS + SIDEBAR_CSS + '.bt-side:not(.bt-rail){height:100cqh;flex:none;box-sizing:border-box}'
-    document.head.append(style)
+    const releaseRail = ctx.layout.hideSidebarRail()
+    const stopWatching = installFrameWatch(frame)
+    const removeShell = installCompiledStyles(SHELL_CSS, 'fixture-bot-rail-shell')
+    const removeSidebar = installCompiledStyles(SIDEBAR_CSS, 'fixture-bot-rail-sidebar')
     const releaseSlot = ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register({
       name: 'sidebar.workspaces', priority: -100,
     }, Sidebar))
     releaseShell = () => {
-      const prior = landing.guard()
-      document.documentElement.dataset.fixtureLandingBeforeRelease = String(prior())
-      landing.cancel()
-      document.documentElement.dataset.fixtureLandingAfterRelease = String(prior())
-      releaseSlot(); style.remove(); releaseRail()
+      releaseSlot(); stopWatching(); removeSidebar(); removeShell(); releaseRail()
     }
   }
   function Controls({ t }) {
