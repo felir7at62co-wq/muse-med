@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it, onTestFinished } from 'vitest'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../scripts/coverage-partitions.ts'
 
 const source = fileURLToPath(new URL('./windows-installer-smoke.ps1', import.meta.url))
 
@@ -117,9 +118,10 @@ ConvertTo-Json -InputObject $results -Compress -Depth 4
 `)
   const systemRoot = process.env.SystemRoot
   if (systemRoot === undefined) throw new Error('Windows SystemRoot is unavailable')
+  const timeout = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 10_000
   const result = spawnSync(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe],
-    { encoding: 'utf8', windowsHide: true, timeout: 10_000 })
+    { encoding: 'utf8', windowsHide: true, timeout })
   expect(result.error).toBeUndefined()
   expect(result.signal).toBeNull()
   expect(result.status, result.stderr).toBe(0)

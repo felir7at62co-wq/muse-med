@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../../scripts/coverage-partitions.ts'
 import { inspectRemoval, removeCheckout } from '../src/removal.ts'
 import type { GitCommands, GitRead, GitScan } from '../src/removal.ts'
 import type { RestoreWorktreeRequest } from '../src/types.ts'
@@ -42,7 +43,9 @@ async function fixture() {
 }
 
 describe('safe worktree removal', () => {
-  it('removes a clean checkout, preserves local commits and restores the retained branch', { timeout: 15_000 }, async () => {
+  const timeout = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 15_000
+
+  it('removes a clean checkout, preserves local commits and restores the retained branch', { timeout }, async () => {
     const { ctx, agent, worktree, root } = await fixture()
     await writeFile(join(worktree.path, 'local.txt'), 'not pushed\n')
     await git(worktree.path, 'add', 'local.txt')

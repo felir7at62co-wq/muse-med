@@ -108,6 +108,7 @@ function wordsWithPunctuation<T extends { readonly text: string }>(text: string,
 
 /** Words and flags that one pack's recognition assigns to one member. */
 export interface MemberWords {
+  readonly member: PackMember
   readonly words: TimedWord[]
   readonly flags: TranscriptFlag[]
 }
@@ -116,12 +117,13 @@ export interface MemberWords {
  * Split a pack's recognized segments back to its members in member-local seconds.
  * @param segments - Recognition of the whole pack, in pack seconds.
  * @param pack - The pack the recognition belongs to.
- * @returns Words and boundary flags per member audio digest.
+ * @returns Member timing, words and boundary flags for every audio digest, including members with no recognized words.
  */
 export function splitPack(segments: readonly MuseAsrSegment[], pack: Pick<PackPlan, 'members' | 'rate'>): Map<string, MemberWords> {
   const out = new Map<string, MemberWords>()
   const spans = pack.members.map((member) => {
-    const target: MemberWords = out.get(member.audio_sha256) ?? { words: [], flags: [] }
+    const previous = out.get(member.audio_sha256)
+    const target: MemberWords = { member, words: previous?.words ?? [], flags: previous?.flags ?? [] }
     out.set(member.audio_sha256, target)
     return { target, start: member.offset_samples / pack.rate, end: (member.offset_samples + member.samples) / pack.rate }
   })

@@ -20,10 +20,11 @@ it('assigns words by midpoint, flags gap and crossing words, and keeps segment t
       { start: 2.9, end: 3.1, text: '回' }, { start: 3.0, end: 3.2, text: '来了' }] },
     { start: 3.6, end: 5.5, text: '没有字词时间的一整段' },
   ], pack!)
-  expect(split.get('a')).toEqual({ words: [{ start: 0.5, end: 0.9, text: '你', seg: 0 }, { start: 1, end: 1.4, text: '好，', seg: 0 },
-    { start: 2.9, end: 3, text: '回', seg: 0 }, { start: 3, end: 3, text: '来了', seg: 0 }],
-  flags: [{ kind: 'boundary', start: 2.9, end: 3 }, { kind: 'boundary', start: 3, end: 3 }] })
-  expect(split.get('b')).toEqual({ words: [{ start: 0.1, end: 2, text: '没有字词时间的一整段', seg: 1 }], flags: [] })
+  expect(split.get('a')).toEqual({ member: pack?.members[0],
+    words: [{ start: 0.5, end: 0.9, text: '你', seg: 0 }, { start: 1, end: 1.4, text: '好，', seg: 0 },
+      { start: 2.9, end: 3, text: '回', seg: 0 }, { start: 3, end: 3, text: '来了', seg: 0 }],
+    flags: [{ kind: 'boundary', start: 2.9, end: 3 }, { kind: 'boundary', start: 3, end: 3 }] })
+  expect(split.get('b')).toEqual({ member: pack?.members[1], words: [{ start: 0.1, end: 2, text: '没有字词时间的一整段', seg: 1 }], flags: [] })
 })
 
 it('attaches following punctuation and spaces to the preceding word and refuses mismatched text', () => {
@@ -43,8 +44,8 @@ it('preserves speaker labels and uses measured segment timing when the words lis
     { start: 3.9, end: 4.12345678, text: '这句只有分段时间', words: [], speaker_id: 'speaker-1' },
     { start: 6.8, end: 7.1, text: '尾音', speaker_id: 'speaker-2' },
   ], pack!)
-  expect(split.get('a')).toEqual({ words: [], flags: [] })
-  expect(split.get('b')).toEqual({ words: [
+  expect(split.get('a')).toEqual({ member: pack?.members[0], words: [], flags: [] })
+  expect(split.get('b')).toEqual({ member: pack?.members[1], words: [
     { start: 0.4, end: 0.623457, text: '这句只有分段时间', seg: 1, speaker_id: 'speaker-1' },
     { start: 3, end: 3, text: '尾音', seg: 2, speaker_id: 'speaker-2' },
   ], flags: [{ kind: 'boundary', start: 3, end: 3 }] })
@@ -56,7 +57,7 @@ it('combines repeated source audio using the local clock of each occurrence', ()
   const sameAudio = { audio_sha256: 'repeated', samples: 100 }
   const result = splitPack([{ start: 0.2, end: 0.4, text: '第一处' }, { start: 1.6, end: 1.9, text: '第二处' }],
     { rate: 100, members: [{ ...sameAudio, offset_samples: 0 }, { ...sameAudio, offset_samples: 150 }] })
-  expect([...result]).toEqual([['repeated', { words: [
+  expect([...result]).toEqual([['repeated', { member: { ...sameAudio, offset_samples: 150 }, words: [
     { start: 0.2, end: 0.4, text: '第一处', seg: 0 }, { start: 0.1, end: 0.4, text: '第二处', seg: 1 },
   ], flags: [] }]])
 })

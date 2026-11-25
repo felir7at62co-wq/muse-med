@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { JingliuHttpError, type JingliuSession, type LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
@@ -97,7 +97,9 @@ const segments = (shots: readonly unknown[], refused: readonly unknown[] = []) =
 it.each([
   { name: 'an invalid job status', job: { status: null } },
   { name: 'unreadable stored JSON', job: { status: 'done', result: '{' } },
+  { name: 'a refused row without a shot ID', job: { status: 'done', result: segments([], [null]) } },
   { name: 'an unexpected refused shot', job: { status: 'done', result: segments([], [{ shot_id: 'another-shot' }]) } },
+  { name: 'a written row without a shot ID', job: { status: 'done', result: segments([{ items: [] }]) } },
   { name: 'an unexpected written shot', job: { status: 'done', result: segments([{ shot_id: 'another-shot', items: [] }]) } },
   { name: 'a malformed review item', job: { status: 'done', result: segments([{ shot_id: 'shot-1', items: [null] }]) } },
 ])('rejects $name without treating the episode as stored', async ({ job }) => {
@@ -147,4 +149,30 @@ it('caps retries of a failed free subtitle job while preserving the original pro
   for (const [, options] of f.request.mock.calls.filter(([path]) => path === '/jobs')) {
     expect(options?.body).toMatchObject({ kind: 'auto_subtitles', payload: { project_id: 'film', episode: 1 } })
   }
+})
+
+it('keeps an unacknowledged subtitle job visible after its free retries are exhausted', async () => {
+  const f = await fixture()
+  const store = await publication(f.provider())
+  f.request.mockImplementation(async (route) => {
+    if (route === '/jobs') throw new Error('Connection closed before acknowledgement')
+    throw new Error(`Unexpected request: ${route}`)
+  })
+  for (let call = 0; call < 4; call++) {
+    await expect(store()).resolves.toEqual({ kind: 'blocked', reason: 'subtitle_job_unknown', shots: [1] })
+  }
+  expect(f.request.mock.calls.slice(1).map(([route]) => route)).toEqual(['/jobs', '/jobs', '/jobs'])
+})
+
+it('reports a conflicting receipt fingerprint without resubmitting the job', async () => {
+  const f = await fixture()
+  const store = await publication(f.provider())
+  f.request.mockResolvedValueOnce({ id: 'job-1' }).mockResolvedValueOnce({ status: 'running' })
+  await expect(store()).resolves.toEqual({ kind: 'waiting', changed: [] })
+  const jobs = join(f.root, 'subtitles', 'jobs')
+  const [fingerprint] = (await readdir(jobs)).filter(file => !file.endsWith('.json'))
+  expect(fingerprint).toBeDefined()
+  await writeFile(join(jobs, fingerprint!), 'a-different-request')
+  await expect(store()).rejects.toMatchObject({ code: 'JINGLIU_JOB_CONFLICT' })
+  expect(f.request.mock.calls.map(([route]) => route)).toEqual(['/projects/film/edit-plan', '/jobs', '/jobs/job-1'])
 })
