@@ -181,15 +181,18 @@ function ProjectForm(props: FormProps) {
   const { t, useResource, epoch, mode, projectId } = props
   const catalog = useResource<'jingliu-catalog'>(address('jingliu-catalog', epoch, 0))
   const config = useResource<'jingliu-config'>(mode === 'config' ? address('jingliu-config', epoch, 0, { id: projectId }) : 'studio://inactive')
-  const ready = catalog.value && (mode === 'new' || config.value)
+  const fields = mode === 'new' ? { mode, config: null } as const : config.value && { mode, config: config.value } as const
   return <Modal open title={mode === 'new' ? t('newProject') : t('projectConfig')} closeLabel={t('close')} onClose={props.onClose}>
     {catalog.status === 'failed' || config.status === 'failed' ? <Failure t={t} retry={props.onClose} />
-      : !ready ? <p className={css.quiet}>{t('loading')}</p>
-        : <FormFields {...props} catalog={catalog.value} config={config.value ?? null} />}
+      : !catalog.value || !fields ? <p className={css.quiet}>{t('loading')}</p>
+        : <FormFields {...props} {...fields} catalog={catalog.value} />}
   </Modal>
 }
 
-type FieldsProps = FormProps & { catalog: StudioCatalog; config: StudioConfig | null }
+type FieldsProps = Omit<FormProps, 'mode'> & { catalog: StudioCatalog } & (
+  | { mode: 'new'; config: null }
+  | { mode: 'config'; config: StudioConfig }
+)
 
 function FormFields(props: FieldsProps) {
   const { t, mode, sessionId, projectId, project, catalog, config, createProject, renameProject, saveOption, onClose, onDone } = props
@@ -211,9 +214,9 @@ function FormFields(props: FieldsProps) {
   const act = useAction()
   const submit = () => { void act.run(async () => {
     if (editing) {
-      const renamed = title.trim() !== (config?.title ?? '')
+      const renamed = title.trim() !== config.title
       if (renamed) await renameProject(projectId, title)
-      if (resolution !== (config?.resolution ?? '')) await saveOption(projectId, 'resolution', resolution)
+      if (resolution !== config.resolution) await saveOption(projectId, 'resolution', resolution)
       onDone(renamed ? { id: projectId, title: title.trim() } : null)
     } else {
       const input: StudioNewProject = { title, mode: modeKey, artStyle: style, aspect, resolution, videoModel, imageModel, generationMode }
@@ -282,12 +285,12 @@ function Workbench(props: BenchProps) {
       <button type="button" className={css.projectPill} aria-label={t('switchProjectLabel', { title })} onClick={() => { setCard('search') }}>
         <span className={css.letter} aria-hidden="true">{firstLetter(title)}</span><strong>{title}</strong><IconChevronDownOutlineRegular size={14} />
       </button>
-      <button type="button" className={css.round} aria-label={t('newProject')} title={t('newProject')} aria-pressed={card === 'new'} onClick={() => { setCard(card === 'new' ? null : 'new') }}><IconPlusOutlineRegular size={18} /></button>
+      <button type="button" className={css.round} aria-label={t('newProject')} title={t('newProject')} aria-pressed={card === 'new'} onClick={() => { setCard('new') }}><IconPlusOutlineRegular size={18} /></button>
       <SegmentedControl id="jl-page" label={t('workbenchPages')} value={page} className={css.pages}
         options={[{ value: 'assets', label: t('assetsPage') }, { value: 'videos', label: t('videosPage') }]} onChange={(next) => { setPage(next); setCard(null) }} />
       <span className={css.spacer} />
-      <Button size="sm" variant="outline" icon={<IconSlidersTwoOutlineRegular size={15} />} aria-pressed={card === 'config'} onClick={() => { setCard(card === 'config' ? null : 'config') }}>{t('projectConfig')}</Button>
-      <Button size="sm" className={css.export} icon={<IconShareOutlineRegular size={15} />} aria-pressed={card === 'export'} onClick={() => { setCard(card === 'export' ? null : 'export') }}>{t('batchExport')}</Button>
+      <Button size="sm" variant="outline" icon={<IconSlidersTwoOutlineRegular size={15} />} aria-pressed={card === 'config'} onClick={() => { setCard('config') }}>{t('projectConfig')}</Button>
+      <Button size="sm" className={css.export} icon={<IconShareOutlineRegular size={15} />} aria-pressed={card === 'export'} onClick={() => { setCard('export') }}>{t('batchExport')}</Button>
     </div>
     <div className={css.body}>
       {page === 'assets'
@@ -555,14 +558,13 @@ function ExportCard({ t, projectId, episodes, compose, onClose }: ExportProps) {
 
 // "1–3, 5" for a sorted list of episode numbers.
 function rangeText(numbers: number[], t: Text): string {
-  const runs: string[] = []
-  for (let i = 0; i < numbers.length; i += 1) {
-    let j = i
-    while (j + 1 < numbers.length && numbers[j + 1] === (numbers[j] ?? 0) + 1) j += 1
-    runs.push(j > i ? `${numbers[i]}–${numbers[j]}` : String(numbers[i]))
-    i = j
+  const runs: [first: number, last: number][] = []
+  for (const number of numbers) {
+    const run = runs.at(-1)
+    if (run && number === run[1] + 1) run[1] = number
+    else runs.push([number, number])
   }
-  return runs.join(t('listJoin'))
+  return runs.map(([first, last]) => first === last ? String(first) : `${first}–${last}`).join(t('listJoin'))
 }
 
 type PosterProps = { t: Text; title: string; leads: string[]; compose: (text: string) => void; onClose: () => void }

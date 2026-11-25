@@ -15,13 +15,13 @@ function record(value: unknown): value is Scene {
 }
 
 function parse(json: string): Scene[] | undefined {
+  let value: unknown
   try {
-    const value: unknown = JSON.parse(json)
-    return Array.isArray(value) && value.every(record) ? value : undefined
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined
-    throw error
+    value = JSON.parse(json)
+  } catch {
+    return undefined
   }
+  return Array.isArray(value) && value.every(record) ? value : undefined
 }
 
 function hasUnsafeNumber(rows: Scene[]): boolean {
