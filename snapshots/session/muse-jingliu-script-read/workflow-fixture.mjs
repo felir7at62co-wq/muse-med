@@ -18,6 +18,17 @@ const definition = {
   account_scoped: false, costs: false, needs_confirm: false, long_running: false,
   parameters: { type: 'object', properties: { project_id: { type: 'string' } }, required: ['project_id'] },
 }
+const importDefinition = {
+  ...definition, name: 'import_script', role: 'editor', risk: 'write', needs_confirm: true,
+  description: '把剧本正文写入项目。项目已有剧本时会**整体替换**（需要用户确认）。'
+    + '只改其中几处时用 replace_in_script，不要整篇重写（长剧本会超出单次回复上限被截断）。写完要拆解才会产出镜头。',
+  parameters: {
+    type: 'object', properties: { project_id: { type: 'string' }, script: { type: 'string' } },
+    required: ['project_id', 'script'],
+  },
+}
+const replaceWarning = '这一步会丢掉一些东西，需要你确认'
+const importedScript = { ok: true, chars: text.length, previous_chars: text.length, note: '剧本已写入；需要拆解才会产出镜头' }
 
 const cookie = '__Host-muse=snapshot-private-reader-cookie'
 const grant = 'g'.repeat(43)
@@ -36,8 +47,8 @@ async function loopback(ctx, label, handle) {
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         const raw = Buffer.concat(chunks).toString('utf8')
-        const result = handle(req, raw ? JSON.parse(raw) : undefined)
-        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result))
+        const result = handle(req, raw ? JSON.parse(raw) : undefined, res)
+        res.writeHead(res.statusCode, { 'content-type': 'application/json' }).end(JSON.stringify(result))
       } catch (error) {
         failure = error
         res.writeHead(500, { 'content-type': 'application/json' }).end('{"detail":"Unexpected fixture request"}')
@@ -50,7 +61,7 @@ async function loopback(ctx, label, handle) {
 /** Cordis fixture name. */
 export const name = 'jingliu-script-read'
 /** Host services exercised by this Headless scenario. */
-export const inject = ['agentPresets', 'agents', 'llm', 'systemPrompt', 'tools', 'workingDirectory']
+export const inject = ['agentPresets', 'agents', 'approval', 'llm', 'sandboxPolicy', 'systemPrompt', 'tools', 'workingDirectory']
 
 /** @param {import('@deepseek-ai/cordis').Context} ctx - Shipped Headless services. */
 export async function apply(ctx) {
@@ -83,6 +94,8 @@ export async function apply(ctx) {
     new URL('../../../packages/host/muse-account/lib/types/session.js', import.meta.url),
   )
   let modelSawScript = false
+  let modelSawImport = false
+  let initialImportCallId
   const calls = []
   const gateway = await loopback(ctx, 'Muse reader grant', (req, body) => {
     assert.equal(req.url, '/api/workbench-login/grant')
@@ -95,7 +108,7 @@ export async function apply(ctx) {
   })
   const user = { id: 74111 }
   const account = { unlimited: false, available_yuan: '12.50', used_fen: 250, held_fen: 100, enforced: false }
-  const studio = await loopback(ctx, 'Jingliu reader project', (req, body) => {
+  const studio = await loopback(ctx, 'Jingliu reader project', (req, body, res) => {
     assert.equal(req.headers.cookie, undefined)
     const prefix = '/fwp/v2'
     if (req.url === prefix + '/auth/muse/challenge') {
@@ -115,7 +128,7 @@ export async function apply(ctx) {
     if (req.url === prefix + '/desktop-agent/tools') {
       assert.equal(req.method, 'GET')
       calls.push('tools')
-      return { count: 1, tools: [definition] }
+      return { count: 2, tools: [definition, importDefinition] }
     }
     if (req.url === prefix + '/auth/me') {
       assert.equal(req.method, 'GET')
@@ -134,10 +147,25 @@ export async function apply(ctx) {
     }
     assert.equal(req.url, prefix + '/desktop-agent/tool')
     assert.equal(req.method, 'POST')
-    assert.deepEqual(body.args, { project_id: project })
     assert.equal(body.project_id, project)
+    if (body.name === 'import_script') {
+      assert.deepEqual(body.args, { project_id: project, script: text })
+      if (body.confirmed === false) {
+        assert.equal(calls.at(-1), 'approved')
+        initialImportCallId = body.call_id
+        calls.push('replacement-warning')
+        res.statusCode = 409
+        return { detail: { code: 'needs_confirm', message: replaceWarning, tool: body.name } }
+      }
+      assert.equal(body.confirmed, true)
+      assert.equal(body.call_id, initialImportCallId)
+      assert.equal(calls.at(-1), 'confirmed-replacement')
+      calls.push('import')
+      return importedScript
+    }
     assert.equal(body.name, 'read_script')
     assert.equal(body.confirmed, false)
+    assert.deepEqual(body.args, { project_id: project })
     calls.push('read')
     return { ok: true, text }
   })
@@ -153,6 +181,14 @@ export async function apply(ctx) {
   await ctx.plugin(Connection, { studioOrigin: studio })
   await ctx.plugin(plugin, jingliuTool.config)
   await mountPreset(ctx.isolate('museAccount'), { presetId: preset, hidePlatformShellTools: true })
+  ctx.on('approval/request', async ({ agent, callId, reason }) => {
+    assert.equal(ctx.sandboxPolicy.resolve({ session: agent.session }).mode, 'danger-full-access')
+    assert.equal(callId, 'import-jingliu-script')
+    const replacing = calls.at(-1) === 'replacement-warning'
+    assert.equal(reason, '镜流 · import_script · 项目 ' + project + '\n' + (replacing ? replaceWarning : importDefinition.description))
+    calls.push(replacing ? 'confirmed-replacement' : 'approved')
+    return 'allowed-once'
+  })
   ctx.on('llm/stream', async function* (options, next) {
     const messages = JSON.stringify(options.messages)
     for (const secret of [cookie, grant, studioToken]) assert.ok(!messages.includes(secret), 'Private login data in model input')
@@ -173,6 +209,13 @@ export async function apply(ctx) {
       assert.deepEqual(JSON.parse(block.text), { workflow: 'read_script', project_id: project, result: { ok: true, text } })
       modelSawScript = true
     }
+    const imported = options.messages.find(message => message.role === 'tool' && message.toolCallId === 'import-jingliu-script')
+    if (imported) {
+      assert.equal(imported.isError, false, JSON.stringify(imported.content))
+      const block = imported.content.find(item => item.type === 'text')
+      assert.deepEqual(JSON.parse(block.text), { workflow: 'import_script', project_id: project, result: importedScript })
+      modelSawImport = true
+    }
     yield* next()
   })
   ctx.on('agent/turn-stopping', async () => {
@@ -184,7 +227,9 @@ export async function apply(ctx) {
       account: 'jingliu', available_yuan: '12.50', used_fen: 250, held_fen: 100, unlimited: false, enforced: false,
       ledger: [{ time: '2026-11-22T08:36:00+00:00', kind: 'spend', amountFen: -250 }],
     })
-    assert.deepEqual(calls, ['challenge', 'grant', 'exchange', 'tools', 'read', 'me', 'me', 'balance', 'ledger'])
+    assert.deepEqual(calls, ['challenge', 'grant', 'exchange', 'tools', 'read', 'tools', 'approved', 'replacement-warning',
+      'confirmed-replacement', 'import', 'me', 'me', 'balance', 'ledger'])
     assert.ok(modelSawScript, 'The model receives the read result from the selected Jingliu project')
+    assert.ok(modelSawImport, 'The model receives the approved import result')
   })
 }
