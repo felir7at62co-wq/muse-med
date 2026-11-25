@@ -24,6 +24,13 @@ const baselines = [
     asarSha256: '4ebcaf6be57f41e925faa823d7ad910564abbd252d0f71e602631555d1a40399',
     local: null,
   },
+  {
+    version: '1.3.2',
+    commit: 'c9f60d1466bfdad798584c149b5ff04e440923d4',
+    executableSha256: 'de2de44b66a3f0d4ba9e9e095bc52a439447481006d8c69376ee5009f022ebaa',
+    asarSha256: 'cba06e339f6f399d992ee6e9accae480880081f9814bc2ef40a1cc8aec7e4d45',
+    local: null,
+  },
 ]
 const bundles = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
@@ -121,9 +128,10 @@ async function baselineIdentity(install, owner) {
   const archive = await ownedPath(owner, join(install, 'resources', 'app.asar'))
   const [executableSha256, asarSha256] = await Promise.all([digest(executable), digest(archive)])
   const source = baselines.find(row => row.executableSha256 === executableSha256 && row.asarSha256 === asarSha256)
-  check(source, 'Installed executable and ASAR do not match either pinned Windows baseline')
+  check(source, 'Installed executable and ASAR do not match a pinned Windows baseline')
   if (values['local-extracted-baseline']) {
-    check(relative(resolve(source.local), install) === '', 'Local testing is limited to the original extracted baseline directory')
+      check(source.local !== null && relative(resolve(source.local), install) === '',
+        'Local testing is limited to the original extracted baseline directory')
   }
   return { version: source.version, commit: source.commit, executable, executableSha256, asarSha256 }
 }
@@ -199,8 +207,8 @@ async function main() {
   }
   const owner = await realpath(local ? scratch : resolve(env.RUNNER_TEMP))
   const installOwner = local ? dirname(install) : owner
-  if (local) check(baselines.some(row => relative(resolve(row.local), install) === ''),
-    'Local mode requires one of the two pinned extracted packages')
+    if (local) check(baselines.some(row => row.local !== null && relative(resolve(row.local), install) === ''),
+    'Local mode requires a pinned extracted package')
   await ownedPath(installOwner, install)
   await ownedPath(owner, home)
   await ownedPath(owner, output)

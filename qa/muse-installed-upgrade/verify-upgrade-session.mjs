@@ -9,6 +9,7 @@ const scratch = dirname(fileURLToPath(import.meta.url))
 const baselineCommits = new Map([
   ['1.3.0', '88029bebe0eab736519c847c88c5003223d2bcec'],
   ['1.3.1', 'ba18143ec0f72a8a563e72d3421a1b1cdd909b8d'],
+  ['1.3.2', 'c9f60d1466bfdad798584c149b5ff04e440923d4'],
 ])
 const maxFileBytes = 8 * 1024 ** 2
 const maxSessionBytes = 16 * 1024 ** 2

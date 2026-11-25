@@ -16,7 +16,7 @@ on:
         default: false
       installed_upgrade_baseline:
         type: choice
-        options: [all, '1.3.0']
+        options: [all, '1.3.0', '1.3.2']
         default: '1.3.0'
       installed_upgrade_run_id:
         description: Read-only artifact source run
@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        from: ${{ fromJSON(inputs.installed_upgrade_baseline == '1.3.0' && '["1.3.0"]' || '["1.3.0","1.3.1"]') }}
+        from: ${{ fromJSON(inputs.installed_upgrade_baseline == 'all' && (inputs.installed_upgrade_version == '1.3.3' && '["1.3.0","1.3.1","1.3.2"]' || '["1.3.0","1.3.1"]') || format('["{0}"]', inputs.installed_upgrade_baseline)) }}
     defaults:
       run:
         shell: pwsh
@@ -84,6 +84,15 @@ jobs:
         run: |
           gh release download v1.3.0 --repo $env:GITHUB_REPOSITORY --pattern 'muse-med-1.3.0-win-x64.exe*' --dir (Join-Path $env:RUNNER_TEMP 'installed-upgrade-baseline')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Get the published Windows 1.3.2 baseline from TOS
+        if: matrix.from == '1.3.2'
+        run: |
+          $baselineDirectory = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'installed-upgrade-baseline')
+          $origin = 'https://muse.tos-cn-beijing.volces.com/releases/1.3.2/win-x64'
+          foreach ($name in @('muse-med-1.3.2-win-x64.exe', 'muse-med-1.3.2-win-x64.exe.blockmap')) {
+            curl.exe --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 2 --max-time 360 --output (Join-Path $baselineDirectory.FullName $name) "$origin/$name"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Verify the installed application upgrade
         timeout-minutes: 42
         env:

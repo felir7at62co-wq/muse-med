@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [ValidateSet('1.3.0','1.3.1')] [string] $FromVersion,
+    [Parameter(Mandatory)] [ValidateSet('1.3.0','1.3.1','1.3.2')] [string] $FromVersion,
     [Parameter(Mandatory)] [string] $BaselineInstaller,
     [Parameter(Mandatory)] [string] $CandidateArtifacts,
     [Parameter(Mandatory)] [ValidatePattern('^\d+\.\d+\.\d+$')] [string] $TargetVersion,
@@ -39,6 +39,7 @@ Write-QAPhase 'runner-guard-passed'
 $baselines = @{
     '1.3.0' = @{ installer='38f3ed42a16c3ec9de3eb10fa6dfa2d589f1af4a29fe1162e854aeb75c24e1d1'; blockmap='826a948f8f5fbf81cbea33149fc3afa645556dcec42d1e73d419739e7e04114f' }
     '1.3.1' = @{ installer='0d17ecf88533e992e629d7f8f1c8e21e0e86b10d5744fe6b164ab9229d68e9fb'; blockmap='4cf71bf3012a62ee22b6e1b7fa8f6c54eee4d51d79eeb5143e00dd60ff980788' }
+    '1.3.2' = @{ installer='80af731923a9f4b747bbc88060c8ac6206be5f16990b4a012f3fd75c286fde62'; blockmap='2696aff652a2e6840143fa78a164844643988c37f63905e356cf0b9e78e607eb' }
 }
 $baseline = (Resolve-Path -LiteralPath $BaselineInstaller).Path
 $fromHash = (Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant()

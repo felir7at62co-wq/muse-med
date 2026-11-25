@@ -186,8 +186,8 @@ function New-MuseUpgradeUiContext {
     param(
         [Parameter(Mandatory)][ValidateRange(1,2147483647)][int]$OldPid,
         [Parameter(Mandatory)][string]$InstalledExecutable,
-        [Parameter(Mandatory)][ValidateSet('1.3.0','1.3.1')][string]$BaselineVersion,
-        [Parameter(Mandatory)][ValidateSet('1.3.1','1.3.2')][string]$TargetVersion,
+        [Parameter(Mandatory)][ValidateSet('1.3.0','1.3.1','1.3.2')][string]$BaselineVersion,
+        [Parameter(Mandatory)][ValidateSet('1.3.1','1.3.2','1.3.3')][string]$TargetVersion,
         [Parameter(Mandatory)][string]$ExpectedInstallerPath,
         [Parameter(Mandatory)][ValidatePattern('^[0-9a-fA-F]{64}$')][string]$InstallerSha256,
         [Parameter(Mandatory)][string]$JournalDirectory,
