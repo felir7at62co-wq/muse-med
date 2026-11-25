@@ -4,8 +4,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ResolvedShot } from '../src/prepare.ts'
-import { changedShots, readSubtitleClockReceipt, StaleSubtitleClockError, subtitleClockPath, subtitleClockRows,
-  verifySubtitleClock, writeDerivedSubtitleClock, writeSubtitleClock, type SubtitleClockReceiptV2 } from '../src/subtitle-clock.ts'
+import { changedInputs, changedShots, InvalidSubtitleClockError, parseSubtitleClockReceipt, readSubtitleClockReceipt,
+  StaleSubtitleClockError, subtitleClockPath, subtitleClockRows, verifySubtitleClock, writeDerivedSubtitleClock,
+  writeSubtitleClock, type SubtitleClockReceiptV2 } from '../src/subtitle-clock.ts'
 import { cleanup, tempProject } from './harness.ts'
 
 const roots: string[] = []
@@ -146,6 +147,34 @@ it('names exactly the shots whose duration, picture or sound changed', async () 
   expect(changedShots(receipt, await subtitleClockRows(trimmed))).toEqual([1, 3])
   expect(changedShots(receipt, await subtitleClockRows(trimmed.slice(0, 2)))).toEqual([1, 3])
   await expect(verifySubtitleClock(f.source, '02', () => trimmed)).rejects.toBeInstanceOf(StaleSubtitleClockError)
+})
+
+it('persists correction inputs and identifies changes independently of the media clock', async () => {
+  const f = await fixture()
+  const inputs = { lines_sha256: sha('spoken lines'), names_sha256: sha('cast names'), decisions_sha256: sha('review decisions') }
+  const current = { ...inputs, rules_sha256: producer.rules_sha256 }
+  await writeSubtitleClock(f.source, text, '01', f.shots, undefined, { ...producer, inputs })
+  const receipt = (await readSubtitleClockReceipt(f.source))?.receipt
+  if (receipt?.version !== 2) throw new Error('Expected a version 2 source clock')
+  expect(receipt.inputs).toEqual(inputs)
+  expect(changedInputs(receipt, current)).toEqual([])
+  expect(changedInputs(receipt, { ...current, names_sha256: sha('new cast') })).toEqual(['names'])
+  expect(changedInputs(receipt, { ...current, rules_sha256: sha('new rules'), decisions_sha256: sha('new picks') }))
+    .toEqual(['rules', 'decisions'])
+  const { inputs: _inputs, ...legacy } = receipt
+  expect(changedInputs(legacy, current)).toEqual(['lines', 'names', 'decisions'])
+  expect(parseSubtitleClockReceipt({ ...receipt, inputs: [] })).toBeUndefined()
+  expect(parseSubtitleClockReceipt({ ...receipt, inputs: { ...inputs, lines_sha256: 'short' } })).toBeUndefined()
+  expect(parseSubtitleClockReceipt({ ...receipt, shots: [{ ...receipt.shots[0], jingliu: {
+    shot_id: 'shot-1', video_path: '/fw/media/clip.mp4', etag: 'clip-etag', clip_in_us: 0, speed: 0,
+  } }] })).toBeUndefined()
+})
+
+it('reports a truncated receipt as invalid JSON without treating it as a manual subtitle', async () => {
+  const f = await fixture()
+  await writeFile(subtitleClockPath(f.source), '{"version":2,')
+  await expect(readSubtitleClockReceipt(f.source)).rejects.toBeInstanceOf(InvalidSubtitleClockError)
+  await expect(verifySubtitleClock(f.source, '01', () => f.shots)).rejects.toThrow('生成字幕')
 })
 
 it.each([

@@ -2,9 +2,10 @@
 /** People can browse, filter and inspect references without modifying the library. */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { CharacterLibraryEntry } from '@deepseek-ai/dsh-api-character-library/types'
 import { LibraryPage } from '../src/client/LibraryPage.tsx'
+import { LibraryShell } from '../src/client/LibraryShell.tsx'
 import { en } from '../src/client/locales.ts'
 import type {} from '../src/client/index.ts'
 
@@ -53,6 +54,18 @@ function props({ configured = true, failed = false, imageFailed = false, imageLo
   }) as Props['useResource']
   return { addresses, value: { useResource, t: makeTranslate(en) } as Props }
 }
+
+it('renders the installed studio catalog and falls back to local references when it is unavailable', () => {
+  const fixture = props()
+  const useCatalog = (available: boolean) => bindSnapshotSelector({ getSnapshot: () => available, subscribe: () => () => {} })
+  const view = render(<LibraryShell {...fixture.value} useSharedLibrary={useCatalog(true)} renderSlot={() => <h1>Studio catalog</h1>} />)
+  expect(screen.getByRole('heading', { name: 'Studio catalog' })).toBeTruthy()
+  expect(fixture.addresses).toEqual([])
+  view.rerender(<LibraryShell {...fixture.value} useSharedLibrary={useCatalog(false)} renderSlot={() => <h1>Studio catalog</h1>} />)
+  expect(screen.queryByRole('heading', { name: 'Studio catalog' })).toBeNull()
+  expect(screen.getByRole('heading', { name: 'Shared assets' })).toBeTruthy()
+  expect(fixture.addresses.some(address => address.includes('character-library-catalog'))).toBe(true)
+})
 
 it('shows character cards, collection filters and a dismissable image preview', () => {
   const fixture = props()

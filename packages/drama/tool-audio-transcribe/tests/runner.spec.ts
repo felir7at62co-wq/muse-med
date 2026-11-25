@@ -1597,7 +1597,8 @@ it('refuses a completed batch receipt with a changed language', async () => {
   expect(JSON.parse(await readFile(completed.output_json!, 'utf8'))).toEqual([{ start: 0, end: 1, text: 'speech' }])
 })
 
-it('returns the latest complete same-purpose version of a source from a batch', async () => {
+it.each(['ascending', 'descending'] as const)
+('returns the latest complete same-purpose version with %s receipt enumeration', async (order) => {
   const f = await episodes(1)
   for (const text of ['first', 'second']) {
     const run = await startAudioTranscription(f.project, f.inputs[0]!, 'zh', f.account, config, f.media)
@@ -1605,7 +1606,16 @@ it('returns the latest complete same-purpose version of a source from a batch', 
     await finishAudioTranscription(f.project, run.receipt, f.account, undefined, false)
   }
   const before = { encodes: f.calls.encodes.length, submits: f.calls.submits.length }
+  const fs = await import('node:fs/promises')
+  const originalReaddir = fs.readdir
+  const read = vi.spyOn(fs, 'readdir').mockImplementation(async (...args) => {
+    const files = await originalReaddir(...args)
+    if (args[0] !== f.jobs) return files
+    files.sort()
+    return order === 'ascending' ? files : files.reverse()
+  })
   const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
+    .finally(() => { read.mockRestore() })
   expect(result.items).toEqual([expect.objectContaining({ input: f.inputs[0], status: 'complete', receipt: join(f.jobs, 'ep1-v2.json').replaceAll('\\', '/') })])
   expect({ encodes: f.calls.encodes.length, submits: f.calls.submits.length }).toEqual(before)
 })

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { DirectoryListing } from '@deepseek-ai/dsh-api-remotes/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
 import { BrowseDirectoryFlow } from '../src/client/flow.ts'
@@ -72,6 +73,23 @@ describe('directory-picker-browse client half', () => {
     after.declare()
     await Promise.resolve()
     for (const hole of HOLES) expect(after.slots.entries(hole)).toHaveLength(1)
+  })
+
+  it('registers the environment picker without the conversation or sidebar declarations', async () => {
+    const b = await bench()
+    onTestFinished(async () => { await b.ctx.fiber.dispose() })
+    const environmentSlot = 'workspace.environment.directoryFlow'
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(b.slots.entries(environmentSlot)).toHaveLength(0)
+
+    const dispose = b.slots.register({ name: 'root', children: {
+      [environmentSlot]: { kind: 'single', scope: 'root' },
+    } }, ({ renderSlot }: PropsRenderSlots<typeof environmentSlot>) => renderSlot(environmentSlot, owner()))
+    expect(b.slots.entries(environmentSlot)).toHaveLength(1)
+    for (const hole of HOLES) expect(b.slots.entries(hole)).toHaveLength(0)
+
+    dispose()
+    expect(b.slots.entries(environmentSlot)).toHaveLength(0)
   })
 
   it('rolls back the outer injection when the second hole is already occupied', async () => {

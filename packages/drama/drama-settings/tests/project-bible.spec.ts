@@ -10,6 +10,7 @@ import SystemPrompt from '../../../core/system-prompt/src/index.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import { DramaSettingsSchema, apply } from '../src/index.ts'
 import { readProjectBible, previewProjectBible, updateProjectBible, createProjectBinding } from '../src/project-bible.ts'
+import { standaloneScriptTool } from '../src/standalone-script.ts'
 
 async function bench(config: { standaloneStudioAddress?: string; localProjectOnly?: boolean } = {}) {
   return configurationFixture({ rows: [
@@ -48,6 +49,68 @@ it('reads only the selected standalone episode after verifying that generation i
     expect(JSON.parse(block.text)).toEqual({ project_id: 7, episode_number: 2, title: 'Test episode',
       script: 'A character enters the room.' })
     expect(request.mock.calls.map(([url]) => url.href)).toEqual([origin + '/health', origin + '/health', origin + '/api/v1/dramas/7'])
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
+it('only configures the standalone script tool for an explicit loopback studio port', () => {
+  expect(standaloneScriptTool('')).toBeUndefined()
+  expect(standaloneScriptTool('http://127.0.0.1:5684/')?.name).toBe('muse_standalone_episode_script')
+  for (const address of ['https://127.0.0.1:5684', 'http://localhost:5684', 'http://127.0.0.1:80', 'http://127.0.0.1:65536']) {
+    expect(() => standaloneScriptTool(address)).toThrow('requires an http://127.0.0.1 origin')
+  }
+})
+
+it('pages a saved script without splitting a surrogate pair and refuses an offset after the end', async () => {
+  const { ctx } = await bench({ standaloneStudioAddress: 'http://127.0.0.1:5684' })
+  const prefix = '字'.repeat(11_999)
+  const request = vi.fn(async (url: URL) => Response.json(url.pathname === '/health'
+    ? { status: 'ok', generationBackend: 'unconfigured', backgroundGeneration: false }
+    : { data: { id: 7, episodes: [null, { drama_id: 7, episode_number: 2, script_content: prefix + '🎬结束' }] } }))
+  vi.stubGlobal('fetch', request)
+  try {
+    const call = (offset: number) => executeModelToolFixture(ctx, { name: 'muse_standalone_episode_script',
+      callId: ToolCallId('studio-script-' + String(offset)), arguments: { project_id: 7, episode_number: 2, offset },
+      signal: new AbortController().signal })
+    const page = async (offset: number) => {
+      const outcome = await call(offset)
+      expect(outcome.isError).toBe(false)
+      const block = outcome.content[0]
+      if (block?.type !== 'text') throw new Error('Expected a saved script')
+      return JSON.parse(block.text) as object
+    }
+    expect(await page(0)).toEqual({ project_id: 7, episode_number: 2, title: '', script: prefix, next_offset: 11_999 })
+    expect(await page(1)).toEqual({ project_id: 7, episode_number: 2, title: '', script: prefix.slice(1) + '🎬', next_offset: 12_001 })
+    expect(await page(11_999)).toEqual({ project_id: 7, episode_number: 2, title: '', script: '🎬结束' })
+    expect(await call(-1)).toMatchObject({ isError: true })
+    expect(await call(12_003)).toMatchObject({ isError: true })
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
+
+it('refuses unavailable, oversized, and mismatched standalone script responses', async () => {
+  const { ctx } = await bench({ standaloneStudioAddress: 'http://127.0.0.1:5684' })
+  const request = vi.fn<(url: URL) => Promise<Response>>()
+  vi.stubGlobal('fetch', request)
+  const health = { status: 'ok', generationBackend: 'unconfigured', backgroundGeneration: false }
+  try {
+    for (const reply of [
+      [new Response('Unavailable', { status: 502 })],
+      [new Response(null, { status: 200 })],
+      [new Response('x'.repeat(2 * 1024 * 1024 + 1))],
+      [Response.json(null)],
+      [Response.json(health), Response.json({ data: { id: 9, episodes: [] } })],
+      [Response.json(health), Response.json({ data: { id: 7, episodes: [{ drama_id: 9, episode_number: 2, script_content: 'Different project' }] } })],
+      [Response.json(health), Response.json({ data: { id: 7, episodes: [{ drama_id: 7, episode_number: 2, script_content: ' ' }] } })],
+      [Response.json(health), Response.json({ data: { id: 7, episodes: [] } })],
+    ]) {
+      for (const response of reply) request.mockResolvedValueOnce(response)
+      const outcome = await executeModelToolFixture(ctx, { name: 'muse_standalone_episode_script', callId: ToolCallId('studio-refusal'),
+        arguments: { project_id: 7, episode_number: 2 }, signal: new AbortController().signal })
+      expect(outcome.isError).toBe(true)
+    }
   } finally {
     vi.unstubAllGlobals()
   }

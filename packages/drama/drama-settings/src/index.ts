@@ -143,9 +143,6 @@ export function apply(ctx: Context, config?: Config): void {
           return await readProjectBible(toolCtx.settings, args.project_dir, budget)
         }
         if (!args.changes || !args.reason) throw new Error('Preview/update requires changes and reason.')
-        if (local && Object.keys(args.changes).some(key => !Object.hasOwn(changeFields, key))) {
-          throw new Error('The local project bible accepts only local production metadata.')
-        }
         if (args.action === 'preview') return await previewProjectBible(toolCtx.settings, args.project_dir,
           args.changes, args.reason, budget, args.migration_from)
         if (!args.expected_revision || !args.preview_fingerprint) throw new Error('Update requires the expected_revision and preview_fingerprint from preview.')

@@ -17,13 +17,13 @@ export async function reviewedShots(
   session: JingliuSession, project: string, args: Fields, signal: AbortSignal,
 ): Promise<{ ids: string[]; prompts: string[] }> {
   const read = (name: string, fields: Fields) => session.request('/desktop-agent/tool', { method: 'POST', signal, body: { name, project_id: project, args: fields } })
-  let ids = args.shot_ids
-  if (!Array.isArray(ids) || !ids.length) {
+  let ids = Array.isArray(args.shot_ids) ? args.shot_ids : []
+  if (!ids.length) {
     const data = await read('list_shots', { project_id: project, ...(args.episode !== undefined && { episode: args.episode }), limit: 10000 })
     if (!isFields(data) || data.ok !== true || data.truncated !== false || !Array.isArray(data.shots) || data.total !== data.shots.length) throw new HarnessError('无法确认整批镜头，请按集查看或指定镜头。', 'JINGLIU_SHOT_SCOPE')
-    ids = data.shots.filter(row => isFields(row) && row.special !== true).map(row => isFields(row) ? row.id ?? null : null)
+    ids = data.shots.filter((row): row is Fields => isFields(row) && row.special !== true).map(row => row.id ?? null)
   }
-  if (!Array.isArray(ids) || !ids.length || !ids.every((id): id is string => typeof id === 'string' && /^[\w-]+$/u.test(id))) throw new HarnessError('请选择有效镜头。', 'JINGLIU_SHOT_SCOPE')
+  if (!ids.length || !ids.every((id): id is string => typeof id === 'string' && /^[\w-]+$/u.test(id))) throw new HarnessError('请选择有效镜头。', 'JINGLIU_SHOT_SCOPE')
   const shots = [...new Set(ids)]
   const prompts: string[] = []
   for (const id of shots) {
