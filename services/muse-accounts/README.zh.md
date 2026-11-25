@@ -208,6 +208,8 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 
 上游拒绝通过固定的 `error.code` 与 `error.message` 区分认证、额度、限流、上下文、输出上限和无效参数。分类最多读取 64 KiB，提供方控制的诊断和凭据不会返回。仅提及额度而未说明耗尽，不会归为额度耗尽。上游 429 拒绝会保留经验证的整数 `Retry-After`。未知服务器失败返回通用错误；结束原因 `finish_reason: length` 仍报告输出截断。
 
+桌面模型请求的 Muse 会话失效响应带有 `X-Muse-Model-Auth-Error: muse-session-expired`。转发网关仅在上游 401 的有界响应明确包含 API Key 无效代码且错误类型不冲突时返回 `upstream-credentials-rejected`；其他认证和权限拒绝不带此标记。原有 HTTP 状态和脱敏响应内容保持不变，供应商返回的头不能设置这些标记。
+
 `MUSE_DESKTOP_MODEL_TRANSPORT=direct` 明确启用向已登录 Desktop Host 分发供应商凭据。新版 Host 在元数据请求中通过 `X-Muse-Model-Access: direct-v1` 协商，再从 `GET /api/desktop-models/access` 取得含供应商私密地址和密钥的当前目录；两个响应均禁止缓存。旧版客户端继续使用中转。直连要求完整的原生全局模型目录：供应商中的每个模型必须解析为其公布的 ID、相同的 HTTPS API 根地址和相同的已配置密钥。智谱 Key 池通过协商后的网关路由使用，其他供应商单独验证直连凭据。配置缺失会报错，不回退到云端中转。Host 将凭据存入账号目录并直接调用供应商；模型请求正文和 SSE 回复不经过此网关。账号禁用、过期和退出会阻止再次领取凭据，但无法使已复制的供应商密钥失效，也无法终止 Muse 之外的直连请求；需要时应在供应商处撤销或轮换密钥。该选项不提供供应商执行的用户配额、临时密钥或请求审计。仅对已获授权分发的凭据启用。
 
 选定的 Muse 账号目录供应官方 DeepSeek Flash、V4 Pro，七个云映模型（包括 GLM-5.3-Flash），以及 [`selected-models.mjs`](selected-models.mjs) 定义的智谱官方 GLM-5.3-Flash 与 FlashX。DeepSeek 和智谱分别使用官方 Chat Completions 路由；云映路由沿用运营者现有 API 根地址。各路由使用独立的服务器凭据引用；用户登录 Muse 后无需填写供应商密钥。桌面端的自定义供应商与独立 Codex 订阅各自保留其凭据与目录。准备这份目录不会部署或启用它。

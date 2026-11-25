@@ -163,6 +163,8 @@ Plugins can contribute model-hidden transport metadata through the synchronous `
 
 This event covers inference calls with or without a Session id, including auxiliary calls, but excludes model discovery. A contributor exception or invalid HTTP header fails the call with `REQUEST_HEADERS` before inference dispatch; no partially prepared request is sent. The failure identifies the provider and includes the contributor's top-level error message, which must exclude credentials and header values. Native header validation can echo values in a `TypeError`, so TypeError details and non-Error throws receive safe guidance instead; nested causes remain attached to the thrown error but are not copied into the public failure. Contributions do not change messages, tool schemas, or the Session log. Direct `PiAiAdapter` consumers can supply the equivalent `prepareHeaders` callback.
 
+Direct adapter consumers may also supply `onProviderResponse` to inspect the raw inference response and the same immutable routing context before response processing. The callback must not consume or mutate the response; exceptions do not replace the model outcome. Google Generative AI does not support this callback because its pi-ai transport disallows custom fetch.
+
 ### Source map
 
 | File | Role |

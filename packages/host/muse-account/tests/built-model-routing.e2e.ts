@@ -19,6 +19,8 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
   const home = await mkdtemp(join(tmpdir(), 'muse-built-routing-'))
   onTestFinished(() => rm(home, { recursive: true, force: true }))
   const streams: (string | undefined)[] = []
+  const backupStreams: (string | undefined)[] = []
+  let rejectPrimary = false
   const server = createServer((request, response) => {
     request.resume()
     request.once('end', () => {
@@ -53,6 +55,16 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
           return
         case '/api/desktop-models/deepseek-official/chat/completions':
           streams.push(request.headers.authorization)
+          if (rejectPrimary) {
+            response.writeHead(401, { 'content-type': 'application/json', 'x-muse-model-auth-error': 'upstream-credentials-rejected' })
+            response.end(JSON.stringify({ error: { code: 'authentication_error', message: 'Upstream authentication failed' } }))
+            return
+          }
+          response.writeHead(200, { 'content-type': 'text/event-stream' })
+          response.end(textEvents.map(event => `data: ${event}\n\n`).join(''))
+          return
+        case '/api/desktop-models/zhipu-official/chat/completions':
+          backupStreams.push(request.headers.authorization)
           response.writeHead(200, { 'content-type': 'text/event-stream' })
           response.end(textEvents.map(event => `data: ${event}\n\n`).join(''))
           return
@@ -71,6 +83,7 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
   if (address === null || typeof address === 'string') throw new Error('Muse gateway fixture has no assigned port')
   const baseUrl = `http://127.0.0.1:${address.port}`
   const fixture = await oldSessionFixture(false, home)
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })
   const account = createRequire(import.meta.url)(artifact) as typeof import('../src/index.ts')
   const row = loadOverlayPatches('muse-built-routing', fileURLToPath(new URL(
     '../../../../apps/desktop-host/config/desktop.cordis.patch.yml', import.meta.url,
@@ -87,7 +100,7 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
       inject: row.inject.filter((key: unknown): key is string => typeof key === 'string'
         && ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'sessions'].includes(key)),
     } : {}),
-    config: { ...(composition === 'desktop' ? productConfig : {}), baseUrl, accountHome: home, remoteAccess: false },
+    config: { ...(composition === 'desktop' ? productConfig : {}), baseUrl, accountHome: home, remoteAccess: false, mediaTools: false },
   })
   await fixture.ctx.loader.await()
   await fixture.ctx.loader.resolve(id).fiber?.await()
@@ -134,6 +147,15 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
     .toEqual(Array.from({ length: 2 }, () => [{ type: 'text', text: 'hello' }]))
   expect(fresh.session.deriveMessages().filter(message => message.role === 'assistant').map(message => message.content))
     .toEqual([[{ type: 'text', text: 'hello' }]])
+  rejectPrimary = true
+  const recovered = waitForIdle(fixture.ctx, fresh)
+  fresh.followup(createUserMessage({ content: [{ type: 'text', text: 'Continue using the backup.' }], source: { kind: 'user' } }))
+  await recovered
+  expect(streams).toHaveLength(4)
+  expect(backupStreams).toEqual(['Bearer alice-session'])
+  expect(fresh.model.current()).toMatchObject({ provider: 'muse-cloud-zhipu-official', model: 'glm-5.3-flash' })
+  expect(fresh.session.snapshotEvents().filter(event => event.type === 'assistant/message')).toHaveLength(2)
+  expect(fresh.session.snapshotEvents().filter(event => event.type === 'turn/end' && event.data.reason.kind === 'error')).toEqual([])
   expect(await service.logout()).toEqual({ state: 'signed-out' })
   expect(fixture.ctx.llm.listProviders().map(provider => provider.id)).not.toContain('muse-cloud-deepseek-official')
 })

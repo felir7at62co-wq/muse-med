@@ -15,8 +15,15 @@ const messages={
  * @returns {object} OpenAI-compatible error containing no provider-controlled text.
  */
 export function modelFailure(status,body){
+ return publicModelFailure(status,parseError(body));
+}
+
+function parseError(body){
  let parsed;try{parsed=JSON.parse(body);}catch{parsed=undefined;}
- const error=parsed?.error??parsed;
+ return parsed?.error??parsed;
+}
+
+function publicModelFailure(status,error){
  const fields=error&&typeof error==='object'?['code','type','message'].map(key=>typeof error[key]==='string'?error[key]:''):[];
  const detail=fields.join(' '),tags=fields.slice(0,2);
  let code='upstream_error';
@@ -38,7 +45,19 @@ export function modelFailure(status,body){
  * @returns {Promise<object>} Fixed public failure; oversized bodies remain unclassified.
  */
 export async function readModelFailure(response){
+ return (await readModelFailureDetails(response)).failure;
+}
+
+/** Read a bounded refusal and identify explicitly rejected supplier API keys.
+ * @param {import('node:http').IncomingMessage} response Provider response.
+ * @returns {Promise<{failure: object, credentialsRejected: boolean}>} Sanitized failure and credential classification.
+ */
+export async function readModelFailureDetails(response){
  const chunks=[];let size=0;
- for await(const chunk of response){size+=chunk.length;if(size>65536)return modelFailure(response.statusCode,'');chunks.push(chunk);}
- return modelFailure(response.statusCode,Buffer.concat(chunks).toString('utf8'));
+ for await(const chunk of response){size+=chunk.length;if(size>65536)return {failure:modelFailure(response.statusCode,''),credentialsRejected:false};chunks.push(chunk);}
+ const error=parseError(Buffer.concat(chunks).toString('utf8'));
+ const credentialsRejected=response.statusCode===401&&error!==null&&typeof error==='object'&&!Array.isArray(error)
+  &&['invalid_api_key','invalid_api_key_error'].includes(error.code)
+  &&(error.type==null||['authentication_error','invalid_api_key','invalid_api_key_error'].includes(error.type));
+ return {failure:publicModelFailure(response.statusCode,error),credentialsRejected};
 }
