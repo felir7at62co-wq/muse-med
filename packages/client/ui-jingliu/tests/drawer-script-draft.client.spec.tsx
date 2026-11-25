@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /** Draft review stays scoped to the selected episode and applies only after a human action. */
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ScriptDraft, ScriptDraftEpisode, ScriptDraftStoryboard } from '@deepseek-ai/dsh-workbench-connection/types'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -219,6 +219,57 @@ it('passes a selected source file to Workshop and opens the returned draft', asy
     file: { filename: 'Side story.txt', base64: 'RXBpc29kZSAx' } })
 })
 
+it('rejects unsupported, empty and oversized imports and clears validation when the choice is canceled', () => {
+  const { props, createDraft } = setup()
+  const view = render(<DrawerScripts {...props} />)
+  fireEvent.click(view.getByRole('button', { name: en.importDraft }))
+  const dialog = within(view.getByRole('dialog', { name: en.importDraft }))
+  const input = dialog.getByLabelText(new RegExp(en.draftSource, 'u'))
+  const submit = dialog.getByRole('button', { name: en.importDraft })
+  const invalid = [new File(['hello'], 'visual.png'), new File([], 'empty.md'),
+    new File([new Uint8Array(4 * 1024 * 1024 + 1)], 'long.txt')]
+  for (const file of invalid) {
+    fireEvent.change(input, { target: { files: [file] } })
+    expect(dialog.getByRole('alert').textContent).toBe(en.draftSourceFormats)
+    expect(submit).toHaveProperty('disabled', true)
+  }
+  fireEvent.change(input, { target: { files: [] } })
+  expect(dialog.queryByRole('alert')).toBeNull()
+  expect(submit).toHaveProperty('disabled', true)
+  expect(createDraft).not.toHaveBeenCalled()
+})
+
+it('keeps the latest selected source when an earlier file read fails', async () => {
+  const { props, createDraft } = setup()
+  const readers = new Map<Blob, FileReader>()
+  const read = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(function (this: FileReader, file) { readers.set(file, this) })
+  try {
+    const view = render(<DrawerScripts {...props} />)
+    fireEvent.click(view.getByRole('button', { name: en.importDraft }))
+    const dialog = within(view.getByRole('dialog', { name: en.importDraft }))
+    const input = dialog.getByLabelText(new RegExp(en.draftSource, 'u'))
+    const submit = dialog.getByRole('button', { name: en.importDraft })
+    const first = new File(['Old'], 'old.md')
+    const second = new File(['New'], 'new.md')
+    fireEvent.change(dialog.getByRole('textbox', { name: en.draftName }), { target: { value: 'Approved title' } })
+    for (const file of [first, second]) fireEvent.change(input, { target: { files: [file] } })
+    const stale = readers.get(first)!
+    const currentReader = readers.get(second)!
+    await act(async () => { stale.dispatchEvent(new ProgressEvent('error')) })
+    expect(dialog.getByRole('status').textContent).toBe(en.loading)
+    expect(dialog.queryByRole('alert')).toBeNull()
+    expect(submit).toHaveProperty('disabled', true)
+    vi.spyOn(currentReader, 'result', 'get').mockReturnValue('data:text/markdown;base64,TmV3')
+    await act(async () => { currentReader.dispatchEvent(new ProgressEvent('load')) })
+    fireEvent.click(submit)
+    await waitFor(() => { expect(view.queryByRole('dialog')).toBeNull() })
+    const request = createDraft.mock.calls[0]?.[0]
+    expect(request?.requestId).toBeTypeOf('string')
+    expect(createDraft).toHaveBeenCalledWith({ title: 'Approved title', requestId: request?.requestId,
+      file: { filename: 'new.md', base64: 'TmV3' } })
+  } finally { read.mockRestore() }
+})
+
 it('edits ordered dialogue in the scene script and retains fields that other Workshop features use', async () => {
   const { props, reads, saveStoryboard } = setup()
   const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
@@ -285,6 +336,8 @@ it.each(['loading', 'empty'] as const)('blocks restore while episode history is 
   expect(dialog.getByText(history === 'loading' ? en.loading : en.emptyDraftHistory)).toBeTruthy()
   expect(dialog.getByRole('button', { name: en.restoreDraftVersion })).toHaveProperty('disabled', true)
   expect(restoreHistory).not.toHaveBeenCalled()
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(view.queryByRole('dialog')).toBeNull()
 })
 
 it.each([
@@ -306,6 +359,32 @@ it.each([
   await waitFor(() => { expect(dialog.getByRole('alert').textContent).toContain(message) })
   expect(restore).toHaveProperty('disabled', blocked)
   expect(restoreHistory).toHaveBeenCalledWith({ draftId: 45, episode: 3, layer: 'chapter', historyId: 21, baseRevision: 'episode-3' })
+})
+
+it('keeps the history dialog open until a pending restore settles', async () => {
+  const { props, restoreHistory } = setup()
+  const release = Promise.withResolvers<undefined>()
+  const restoreVersion = restoreHistory.getMockImplementation()!
+  restoreHistory.mockImplementationOnce(async (request) => {
+    await release.promise
+    return restoreVersion(request)
+  })
+  const view = render(<DrawerScripts {...props} script={{ id: 'draft:45', title: draft.title }} />)
+  fireEvent.click(view.getByRole('button', { name: en.episodeHistory }))
+  const dialog = within(view.getByRole('dialog', { name: en.episodeHistory }))
+  fireEvent.change(dialog.getByRole('combobox', { name: en.chooseDraftVersion }), { target: { value: '21' } })
+  const restore = dialog.getByRole('button', { name: en.restoreDraftVersion })
+  try {
+    fireEvent.click(restore)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(view.getByRole('dialog', { name: en.episodeHistory })).toBeTruthy()
+    expect(restore).toHaveProperty('disabled', true)
+  } finally {
+    await act(async () => { release.resolve(undefined) })
+  }
+  expect(view.queryByRole('dialog')).toBeNull()
+  expect(view.getByText('Jin watches the door.')).toBeTruthy()
+  expect(restoreHistory).toHaveBeenCalledTimes(1)
 })
 
 it.each(['chapters', 'mixed', 'outline'] as const)('downloads %s in the selected format and supported scope', async (kind) => {
