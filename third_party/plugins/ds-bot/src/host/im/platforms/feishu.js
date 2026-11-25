@@ -19,6 +19,9 @@ const TEXT_LIMIT = 4000
 // An attachment is read fully into memory and handed on as one Buffer, so it is
 // capped, at the size WeCom attachments are.
 export const FILE_LIMIT = 100 * 1024 * 1024
+export const FILE_SEND_LIMIT = 30 * 1024 * 1024
+const IMAGE_SEND_LIMIT = 10 * 1024 * 1024
+const UPLOAD_TIMEOUT = 120_000
 // Inbound events are handled one after another, so a download that stalls is given
 // up after this long instead of holding every later message back.
 const DOWNLOAD_TIMEOUT = 5 * 60_000
@@ -86,6 +89,7 @@ export function createFeishuHttp(fields, env) {
   const delivery = feishuDelivery(rest, env)
   return {
     ...delivery,
+    ...feishuFiles(fields, env, bearer, rest),
     async progress(route, caption, { messageId, mode } = {}) {
       if (messageId !== undefined) {
         await rest(`/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`, {
@@ -268,8 +272,9 @@ export default {
       return token
     }
 
-    const rest = async (path, { method = 'POST', body } = {}) =>
-      api(env, apiBase(env, fields), await freshToken(), path, { method, body })
+    const outgoing = new AbortController()
+    const rest = async (path, { method = 'POST', body, signal } = {}) =>
+      api(env, apiBase(env, fields), await freshToken(), path, { method, body, signal })
 
     // Message events carry ids only. A group's name comes from its chat info and a
     // person's from the chat's member list, both readable with the app's
@@ -538,8 +543,10 @@ export default {
 
     return {
       ...feishuDelivery(rest, env),
+      ...feishuFiles(fields, env, freshToken, rest, outgoing.signal),
       stop: () => {
         stopped = true
+        outgoing.abort()
         generation += 1
         clearTimeout(reconnectTimer)
         clearSocketTimers()
@@ -550,6 +557,79 @@ export default {
       },
     }
   },
+}
+
+function feishuFiles(fields, env, bearer, rest, connectionSignal) {
+  return {
+    fileLimit: FILE_SEND_LIMIT,
+    async sendFile(chat, { id, name, data }, callSignal) {
+      if (data.length === 0 || data.length > FILE_SEND_LIMIT) {
+        throw Object.assign(new Error('Feishu file size is outside the allowed range'), { refused: true })
+      }
+      const mediaType = data.length <= IMAGE_SEND_LIMIT ? sniffImage(data) : undefined
+      const kind = mediaType === undefined ? 'file' : 'image'
+      const form = new FormData()
+      if (kind === 'image') form.append('image_type', 'message')
+      else {
+        form.append('file_type', 'stream')
+        form.append('file_name', name)
+      }
+      form.append(kind, new Blob([data], { type: mediaType ?? 'application/octet-stream' }), name)
+      const signal = AbortSignal.any([connectionSignal, callSignal, AbortSignal.timeout(UPLOAD_TIMEOUT)].filter(Boolean))
+      let key
+      try {
+        const token = await bearer()
+        signal.throwIfAborted()
+        const response = await env.fetch(`${apiBase(env, fields)}/open-apis/im/v1/${kind}s`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}` },
+          body: form,
+          signal,
+        })
+        const reply = await response.json()
+        key = reply.data?.[`${kind}_key`]
+        if (!response.ok || reply.code !== 0 || typeof key !== 'string' || key === '') {
+          throw Object.assign(new Error('upload refused'), { status: response.status, code: reply.code })
+        }
+        signal.throwIfAborted()
+      } catch (error) {
+        throw attachmentFailure('upload', error)
+      }
+      try {
+        const sent = await rest('/open-apis/im/v1/messages?receive_id_type=chat_id', {
+          method: 'POST',
+          body: {
+            receive_id: chat.key,
+            msg_type: kind,
+            content: JSON.stringify({ [`${kind}_key`]: key }),
+            uuid: id,
+          },
+          signal,
+        })
+        const messageId = sent.data?.message_id
+        if (typeof messageId !== 'string' || messageId === '') throw new Error('missing Feishu message ID')
+        return { messageId }
+      } catch (error) {
+        throw attachmentFailure('message', error)
+      }
+    },
+  }
+}
+
+// Provider text may echo the request. Report only the numeric status and code.
+function attachmentFailure(step, error) {
+  const { status, code } = error ?? {}
+  const refused = (status >= 400 && status < 500 && status !== 429)
+    || (status >= 200 && status < 300 && typeof code === 'number' && code !== 0)
+  const known = refused || status === 429
+  return Object.assign(new Error(known
+    ? `Feishu rejected the file ${step} (HTTP ${status}${typeof code === 'number' ? `, code ${code}` : ''})`
+    : `Feishu did not confirm the file ${step}`), {
+    status,
+    permanent: refused,
+    unknown: step === 'message' && !known,
+    stopped: step === 'upload' && error?.name === 'AbortError',
+  })
 }
 
 const progressCard = text => JSON.stringify({
@@ -694,13 +774,19 @@ export function flattenPost(content, atName) {
   return { text: [String(post.title ?? '').trim(), ...lines].join('\n').trim(), images, media }
 }
 
-function imageMediaType(bytes) {
+function sniffImage(bytes) {
   if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
   const header = bytes.toString('latin1', 0, 6)
   if (header === 'GIF87a' || header === 'GIF89a') return 'image/gif'
   if (bytes.toString('latin1', 0, 4) === 'RIFF' && bytes.toString('latin1', 8, 12) === 'WEBP') return 'image/webp'
-  throw new Error('Feishu returned an unsupported image format')
+  return undefined
+}
+
+function imageMediaType(bytes) {
+  const type = sniffImage(bytes)
+  if (type === undefined) throw new Error('Feishu returned an unsupported image format')
+  return type
 }
 
 async function tenantToken(fields, env) {
@@ -720,11 +806,12 @@ async function tenantToken(fields, env) {
   return { token: body.tenant_access_token, expiresAt: Date.now() + Math.max(60, Number(body.expire ?? 7200) - 300) * 1000 }
 }
 
-async function api(env, base, token, path, { method = 'GET', body } = {}) {
+async function api(env, base, token, path, { method = 'GET', body, signal } = {}) {
   const response = await env.fetch(`${base}${path}`, {
     method,
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   })
   const json = await response.json().catch(() => ({}))
   if (!response.ok || (json.code !== undefined && json.code !== 0)) {

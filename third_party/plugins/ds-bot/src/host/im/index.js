@@ -13,6 +13,7 @@ import { adapters } from './platforms/index.js'
 import { connectDshImFeishu, feishuDshImConfig } from './platforms/feishu-dsh-im.js'
 import { connectDshIm, consumable, dshImConfig, isDshImBotId } from './platforms/dsh-im.js'
 import { createFeishuTurn } from './feishu-turn.js'
+import { checkWorkFile, readWorkFile } from './work-files.js'
 import { nameProblem } from '../../shared/mentions.js'
 
 const RECONCILE_MS = 15_000
@@ -29,6 +30,8 @@ const RETRY_MS = 5_000
 // message cannot hold every later message in the same chat forever (#1417).
 const RETRY_MAX_MS = 30_000
 const SEND_ATTEMPTS = 4
+// The tool can report queued delivery before the send queue's own retries finish.
+const FILE_WAIT_MS = 60_000
 const TYPING_MS = 4_000
 // How often a connected platform's chat list is read again, so a group the bot joined
 // without an event still gets registered.
@@ -667,6 +670,7 @@ export function install(rt) {
   }
 
   const failClass = (error) => {
+    if (error?.refused === true) return 'drop'
     if (error?.permanent === true || (typeof error?.status === 'number' && error.status >= 400 && error.status < 500 && error.status !== 429)) return 'permanent'
     if (error?.unknown === true || error?.stopped === true) return 'drop'
     return 'retry'
@@ -691,6 +695,19 @@ export function install(rt) {
     if (idx !== -1) list.splice(idx, 0, job)
     else list.push(job)
     setSendStatus(id, chatKey, { state: 'error', error: errorText })
+    job.observe?.({ state: 'failed', reason: rt.redactSecrets(errorText) })
+  }
+  const sendFile = async (runner, job) => {
+    const { root, path, id, name, identity } = job.file
+    const { handle } = runner
+    if (typeof handle.sendFile !== 'function') {
+      throw Object.assign(new Error('the chat is no longer available for file delivery'), { refused: true })
+    }
+    const data = await readWorkFile({ root, path, identity, limit: handle.fileLimit, inData: rt.inData })
+    if (runner.stopped || !job.allowed()) {
+      throw Object.assign(new Error('the connection or chat changed'), { refused: true })
+    }
+    return handle.sendFile(job.chat, { id, name, data })
   }
   const clearSettledSendStatus = (id, chatKey, runner, settled) => {
     if (connections()[id] === undefined || (failedSends.get(id)?.get(chatKey)?.length ?? 0) > 0) return
@@ -719,7 +736,10 @@ export function install(rt) {
         queue.sending = true
         let sent
         try {
-          sent = await runner.handle.send(job.chat, job)
+          if (job.allowed !== undefined && !job.allowed()) {
+            throw Object.assign(new Error('the connection or chat changed'), { refused: true })
+          }
+          sent = job.file === undefined ? await runner.handle.send(job.chat, job) : await sendFile(runner, job)
         } catch (error) {
           queue.sending = false
           const settled = queue.stoppedSend
@@ -727,6 +747,7 @@ export function install(rt) {
           const how = failClass(error)
           if (error?.unknown === true && linkOf(conn) !== undefined) {
             queue.jobs.shift()
+            job.observe?.({ state: 'unconfirmed' })
             clearPendingSend(conn.id, chatKey, settled)
             if (!runner.stopped) setSendStatus(conn.id, chatKey, { state: 'error', error: failMessage(error) })
             rt.warn('ds-bot: %s reply outcome could not be confirmed: %s', conn.platform, failMessage(error))
@@ -737,6 +758,7 @@ export function install(rt) {
             const waiter = settled?.waiter
             const replay = waiter !== undefined && !waiter.runner.stopped && runners.get(conn.id) === waiter.runner ? waiter : undefined
             if (connections()[conn.id] === undefined || stopped || how === 'drop') {
+              job.observe?.(dropOutcome(error))
               await Promise.resolve(job.onDrop?.()).catch(() => {})
               clearSettledSendStatus(conn.id, chatKey, runner, settled)
               clearPendingSend(conn.id, chatKey, settled)
@@ -775,6 +797,7 @@ export function install(rt) {
             retainFailed(conn.id, chatKey, job, failMessage(error))
             rt.warn('ds-bot: im send to %s failed: %s', chatKey, failMessage(error))
           } else {
+            job.observe?.(dropOutcome(error))
             await Promise.resolve(job.onDrop?.()).catch(() => {})
             clearSettledSendStatus(conn.id, chatKey, runner, undefined)
           }
@@ -784,6 +807,7 @@ export function install(rt) {
         queue.jobs.shift()
         const settled = queue.stoppedSend
         queue.stoppedSend = undefined
+        job.observe?.({ state: 'sent' })
         if (connections()[conn.id] !== undefined) job.after?.(sent)
         clearSettledSendStatus(conn.id, chatKey, runner, settled)
         clearPendingSend(conn.id, chatKey, settled)
@@ -796,6 +820,11 @@ export function install(rt) {
   }
   const sendText = (conn, chat, body, buttons, after) => enqueue(conn, chat.key, { chat, text: body, buttons, after })
   const sendTo = (conn, chatKey, chat, body, buttons, after) => enqueue(conn, chatKey, { chat, text: body, buttons, after })
+  const dropOutcome = error => error?.unknown === true ? { state: 'unconfirmed' }
+    : { state: 'dropped', reason: error?.refused === true ? error.message : 'the connection closed' }
+  const observeSend = (conn, chatKey, job) => new Promise((resolve) => {
+    enqueue(conn, chatKey, { ...job, observe: resolve, onDrop: () => resolve(dropOutcome()) })
+  })
 
   // ----------------------------------------------------------------- inbound
   const requested = (conn, msg) => {
@@ -1537,6 +1566,7 @@ export function install(rt) {
       if (pending !== undefined) pending.firstRetained ??= rest[0]
       failedFor(id, chatKey).push(...rest)
       setSendStatus(id, chatKey, { state: 'error', error: prevError || 'Stopped before delivery' })
+      for (const job of rest) job.observe?.({ state: 'failed', reason: 'Stopped before delivery' })
     }
     await Promise.all(dropped)
     await Promise.resolve(runner.handle?.stop?.()).catch(() => {})
@@ -2147,11 +2177,13 @@ export function install(rt) {
   }
   const imChatsOf = botId => chatsOfBot(botId).map(item => ({ name: item.name, platform: item.conn.platform, kind: item.chat.kind, connected: runners.has(item.conn.id) }))
   /**
-   * Send a Bot's own message to one of its chats, unprompted.
+   * Send a Bot's own message to one of its chats. When files are supplied, queue
+   * them after the text and report the delivery state of each item.
    * @param {string} botId - The Bot that writes.
    * @param {string | undefined} chatName - The chat's name as listed, its title or its key; may be left out when the Bot has one chat.
    * @param {string} body - Message text.
-   * @returns {Promise<{ sent: string } | { error: 'none' | 'which' | 'unknown' | 'offline' | 'reply-only', chats: string[] }>}
+   * @param {{ root: string, workspace: string, base: string, paths: string[] }} [files] - Canonical and configured workspace, the session folder and paths to send.
+   * @returns {Promise<object>} A chat receipt, delivery observations for a file send, or a routing error.
    */
   // A linked connection writes first into a chat only through a channel that sends
   // unprompted and a chat that told us where it lives; Feishu needs its rich bridge.
@@ -2159,16 +2191,60 @@ export function install(rt) {
     const handle = runners.get(conn.id)?.handle
     return richFeishu(conn) ? handle?.rich === true : handle?.canPush === true && chat.route !== undefined
   }
-  const imSend = async (botId, chatName, body) => {
+  const imSend = async (botId, chatName, body, files) => {
     const chats = chatsOfBot(botId)
     const names = chats.map(item => item.name)
     if (chats.length === 0) return { error: 'none', chats: names }
     const { picked, error } = pickChat(chats, chatName)
     if (picked === undefined) return { error, chats: names }
-    if (!runners.has(picked.conn.id)) return { error: 'offline', chats: names }
+    const runner = runners.get(picked.conn.id)
+    if (runner === undefined) return { error: 'offline', chats: names }
     if (linkOf(picked.conn) !== undefined && !canWriteFirst(picked.conn, picked.chat)) return { error: 'reply-only', chats: names }
-    await sendTo(picked.conn, picked.chatKey, { key: picked.chatKey, kind: picked.chat.kind, title: picked.chat.title }, body)
-    return { sent: picked.name }
+    const chat = { key: picked.chatKey, kind: picked.chat.kind, title: picked.chat.title }
+    if (files === undefined) {
+      await sendTo(picked.conn, picked.chatKey, chat, body)
+      return { sent: picked.name }
+    }
+    const handle = runner.handle
+    if (handle === undefined) return { error: 'offline', chats: names }
+    if (typeof handle.sendFile !== 'function') return { error: 'noFiles', platform: platformLabel(picked.conn), chats: names }
+    const accountId = picked.conn.account?.id
+    const legacy = linkOf(picked.conn)
+    const fingerprint = picked.conn.dshIm?.fingerprint
+    const allowed = () => {
+      const conn = connections()[picked.conn.id]
+      const current = conn?.chats?.[picked.chatKey]
+      return accountId !== undefined && current !== undefined && conn.enabled !== false && conn.platform === picked.conn.platform
+        && conn.account?.id === accountId && linkOf(conn) === legacy && conn.dshIm?.fingerprint === fingerprint
+        && ownsChat(conn, current, botId) && (legacy === undefined || canWriteFirst(conn, current))
+    }
+    const accepted = []
+    const refused = []
+    for (const path of files.paths) {
+      try {
+        accepted.push(await checkWorkFile({ ...files, path, limit: handle.fileLimit, inData: rt.inData }))
+      } catch (error) {
+        if (error?.refused !== true) throw error
+        refused.push({ name: path, state: 'dropped', reason: error.message })
+      }
+    }
+    if (runners.get(picked.conn.id) !== runner || !allowed()) return { error: 'offline', chats: names }
+    const items = []
+    if (body !== '') items.push({ name: 'message', job: { chat, text: body, allowed } })
+    for (const file of accepted) {
+      items.push({ name: file.name, job: { chat, file: { ...file, id: randomUUID(), root: files.root }, allowed } })
+    }
+    let timer
+    const deadline = new Promise((resolve) => { timer = setTimeout(resolve, FILE_WAIT_MS, { state: 'pending' }) })
+    try {
+      const deliveries = await Promise.all(items.map(async ({ name, job }) => ({
+        name,
+        ...await Promise.race([observeSend(picked.conn, picked.chatKey, job), deadline]),
+      })))
+      return { sent: picked.name, deliveries: [...deliveries, ...refused] }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   const imAvailableView = () => available.map(entry => ({ ...entry }))

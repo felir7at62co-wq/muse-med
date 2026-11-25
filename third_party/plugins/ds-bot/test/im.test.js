@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -13,7 +13,7 @@ import { adapters } from '../src/host/im/platforms/index.js'
 // A platform adapter that records sends/edits and lets the test feed inbound
 // messages, actions and statuses. `fail` makes send throw once per call queued.
 // `chats` gives the handle a chat list, as a platform that can list its groups has.
-const fakeAdapter = ({ buttons = true, chats } = {}) => {
+const fakeAdapter = ({ buttons = true, chats, files } = {}) => {
   const sent = []
   const edited = []
   const typed = []
@@ -38,12 +38,20 @@ const fakeAdapter = ({ buttons = true, chats } = {}) => {
           sent.push({ chat, ...body })
           const next = fails.shift()
           if (next !== undefined) throw next
+          await files?.sendText?.(body.text)
           return { messageId: sent.length }
         },
         edit: async (chat, messageId, body) => { edited.push({ chat, messageId, ...body }) },
         typing: async (chat) => { typed.push(chat) },
         stop: () => { adapter.stopped = (adapter.stopped ?? 0) + 1 },
         ...(chats === undefined ? {} : { chats: async () => chats() }),
+        ...(files === undefined ? {} : {
+          fileLimit: files.limit,
+          sendFile: async (chat, file) => {
+            sent.push({ chat, file })
+            return files.sendFile?.(file)
+          },
+        }),
       }
     },
   }
@@ -2525,6 +2533,78 @@ test('im_send reaches only the calling Bot\'s own chats and names them when it m
   await assert.rejects(send({ text: 'x'.repeat(4001) }, 'a'), /4001 characters/)
 })
 
+test('im_send reports the text and each allowed workspace file in order', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-send-'))
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5 }))
+  mkdirSync(join(root, 'scripts'))
+  writeFileSync(join(root, 'scripts', 'draft.txt'), 'draft')
+  writeFileSync(join(root, 'scripts', 'final.txt'), 'final')
+  writeFileSync(join(root, 'scripts', 'large.txt'), 'x'.repeat(11))
+  const s = await start({ adapter: fakeAdapter({ files: { limit: 10 } }) })
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  await dm(s, 'u1', 'hello')
+  s.rt.state.bots.a.workDir = root
+  s.fake.sent.length = 0
+  const exec = { agent: { id: 'a', session: { header: { cwd: join(root, 'scripts') } } } }
+  const send = s.rt.teamTools.find(def => def.name === 'im_send')
+  const receipt = await send.execute({ text: 'Finished', files: ['draft.txt', join(s.home, 'state.json'), 'final.txt'] }, exec)
+  assert.match(receipt, /message sent\. draft.txt sent\. final.txt sent\./)
+  assert.match(receipt, /outside your working folder/)
+  assert.deepEqual(s.fake.sent.map(({ text, file }) => file === undefined ? text : [file.name, file.data.toString()]),
+    ['Finished', ['draft.txt', 'draft'], ['final.txt', 'final']])
+  assert.ok(s.fake.sent.every(({ chat }) => chat.key === 'dm-u1'))
+  await assert.rejects(send.execute({ files: ['large.txt'] }, exec),
+    { code: 'IM_FILE_DELIVERY_FAILED', message: /large\.txt skipped \(file exceeds/ })
+  assert.equal(s.fake.sent.length, 3)
+})
+
+async function refusesQueuedReplacement(t, replacement) {
+  const root = mkdtempSync(join(tmpdir(), 'dsb-send-'))
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5 }))
+  const path = join(root, 'draft.txt')
+  writeFileSync(path, 'draft')
+  const started = Promise.withResolvers()
+  const release = Promise.withResolvers()
+  t.after(release.resolve)
+  const adapter = fakeAdapter({ files: {
+    limit: 10,
+    sendText(body) {
+      if (body !== 'Finished') return
+      started.resolve()
+      return release.promise
+    },
+  } })
+  const s = await start({ adapter })
+  t.after(s.stop)
+  const conn = await add(s)
+  await pairAll(s, conn, 'u1')
+  await dm(s, 'u1', 'hello')
+  s.rt.state.bots.a.workDir = root
+  s.fake.sent.length = 0
+  const send = s.rt.teamTools.find(def => def.name === 'im_send')
+  const result = send.execute({ text: 'Finished', files: [path] }, { agent: { id: 'a' } })
+  await Promise.race([started.promise, result])
+  rmSync(path)
+  if (replacement === 'outside symlink') symlinkSync(join(s.home, 'state.json'), path)
+  else writeFileSync(path, 'other')
+  release.resolve()
+  const reason = replacement === 'outside symlink' ? 'outside your working folder' : 'file changed after it was queued'
+  assert.equal(await result, `u1: message sent. draft.txt skipped (${reason}).`)
+  assert.deepEqual(s.fake.sent.map(({ text }) => text), ['Finished'])
+}
+
+test('im_send refuses to upload a queued file replaced by an outside symlink', {
+  skip: process.platform === 'win32' && 'File symlinks require elevated privileges on Windows',
+}, async (t) => {
+  await refusesQueuedReplacement(t, 'outside symlink')
+})
+
+test('im_send refuses to upload a queued file replaced by a regular file at the same path', async (t) => {
+  await refusesQueuedReplacement(t, 'regular file')
+})
+
 // --------------------------------------------------------------- chat list
 
 // Waits for work the plugin starts on its own, with no promise to await.
@@ -2932,9 +3012,16 @@ test('dsh-im Feishu with the rich consumer: groups register on connect, posts, f
     },
   }
   const rest = []
+  const outgoingFiles = []
   let refuseCards = false
   t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
     const { pathname, search } = new URL(url)
+    if (pathname === '/open-apis/im/v1/files') {
+      assert.equal(init.headers.authorization, 'Bearer fixture')
+      const file = init.body.get('file')
+      outgoingFiles.push([file.name, await file.text()])
+      return Response.json({ code: 0, data: { file_key: 'file_sent' } })
+    }
     rest.push({ method: init.method ?? 'GET', path: `${pathname}${search}`, body: init.body === undefined ? undefined : JSON.parse(init.body) })
     if (pathname === '/open-apis/auth/v3/tenant_access_token/internal') return Response.json({ code: 0, tenant_access_token: 'fixture', expire: 7200 })
     if (pathname === '/open-apis/im/v1/chats') return Response.json({ code: 0, data: { items: [{ chat_id: 'oc_joined', name: 'Joined group' }], has_more: false } })
@@ -2945,6 +3032,7 @@ test('dsh-im Feishu with the rich consumer: groups register on connect, posts, f
         : Response.json({ code: 0, data: { message_id: 'om_card' } })
     }
     if (pathname.endsWith('/members')) return Response.json({ code: 0, data: { items: [{ member_id: 'ou_actor', name: 'Mei' }] } })
+    if (pathname === '/open-apis/im/v1/messages') return Response.json({ code: 0, data: { message_id: 'om_sent' } })
     return Response.json({ code: 0, data: { name: 'Studio group' } })
   })
   const uploads = []
@@ -3016,4 +3104,16 @@ test('dsh-im Feishu with the rich consumer: groups register on connect, posts, f
   assert.match(replies.at(-1).text, /^Bold answer$/)
   // The connection's Bot writes to the registered group by name.
   assert.deepEqual(await s.rt.imSend('a', 'Joined group', 'Call at three'), { sent: 'Joined group' })
+  const workspace = mkdtempSync(join(tmpdir(), 'dsb-feishu-send-'))
+  t.after(() => rmSync(workspace, { recursive: true, force: true, maxRetries: 5 }))
+  const path = join(workspace, 'script.txt')
+  writeFileSync(path, 'script')
+  s.rt.state.bots.a.workDir = workspace
+  const send = s.rt.teamTools.find(def => def.name === 'im_send')
+  for (const chat of ['Joined group', 'oc_dm']) {
+    const receipt = await send.execute({ chat, files: [path] }, { agent: { id: 'a' } })
+    assert.match(receipt, /script\.txt sent/)
+  }
+  assert.deepEqual(outgoingFiles, [['script.txt', 'script'], ['script.txt', 'script']])
+  assert.deepEqual(rest.filter(call => call.body?.msg_type === 'file').map(call => call.body.receive_id), ['oc_joined', 'oc_dm'])
 })

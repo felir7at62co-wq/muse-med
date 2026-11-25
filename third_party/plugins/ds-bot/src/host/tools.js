@@ -1,11 +1,13 @@
 // Team tools: the roster, bot-to-bot messages, group chat settings and posts, and the
 // question and view cards. Group rounds and reading chats are in groups.js.
 import { randomUUID } from 'node:crypto'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { defineTool, ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 import { readAvatar } from './avatar.js'
 import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND, TEXT_KEPT } from './constants.js'
 import { within } from './folders.js'
 import { missingFileRefs } from './claims.js'
+import { FILE_SEND_LIMIT } from './im/platforms/feishu.js'
 import { absoluteLinks } from './links.js'
 import { NAME_MAX } from './requests.js'
 import { inactiveContext } from './services.js'
@@ -18,6 +20,7 @@ import { checkShownView, showViewDescription, showViewParameters } from 'deep-vi
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 // Longest message im_send passes to a chat; the platform adapters split long text further.
 const IM_SEND_MAX = 4000
+const IM_SEND_FILES_MAX = 5
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
 const BLOCKING_QUESTION_TOOL = 'ask_user_question'
 // DS Bot has its own group goals; DSH's session goal still does not survive conversation parts.
@@ -504,10 +507,15 @@ export function install(rt) {
 
   rt.teamTools.push(defineTool({
     name: 'im_send',
-    description: 'Send a message to one of your chat app chats (Feishu, WeChat, …) without waiting for someone there to write first: a finished result, a scheduled report, or something a person must decide. You can reach the chats whose messages come to you and, when a chat app connection is yours, every chat on it: its groups and its owner\'s private chat. Chats go by name; where two share one, use the name with its key as listed. Leave chat out to reach your one own chat: the chat whose messages come to you or, for a connection that is yours, its owner\'s private chat. Replies come back to the Bot that answers that chat.',
+    description: 'Send a message or deliver a file to a chat app chat without waiting for someone to write first. You can reach the chats whose messages come to you and every chat on a connection you own. Replies go to the Bot assigned to that chat.',
     parameters: {
-      text: { type: 'string', required: true, description: `The message, plain text or Markdown, at most ${IM_SEND_MAX} characters` },
-      chat: { type: 'string', description: 'Chat name, needed only when you have several; a refusal lists them' },
+      text: { type: 'string', description: `Plain text or Markdown, up to ${IM_SEND_MAX} characters. Required when files are omitted` },
+      chat: { type: 'string', description: 'Chat name or its listed key. Omit it to use your one own chat. If a name is shared, use the name with its key' },
+      files: {
+        type: 'array',
+        items: { type: 'string' },
+        description: `Feishu only. Up to ${IM_SEND_FILES_MAX} paths inside your working folder, each up to ${FILE_SEND_LIMIT / 1024 ** 2} MiB, sent in order after any text`,
+      },
     },
     output,
     async execute(args, exec) {
@@ -515,13 +523,40 @@ export function install(rt) {
       const sender = callerBot(exec)
       if (sender === undefined) refuse('Only a Bot can send to its chats.')
       const body = String(args.text ?? '').trim()
-      if (body === '') refuse('text is empty.')
       if (body.length > IM_SEND_MAX) refuse(`text has ${body.length} characters; send at most ${IM_SEND_MAX} at a time.`)
-      const result = await rt.imSend(sender.id, args.chat === undefined ? undefined : String(args.chat).trim(), body)
-      if ('sent' in result) return `Sent to ${result.sent}.`
+      const paths = Array.isArray(args.files) ? [...new Set(args.files.filter(path => path.trim() !== ''))] : []
+      if (body === '' && paths.length === 0) throw new ToolArgsError(['The message is empty. Provide text or at least one file.'])
+      if (paths.length > IM_SEND_FILES_MAX) throw new ToolArgsError([`Send at most ${IM_SEND_FILES_MAX} files at a time.`])
+      let files
+      if (paths.length > 0) {
+        const roomId = rt.groupOwners.get(exec.agent?.id)?.roomId
+        const home = rt.workDirOf({ botId: sender.id, roomId }) ?? rt.teamFolder()
+        if (home === undefined) throw new ToolContextUnavailableError('Set a working folder before you send files.')
+        const root = await rt.real(home)
+        files = { root, workspace: home, base: rt.sessionFolder(exec.agent?.session ?? exec.agent) ?? root, paths }
+      }
+      const result = await rt.imSend(sender.id, args.chat === undefined ? undefined : String(args.chat).trim(), body, files)
+      if ('sent' in result) {
+        if (result.deliveries === undefined) return `Sent to ${result.sent}.`
+        const describe = ({ name, state, reason }) => {
+          if (state === 'sent') return `${name} sent`
+          if (state === 'pending') return `${name} queued or uploading`
+          if (state === 'unconfirmed') return `${name} delivery unconfirmed. Check the chat before sending it again`
+          if (state === 'failed') return `${name} failed (${reason}). Try again in Muse Settings → IM`
+          return `${name} skipped (${reason})`
+        }
+        const receipt = `${result.sent}: ${result.deliveries.map(describe).join('. ')}.`
+        if (result.deliveries.every(item => item.state === 'failed' || item.state === 'dropped')) {
+          throw new HarnessError(receipt, 'IM_FILE_DELIVERY_FAILED')
+        }
+        return receipt
+      }
       if (result.error === 'none') refuse('No chat app chat comes to you, so there is nowhere to send this.')
       if (result.error === 'reply-only') refuse('This chat\'s connection can only answer messages that arrive there. Tell the user in Muse instead.')
       if (result.error === 'offline') refuse('That chat\'s connection is offline right now; try again later or tell the user in Muse.')
+      if (result.error === 'noFiles') {
+        throw new HarnessError(`${result.platform} cannot take files here. Send the text alone, or use a Feishu chat that accepts files.`, 'IM_FILE_DELIVERY_UNSUPPORTED')
+      }
       refuse(`${result.error === 'which' ? 'You have several chats; name one' : 'No chat by that name'}. Your chats: ${result.chats.join(', ')}`)
     },
   }))

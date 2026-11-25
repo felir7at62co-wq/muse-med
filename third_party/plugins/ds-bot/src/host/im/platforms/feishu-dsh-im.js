@@ -151,7 +151,10 @@ export async function connectDshImFeishu(service, botId, conn, fields, env, onMe
   }
   return {
     rich,
-    ...(rich ? { edit: http.edit, progress: http.progress } : {}),
+    ...(rich ? {
+      edit: http.edit, progress: http.progress, fileLimit: http.fileLimit,
+      sendFile: (chat, file) => http.sendFile(chat, file, signal),
+    } : {}),
     chats: http.chats,
     stop: dispose,
     async send(chat, job) {

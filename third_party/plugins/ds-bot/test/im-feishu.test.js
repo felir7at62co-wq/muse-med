@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { test } from 'node:test'
 import { format } from 'node:util'
-import feishu, { decodeFrame, encodeFrame } from '../src/host/im/platforms/feishu.js'
+import feishu, { createFeishuHttp, decodeFrame, encodeFrame, FILE_SEND_LIMIT } from '../src/host/im/platforms/feishu.js'
 import { fakeWsServer } from './fake-ws.js'
 
 // A fake Feishu that answers only the calls the real service answers, with the
@@ -710,7 +710,6 @@ test('a group message carries the group and sender names read from Feishu; witho
 })
 
 test('a Feishu progress card replies inside the original topic and edits its own message', async (t) => {
-  const { createFeishuHttp } = await import('../src/host/im/platforms/feishu.js')
   const fake = await fakeFeishu()
   t.after(() => fake.close())
   const client = createFeishuHttp(FIELDS, env(fake))
@@ -725,6 +724,67 @@ test('a Feishu progress card replies inside the original topic and edits its own
   assert.equal(edit.method, 'PATCH')
   assert.equal(edit.path, '/open-apis/im/v1/messages/om_x')
   assert.equal(JSON.parse(edit.params.content).body.elements[0].content, 'Muse finished')
+})
+
+test('Feishu uploads a workspace document or picture and sends the returned key to the selected chat', async () => {
+  const uploads = []
+  const messages = []
+  const client = createFeishuHttp(FIELDS, { async fetch(url, request) {
+    const path = new URL(url).pathname
+    if (path.includes('tenant_access_token')) return Response.json({ tenant_access_token: 'test-token' })
+    assert.equal(request.headers.authorization, 'Bearer test-token')
+    assert.equal(request.method, 'POST')
+    if (path.endsWith('/files') || path.endsWith('/images')) {
+      const kind = path.endsWith('/files') ? 'file' : 'image'
+      const form = request.body
+      assert.ok(form instanceof FormData)
+      const uploaded = form.get(kind)
+      uploads.push({
+        kind, name: uploaded.name, bytes: Buffer.from(await uploaded.arrayBuffer()), type: uploaded.type,
+        fileType: form.get('file_type'), imageType: form.get('image_type'), fileName: form.get('file_name'),
+      })
+      return Response.json({ code: 0, data: { [`${kind}_key`]: `mock-${kind}` } })
+    }
+    assert.equal(new URL(url).search, '?receive_id_type=chat_id')
+    messages.push(JSON.parse(request.body))
+    return Response.json({ code: 0, data: { message_id: 'om_test' } })
+  } })
+  const document = Buffer.from('script')
+  const picture = Buffer.from([0xff, 0xd8, 0xff])
+  assert.equal(client.fileLimit, FILE_SEND_LIMIT)
+  assert.equal((await client.sendFile({ key: 'oc_private' }, { id: 'delivery-file', name: '剧本.docx', data: document })).messageId, 'om_test')
+  await client.sendFile({ key: 'oc_group' }, { id: 'delivery-image', name: '封面.jpg', data: picture })
+  assert.deepEqual(uploads, [
+    { kind: 'file', name: '剧本.docx', bytes: document, type: 'application/octet-stream', fileType: 'stream', imageType: null, fileName: '剧本.docx' },
+    { kind: 'image', name: '封面.jpg', bytes: picture, type: 'image/jpeg', fileType: null, imageType: 'message', fileName: null },
+  ])
+  assert.deepEqual(messages, [
+    { receive_id: 'oc_private', msg_type: 'file', content: '{"file_key":"mock-file"}', uuid: 'delivery-file' },
+    { receive_id: 'oc_group', msg_type: 'image', content: '{"image_key":"mock-image"}', uuid: 'delivery-image' },
+  ])
+  await assert.rejects(client.sendFile({ key: 'oc_group' }, { id: 'empty', name: 'empty.txt', data: Buffer.alloc(0) }),
+    { refused: true })
+  assert.equal(messages.length, 2)
+})
+
+test('Feishu can distinguish a rejected upload from an unconfirmed file message', async () => {
+  let rejectUpload = true
+  let sent = 0
+  const client = createFeishuHttp(FIELDS, { async fetch(url) {
+    const path = new URL(url).pathname
+    if (path.includes('tenant_access_token')) return Response.json({ tenant_access_token: 'test-token' })
+    if (path.endsWith('/files')) return rejectUpload
+      ? Response.json({ code: 4001, msg: 'sensitive provider details' }, { status: 403 })
+      : Response.json({ code: 0, data: { file_key: 'mock-file' } })
+    sent += 1
+    throw new Error('connection closed after the request')
+  } })
+  const send = () => client.sendFile({ key: 'oc_group' }, { id: 'delivery', name: 'script.txt', data: Buffer.from('script') })
+  await assert.rejects(send(), { message: 'Feishu rejected the file upload (HTTP 403, code 4001)', permanent: true, unknown: false })
+  assert.equal(sent, 0)
+  rejectUpload = false
+  await assert.rejects(send(), { message: 'Feishu did not confirm the file message', unknown: true })
+  assert.equal(sent, 1)
 })
 
 test('chats lists the groups the bot is in, page after page', async (t) => {
