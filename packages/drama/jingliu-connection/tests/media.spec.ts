@@ -152,6 +152,30 @@ it('rejects a resolve answer that omits an address and reads a link to an untrus
   expect(seen.at(-1)).toMatchObject({ url: '/fwp/media/generated/a.png', cookie: 'muse=private' })
 })
 
+it('reports the first requested missing file and caches successful files from an unordered response', async () => {
+  const root = await folder()
+  const first = '/fw/media/generated/first.png'
+  const kept = '/fw/media/generated/kept.png'
+  const last = '/fw/media/generated/last.png'
+  const request = vi.fn<WorkbenchSession['request']>().mockResolvedValue({ items: [
+    { path: last, error: 'missing' }, { path: kept, error: 'missing' }, { path: first, error: 'missing' }, { path: kept, local: true },
+  ] })
+  const fetch = vi.fn<WorkbenchSession['fetch']>().mockResolvedValueOnce(new Response('kept', { headers: { 'content-type': 'image/png' } }))
+  const session = localSession(request, fetch)
+  const store = media('storage.invalid')
+  const options = { keep: true, evict: false, signal: new AbortController().signal }
+
+  const download = store.files(session, [first, '/fwp/media/generated/kept.png', kept, last], root, options)
+  await expect(download).rejects.toMatchObject({ code: 'JINGLIU_MEDIA_NOT_FOUND' })
+  await expect(download).rejects.toThrow(first)
+  expect(request).toHaveBeenCalledExactlyOnceWith('/media/resolve', expect.objectContaining({ body: { paths: [first, kept, last] } }))
+  expect(fetch.mock.calls.map(([url]) => url.pathname)).toEqual(['/fwp/media/generated/kept.png'])
+  const local = (await store.files(session, [kept], root, options)).get(kept)
+  expect(local).toMatchObject({ file: join(root, 'generated', 'kept.png'), size: 4 })
+  expect(await readFile(join(root, 'generated', 'kept.png'), 'utf8')).toBe('kept')
+  expect(request).toHaveBeenCalledTimes(1)
+})
+
 it('uses the resolved media type when object storage reports none or application/octet-stream', async () => {
   const bytes = Buffer.from('\x89PNG image')
   let reported: string | undefined = 'application/octet-stream'

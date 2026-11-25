@@ -49,7 +49,7 @@ Host 调用方从 `@deepseek-ai/dsh-jingliu-connection/media` 导入 `boundedByt
 
 只有桌面 Host 设置 `localMedia: true`。开启后文件下载到本机文件夹：缩略图放在 Host 主目录的 `jingliu/media/<账号>`，视频和工具下载放在 `<工作区>/jingliu/<项目>/<目录>/<文件名>`。每个文件夹用索引 `.muse-media.json` 记录地址、大小和 ETag，索引里大小一致的文件直接复用，不再下载。下载会核对大小，ETag 是单段 MD5 时还核对 MD5；中断的 `.part` 文件按字节范围续传；同时最多 `mediaDownloads` 个，超过 `mediaTimeoutMs` 即停止。工具或剪映草稿用到的文件会保留；其余文件超过 `mediaCacheBytes` 时，按最久未用的顺序删除。缩略图经 Host 的 `/api/file` 路由、视频经 `/api/video` 路由交给客户端，都不放在内存里。不开启 `localMedia` 时（例如 Web Host），不向磁盘写任何文件：缩略图以内联方式返回，最多 8 MiB；视频以流的方式返回，最多 64 MiB。
 
-`JingliuSession.upload(file, projectId, signal)` 上传一个本机图片、音频或视频文件：`POST /v2/media/upload-url` 签发 `mediaHosts` 主机上的 PUT 链接，Host 不带凭据把文件传上去，再由 `POST /v2/media/upload-complete` 确认地址和大小。结果是永久地址 `/fw/media/uploads/...`。镜流没有这些路由时以 `JINGLIU_UPLOAD_UNSUPPORTED` 失败。`download` 和 `place` 仅在开启 `localMedia` 时提供，让工具使用同样带索引的文件夹，并把已下载的文件链接到另一位置。
+`JingliuSession.upload(file, projectId, signal)` 上传一个本机图片、音频或视频文件：`POST /v2/media/upload-url` 签发 `mediaHosts` 主机上的 PUT 链接，Host 不带凭据把文件传上去，再由 `POST /v2/media/upload-complete` 确认地址和大小。结果是永久地址 `/fw/media/uploads/...`。镜流没有这些路由时以 `JINGLIU_UPLOAD_UNSUPPORTED` 失败。`download` 和 `place` 仅在开启 `localMedia` 时提供，让工具使用同样带索引的文件夹，并把已下载的文件链接到另一位置。同一批文件中有下载失败时，`download` 先将下载成功的文件写入索引，再按请求顺序报告首个下载失败。
 
 | 配置 | 默认值 | 含义 |
 |---|---|---|

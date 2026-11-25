@@ -185,18 +185,25 @@ export class JingliuConnection extends TypertRemoteService {
     })
   }
 
+  private async readMedia<T>(
+    session: WorkbenchSession, path: string, signal: AbortSignal, consume: (response: Response) => Promise<T>,
+  ): Promise<T> {
+    await session.check()
+    const response = await this.media.open(session, path, signal)
+    let result: T
+    try { result = await consume(response) }
+    finally { if (!response.bodyUsed) await response.body?.cancel() }
+    await session.check()
+    return result
+  }
+
   private studio(session: WorkbenchSession): JingliuSession {
     let studio = this.studios.get(session)
     if (studio) return studio
     studio = {
       identity: session.identity,
-      media: async (path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>) => {
-        await session.check()
-        const response = await this.media.open(session, path, signal)
-        try { await consume(response) }
-        finally { if (!response.bodyUsed) await response.body?.cancel() }
-        await session.check()
-      },
+      media: (path: string, signal: AbortSignal, consume: (response: Response) => Promise<void>) =>
+        this.readMedia(session, path, signal, consume),
       ...(this.localMedia && {
         download: (paths: readonly string[], folder: string, signal: AbortSignal) =>
           this.media.files(session, paths, folder, { keep: true, evict: false, signal }),
@@ -538,15 +545,13 @@ export class JingliuConnection extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   async *video(path: string, signal: AbortSignal): AsyncIterable<string> {
-    const session = await this.connection()
-    let type = ''
-    let bytes: Buffer | undefined
-    await session.media?.(path, AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs * 4)]), async (response) => {
-      type = response.headers.get('content-type')?.split(';')[0] ?? ''
+    const session = await this.sessions.connection()
+    const lifetime = AbortSignal.any([signal, AbortSignal.timeout(this.timeoutMs * 4)])
+    const { type, bytes } = await this.readMedia(session, path, lifetime, async (response) => {
+      const type = response.headers.get('content-type')?.split(';')[0] ?? ''
       if (!VIDEO_TYPES.includes(type)) throw new HarnessError('镜流素材不是可播放的视频。', 'JINGLIU_INVALID_MEDIA')
-      bytes = await boundedBytes(response, VIDEO_MAX_BYTES)
+      return { type, bytes: await boundedBytes(response, VIDEO_MAX_BYTES) }
     })
-    if (!bytes) throw new HarnessError('镜流没有返回这段视频。', 'JINGLIU_INVALID_MEDIA')
     yield type
     for (let start = 0; start < bytes.length; start += VIDEO_CHUNK_BYTES) yield bytes.subarray(start, start + VIDEO_CHUNK_BYTES).toString('base64')
   }
