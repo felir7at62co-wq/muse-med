@@ -24,19 +24,23 @@ const POSTER_RATIOS = ['1:1', '2:3', '3:4', '7:10', '9:16', '16:9'] as const
 
 /**
  * One Jingliu tab: the list of productions, or the workbench of the production the tab shows.
+ * Project actions require the current conversation's live selection.
  * @param props - The Bot's conversation, the tab's production, the studio resources and the message-box callbacks.
  * @returns The project list or the workbench, with the project forms over them.
  */
 export function DrawerJingliu(props: Props) {
   const { sessionId, project, openProject, chooseProject, useResource, useAccountEpoch, t } = props
   const epoch = useAccountEpoch(n => n)
-  const selected = useResource<'jingliu-selected'>(address('jingliu-selected', epoch, 0, { id: sessionId }))
+  const [selectionRevision, refreshSelection] = useState(0)
+  const selected = useResource<'jingliu-selected'>(address('jingliu-selected', epoch, selectionRevision, { id: sessionId }))
   const [card, setCard] = useState<Card | null>(null)
   const [revision, refresh] = useState(0)
   const projects = useResource<'jingliu-projects'>(address('jingliu-projects', epoch, revision))
   const tying = useAction()
   const close = () => { setCard(null) }
-  if (selected.status === 'failed') return <section className={css.drawer}><Failure t={t} retry={() => { refresh(n => n + 1) }} /></section>
+  if (selected.status === 'failed') return <section className={css.drawer}>
+    <Failure t={t} retry={() => { refreshSelection(n => n + 1) }} />
+  </section>
   if (selected.status !== 'live') return <section className={css.drawer}><p className={css.quiet}>{t('loading')}</p></section>
   // The production Muse works on in this conversation. Looking at another one leaves it as it is.
   const tied = selected.value?.id ?? null

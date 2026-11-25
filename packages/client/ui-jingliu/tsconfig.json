@@ -69,6 +69,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../typert/protocol"
+    },
+    {
       "path": "../../util/brand"
     },
     {

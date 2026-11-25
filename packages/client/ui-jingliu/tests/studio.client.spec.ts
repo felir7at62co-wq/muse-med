@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 /** Public workbench URLs and disposable right-sidebar access. */
+import { act, fireEvent, waitFor, within } from '@testing-library/react'
 import { Context } from '@deepseek-ai/cordis'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import * as resources from '@deepseek-ai/dsh-client-resources/client'
+import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SelectedProject, StudioImage, StudioNewProject } from '@deepseek-ai/dsh-jingliu-connection/types'
+import type { SelectedProject, StudioCatalog, StudioImage, StudioNewProject, StudioProject } from '@deepseek-ai/dsh-jingliu-connection/types'
 import type { MuseDataRush } from '@deepseek-ai/dsh-muse-account/types'
 import type { IndexInjection, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -21,6 +24,7 @@ import type { DraftActions } from '../src/client/DrawerScriptDraft.tsx'
 import * as host from '../src/index.ts'
 import * as studio from '../src/client/index.ts'
 import type { ProductionActions } from '../src/client/Production.tsx'
+import { en } from '../src/client/locales.ts'
 
 vi.mock('@deepseek-ai/dsh-jingliu-connection/remote', () => ({ default: {} }))
 
@@ -428,8 +432,10 @@ it('publishes Jingliu selection changes and surfaces watcher failures only while
   const m = await setup()
   const selected = { id: 'p1', title: 'Night market' }
   const disconnected = new Error('Host unavailable')
+  const refused = new RemoteError('gateway/bad-request', 'Selection cannot be read', {})
   const watchProject = vi.fn<(id: SessionId, signal: AbortSignal) => AsyncIterable<SelectedProject | null>>()
     .mockImplementationOnce(async function* () { yield null; yield selected })
+    .mockImplementationOnce(async function* () { throw refused })
     .mockImplementation(async function* () { throw disconnected })
   m.bind('jingliuConnection', { watchProject })
   await vi.waitFor(() => { expect(m.slots.entries('bot.drawer.jingliu')).toHaveLength(1) })
@@ -439,8 +445,108 @@ it('publishes Jingliu selection changes and surfaces watcher failures only while
     { ok: true, value: null }, { ok: true, value: selected },
   ])
   expect(watchProject).toHaveBeenCalledExactlyOnceWith('scene work', signal)
-  await expect(m.read('jingliu-selected', 'id=scene+work', signal)).rejects.toBe(disconnected)
+  await expect(m.read('jingliu-selected', 'id=scene+work', signal)).resolves.toEqual([{ ok: false, error: refused }])
+  await expect(m.read('jingliu-selected', 'id=scene+work', signal)).resolves.toMatchObject([
+    { ok: false, error: { code: 'gateway/internal', cause: disconnected } },
+  ])
   await expect(m.read('jingliu-selected', 'id=scene+work', AbortSignal.abort())).resolves.toEqual([])
+})
+
+const firstSession = SessionId('first bot')
+const secondSession = SessionId('second bot')
+const bridge = { id: 'p1', title: 'Paper Bridge' }
+const harbor = { id: 'p2', title: 'Old Harbor' }
+const projects: StudioProject[] = [bridge, harbor].map(item => ({
+  ...item, episodes: 1, shots: 0, completed: 0, role: 'owner', thumbnail: '',
+  mode: 'drama', aspect: '9:16', createdAt: '', profile: { videoModel: '', generationMode: '', resolution: '' },
+}))
+const catalog: StudioCatalog = { modes: [], aspects: [], resolutions: [], imageModels: [], videoModels: [], generationModes: [] }
+
+function SelectionRefreshFrame({ renderSlot }: PropsRenderSlots<'bot.drawer.jingliu'>) {
+  const owner = { project: null, openProject: () => {}, quote: () => {}, compose: () => {} }
+  return createElement(Fragment, null,
+    createElement('section', { 'aria-label': 'First conversation' },
+      renderSlot('bot.drawer.jingliu', { ...owner, sessionId: firstSession })),
+    createElement('section', { 'aria-label': 'Second conversation' },
+      renderSlot('bot.drawer.jingliu', { ...owner, sessionId: secondSession })))
+}
+
+function released(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve()
+    else signal.addEventListener('abort', () => { resolve() }, { once: true })
+  })
+}
+
+it('reopens the failed conversation watch and discards an old account frame after a reset', async () => {
+  const runtime = await SlotTestRuntime.create()
+  onTestFinished(async () => { await runtime.dispose() })
+  vi.stubGlobal(STUDIO_URL_GLOBAL, 'https://muse.test/jingliu/')
+  const locale = new LocaleRuntime(runtime.ctx)
+  locale.setLocale('en')
+  runtime.ctx.provide('locale', locale)
+  runtime.slots.installLocale(locale)
+  runtime.ctx.provide('sidebarRightTabs', new SidebarRightTabRegistry(runtime.ctx))
+  runtime.ctx.provide('layout', {})
+  runtime.ctx.provide('conversation', {})
+  await runtime.mount(resources)
+  vi.spyOn(runtime.remote, '$mount').mockResolvedValue(async () => {})
+
+  const opens = new Map<SessionId, AbortSignal[]>()
+  const lateFrame = vi.fn()
+  const watchProject = async function* (id: SessionId, signal: AbortSignal): AsyncGenerator<SelectedProject | null> {
+    const history = opens.get(id) ?? []
+    opens.set(id, history)
+    const attempt = history.push(signal)
+    if (id === firstSession && attempt === 1) throw new RemoteError('gateway/internal', 'Watch unavailable', {})
+    yield id === firstSession && attempt === 2 ? bridge : id === secondSession && attempt === 1 ? harbor : null
+    await released(signal)
+    if (id === firstSession && attempt === 2) {
+      lateFrame()
+      yield harbor
+    }
+  }
+  const selectProject = vi.fn()
+  runtime.remote.provideNamespaces({ jingliuConnection: {
+    watchProject, selectProject, listProjects: async () => ({ ok: true, value: projects }),
+    catalog: async () => ({ ok: true, value: catalog }),
+  } })
+  await runtime.root.declare({ 'bot.drawer.jingliu': { kind: 'single', scope: 'root' } }, SelectionRefreshFrame)
+  await runtime.mount(studio)
+  await waitFor(() => { expect(runtime.slots.entries('bot.drawer.jingliu')).toHaveLength(1) })
+
+  const app = runtime.renderRoot()
+  const first = within(app.getByRole('region', { name: 'First conversation' }))
+  const second = within(app.getByRole('region', { name: 'Second conversation' }))
+  const failure = within(await first.findByRole('alert'))
+  expect(failure.getByText(en.failed)).toBeTruthy()
+  expect((await second.findByRole('button', { name: /Old Harbor.*Current/u })).textContent).toContain(en.tiedProject)
+  const firstOpen = opens.get(firstSession)?.[0]
+  const secondOpen = opens.get(secondSession)?.[0]
+  expect(firstOpen?.aborted).toBe(false)
+  expect(secondOpen?.aborted).toBe(false)
+
+  fireEvent.click(failure.getByRole('button', { name: en.refresh }))
+  expect(await first.findByRole('button', { name: /Paper Bridge.*Current/u })).toBeTruthy()
+  expect(first.queryByRole('alert')).toBeNull()
+  expect(opens.get(firstSession)).toHaveLength(2)
+  expect(firstOpen?.aborted).toBe(true)
+  expect(opens.get(secondSession)).toEqual([secondOpen])
+  expect(secondOpen?.aborted).toBe(false)
+  expect(second.getByRole('button', { name: /Old Harbor.*Current/u })).toBeTruthy()
+
+  const restarted = opens.get(firstSession)?.[1]
+  await act(async () => { runtime.remote.emit('muse-account/session-changed', []) })
+  expect(await first.findByRole('button', { name: /Paper Bridge/u })).toBeTruthy()
+  expect(await second.findByRole('button', { name: /Old Harbor/u })).toBeTruthy()
+  expect(restarted?.aborted).toBe(true)
+  expect(secondOpen?.aborted).toBe(true)
+  expect(opens.get(firstSession)).toHaveLength(3)
+  expect(opens.get(secondSession)).toHaveLength(2)
+  expect(lateFrame).toHaveBeenCalledTimes(1)
+  expect(first.queryByRole('button', { name: /Current/u })).toBeNull()
+  expect(second.queryByRole('button', { name: /Current/u })).toBeNull()
+  expect(selectProject).not.toHaveBeenCalled()
 })
 
 it('binds a created project to its conversation and drops the result when the Studio account changes', async () => {

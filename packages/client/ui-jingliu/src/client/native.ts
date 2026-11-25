@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { StudioImage, StudioLibraryQuery } from '@deepseek-ai/dsh-jingliu-connection/types'
 import remote from '@deepseek-ai/dsh-jingliu-connection/remote'
@@ -270,8 +271,12 @@ export function installNative(ctx: Context): void {
           try {
             for await (const value of api.watchProject(id, signal)) yield { ok: true, value }
           } catch (error) {
-            // A watch the registry stopped ends quietly; a live watch's failure surfaces.
-            if (!signal.aborted) throw error
+            if (signal.aborted) return
+            yield {
+              ok: false,
+              error: remoteErrorOf(error)
+                ?? new RemoteError('gateway/internal', 'Jingliu project selection is unavailable', {}, { cause: error }),
+            }
           }
         } }))
       const locale = 'jingliuStudio'
