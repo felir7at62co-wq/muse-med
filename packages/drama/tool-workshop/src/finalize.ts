@@ -51,10 +51,19 @@ export interface UploadEpisode {
 /** Reads one workspace file as text; the caller resolves paths against the conversation's workspace. */
 export type ReadFile = (path: string, signal: AbortSignal) => Promise<string>
 
-/** Authenticated Workshop access and workspace reads. */
-export interface FinalizeDependencies {
+type FinalizeContext = ToolRunContext & { readonly agent: NonNullable<ToolRunContext['agent']> }
+
+/**
+ * Authenticated Workshop access and workspace reads.
+ * @template Exec - Tool context required by the reader.
+ */
+export interface FinalizeDependencies<Exec extends ToolRunContext = ToolRunContext> {
   connect(): Promise<WorkbenchSession>
-  read(exec: ToolRunContext): ReadFile
+  read(exec: Exec): ReadFile
+}
+
+function requireFinalizeAgent(exec: ToolRunContext): asserts exec is FinalizeContext {
+  if (exec.agent === undefined) throw new HarnessError('请在 Muse 会话中定稿。', 'WORKSHOP_SESSION_REQUIRED')
 }
 
 /**
@@ -69,11 +78,13 @@ export function splitEpisodes(files: readonly { path: string; text: string }[]):
     const lines = text.replace(/^﻿/u, '').split(/\r?\n/u)
     const marks = lines.flatMap((line, at) => {
       const match = HEADING.exec(line.trim())
-      const order = match?.[1]
-      return order === undefined ? [] : [{ at, order: Number(order), title: `第${order}集 ${match?.[2] ?? ''}`.trim() }]
+      if (match === null) return []
+      const [, order, title] = match
+      return [{ at, order: Number(order), title: `第${String(order)}集 ${String(title)}`.trim() }]
     })
     if (marks.length === 0) {
-      const named = /([0-9]{1,3})(?:\.[A-Za-z]+)?$/u.exec(path.split(/[\\/]/u).at(-1) ?? '')
+      const filename = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+      const named = /([0-9]{1,3})(?:\.[A-Za-z]+)?$/u.exec(filename)
       const order = named ? Number(named[1]) : index + 1
       episodes.push({ order, title: '第' + String(order) + '集', content: text.replace(/^﻿/u, '').trim() })
       return
@@ -128,7 +139,7 @@ function report(script: ScriptSummary, created: boolean, version: number): Final
  * @param deps - Workshop connection and workspace reads.
  * @returns The tool definition; Workshop credentials never appear in its arguments or results.
  */
-export function finalizeTool(deps: FinalizeDependencies): ToolDefinition {
+export function finalizeTool(deps: FinalizeDependencies<FinalizeContext>): ToolDefinition {
   return defineTool({
     name: 'script_finalize',
     description: '把写完的剧本定稿上传到剧本工坊的定稿库，全组都能看到，组长从里面选用投产。'
@@ -149,7 +160,7 @@ export function finalizeTool(deps: FinalizeDependencies): ToolDefinition {
       presentationMeta: (_args, value) => ({ title: value.title ?? null, version: value.version, created: value.created ?? null }),
     },
     async execute(args, exec): Promise<FinalizeReport> {
-      if (!exec.agent) throw new HarnessError('请在 Muse 会话中定稿。', 'WORKSHOP_SESSION_REQUIRED')
+      requireFinalizeAgent(exec)
       const title = args.title.trim()
       const violations = [
         ...(title === '' || title.length > 200 ? ['title 需要 1 到 200 字'] : []),
@@ -202,7 +213,7 @@ export function applyFinalize(ctx: Context): void {
     const tool = finalizeTool({
       connect: () => scope.workshopConnection.connection(),
       read: exec => async (path, signal) => {
-        const policy = scope.sandboxPolicy.resolve(exec.agent ? { session: exec.agent.session } : {})
+        const policy = scope.sandboxPolicy.resolve({ session: exec.agent.session })
         const target = await scope.fs.resolve(path, { cwd: policy.workspaceRoot, signal })
         return await scope.fs.readText(target, signal)
       },

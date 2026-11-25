@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { JingliuHttpError, type JingliuSession, type LocalMedia } from '@deepseek-ai/dsh-jingliu-connection'
 import { expect, it, onTestFinished, vi } from 'vitest'
-import { jingliuSource } from '../src/source.ts'
+import { jingliuSource, type JingliuSourceOptions } from '../src/source.ts'
 import type { EpisodeSource, StoreShot } from '../src/types.ts'
 
 const firstPath = '/fw/media/generated/first.mp4'
@@ -20,8 +20,9 @@ async function fixture() {
     path, file: join(root, basename(path)), size: 10, contentType: 'video/mp4',
   }]))
   const download = vi.fn<NonNullable<JingliuSession['download']>>().mockImplementation(async paths => downloads(paths))
-  const provider = (withDownloads = true) => jingliuSource({ root, project: 'film', jobWaitMs: 0, pollIntervalMs: 1000,
-    session: { identity: 'current-account', request, ...(withDownloads ? { download } : {}) } })
+  const provider = (withDownloads = true, timing?: Pick<JingliuSourceOptions, 'jobWaitMs' | 'pollIntervalMs'>) =>
+    jingliuSource({ root, project: 'film', jobWaitMs: 0, pollIntervalMs: 1000, ...timing,
+      session: { identity: 'current-account', request, ...(withDownloads ? { download } : {}) } })
   return { root, request, download, downloads, provider }
 }
 
@@ -118,4 +119,32 @@ it.each([
   const store = await publication(f.provider())
   f.request.mockResolvedValueOnce({ id: 'job-1' }).mockResolvedValueOnce(job)
   await expect(store()).resolves.toMatchObject({ kind: 'blocked', reason, shots: [1] })
+})
+
+it('polls the acknowledged job within the configured wait and stores the exact returned review choice', async () => {
+  const f = await fixture()
+  const store = await publication(f.provider(true, { jobWaitMs: 60_000, pollIntervalMs: 10 }))
+  const item = { id: 'review-1', kind: 'differ', heard: '来了', script: '到了', start: 0.1, end: 0.4, decision: 'script' }
+  f.request.mockResolvedValueOnce({ id: 'job-1' }).mockResolvedValueOnce({ status: 'running' })
+    .mockResolvedValueOnce({ status: 'done', result: segments([{ shot_id: 'shot-1', items: [item] }]) })
+  await expect(store()).resolves.toEqual({ kind: 'stored', legacy: [], shots: new Map([[1, { items: [item],
+    stored: { video_path: firstPath, key: 'canonical-rules', job: 'job-1' } }]]) })
+  expect(f.request.mock.calls.map(([route]) => route)).toEqual(['/projects/film/edit-plan', '/jobs', '/jobs/job-1', '/jobs/job-1'])
+})
+
+it('caps retries of a failed free subtitle job while preserving the original project scope', async () => {
+  const f = await fixture()
+  const store = await publication(f.provider())
+  let jobs = 0
+  f.request.mockImplementation(async (route) => {
+    if (route === '/jobs') return { id: `job-${String(++jobs)}` }
+    return { status: 'failed' }
+  })
+  for (let call = 0; call < 4; call++) {
+    await expect(store()).resolves.toMatchObject({ kind: 'blocked', reason: 'subtitle_job_failed', shots: [1] })
+  }
+  expect(jobs).toBe(3)
+  for (const [, options] of f.request.mock.calls.filter(([path]) => path === '/jobs')) {
+    expect(options?.body).toMatchObject({ kind: 'auto_subtitles', payload: { project_id: 'film', episode: 1 } })
+  }
 })

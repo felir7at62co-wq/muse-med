@@ -126,3 +126,66 @@ it('reports sign-in and quota refusals while keeping staged packs ready to resum
   expect(finish.mock.calls[0]?.[1]).toBe('receipt-quota')
   expect(start).toHaveBeenCalledTimes(3)
 })
+
+it.each([
+  { code: 'sign-in-required', reason: 'sign_in_required' },
+  { code: 'provider_unavailable', reason: 'asr_error' },
+] as const)('reports a structured $code receipt without replacing the staged media', async ({ code, reason }) => {
+  const f = await fixture()
+  const shot = await f.audio('structured', Buffer.alloc(32_000, 1))
+  const start = vi.spyOn(Runner, 'startAudioTranscriptionBatch').mockImplementation(async (_root, inputs) => ({ items: [
+    { input: inputs[0]!, status: 'processing', receipt: 'original-receipt', job_id: 'original-job', error_code: code },
+  ] }))
+  const outcome = await transcribeShots([shot], f.deps, { allowNew: true, waitMs: 0 })
+  expect(outcome.states.get(shot.audio_sha256)).toEqual({ kind: 'blocked', reason })
+  expect(outcome.pendingPacks).toBe(1)
+  await expect(readFile(start.mock.calls[0]![1][0]!)).resolves.toBeInstanceOf(Buffer)
+})
+
+it('preserves the original error state when upload and subsequent receipt polling fail', async () => {
+  const f = await fixture()
+  const shot = await f.audio('interrupted', Buffer.alloc(32_000, 2))
+  const start = vi.spyOn(Runner, 'startAudioTranscriptionBatch')
+    .mockRejectedValueOnce(new Error('Sign in to resume the upload'))
+    .mockRejectedValueOnce('Unknown transport error')
+    .mockImplementationOnce(async (_root, inputs) => ({ items: [{ input: inputs[0]!, status: 'processing',
+      receipt: 'retained-receipt', job_id: 'retained-job' }] }))
+  const pass = (allowNew: boolean) => transcribeShots([shot], f.deps, { allowNew, waitMs: 0 })
+  expect((await pass(true)).states.get(shot.audio_sha256)).toEqual({ kind: 'blocked', reason: 'sign_in_required' })
+  expect((await pass(false)).states.get(shot.audio_sha256)).toEqual({ kind: 'blocked', reason: 'asr_error' })
+  expect((await pass(false)).states.get(shot.audio_sha256)).toEqual({ kind: 'pending' })
+  const finish = vi.spyOn(Runner, 'finishAudioTranscription').mockRejectedValueOnce(new Error('Sign in to read the original task'))
+  expect((await pass(false)).states.get(shot.audio_sha256)).toEqual({ kind: 'blocked', reason: 'sign_in_required' })
+  expect(finish.mock.calls[0]?.[1]).toBe('retained-receipt')
+  expect(start.mock.calls.map(call => call[1])).toEqual(Array.from({ length: 3 }, () => start.mock.calls[0]![1]))
+})
+
+it('uses the configured media runner and publishes a silent cloud receipt without another submission', async () => {
+  const f = await fixture()
+  const shot = await f.audio('silent-on-server', Buffer.alloc(32_000, 2))
+  const extract = vi.spyOn(Runner, 'extractSpeechPcm').mockImplementation(async (source, target) => extractPcm(source, target))
+  const probe = vi.spyOn(Runner, 'probeMediaDuration').mockResolvedValue(1)
+  const original = { receipt: 'original-receipt', job_id: 'original-job' }
+  const start = vi.spyOn(Runner, 'startAudioTranscriptionBatch').mockImplementation(async (_root, inputs) => ({ items: [
+    { input: inputs[0]!, status: 'processing', ...original },
+  ] }))
+  const { media: _media, ...deps } = f.deps
+  const signal = new AbortController().signal
+  await transcribeShots([shot], deps, { allowNew: true, waitMs: 0 }, signal)
+  expect(extract).toHaveBeenCalledWith(shot.audio, expect.any(String), deps.runner, signal)
+  const wav = start.mock.calls[0]![1][0]!
+  const finish = vi.spyOn(Runner, 'finishAudioTranscription')
+    .mockImplementationOnce(async (_root, _receipt, _account, _signal, _read, options) => {
+      await options?.probe(wav, signal)
+      return { ...original, status: 'complete', error_code: 'provider_unavailable' }
+    })
+    .mockResolvedValueOnce({ status: 'silent', ...original })
+  const pending = await transcribeShots([shot], deps, { allowNew: false, waitMs: 0 }, signal)
+  expect(pending.states.get(shot.audio_sha256)).toEqual({ kind: 'pending' })
+  expect(probe).toHaveBeenCalledWith(wav, deps.runner, signal)
+  const silent = await transcribeShots([shot], deps, { allowNew: false, waitMs: 0 }, signal)
+  expect(silent.states.get(shot.audio_sha256)).toMatchObject({ kind: 'ready', transcript: { silent: true, words: [], flags: [] } })
+  expect(finish.mock.calls.map(call => call[1])).toEqual(['original-receipt', 'original-receipt'])
+  expect(start).toHaveBeenCalledTimes(1)
+  await expect(readFile(wav)).rejects.toMatchObject({ code: 'ENOENT' })
+})

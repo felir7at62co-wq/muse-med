@@ -9,12 +9,17 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { SidebarRightTabRegistry } from '@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SelectedProject, StudioCatalog, StudioImage, StudioNewProject, StudioProject } from '@deepseek-ai/dsh-jingliu-connection/types'
+import type {
+  SelectedProject, StudioCatalog, StudioImage, StudioNewProject, StudioPreferences, StudioProject, StudioVideoRequest,
+} from '@deepseek-ai/dsh-jingliu-connection/types'
 import type { MuseDataRush } from '@deepseek-ai/dsh-muse-account/types'
 import type { IndexInjection, WebServer } from '@deepseek-ai/dsh-host-webserver'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import type { ScriptDraft, ScriptDraftCreateRequest } from '@deepseek-ai/dsh-workbench-connection/types'
+import type {
+  ScriptDraft, ScriptDraftCreateRequest, ScriptDraftExport, ScriptDraftExportRequest,
+  ScriptDraftHistoryRestore, ScriptDraftHistoryRestoreRequest, ScriptDraftStoryboard, ScriptDraftStoryboardSaveRequest,
+} from '@deepseek-ai/dsh-workbench-connection/types'
 import { Fragment, createElement } from 'react'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { studioUrl } from '../src/config.ts'
@@ -321,9 +326,15 @@ it('passes Workshop list, version and draft history addresses through to the sel
   const m = await setup()
   const scripts = unavailable()
   const script = unavailable()
+  const scriptDrafts = unavailable()
+  const scriptDraft = unavailable()
+  const scriptDraftEpisode = unavailable()
+  const scriptDraftStoryboard = unavailable()
   const scriptDraftHistory = unavailable()
   const scriptDraftHistoryEntry = unavailable()
-  m.bind('workshopConnection', { scripts, script, scriptDraftHistory, scriptDraftHistoryEntry })
+  m.bind('workshopConnection', {
+    scripts, script, scriptDrafts, scriptDraft, scriptDraftEpisode, scriptDraftStoryboard, scriptDraftHistory, scriptDraftHistoryEntry,
+  })
   await vi.waitFor(() => { expect(m.slots.entries('bot.drawer.scripts')).toHaveLength(1) })
 
   for (const status of ['waiting', 'picked', 'in_production']) {
@@ -336,6 +347,15 @@ it('passes Workshop list, version and draft history addresses through to the sel
   expect(script).toHaveBeenLastCalledWith({ id: 42, version: 3 })
   await m.read('workshop-script', 'id=42&version=1.5')
   expect(script).toHaveBeenLastCalledWith({ id: 42 })
+  await expect(m.read('workshop-drafts', 'query=Night+market&offset=15&limit=30')).resolves.toEqual([failure])
+  expect(scriptDrafts).toHaveBeenCalledExactlyOnceWith({ query: 'Night market', offset: 15, limit: 30 })
+  await expect(m.read('workshop-draft', 'id=45')).resolves.toEqual([failure])
+  expect(scriptDraft).toHaveBeenCalledExactlyOnceWith({ draftId: 45 })
+  const episodeReads = [['workshop-draft-episode', scriptDraftEpisode], ['workshop-draft-storyboard', scriptDraftStoryboard]] as const
+  for (const [protocol, call] of episodeReads) {
+    await expect(m.read(protocol, 'id=45&episode=2')).resolves.toEqual([failure])
+    expect(call).toHaveBeenCalledExactlyOnceWith({ draftId: 45, episode: 2 })
+  }
   await m.read('workshop-draft-history', 'id=45&episode=2&layer=storyboard')
   expect(scriptDraftHistory).toHaveBeenCalledExactlyOnceWith({ draftId: 45, episode: 2, layer: 'storyboard' })
   await m.read('workshop-draft-history-entry', 'id=45&episode=2&row=8')
@@ -582,4 +602,162 @@ it('binds a created project to its conversation and drops the result when the St
   expect(selectProject).toHaveBeenCalledOnce()
   await expect(actions.chooseProject(session, selected)).rejects.toBe(failure.error)
   expect(selectProject).toHaveBeenCalledTimes(2)
+})
+
+async function installProductionActions(api: object) {
+  const m = await setup()
+  m.bind('jingliuConnection', api)
+  await vi.waitFor(() => { expect(m.slots.entries('bot.drawer.jingliu')).toHaveLength(1) })
+  const actions = m.slots.entries('bot.drawer.jingliu')[0]?.inject?.() as ProductionActions | undefined
+  if (actions === undefined) throw new Error('Jingliu project actions are not registered')
+  return { m, actions }
+}
+
+it('keeps a live catalog transport fault observable and releases the canceled owner without a late error', async () => {
+  const socketError = new Error('Catalog transport lost')
+  const started = Promise.withResolvers<AbortSignal>()
+  const read = vi.fn<RemoteCall<[AbortSignal], StudioProject[]>>()
+    .mockRejectedValueOnce(socketError)
+    .mockImplementationOnce(async (signal) => {
+      started.resolve(signal)
+      await released(signal)
+      throw new DOMException('Catalog read canceled', 'AbortError')
+    })
+  const { m, actions } = await installProductionActions({ listProjects: read })
+  await expect(m.read('jingliu-projects')).rejects.toBe(socketError)
+  const controller = new AbortController()
+  const pending = m.read('jingliu-projects', '', controller.signal)
+  try {
+    expect(await started.promise).toBe(controller.signal)
+  } finally { controller.abort() }
+  await expect(pending).resolves.toEqual([])
+
+  const epoch = actions.hooks.accountEpoch
+  const before = epoch.getSnapshot()
+  m.accountChanged()
+  expect(epoch.getSnapshot()).toBeGreaterThan(before)
+  const after = epoch.getSnapshot()
+  await m.dispose()
+  expect(m.slots.entries('bot.drawer.jingliu')).toHaveLength(0)
+  expect(m.providers.has('jingliu-projects')).toBe(false)
+  m.accountChanged()
+  expect(epoch.getSnapshot()).toBe(after)
+})
+
+it('uses the authenticated workspace video route or streams the exact browser video bytes', async () => {
+  const file = 'E:\\Productions\\Paper Bridge\\rough + final.mp4'
+  const request: StudioVideoRequest = { sessionId: SessionId('Bridge + ending'), projectId: 'p2', path: '/fw/media/ending.mp4' }
+  const localVideo = vi.fn<RemoteCall<[StudioVideoRequest, AbortSignal], string | null>>()
+    .mockResolvedValueOnce(failure).mockResolvedValueOnce({ ok: true, value: file }).mockResolvedValue({ ok: true, value: null })
+  const video = vi.fn<(path: string, signal: AbortSignal) => AsyncIterable<string>>()
+    .mockImplementationOnce(async function* () { yield* ['video/mp4', 'AQID', '/4A='] })
+    .mockImplementationOnce(async function* () { yield* [] })
+  const { actions } = await installProductionActions({ localVideo, video })
+  const signal = new AbortController().signal
+  await expect(actions.loadVideo(request, signal)).rejects.toBe(failure.error)
+  const local = new URL(await actions.loadVideo(request, signal))
+  expect(local.pathname).toBe('/api/video')
+  expect(local.searchParams.get('sessionId')).toBe(request.sessionId)
+  expect(local.searchParams.get('path')).toBe(file)
+  expect(video).not.toHaveBeenCalled()
+
+  const createObjectURL = vi.fn<(blob: Blob) => string>().mockReturnValue('blob:muse-episode')
+  vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL }))
+  await expect(actions.loadVideo(request, signal)).resolves.toBe('blob:muse-episode')
+  expect(video).toHaveBeenCalledExactlyOnceWith(request.path, signal)
+  const blob = createObjectURL.mock.calls[0]?.[0]
+  if (!blob) throw new Error('Browser playback did not create a video blob')
+  const original = await new Promise<string | ArrayBuffer | null>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => { resolve(reader.result) }
+    reader.onerror = () => { reject(reader.error ?? new Error('Browser video blob could not be read')) }
+    reader.readAsDataURL(blob)
+  })
+  expect(original).toBe('data:video/mp4;base64,AQID/4A=')
+  await expect(actions.loadVideo(request, signal)).rejects.toThrow('Studio video was empty')
+  expect(localVideo.mock.calls.every(([payload, passed]) => payload === request && passed === signal)).toBe(true)
+  expect(createObjectURL).toHaveBeenCalledTimes(1)
+})
+
+it('keeps the project and shot identifiers on Host writes and requires acknowledgement of the requested preference', async () => {
+  const wrote = { ok: true, value: null } as const
+  const preference: StudioPreferences = { projectId: 'p4', hidePromptChips: true }
+  const renameProject = vi.fn().mockResolvedValueOnce(failure).mockResolvedValueOnce(wrote)
+  const deleteShot = vi.fn().mockResolvedValueOnce(failure).mockResolvedValueOnce(wrote)
+  const saveOption = vi.fn().mockResolvedValueOnce(failure).mockResolvedValueOnce(wrote)
+  const savePreferences = vi.fn<RemoteCall<[StudioPreferences], StudioPreferences>>()
+    .mockResolvedValueOnce(failure)
+    .mockResolvedValueOnce({ ok: true, value: { ...preference, hidePromptChips: false } })
+    .mockResolvedValueOnce({ ok: true, value: preference })
+  const { actions } = await installProductionActions({ renameProject, deleteShot, saveOption, savePreferences })
+  await expect(actions.renameProject('p4', 'Lantern Bridge')).rejects.toBe(failure.error)
+  await expect(actions.renameProject('p4', 'Lantern Bridge')).resolves.toBeUndefined()
+  expect(renameProject).toHaveBeenLastCalledWith('p4', 'Lantern Bridge', expect.any(AbortSignal))
+  await expect(actions.deleteShot('p4', 'shot-17')).rejects.toBe(failure.error)
+  await expect(actions.deleteShot('p4', 'shot-17')).resolves.toBeUndefined()
+  expect(deleteShot).toHaveBeenLastCalledWith('p4', 'shot-17', expect.any(AbortSignal))
+  await expect(actions.saveOption('p4', 'resolution', '720p')).rejects.toBe(failure.error)
+  await expect(actions.saveOption('p4', 'resolution', '720p')).resolves.toBeUndefined()
+  expect(saveOption).toHaveBeenLastCalledWith('p4', 'resolution', '720p')
+  await expect(actions.savePreferences(preference)).rejects.toBe(failure.error)
+  await expect(actions.savePreferences(preference)).rejects.toThrow('Studio preference was not saved')
+  await expect(actions.savePreferences(preference)).resolves.toBeUndefined()
+  expect(savePreferences.mock.calls).toEqual([[preference], [preference], [preference]])
+})
+
+it('rejects an unlinked creation and ignores a project selection reply from an earlier sign-in', async () => {
+  const newProject = { id: 'p8', title: 'Lantern Bridge' }
+  const expected = { ok: true, value: newProject } as const
+  const previousAccount = Promise.withResolvers<typeof expected>()
+  const createProject = vi.fn<RemoteCall<[StudioNewProject, AbortSignal], SelectedProject>>().mockResolvedValue(expected)
+  const selectProject = vi.fn<RemoteCall<[SessionId, string, AbortSignal], SelectedProject>>()
+    .mockResolvedValueOnce(failure).mockReturnValueOnce(previousAccount.promise).mockResolvedValueOnce(expected)
+  const { m, actions } = await installProductionActions({ createProject, selectProject })
+  const sessionId = SessionId('creation-recovery')
+  const input: StudioNewProject = { title: newProject.title, mode: 'drama', artStyle: 'city', aspect: '9:16', resolution: '720p',
+    videoModel: '', imageModel: '', generationMode: '' }
+  await expect(actions.createProject(sessionId, input)).rejects.toBe(failure.error)
+  expect(selectProject).toHaveBeenCalledExactlyOnceWith(sessionId, newProject.id, expect.any(AbortSignal))
+
+  const stale = actions.chooseProject(sessionId, newProject)
+  m.accountChanged()
+  previousAccount.resolve(expected)
+  await expect(stale).rejects.toThrow('Studio account changed')
+  await expect(actions.chooseProject(sessionId, newProject)).resolves.toBeUndefined()
+  expect(selectProject).toHaveBeenCalledTimes(3)
+})
+
+it('keeps the Workshop episode revision on storyboard edits and withholds an old account download', async () => {
+  const m = await setup()
+  const storyboard: ScriptDraftStoryboard = { draftId: 45, episode: 2, title: 'Bridge', revision: 'board-2', version: 2,
+    shotsJson: '[{"scene_no":1}]', exists: true, stale: false }
+  const history = { ...storyboard, shotsJson: '[{"scene_no":3}]', revision: 'board-3', version: 3 }
+  const file = { ok: true, value: { filename: 'bridge.md', mime: 'text/markdown', base64: 'QnJpZGdl' } } as const
+  const pending = Promise.withResolvers<typeof file>()
+  const saveScriptDraftStoryboard = vi.fn<RemoteCall<[ScriptDraftStoryboardSaveRequest], ScriptDraftStoryboard>>()
+    .mockResolvedValueOnce(failure).mockResolvedValueOnce({ ok: true, value: storyboard })
+  const restoreScriptDraftHistory = vi.fn<RemoteCall<[ScriptDraftHistoryRestoreRequest], ScriptDraftHistoryRestore>>()
+    .mockResolvedValueOnce({ ok: true, value: { episode: null, storyboard: history } })
+  const exportScriptDraft = vi.fn<RemoteCall<[ScriptDraftExportRequest], ScriptDraftExport>>()
+    .mockReturnValueOnce(pending.promise).mockResolvedValueOnce(failure)
+  m.bind('museAccount', {})
+  m.bind('workshopConnection', { saveScriptDraftStoryboard, restoreScriptDraftHistory, exportScriptDraft })
+  await vi.waitFor(() => { expect(m.slots.entries('bot.drawer.scripts')).toHaveLength(1) })
+  const { draftActions } = m.slots.entries('bot.drawer.scripts')[0]?.inject?.() as { draftActions: DraftActions }
+  const episode = { draftId: 45, episode: 2 } as const
+  const write = { ...episode, baseRevision: 'board-1', shotsJson: storyboard.shotsJson }
+  await expect(draftActions.saveStoryboard(write)).rejects.toBe(failure.error)
+  await expect(draftActions.saveStoryboard(write)).resolves.toEqual(storyboard)
+  expect(saveScriptDraftStoryboard.mock.calls).toEqual([[write], [write]])
+  const restore = { ...episode, layer: 'storyboard', baseRevision: storyboard.revision, historyId: 8 } as const
+  await expect(draftActions.restoreHistory(restore)).resolves.toEqual({ episode: null, storyboard: history })
+  expect(restoreScriptDraftHistory).toHaveBeenCalledExactlyOnceWith(restore)
+
+  const download = { ...episode, kind: 'storyboards', format: 'md' } as const
+  const staleFile = draftActions.exportDraft(download)
+  m.accountChanged()
+  pending.resolve(file)
+  await expect(staleFile).rejects.toThrow('Workshop account changed')
+  await expect(draftActions.exportDraft(download)).rejects.toBe(failure.error)
+  expect(exportScriptDraft.mock.calls).toEqual([[download], [download]])
 })

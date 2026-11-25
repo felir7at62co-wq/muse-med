@@ -1,8 +1,9 @@
 /** The build reuses transcripts by audio digest, corrections by content key, and lays out the clock on every call. */
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { changedShots, readSubtitleClockReceipt, subtitleClockRows, type SubtitleClockReceiptV2 } from '@deepseek-ai/dsh-tool-episode-render/subtitles'
+import { readDecisions, readReview } from '../src/build.ts'
 import { HashCache } from '../src/hash-cache.ts'
 import { localSource } from '../src/shots.ts'
 import { runEpisodeSubtitles } from '../src/tool.ts'
@@ -53,6 +54,49 @@ it('packs every shot into one upload, waits, then publishes the SRT with a versi
   expect(shotList.shots[0]).toMatchObject({ shot: 1, package: 1 })
   await build()
   expect(rules.calls).toHaveLength(1)
+})
+
+it('refuses an incomplete correction response before publishing an episode', async () => {
+  const { g, rules, build, srt } = await setup(1)
+  await build()
+  g.complete()
+  const run = vi.spyOn(rules, 'run').mockResolvedValueOnce([])
+  try {
+    await expect(build()).rejects.toThrow('缺少字幕规则结果')
+    await expect(readFile(srt)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(build()).resolves.toMatchObject({ status: 'ready' })
+    expect(g.submits).toHaveLength(1)
+  } finally { run.mockRestore() }
+})
+
+it('keeps manual subtitle bytes and an invalid receipt next to a fresh measured subtitle', async () => {
+  const { f, g, build, srt } = await setup(1)
+  await mkdir(join(f.root, 'editing'), { recursive: true })
+  await build()
+  g.complete()
+  const manual = '我的手工字幕\n'
+  const invalid = '{"version":2,'
+  const original = srt + '.clock.json'
+  const now = new Date('2026-11-25T17:40:00.000Z')
+  const occupied = `${srt}.manual-20261125T174000000Z`
+  await Promise.all([writeFile(srt, manual), writeFile(original, invalid), writeFile(occupied, '已有备份')])
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(now)
+    await expect(build()).resolves.toMatchObject({ status: 'ready' })
+    expect(await readFile(occupied, 'utf8')).toBe('已有备份')
+    expect(await readFile(occupied + '-2', 'utf8')).toBe(manual)
+    expect(await readFile(occupied + '-2.clock.json', 'utf8')).toBe(invalid)
+    expect((await readSubtitleClockReceipt(srt))?.receipt).toMatchObject({ version: 2, producer: 'episode_subtitles' })
+  } finally { vi.useRealTimers() }
+})
+
+it('surfaces malformed saved review and decision files rather than pretending they are absent', async () => {
+  const { f } = await setup(1)
+  const review = join(f.root, 'review.json'), decisions = join(f.root, 'decisions.json')
+  await Promise.all([writeFile(review, '{'), mkdir(decisions)])
+  await expect(readReview(review)).rejects.toBeInstanceOf(SyntaxError)
+  await expect(readDecisions(decisions)).rejects.toMatchObject({ code: 'EISDIR' })
 })
 
 it('redoes recognition only for new audio, correction only for a script edit, and neither for a trim', async () => {
