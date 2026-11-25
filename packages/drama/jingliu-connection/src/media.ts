@@ -138,7 +138,7 @@ function trusted(value: unknown, hosts: readonly string[], code: string): URL {
 }
 
 const etagOf = (value: string | null) => (value ?? '').replace(/^W\//u, '').replaceAll('"', '').trim()
-const typeOf = (value: string | null) => (value ?? '').split(';')[0]?.trim().toLowerCase() ?? ''
+const typeOf = (value: string | null) => (value ?? '').replace(/;[\s\S]*/u, '').trim().toLowerCase()
 const typeOfName = (path: string) => UPLOAD_TYPES[extname(path).toLowerCase()] ?? ''
 
 /**
@@ -515,12 +515,13 @@ export class JingliuMedia {
     let text: string
     try { text = await readFile(join(folder, INDEX_FILE), 'utf8') }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1, files: {} }; throw error }
-    try { return parseIndex(JSON.parse(text)) }
-    catch (error) {
-      if (!(error instanceof SyntaxError)) throw error
+    let decoded: unknown
+    try { decoded = JSON.parse(text) }
+    catch (_error) {
       // A damaged index only loses download records; files are checked again by size before reuse.
       return { version: 1, files: {} }
     }
+    return parseIndex(decoded)
   }
 
   private async commit(folder: string, used: readonly LocalMedia[], added: readonly Downloaded[], options: FileOptions): Promise<void> {

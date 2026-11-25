@@ -24,9 +24,9 @@ beforeAll(async () => {
     default: string
     selectablePresets: string[]
   }
-  expect(policy).toEqual({ default: 'short-drama', selectablePresets: ['short-drama', 'main-session'], allowUserDefault: false })
+  expect(policy).toEqual({ default: 'short-drama-v2', selectablePresets: ['short-drama', 'short-drama-v2'], allowUserDefault: false })
   const definitions: PresetDefinition[] = []
-  for (const id of ['short-drama', 'main-session', 'creation', 'standard', 'ptc', 'cordis', 'minimal']) {
+  for (const id of ['short-drama', 'short-drama-v2', 'main-session', 'creation', 'standard', 'ptc', 'cordis', 'minimal']) {
     const meta = load(await readFile(join(root, 'presets', id, 'preset.yml'), 'utf8')) as {
       name?: string
       description?: string
@@ -66,7 +66,8 @@ it('hides preset selection, mode labels and plugin management for the unified Ag
   await openSettings(page, 'en')
   expect(await page.getByRole('button', { name: 'Agent presets', exact: true }).count()).toBe(0)
   expect(await page.getByRole('button', { name: 'Built-in plugins', exact: true }).count()).toBe(0)
-  expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['main-session', 'short-drama'])
+  const { presets } = await scaffold.ctx.agentPresets.remoteExportList()
+  expect(presets.map(({ id, isDefault }) => [id, isDefault])).toEqual([['short-drama', false], ['short-drama-v2', true]])
   if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'unified-agent-settings.png') })
   expect(consoleWatch.pageErrors).toEqual([])
 })
