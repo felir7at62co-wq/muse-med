@@ -15,7 +15,7 @@ let ledger: JubianLedger
 let calls: string[]
 let tasks: Row[]
 let details: Map<number, Row>
-let history: 'empty' | 'singleton' | 'unreadable' | 'unauthorized' | 'offline'
+let history: 'empty' | 'singleton' | 'unreadable' | 'unauthorized' | 'forbidden' | 'offline'
 let pages: Map<number, unknown>
 let afterList: (() => void) | undefined
 let children: Map<number, Row[]>
@@ -38,7 +38,8 @@ beforeEach(async () => {
     const answer = (data: unknown) => new Response(JSON.stringify({ code: 200, data }))
     if (path === '/aigc/storyboard/byStoryboard/1') {
       if (history === 'offline') throw new Error('offline')
-      if (history === 'unauthorized') return new Response('', { status: 403 })
+      if (history === 'unauthorized') return new Response('', { status: 401 })
+      if (history === 'forbidden') return new Response('', { status: 403 })
       if (history === 'singleton') return new Response(JSON.stringify([{ id: 77, status: 'failed' }]))
       return new Response(history === 'unreadable' ? 'not JSON' : '')
     }
@@ -359,9 +360,13 @@ it.each([0, -1, 1.5, 101, NaN])('rejects invalid deployment scan limits before a
   expect(calls).toEqual([])
 })
 
-it.each(['unauthorized', 'offline'] as const)('does not replace %s history failures with a project scan', async (mode) => {
+it.each([
+  ['unauthorized', 'AUTHENTICATION_REQUIRED'],
+  ['forbidden', 'PERMISSION_DENIED'],
+  ['offline', 'NETWORK_ERROR'],
+] as const)('does not replace %s history failures with a project scan', async (mode, code) => {
   history = mode
-  await expect(preview()).rejects.toMatchObject({ code: mode === 'unauthorized' ? 'AUTHENTICATION_REQUIRED' : 'NETWORK_ERROR' })
+  await expect(preview()).rejects.toMatchObject({ code })
   expect(calls.filter(call => call.includes('/admin/'))).toEqual([])
   expect(mutations()).toEqual([])
 })
