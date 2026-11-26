@@ -754,7 +754,7 @@ export function apply(ctx) {
     const cli = mode === 'development' ? join(home, 'desktop-cli.mjs') : installedCli
     if (mode === 'development') {
       writeFileSync(cli, `import { runDesktopCli } from ${JSON.stringify(pathToFileURL(installedCli).href)}\n`
-        + `await runDesktopCli(${JSON.stringify(root)}, ${JSON.stringify(resourcesRuntime)})\n`, { flag: 'wx' })
+        + `await runDesktopCli(${JSON.stringify(resourcesRuntime)})\n`, { flag: 'wx' })
     }
     const runCli = (args: string[]) => promisify(execFile)(node,
       ['--expose-internals', cli, 'plugin', '--profile', 'desktop', ...args],

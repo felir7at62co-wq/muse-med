@@ -472,6 +472,8 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         self.assertEqual(result['quality'], 'needs_repair')
         self.assertIn(result['drafts'][0]['path'], result['error'])
         self.assertIn(result['drafts'][0]['review_path'], result['error'])
+        self.assertIn('已验证本地字体及许可证', review['next'])
+        self.assertIn(review['next'], result['error'])
         self.assertIsNone(review['subtitle_font']['resource_id'])
         for warnings in (result['warnings'], review['warnings']):
             self.assertTrue(any('山海经' in warning and '不能按请求字体交付' in warning

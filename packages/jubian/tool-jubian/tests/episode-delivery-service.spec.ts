@@ -174,6 +174,101 @@ describe('approved episode service', () => {
       expect(f.fetch).not.toHaveBeenCalled()
     } finally { proceed.resolve(undefined); await observation; spy.mockRestore() }
   })
+  it('keeps one original admission when the job is armed while another service opens it', async () => {
+    const f = await createEpisodeDeliveryFixture(), input = await selection(f), scope = f.ctx.isolate('jubianEpisodeDelivery')
+    await scope.plugin(JubianEpisodeDelivery, f.episodeOptions).await()
+    const arming = Promise.withResolvers<undefined>(), allowArm = Promise.withResolvers<undefined>()
+    const opening = Promise.withResolvers<undefined>(), allowOpen = Promise.withResolvers<undefined>()
+    const write = atomic.writeFileAtomic, open = Files.open
+    const writeSpy = vi.spyOn(atomic, 'writeFileAtomic').mockImplementation(async (...args) => {
+      if (basename(args[0]) === 'job.json'
+        && library.parseEpisodeDeliveryJobRecord(JSON.parse(String(args[1]))).executionRef !== null) {
+        arming.resolve(undefined); await allowArm.promise
+      }
+      return write(...args)
+    })
+    let duplicate: ReturnType<typeof scope.jubianEpisodeDelivery.admitEpisode> | undefined
+    let restoreOpen: (() => void) | undefined
+    try {
+      const admitted = await f.service.admitEpisode(input)
+      if (admitted.attempt === null) throw new Error('Expected original attempt')
+      await arming.promise
+      const path = join(f.project, '.muse', 'episode-delivery', admitted.attempt, 'job.json'), before = await stat(path)
+      let held = false
+      const openSpy = vi.spyOn(Files, 'open').mockImplementation(async (...args) => {
+        if (args[0] === path && !held) {
+          held = true; opening.resolve(undefined); await allowOpen.promise
+        }
+        return open(...args)
+      })
+      restoreOpen = () => { openSpy.mockRestore() }
+      duplicate = scope.jubianEpisodeDelivery.admitEpisode(input)
+      await opening.promise
+      allowArm.resolve(undefined)
+      await f.renderer.armed
+      expect((await stat(path)).ino).not.toBe(before.ino)
+      allowOpen.resolve(undefined)
+      expect(await duplicate).toMatchObject({ attempt: admitted.attempt, digest: input.digest, canResume: false })
+      f.renderer.release()
+      await waitForState(async () => {
+        expect(await scope.jubianEpisodeDelivery.episodeStatus(input))
+          .toMatchObject({ attempt: admitted.attempt, state: 'completed', canResume: false })
+      })
+      expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(1)
+      expect(f.fetch).not.toHaveBeenCalled()
+    } finally {
+      allowOpen.resolve(undefined); allowArm.resolve(undefined); f.renderer.release()
+      await Promise.allSettled(duplicate === undefined ? [] : [duplicate])
+      restoreOpen?.(); writeSpy.mockRestore()
+    }
+  })
+
+  it.each([
+    'replaced again', 'no job', 'another project', 'invalid JSON', 'oversized file',
+  ] as const)('preserves safe job status across a concurrent %s', async (kind) => {
+    const f = await createEpisodeDeliveryFixture(), input = await selection(f), scope = f.ctx.isolate('jubianEpisodeDelivery')
+    await scope.plugin(JubianEpisodeDelivery, f.episodeOptions).await()
+    const admitted = await f.service.admitEpisode(input)
+    if (admitted.attempt === null) throw new Error('Expected original attempt')
+    onTestFinished(() => { f.renderer.release() })
+    await f.renderer.armed
+    const path = join(f.project, '.muse', 'episode-delivery', admitted.attempt, 'job.json'), original = await readFile(path, 'utf8')
+    const job = library.parseEpisodeDeliveryJobRecord(JSON.parse(original))
+    const bodies = { 'another project': JSON.stringify({ ...job, projectDir: join(f.project, 'other') }),
+      'invalid JSON': '{', 'oversized file': Buffer.alloc(f.episodeOptions.recordBytes + 1, ' '),
+      'replaced again': original, 'no job': original }
+    const replacements = kind === 'replaced again' ? 2 : 1
+    let reads = 0
+    const open = Files.open
+    const spy = vi.spyOn(Files, 'open').mockImplementation(async (...args) => {
+      if (args[0] === path && ++reads <= replacements) {
+        await atomic.writeFileAtomic(path, bodies[kind], { mode: 0o600 })
+        if (kind === 'no job') {
+          const handle = await open(...args), close = handle.close.bind(handle)
+          Object.defineProperty(handle, 'close', { value: async () => { await close(); await unlink(path) } })
+          return handle
+        }
+      }
+      return open(...args)
+    })
+    try {
+      const status = scope.jubianEpisodeDelivery.episodeStatus(input)
+      if (kind === 'another project') await expect(status).rejects.toThrow('Episode job identity changed')
+      else if (kind === 'invalid JSON') await expect(status).rejects.toThrow(SyntaxError)
+      else if (kind === 'oversized file') await expect(status).rejects.toThrow('Episode journal changed while opening')
+      else await expect(status).resolves.toMatchObject({ attempt: admitted.attempt, canResume: false })
+      expect(reads).toBe(kind === 'no job' || kind === 'oversized file' ? 1 : 2)
+    } finally {
+      spy.mockRestore()
+      await atomic.writeFileAtomic(path, original, { mode: 0o600 })
+      f.renderer.release()
+    }
+    await waitForState(async () => {
+      expect(await scope.jubianEpisodeDelivery.episodeStatus(input)).toMatchObject({ attempt: admitted.attempt, state: 'completed' })
+    })
+    expect(f.renderer.encodes).toBe(1)
+  })
+
   it('admits once and returns while real render is held; targeted status never recaptures', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     const first = await f.service.admitEpisode(input)

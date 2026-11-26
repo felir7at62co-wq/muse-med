@@ -292,9 +292,25 @@ async function registerAudioAssetAttempt(client: JubianClient, ledger: JubianLed
     && coordination.owner_operation === true && coordination.lease_id !== undefined) {
     try {
       await verifyExistingAsset(client, createdAsset)
-      coordination = await coordinator.request({ ...scope, action: 'complete', lease_id: coordination.lease_id, asset_id: createdAsset.asset_id })
-      if (coordination.state !== 'ready') throw new JubianError('CONTRACT_CHANGED', 'Shared voice completion is not ready')
-      ready = await verifiedReady(client, coordination)
+      let complete: VoiceCoordinationState | undefined
+      try {
+        complete = await coordinator.request({ ...scope, action: 'complete', lease_id: coordination.lease_id, asset_id: createdAsset.asset_id })
+        if (complete.state !== 'ready') throw new JubianError('CONTRACT_CHANGED', 'Shared voice completion is not ready')
+      } catch (error) {
+        if (error instanceof JubianError && error.code === 'CONTRACT_CHANGED') throw error
+        // A read can return the shared slot even when this lease did not complete it.
+        const reread = await coordinator.request({ ...scope, action: 'read' })
+        if (reread.state === 'ready' && reread.owner_operation === true && reread.lease_id === coordination.lease_id) {
+          const asset = need(reread.asset)
+          if (asset.asset_id === createdAsset.asset_id && asset.name === createdAsset.name && asset.url === createdAsset.url) {
+            complete = reread
+          }
+        }
+      }
+      if (complete?.state === 'ready') {
+        ready = await verifiedReady(client, complete)
+        coordination = complete
+      }
     } catch (error) {
       if (error instanceof JubianError && error.code === 'CONTRACT_CHANGED') throw error
       // Remote registration may be complete; retain its original operation for read-only reconciliation.

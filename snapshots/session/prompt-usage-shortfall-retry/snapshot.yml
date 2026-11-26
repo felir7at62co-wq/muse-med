@@ -1,0 +1,10 @@
+version: 1
+scenario: prompt-usage-shortfall-retry
+profile: headless
+composition: prompt-usage-shortfall-retry
+recording: authored
+header:
+  class: retry
+  pin: true
+  systemPromptSource: invalid-tool-arguments-retry
+  toolSchemasSource: invalid-tool-arguments-retry

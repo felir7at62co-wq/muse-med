@@ -109,6 +109,19 @@ Get-CliSha256 $env:MUSE_HASH_INPUT
     def plan(self):
         return aa.prepare_plan(self.request, str(self.drafts))
 
+    def test_embedded_draft_rejects_a_prepared_clip_from_another_episode_before_probing(self):
+        wrong = self.project / 'video/03/shot_001.mp4'
+        wrong.parent.mkdir(parents=True)
+        wrong.write_bytes(self.sources[0].read_bytes())
+        self.request['videos'][0] = str(wrong)
+
+        with patch.object(aa, 'probe') as probe:
+            with self.assertRaisesRegex(ValueError, '与请求的第 2 集不一致'):
+                self.plan()
+            probe.assert_not_called()
+        self.assertEqual(list(self.drafts.iterdir()), [])
+        self.assertFalse((self.project / 'editing/draft-materials').exists())
+
     def native_save(self, arguments, *, problem=None):
         plan = json.loads(Path(arguments[arguments.index('-PlanPath') + 1]).read_text(encoding='utf-8'))
         output = Path(plan['draft_path'])
@@ -319,6 +332,9 @@ Get-CliSha256 $env:MUSE_HASH_INPUT
         self.assertEqual(review['subtitle_font']['status'], 'backendUnsupported')
         self.assertFalse(review['subtitle_font']['binding_verified'])
         self.assertFalse(review['subtitle_font']['delivery_ready'])
+        self.assertIn('audio_mode=independent', review['next'])
+        self.assertIn('本集未混配乐完整原声', review['next'])
+        self.assertIn(review['next'], result['error'])
 
     def test_product_punctuation_only_cues_leave_no_fake_overlay_and_warn(self):
         source = '1\n00:00:00,123 --> 00:00:00,789\n？！\n'

@@ -261,6 +261,70 @@ class DraftRequestCliTests(unittest.TestCase):
                 self.assertFalse((Path(request['project']) / 'editing/draft-materials').exists())
                 self.assertEqual(list(drafts.iterdir()), [])
 
+    def test_production_cli_rejects_each_mismatched_prepared_input_before_staging(self):
+        prepared_paths = [('videos', 'video/27/shot_001.mp4'), ('timeline', 'editing/27-timeline.json'),
+                          ('subtitle_srt', 'editing/27.srt'), ('subtitle_srt', 'editing/.subtitle-display-test/27.srt'),
+                          ('subtitle_srt', 'exports/.render_cache/27/subtitle-display-test/27.srt'),
+                          ('audio', 'audio/27.wav')]
+        for field, relative in prepared_paths:
+            with self.subTest(field=field):
+                request, drafts = self.request((1,))
+                project = Path(request['project'])
+                wrong = project / relative
+                wrong.parent.mkdir(parents=True)
+                shutil.copy2(request[field][0] if field == 'videos' else request[field], wrong)
+                request[field] = [str(wrong)] if field == 'videos' else str(wrong)
+                outcome, result = self.invoke(request, drafts)
+                self.assertNotEqual(outcome.returncode, 0)
+                self.assertIn('与请求的第 26 集不一致', result['error'])
+                self.assertFalse((project / 'editing/draft-materials').exists())
+                self.assertEqual(list(drafts.iterdir()), [])
+
+    def test_production_cli_checks_project_identity_for_external_prepared_sources(self):
+        request, drafts = self.request((1,))
+        project = Path(request['project'])
+        (project / 'project_config.json').write_text(json.dumps({'jubian_script_id': 12}), encoding='utf-8')
+        external = tempfile.TemporaryDirectory(prefix='prepared-source-project-')
+        self.addCleanup(external.cleanup)
+        origin = Path(external.name)
+        source_config = origin / 'project_config.json'
+        source = origin / 'video/026/shot_001.mp4'
+        source.parent.mkdir(parents=True)
+        shutil.copy2(request['videos'][0], source)
+        request['videos'] = [str(source)]
+
+        source_config.write_text(json.dumps({'jubian_script_id': '13'}), encoding='utf-8')
+        rejected, failure = self.invoke(request, drafts)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('属于另一部剧', failure['error'])
+        self.assertFalse((project / 'editing/draft-materials').exists())
+        self.assertEqual(list(drafts.iterdir()), [])
+
+        source_config.write_text(json.dumps({'jubian_script_id': '12'}), encoding='utf-8')
+        accepted, result = self.invoke(request, drafts)
+        self.assertEqual(accepted.returncode, 0, result)
+        self.assertEqual(result['drafts_created'], 1)
+
+    def test_production_cli_rejects_another_shot_or_episode_destination(self):
+        request, drafts = self.request((1,))
+        project = Path(request['project'])
+        destination = project / '第27集/02_剪映草稿'
+        destination.mkdir(parents=True)
+        rejected, failure = self.invoke(request, destination)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('与请求的第 26 集不一致', failure['error'])
+        self.assertEqual(list(destination.iterdir()), [])
+
+        wrong = project / 'video/26/shot_002.mp4'
+        wrong.parent.mkdir(parents=True)
+        shutil.copy2(request['videos'][0], wrong)
+        request['videos'] = [str(wrong)]
+        rejected, failure = self.invoke(request, drafts)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('与时间线的第 1 镜不一致', failure['error'])
+        self.assertEqual(list(drafts.iterdir()), [])
+        self.assertFalse((project / 'editing/draft-materials').exists())
+
     def test_production_cli_still_requires_the_timeline(self):
         request, drafts = self.request((6,))
         request.pop('timeline')

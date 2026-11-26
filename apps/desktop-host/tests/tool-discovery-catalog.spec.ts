@@ -18,6 +18,7 @@ import { registerLvpaopaoCatalog } from './fixtures/lvpaopao-catalog.mjs'
 import { config, patchPath } from './fixtures/discovery-config.ts'
 
 let catalog: ToolCatalog
+let catalogIndex: ToolSearchIndex
 
 function packagesFromRows(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -31,7 +32,12 @@ function packagesFromRows(value: unknown): string[] {
   })
 }
 
-beforeAll(async () => { catalog = await collectToolCatalog() })
+beforeAll(async () => {
+  catalog = await collectToolCatalog()
+  const schemas = new Map(catalog.flatMap(entry => entry.schemas).map(schema => [schema.name, schema]))
+  catalogIndex = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
+    { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
+})
 
 it('does not register or expose the removed daemon memory integration', () => {
   const plugins = loadOverlayPatches('desktop-memory-composition', patchPath)
@@ -94,10 +100,17 @@ it.each([
   ['搜索技能', 'skill_catalog'],
   ['查看视频审核', 'jubian_video_review'],
 ])('finds %s from actual registered descriptions and configured aliases', (query, expected) => {
-  const schemas = new Map(catalog.flatMap(entry => entry.schemas).map(schema => [schema.name, schema]))
-  const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
-    { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
-  expect(index.search(query, config.maxResults ?? 8).map(result => result.name)).toContain(expected)
+  expect(catalogIndex.search(query, config.maxResults ?? 8).map(result => result.name)).toContain(expected)
+})
+
+it.each([
+  ['把原有分镜改一下', 'jubian_storyboard'],
+  ['修改已有分镜', 'jubian_storyboard'],
+  ['改一下现有分镜', 'jubian_storyboard'],
+  ['根据剧本写镜头脚本', 'drama_shot'],
+])('prioritizes the editing surface requested by %s', (query, expected) => {
+  expect(catalogIndex.explicitNames(query)).toContain(expected)
+  expect(catalogIndex.search(query, 1)[0]?.name).toBe(expected)
 })
 
 it('keeps native delivery, project and memory tools deferred while giving each a capability', () => {

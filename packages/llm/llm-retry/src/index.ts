@@ -73,6 +73,7 @@ function retryPolicyKey(policy: ResolvedRetryPolicy): string {
       policy.initialDelayMs,
       policy.maxDelayMs,
       policy.jitterRatio,
+      ...policy.consecutiveRetryLimits === undefined ? [] : [Object.entries(policy.consecutiveRetryLimits).sort()],
     ])
 }
 
@@ -98,15 +99,16 @@ function cancellableDelay(delayMs: number, signal: AbortSignal): Promise<boolean
 interface RetryStateEntry {
   retry: number
   retryId: RetryId
+  lastFailure?: { code: string; consecutiveRetries: number } | undefined
 }
 
 type LlmRetryState = Record<string, RetryStateEntry>
 
-// The cast bridges the branded retry id, which Zod cannot express directly.
 const llmRetryStateSchema: zod.ZodType<LlmRetryState> = zod.record(zod.string(), zod.object({
   retry: zod.number().int().nonnegative(),
-  retryId: zod.string(),
-})) as unknown as zod.ZodType<LlmRetryState>
+  retryId: zod.string().transform(RetryId),
+  lastFailure: zod.object({ code: zod.string(), consecutiveRetries: zod.number().int().positive() }).optional(),
+}))
 
 /**
  * Install provider-routed normal or unbounded request recovery.
@@ -130,7 +132,10 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
       const key = retryStateKey(event.data.provider, event.data.policyKey)
       const entry = state[key]
       if (entry?.retry === event.data.retry && entry.retryId === event.data.retryId) return state
-      return { ...state, [key]: { retry: event.data.retry, retryId: event.data.retryId } }
+      const code = event.data.failure.code
+      const previous = entry?.retryId === event.data.retryId ? entry.lastFailure : undefined
+      const consecutiveRetries = previous?.code === code ? previous.consecutiveRetries + 1 : 1
+      return { ...state, [key]: { retry: event.data.retry, retryId: event.data.retryId, lastFailure: { code, consecutiveRetries } } }
     },
   })
   const random = internals.random ?? Math.random
@@ -155,6 +160,7 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
     retryId: RetryId,
     delayMs: number,
     signal: AbortSignal,
+    markStartedAtDispatch: boolean,
   ): Promise<RequestErrorAction> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
     const eventData: LlmRetryEventData = policy.mode === 'normal'
@@ -183,7 +189,11 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
       }
     agent.session.append('llm/retry', eventData)
     if (!await cancellableDelay(delayMs, fusedSignal)) return
-    agent.session.append('llm/retry-started', { retryId, turn, step, retry })
+    const markStarted = () => {
+      agent.session.append('llm/retry-started', { retryId, turn, step, retry })
+    }
+    if (markStartedAtDispatch) return { kind: 'retry', onDispatch: markStarted }
+    markStarted()
     return { kind: 'retry' }
   }
 
@@ -217,8 +227,14 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
     const retryState = llmRetryProjectionHandle.stateOf(agent.session)
     const previous = retryState[retryStateKey(provider, policyKey)]
     const previousRetry = previous?.retry ?? 0
+    const limits = policy.mode === 'normal' ? policy.consecutiveRetryLimits : undefined
+    const limit = limits !== undefined && Object.hasOwn(limits, failure.code) ? limits[failure.code] : undefined
+    const lastFailure = previous?.lastFailure
+    const consecutiveRetries = lastFailure?.code === failure.code ? lastFailure.consecutiveRetries : 0
+    if (limit !== undefined && consecutiveRetries >= limit) return
     if (policy.mode === 'normal' && previousRetry >= policy.maxRetries) return next()
     const retry = previousRetry + 1
+    const backoffRetry = limit === undefined ? retry : consecutiveRetries + 1
     const retryId = previous?.retryId ?? RetryId(randomUUID())
     let delayMs: number
     if (failure.providerRetryAfterMs !== undefined
@@ -226,15 +242,15 @@ export async function apply(ctx: Context, config: Config = {}, internals: RetryI
       && failure.providerRetryAfterMs > 0) {
       if (failure.providerRetryAfterMs > policy.maxDelayMs) {
         if (policy.mode === 'normal') return next()
-        delayMs = localDelay(policy, retry, random)
+        delayMs = localDelay(policy, backoffRetry, random)
       } else {
         delayMs = failure.providerRetryAfterMs
       }
     } else {
-      delayMs = localDelay(policy, retry, random)
+      delayMs = localDelay(policy, backoffRetry, random)
     }
 
-    return backoff(agent, turn, step, failure, provider, policy, policyKey, retry, retryId, delayMs, signal)
+    return backoff(agent, turn, step, failure, provider, policy, policyKey, retry, retryId, delayMs, signal, limit !== undefined)
   }
 
   const disposeListener = ctx.on('agent/request-error', (

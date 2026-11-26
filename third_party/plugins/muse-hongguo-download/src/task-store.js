@@ -10,6 +10,41 @@ const object = value => value !== null && typeof value === 'object' && !Array.is
 export const validTaskId = id => typeof id === 'string' && /^hgt-[a-f0-9]{32}$/.test(id);
 export const validRunId = id => typeof id === 'string' && /^hgr-[a-f0-9]{32}$/.test(id);
 const keys = (value, allowed) => Object.keys(value).every(key => allowed.includes(key));
+const sourceStages = ['catalog', 'video_model', 'source_api'];
+const sourceNames = ['web', 'app', 'api'];
+const sourceFailureCodes = new Set([
+  'APP_INPUT', 'BUSINESS_REJECTED', 'DEVICE_REGISTRATION_FAILED', 'EMPTY_RESPONSE', 'ERR_WEB_MEDIA_ADDRESS',
+  'ETIMEDOUT', 'INVALID_RESPONSE', 'MISSING_MODEL', 'NETWORK_ERROR', 'NO_PLAYABLE_SOURCE',
+  'PREVIEW_ONLY', 'SECURITY_BLOCKED', 'TIMEOUT',
+]);
+const maxSourceFailures = 6;
+const sourceFailure = value => object(value) && sourceNames.includes(value.source) && typeof value.code === 'string'
+  && (sourceFailureCodes.has(value.code) || /^HTTP_[345]\d{2}$/.test(value.code));
+
+/** Persist known diagnostic fields only. Upstream messages and unknown codes do not enter the task record. */
+export function taskSourceDiagnostic(value) {
+  const failures = Array.isArray(value.sourceFailures)
+    ? value.sourceFailures.slice(0, maxSourceFailures).filter(sourceFailure).map(({ source, code }) => ({ source, code }))
+    : [];
+  const sourceStage = sourceStages.includes(value.sourceStage) ? value.sourceStage : undefined;
+  if (sourceStage === undefined && !failures.length) return {};
+  return { sourceDiagnostic: {
+    ...(sourceStage === undefined ? {} : { sourceStage }),
+    ...(typeof value.retryable === 'boolean' ? { retryable: value.retryable } : {}),
+    ...(failures.length ? { sourceFailures: failures } : {}),
+  } };
+}
+
+function validSourceDiagnostic(value) {
+  return object(value) && keys(value, ['sourceStage', 'retryable', 'sourceFailures'])
+    && (value.sourceStage !== undefined || value.sourceFailures !== undefined)
+    && (value.sourceStage === undefined || sourceStages.includes(value.sourceStage))
+    && (value.retryable === undefined || typeof value.retryable === 'boolean')
+    && (value.sourceFailures === undefined || Array.isArray(value.sourceFailures)
+      && value.sourceFailures.length > 0 && value.sourceFailures.length <= maxSourceFailures
+      && value.sourceFailures.every(item => sourceFailure(item) && keys(item, ['source', 'code'])));
+}
+
 const owner = value => object(value) && keys(value, ['kind', 'id']) && ['session', 'cli'].includes(value.kind) && typeof value.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value.id);
 
 /** Only ESRCH proves that a local runner process has exited; PID reuse and permission errors remain locked. */
@@ -67,9 +102,10 @@ export class TaskStore {
         || !Number.isSafeInteger(value.progress.recordedCompletedEpisodeCount) || value.progress.recordedCompletedEpisodeCount < 0
         || !Number.isSafeInteger(value.progress.remainingEpisodeCount) || value.progress.remainingEpisodeCount < 0
         || !['1080p', '720p', 'auto'].includes(value.progress.requestedQuality))
-      || value.summary !== null && (!object(value.summary) || !keys(value.summary, ['ok', 'complete', 'code', 'path', 'cleanupPendingPath'])
+      || value.summary !== null && (!object(value.summary) || !keys(value.summary, ['ok', 'complete', 'code', 'path', 'cleanupPendingPath', 'sourceDiagnostic'])
         || typeof value.summary.ok !== 'boolean' || value.summary.complete !== undefined && typeof value.summary.complete !== 'boolean'
         || value.summary.code !== undefined && (typeof value.summary.code !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(value.summary.code))
+        || value.summary.sourceDiagnostic !== undefined && !validSourceDiagnostic(value.summary.sourceDiagnostic)
         || ['path', 'cleanupPendingPath'].some(key => value.summary[key] !== undefined && (typeof value.summary[key] !== 'string' || !isAbsolute(value.summary[key]))))) {
       throw taskError('task_state_invalid', '下载任务公开字段无效，已保留供检查');
     }

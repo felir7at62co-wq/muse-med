@@ -98,7 +98,7 @@ describe('JubianClient.request', () => {
 
   it.each([
     [401, 'AUTHENTICATION_REQUIRED', 'Jubian login is unavailable or expired'],
-    [403, 'AUTHENTICATION_REQUIRED', 'Jubian login is unavailable or expired'],
+    [403, 'PERMISSION_DENIED', 'Jubian account cannot access this resource'],
     [429, 'RATE_LIMITED', 'Jubian rate limit reached'],
     [502, 'NETWORK_ERROR', 'Jubian request failed'],
   ])('reports HTTP %i without response text or another attempt', async (status, code, message) => {
@@ -234,15 +234,17 @@ describe('JubianClient.request', () => {
     const transport = vi.fn<typeof fetch>(async () => jsonResponse({ code: 200, data: null }))
     const subject = client(transport, async () => { throw new Error(TOKEN) })
     await expect(subject.request({ method: 'GET', path: '/x' })).rejects.toMatchObject({
-      code: 'AUTHENTICATION_REQUIRED', message: 'Jubian login is unavailable or expired',
+      code: 'AUTHENTICATION_REQUIRED', detail: 'credential_resolution_failed; check the active Muse credential provider',
     })
     expect(transport).not.toHaveBeenCalled()
   })
 
-  it('rejects a successful response with no readable body', async () => {
-    const message: unknown = expect.stringContaining('not readable')
+  it('rejects an empty successful response and retains its transport evidence', async () => {
+    const message: unknown = expect.stringContaining('0 bytes')
     await expect(client(async () => new Response(null, { status: 200 })).request({ method: 'GET', path: '/x' }))
-      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', message })
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', message,
+        responseEvidence: { httpStatus: 200, applicationCode: null,
+          responseSha256: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' } })
   })
 
   it('contains cancellation failure while rejecting an HTTP error', async () => {
@@ -256,7 +258,7 @@ describe('JubianClient.request', () => {
   it('maps a bodyless HTTP error without attempting to read it', async () => {
     const message: unknown = expect.stringContaining('HTTP 403')
     await expect(client(async () => new Response(null, { status: 403 })).request({ method: 'GET', path: '/x' }))
-      .rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED', message })
+      .rejects.toMatchObject({ code: 'PERMISSION_DENIED', message })
   })
 
   it('rejects a body that is not JSON or not an object, and hands an array to the reader', async () => {

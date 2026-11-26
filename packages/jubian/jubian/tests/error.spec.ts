@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { JubianError, codeForHttpStatus, failureForEnvelopeCode } from '../src/error.ts'
 
 describe('codeForHttpStatus', () => {
-  it('treats both 401 and 403 as a token that cannot be used', () => {
+  it('distinguishes rejected authentication from access denial', () => {
     expect(codeForHttpStatus(401)).toBe('AUTHENTICATION_REQUIRED')
-    expect(codeForHttpStatus(403)).toBe('AUTHENTICATION_REQUIRED')
+    expect(codeForHttpStatus(403)).toBe('PERMISSION_DENIED')
   })
 
   it('separates rate limiting from other transport failures', () => {

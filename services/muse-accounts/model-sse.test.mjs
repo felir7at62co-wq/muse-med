@@ -123,6 +123,35 @@ async function relayFixture(t,mode,respond){
  return {post,pool,queued:queued.promise,requests,responses,releases,pending};
 }
 
+for(const mode of ['cloud','desktop'])test(mode+' marks only explicit upstream key rejection, preserving existing error responses',{timeout:10000},async t=>{
+ const cases=[
+  [401,{code:'invalid_api_key',type:'authentication_error'},'upstream-credentials-rejected'],
+  [401,{code:'invalid_api_key_error'},'upstream-credentials-rejected'],
+  [401,{code:'invalid_api_key',type:'permission_error'},null],
+  [401,{code:'authentication_error',message:'synthetic-private-key'},null],
+  [403,{code:'invalid_api_key'},null],
+  [403,{code:'permission_denied'},null],
+  [429,{code:'invalid_api_key'},null],
+ ];let index=0;
+ const fixture=await relayFixture(t,mode,res=>{
+  const [status,error]=cases[index++];res.writeHead(status,{'content-type':'application/json',
+   'x-muse-model-auth-error':'upstream-credentials-rejected'});res.end(JSON.stringify({error}));
+ });
+ for(const [status,,marker]of cases){
+  const response=await fixture.post();assert.equal(response.status,status);
+  assert.equal(response.headers.get('x-muse-model-auth-error'),marker);
+  const text=await response.text();assert.doesNotMatch(text,/synthetic-private-key/);
+  assert.equal(JSON.parse(text).error.code,status===401||status===403?'authentication_error':'rate_limit_exceeded');
+ }
+});
+
+for(const mode of ['cloud','desktop'])test(mode+' does not copy a supplier marker on successful streams',{timeout:10000},async t=>{
+ const fixture=await relayFixture(t,mode,res=>{res.writeHead(200,{'content-type':'text/event-stream',
+  'x-muse-model-auth-error':'upstream-credentials-rejected'});res.end(done);});
+ const response=await fixture.post();assert.equal(response.status,200);
+ assert.equal(response.headers.get('x-muse-model-auth-error'),null);assert.equal(await response.text(),done);
+});
+
 for(const mode of ['cloud','desktop'])test(mode+' DONE without HTTP EOF closes upstream and admits the next queued request',{timeout:10000},async t=>{
  const first=deferred(),firstClosed=deferred();let calls=0;
  const fixture=await relayFixture(t,mode,res=>{

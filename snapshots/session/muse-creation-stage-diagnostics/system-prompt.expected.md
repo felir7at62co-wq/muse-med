@@ -504,10 +504,10 @@ interface ToolArgsMap {
     /** Update only: exact revision returned by read. Stale writes do not change the authorization. */
     expected_revision?: string;
   } & Record<string, JsonValue>;
-  /** 剧变（Jubian）目录与项目只读查询：账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。 */
+  /** 剧变（Jubian）目录与项目只读查询：当前登录连通性、账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。登录后先用 auth 验证 Muse 实际使用的凭据；网页登录不自动更新 Muse 中保存的 Token。401 表示认证被拒，403 仅说明无权访问，网络或响应格式错误均不证明登录过期；不要反复要求重登或自动重试生成。 */
   jubian_catalog: {
-    /** models=账户模型目录；rate=单个计价标准；script=剧本身份；episodes=分集列表。 */
-    method: "models" | "rate" | "script" | "episodes";
+    /** auth=免费单次读取本人项目列表并丢弃内容，只核对当前 Muse 凭据可读，不验证指定项目权限或付费生成；models=账户模型目录；rate=单个计价标准；script=剧本身份；episodes=分集列表。 */
+    method: "auth" | "models" | "rate" | "script" | "episodes";
     /** models 必填：1=视频，2=图片，10=去字幕，20=转高清。 */
     task_type?: number;
     /** rate 必填：models 返回的模型计价行 id/standardId，不是 videoStandards 中的 videoStandardId。 */
@@ -902,8 +902,8 @@ interface ToolArgsMap {
       episode?: string;
       /** 本项图片提示词。 */
       prompt: string;
-      /** 本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。 */
-      image_style?: "live_action" | "anime";
+      /** 本项风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时读提示词首行声明，再读项目设置。 */
+      image_style?: "live_action" | "anime" | "realistic_3d";
       /** 本项可选：模型 videoStandards 中的精确 id；同画幅/分辨率有多条规格时指定。 */
       image_spec_id?: number;
       /** 本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。 */
@@ -919,8 +919,8 @@ interface ToolArgsMap {
       /** 可选：重生成的父资产 ID；省略则新建。 */
       parent_asset_id?: number;
     })[];
-    /** image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。 */
-    image_style?: "live_action" | "anime";
+    /** image_generate 的风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时先识别提示词首行声明（可带“项目风格：”），再读取项目风格；项目未保存风格时默认真人。与首行冲突或无法继承项目风格时不提交收费请求。image_generate_batch 仅接受每项 items.image_style。 */
+    image_style?: "live_action" | "anime" | "realistic_3d";
     /** image_generate 可选或 image_generate_batch 默认：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。 */
     image_spec_id?: number;
     /** image_generate 可选或 image_generate_batch 默认：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。 */
@@ -1751,7 +1751,7 @@ interface ToolArgsMap {
       uncertainty: string;
     }[];
     /** observe时按实际返回的frame_id逐图记录；不能用“已查看”或“同上”代替内容。 */
-    observations?: {
+    observations?: ({
       frame_id: string;
       /** 具体可见人物、位置、动作、神态或道具；至少8个字符。 */
       visible: string;
@@ -1759,7 +1759,14 @@ interface ToolArgsMap {
       change: string;
       /** 需要补看前后画面才能澄清的具体疑点；没有时可省略。填写具体疑点会安排前后补帧。 */
       uncertainty?: string;
-    }[];
+      /** 短剧源片角色核对。实际并排看正式参考和本帧，记录角色、正式参考资产ID、结果和可见理由。证据不足填needs_review，缺参考时可省略其ID。同一帧角色用同一标识；复看后更新该角色，其余旧记录保留。mismatch与needs_review会停住该源片的正式选源。 */
+      character_checks?: ({
+        character: string;
+        reference_asset_id?: string;
+        status: "match" | "mismatch" | "needs_review";
+        reason: string;
+      })[];
+    })[];
   } & Record<string, JsonValue>;
   /** Wait for input at your next step, including agent messages, completion notifications, and user steering. Returns immediately if new input is pending. `timedOut: false` means new input is pending. Pending input is delivered to the model after code execution finishes. */
   wait_agent: {

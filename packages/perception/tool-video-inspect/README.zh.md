@@ -22,7 +22,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
-短剧部署启用 `requireCompleteReview`。该部署中的 `video_inspect` 使用 `scan`、`next`、`revisit`、`observe`、`events`、`status`、`metadata`、`timeline`、`compare`、`close` 和 `reopen`，模型不能指定取样数量或扫描范围。`scan` 分块扫描整集：切镜评分检查全部解码缩略帧，另一条低帧率 RGB 通道检测累计画面变化并补充连续性观察点。每个检测切点按解码帧序号保留变化发生的那一帧，并保留前后画面，避免时间码取整后抽到相邻帧。分析滤镜在输出元数据或 RGB 字节前按分段时间限制筛选，保留边界帧以衔接切镜，排除解码预读的后续帧。全部候选进入该集清单；超过预算时报错，不截取部分候选冒充完整结果。检测灵敏度、扫描频率、资源预算和批大小由产品配置管理。图像预算拒绝需要卸载尚未查看的画面输入时，后续批次缩小到剩余待查看帧数，最少一张；仅卸载已查看或无关历史图片时，批大小保持不变。现有卸载机制继续恢复请求；被卸载而未呈现的图片不计为已查看。这些是画面变化候选，不是语义主体识别。
+短剧部署启用 `requireCompleteReview`。该部署中的 `video_inspect` 使用 `scan`、`next`、`revisit`、`observe`、`events`、`status`、`metadata`、`timeline`、`compare`、`close` 和 `reopen`，模型不能指定取样数量或扫描范围。`scan` 分块扫描整集，末尾不足一个分析取样间隔的余段并入前一块；切镜评分检查全部解码缩略帧，另一条低帧率 RGB 通道检测累计画面变化并补充连续性观察点。每个检测切点按解码帧序号保留变化发生的那一帧，并保留前后画面，避免时间码取整后抽到相邻帧。分析滤镜在输出元数据或 RGB 字节前按分段时间限制筛选，保留边界帧以衔接切镜，排除解码预读的后续帧。全部候选进入该集清单；超过预算时报错，不截取部分候选冒充完整结果。检测灵敏度、扫描频率、资源预算和批大小由产品配置管理。图像预算拒绝需要卸载尚未查看的画面输入时，后续批次缩小到剩余待查看帧数，最少一张；仅卸载已查看或无关历史图片时，批大小保持不变。现有卸载机制继续恢复请求；被卸载而未呈现的图片不计为已查看。这些是画面变化候选，不是语义主体识别。
 
 完整审看模式的 `scan.timestamps_seconds` 最多补充 256 个有限来源时刻，且 `0 <= t < duration`。它补足常规全片计划；已扫描的当前版本保留旧帧 ID 和观察，只追加缺失时点；原请求时间或可用的实际解码时间任一匹配即复用旧帧。新帧仍须正常送入图片模型并 `observe`，总数继续受 `reviewMaxFrames` 限制。可按实际 OCR 帧时间或处理区间前后补看缺口，不能把传入时间当作已经看过。 在分叉 Session 中，`scan` 默认保留继承的进度；使用 `scan` 并设置 `fresh_scan: true` 可在当前 Session 开始新审看。严格采用来源要求当前 Session 自行扫描、观察和 OCR。
 
@@ -94,6 +94,8 @@ kind: "package-reference"
 `createVideoObservationVerifier(ctx)` 为当前 Session 的完整视频观察准备无需 OCR 的只读 Host 核验函数。插件启动时等待它，在所属插件生命周期内保留返回的 `VideoObservationVerifier`，再以 `(session, binding, signal)` 调用。其 `VideoObservationEvidenceBinding` 包含 `mediaPath`、调用方独立核实的 `mediaSha256`、`inspectionPath`、`inspectionSha256`、`sessionId` 和 `reviewId`。Host 要求每帧均已实际展示、记录观察且无未解决疑点，核对准确报告与持久观察、成功工具主体签发记录，并检测核验期间的源片或观察变化。不能用继承的观察替另一 Session 签发认可。它不读 OCR 文件、不调用媒体命令或模型。内容判断、必需时间区间和媒体 SHA-256 核对仍由消费方负责。
 
 `createVideoSourceQaVerifier(ctx)` 为严格来源采用流程准备只读 Host 核验函数，调用方先独立核对媒体 SHA-256 与 OCR 内容。它要求真实发起 Session、成功且绑定摘要的 OCR 结果，以及当前已完整扫描、实际看图、逐帧记录且无疑点的持久视频观察，准确报告字节与真实返回路径必须一致。每份证据最多读取 64 MiB，并核文件系统版本；不会启动 OCR、抽帧或付费任务。同一 Session 恢复后，在工具主体签发记录存在时可复用原持久证据；缺少该记录的旧结果须重新扫描和 OCR。另一 Session 需自行实际本地审看与 OCR。这不使用旧采样收据，不改变已归档交付收据，也不认证剧情质量。
+
+短剧源片审看可在每帧的 `observe.character_checks` 里记录角色核对。将一张清晰帧与项目正式参考并排看，记录角色、参考资产 ID、结果和可见理由。对照实际图片后填 `match` 或 `mismatch`。画面证据不够或缺正式参考时填 `needs_review`。复看同一帧只更新这次核对的角色，原有其他记录保留。严格来源核验会为现行 `mismatch` 或 `needs_review` 报出实际画面时间并暂停选用。条目保存的是模型看图结论。普通画面观察和不带角色核对的历史观察仍可读取。
 
 Host 消费方先在插件启动时等待 `createVideoReviewReader(ctx)`，并在自身生命周期内保留该领域读取函数。将它传给 `videoReviewSummaries(reader, session)`，以及 `readVideoSourceTimeline(ctx, session, id, options, signal, reader)` 的最后一个参数。读取函数保有私有投影句柄，其他注册卸载后仍有效。Host 消费方可用 `videoReviewSummaries` 读取当前已记录的视频身份与显式 ASR 引用，再以明确的来源区间和字节／图片预算调用 `readVideoSourceTimeline`。请求的已记录 `frameIds` 从附件缓存读取，以真实图片块与时间线一同返回；省略 ID 时仅返回文字。该读取校验视频版本与缓存图片，不可用的可选 ASR 返回诊断，不另选来源、不抽帧、不修改观察进度。缓存缺失、源版本变化、无效帧选择和完整结果超限仅使本次证据读取失败，不新增交付条件。消费方须将返回块接入普通有日志的上下文或工具结果路径。`buildVideoSourceTimeline` 对已读取材料提供同一纯归组逻辑。
 

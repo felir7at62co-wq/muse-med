@@ -523,6 +523,13 @@ describe('uploaded voice references', () => {
     '镜头1：场景：客厅 画面文字：禁止通行 旁白：雨停了。',
     '镜头17：画面文字：陆沉舟：无声；近景，陆沉舟：还想走吗？',
     '镜头17：画面文字：台词：无声；台词：陆沉舟：还想走吗？',
+    '镜头2（3.5-7.9s｜近景·平视｜陆知宁）：陆知宁抬眼，口型连贯——台词（继续鉴定）：更是用化学药水强行刷上去的。',
+    '镜头3（中景，相机固定）：周顺来眉心皱起，画内开口说：要不是要交救命钱，我绝不拿出来卖！',
+    '镜头5（中景，相机固定）：口部闭合不开口。铜蛤蟆画外音在画外说完这一句：快把我买回家洗个澡啊！',
+    '镜头6（近景，相机缓慢前推）：他全程闭嘴。他的内心独白以画外音响起：我翻身的机会就彻底来了！',
+    '【配音指令】\n- 陆知宁（继续鉴定）：更是用化学药水强行刷上去的。\n- 沈砚（质疑）：是吗？',
+    '## 配音指令：\n1. 陆知宁（继续鉴定）：更是用化学药水强行刷上去的。',
+    '配音指令：\n- 陆知宁：更是用化学药水强行刷上去的。',
   ])('flags this spoken prompt without a voice reference: %s', async (speech) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${speech}` }) } }
@@ -578,6 +585,12 @@ describe('uploaded voice references', () => {
     '人物：张三\n镜头17：近景，李四：今晚别走。',
     '@[ ](lead)\n镜头17：近景，人物转身',
     '@[场景](lead)\n镜头17：场景：雨夜街头',
+    '镜头2（3.5-7.9s｜近景）：墙上写着“——台词（继续鉴定）：请稍候。”，无人发声。',
+    '镜头3（中景，相机固定）：画面文字：宣传页上印有“他们开口说：欢迎参观”，人物不发声。',
+    '镜头5（中景，相机固定）：负面提示：禁止通过画外音在画外说完这一句：快把我买回家！',
+    '镜头6（近景，相机缓慢前推）：台词（不发声）：我回来了。',
+    '【配音指令】\n- 音色：偏低沉\n- 说明：保留环境音。\n- 陆知宁（不说话）：无对白。\n【画面文字】\n- 张三：请扫码登记。',
+    '【配音指令】\n负面提示：不许说话。\n- 张三：请扫码登记。',
   ])('does not treat a non-speech prompt as dialogue: %s', async (description) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${description}` }) } }
@@ -2503,6 +2516,50 @@ describe('select_assets', () => {
   const selections = [{ material_key: 'lead', asset_id: 81285 }, { material_key: 'guest', asset_id: 83670 }]
   const emptyStoryboard = { ...STORYBOARD, storyboardMaterialList: [] }
 
+  it.each(['object', 'JSON string'])('reports a %s saved model when a free selection differs from the session choice', async (encoding) => {
+    const expected = { modelId: 'doubao-seedance-2.5-flash', platformId: 'YU_DIAN', standardId: 101, resolution: '720p' }
+    const legacyConfig = { ...MODEL_CONFIG, modelId: 'doubao-seedance-2.5', standardId: 93 }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...emptyStoryboard, modelConfig: JSON.stringify({ ...legacyConfig, ...expected }) },
+      onPut: (payload) => {
+        const config = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
+        const saved = { ...config, modelId: legacyConfig.modelId, standardId: '93' }
+        provider.storyboard.modelConfig = encoding === 'JSON string' ? JSON.stringify(saved) : saved
+      } }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-model-readback' }
+    const client = clientFor(provider)
+    const difference = { status: 'differs_from_session',
+      expected: { ...expected, standardId: '101' },
+      actual: { modelId: legacyConfig.modelId, platformId: 'YU_DIAN', standardId: '93', resolution: '720p', videoStandardId: '91' },
+      differing_fields: ['modelId', 'standardId'] }
+    const first = await selectAssetsMethod(client, ledger, args, expected)
+    expect(first).toMatchObject({ status: 'applied', paid_requests: 0, video_model_readback: difference })
+    expect(first.next).toContain('会话选择不一致')
+    expect(await selectAssetsMethod(client, ledger, args, expected)).toMatchObject({
+      status: 'already_applied', video_model_readback: difference,
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body?.isGenerate).toBe(0)
+  })
+
+  it('matches the same saved model with a numeric-string ID and a sub-specification alias', async () => {
+    const { platformId, modelId, standardId, resolution, videoStandardId, ...rest } = MODEL_CONFIG
+    const savedConfig = { ...rest, platformId, modelId, standardId: String(standardId), resolution,
+      modelVideoStandardId: videoStandardId, materialList: MATERIALS }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {},
+      storyboard: { ...STORYBOARD, modelConfig: savedConfig } }
+    const client = clientFor(provider)
+    const actual = { platformId, modelId, standardId: String(standardId), resolution,
+      videoStandardId: String(videoStandardId) }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-model-match' }
+    expect(await selectAssetsMethod(client, ledger, args, MODEL_CONFIG)).toMatchObject({
+      status: 'already_applied',
+      video_model_readback: { status: 'matches_session', actual, differing_fields: [] },
+    })
+    expect(await selectAssetsMethod(client, ledger, args)).not.toHaveProperty('video_model_readback')
+    expect(putCalls(provider)).toEqual([])
+  })
+
   it('saves with isGenerate=0, reads the order back and proves no task appeared', async () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {} }
     const result = await selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
@@ -2558,8 +2615,57 @@ describe('select_assets', () => {
     const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks, subtasks: {},
       taskPage: page => ({ ...(noTotal ? {} : { total: tasks.length }), rows: tasks.slice((page - 1) * 100, page * 100) }),
     }
+    const detail: unknown = expect.stringContaining(
+      `stage=before_save_task_audit. No selection PUT was sent by this call. Duplicate video task ID on inventory page ${crossPage ? '2' : '1'}.`)
     await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953,
-      selections, idempotency_key: 'select-reject-duplicate' })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+      selections, idempotency_key: 'select-reject-duplicate' })).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+    })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('reports an empty selection save response as unresolved and keeps the original write identity', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {},
+      putResponse: () => new Response(null, { status: 200 }) }
+    const client = clientFor(provider)
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-empty-write-response' }
+    const detail: unknown = expect.stringMatching(/stage=save_response.*Read back the storyboard.*HTTP 200.*0 bytes/)
+    await expect(selectAssetsMethod(client, ledger, args)).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+      responseEvidence: { httpStatus: 200, applicationCode: null },
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
+    expect(await ledger.find(args.idempotency_key)).toMatchObject({ outcome: 'unknown', http_status: 200 })
+    expect(await selectAssetsMethod(client, ledger, args)).toMatchObject({ status: 'already_applied', applied: false })
+    expect(putCalls(provider)).toHaveLength(1)
+  })
+
+  it('reports an incomplete task audit after a recorded selection save', async () => {
+    const duplicate = { id: 1, scriptId: 2708, taskType: 1 }
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {},
+      onPut: () => { provider.tasks = [duplicate, duplicate] } }
+    const args = { storyboard_id: 916953, selections, idempotency_key: 'select-after-save-task-audit' }
+    const detail: unknown = expect.stringMatching(/stage=after_save_task_audit.*Keep the original key.*Duplicate video task ID/)
+    await expect(selectAssetsMethod(clientFor(provider), ledger, args)).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail,
+    })
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(putCalls(provider)[0]?.body).toMatchObject({ isGenerate: 0 })
+    expect(await ledger.find(args.idempotency_key)).toMatchObject({ outcome: 'accepted' })
+  })
+
+  it('preserves an unexpected local task audit error before a selection write', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: emptyStoryboard, tasks: [], subtasks: {} }
+    const client = clientFor(provider)
+    const request = client.request.bind(client)
+    const failure = new Error('Unexpected task audit failure')
+    vi.spyOn(client, 'request').mockImplementation(args => args.path.startsWith('/admin/aigc/video/task/list')
+      ? Promise.reject(failure) : request(args))
+    await expect(selectAssetsMethod(client, ledger, {
+      storyboard_id: 916953, selections, idempotency_key: 'select-unexpected-task-audit-error',
+    })).rejects.toBe(failure)
     expect(putCalls(provider)).toEqual([])
     expect(await ledger.records()).toEqual([])
   })

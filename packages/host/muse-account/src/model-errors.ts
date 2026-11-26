@@ -2,8 +2,12 @@
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
 
+/** Authentication failures identified by the authenticated Muse relay. */
+export type MuseModelAuthFailure = 'UPSTREAM_CREDENTIAL_REJECTED' | 'MISSING_CREDENTIAL'
+
 const messages = {
   AUTH: 'Upstream authentication failed. Please contact the Muse administrator.',
+  UPSTREAM_CREDENTIAL_REJECTED: 'Upstream model credentials were rejected. Please contact the Muse administrator.',
   QUOTA: 'Upstream quota exhausted. Please contact the Muse administrator.',
   RATE_LIMIT: 'Upstream rate limit exceeded. Please retry later.',
   CONTEXT_WINDOW_EXCEEDED: 'Upstream context window exceeded. Please reduce the request context.',
@@ -31,8 +35,9 @@ const messages = {
   UNKNOWN: 'Muse model request failed. Please retry or contact the Muse administrator.',
 } as const
 
-function safeFailure(failure: LlmFailure): LlmFailure {
-  const code = Object.hasOwn(messages, failure.code) ? failure.code as keyof typeof messages : 'UNKNOWN'
+function safeFailure(failure: LlmFailure, authFailure?: MuseModelAuthFailure): LlmFailure {
+  const classified = failure.code === 'AUTH' ? authFailure ?? failure.code : failure.code
+  const code = Object.hasOwn(messages, classified) ? classified as keyof typeof messages : 'UNKNOWN'
   return { code, message: messages[code],
     ...(failure.status === undefined ? {} : { status: failure.status }),
     ...(failure.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: failure.providerRetryAfterMs }),
@@ -43,17 +48,25 @@ function safeFailure(failure: LlmFailure): LlmFailure {
 /**
  * Keep model output intact while replacing failed and cancelled supplier diagnostics.
  * @param source - Deferred stream creation, including synchronous adapter failures.
+ * @param authFailure - Trusted relay classification for an HTTP refusal before response output.
  * @returns Stream with fixed error text and routing facts; thrown failures carry no upstream cause or request ID.
  */
-export async function* safeMuseModelStream(source: () => AsyncIterable<StreamChunk>): AsyncGenerator<StreamChunk> {
+export async function* safeMuseModelStream(source: () => AsyncIterable<StreamChunk>,
+  authFailure?: () => MuseModelAuthFailure | undefined): AsyncGenerator<StreamChunk> {
+  let outputStarted = false
   try {
     for await (const chunk of source()) {
       if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
-        yield { ...chunk, reason: { ...chunk.reason, failure: safeFailure(chunk.reason.failure) } }
-      } else yield chunk
+        const classification = !outputStarted && chunk.reason.kind === 'error' ? authFailure?.() : undefined
+        yield { ...chunk, reason: { ...chunk.reason, failure: safeFailure(chunk.reason.failure, classification) } }
+      } else {
+        if (chunk.type !== 'usage' && chunk.type !== 'finish') outputStarted = true
+        yield chunk
+      }
     }
   } catch (error) {
-    const failure = safeFailure(error instanceof LlmError ? error.failure : { code: 'UNKNOWN', message: '' })
+    const failure = safeFailure(error instanceof LlmError ? error.failure : { code: 'UNKNOWN', message: '' },
+      outputStarted ? undefined : authFailure?.())
     throw LlmError.fromFailure(failure)
   }
 }
