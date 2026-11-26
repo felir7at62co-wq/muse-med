@@ -543,6 +543,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+      - name: Upload Models settings browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: models-settings-browser-diagnostics
+          path: .artifacts/models-settings
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 3
+
 
   node-compat:
     if: github.event_name == 'pull_request'
@@ -621,8 +631,11 @@ jobs:
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
 
-      - name: Check Hongguo source status and catalog availability
-        run: node --import tsx/esm --test third_party/plugins/muse-hongguo-download/tests/source-status.test.js
+      - name: Check Hongguo sources and durable task diagnostics
+        run: >-
+          node --import tsx/esm --test
+          third_party/plugins/muse-hongguo-download/tests/source-status.test.js
+          third_party/plugins/muse-hongguo-download/tests/tasks.test.js
 
       - name: Run compatibility smokes
         env:

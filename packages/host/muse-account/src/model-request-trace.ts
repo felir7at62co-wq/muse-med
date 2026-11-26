@@ -5,8 +5,10 @@ import { z } from 'zod'
 import type { GenerateOptions, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { PiAiRequestHeaderContext } from '@deepseek-ai/dsh-llm-pi-ai'
 import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
+import type { MuseModelAuthFailure } from './model-errors.ts'
 
 const clientHeader = 'x-muse-client-request-id'
+const authErrorHeader = 'x-muse-model-auth-error'
 const responseSchema = z.object({ kind: z.literal('pi-ai'), version: z.literal(2),
   responseId: z.string().optional(), responseModel: z.string().optional(),
   stopReason: z.enum(['stop', 'length', 'toolUse', 'error', 'aborted']).optional() })
@@ -29,7 +31,11 @@ export interface MuseModelRequestMetadata {
   usage?: Partial<TokenUsage> | null
 }
 type RequestIdentity = Pick<MuseModelRequestMetadata, 'client_request_id' | 'session_id' | 'provider' | 'model' | 'purpose'>
-interface RequestContext { identity: RequestIdentity; credentials: Set<string> }
+interface RequestContext {
+  identity: RequestIdentity
+  credentials: Set<string>
+  authFailure?: MuseModelAuthFailure
+}
 
 function usageMetadata(counts: TokenUsage): Partial<TokenUsage> | undefined {
   const safe: Partial<TokenUsage> = {}
@@ -51,6 +57,13 @@ export class MuseModelRequestTrace {
     this.origin = new URL(baseUrl).origin
   }
 
+  private relayBase(request: PiAiRequestHeaderContext, identity: RequestIdentity): URL | undefined {
+    if (request.provider !== identity.provider || request.model !== identity.model
+      || (request.sessionId ?? null) !== identity.session_id || (request.purpose ?? null) !== identity.purpose) return
+    const base = new URL(request.baseURL)
+    return base.origin === this.origin && base.pathname.startsWith('/api/desktop-models/') ? base : undefined
+  }
+
   /** Enforce relay-only attribution after public contributors have prepared request-owned headers.
    * @param request - Exact prepared adapter route, including its final base URL.
    * @param headers - Request-owned contributed headers; no copy is retained.
@@ -60,13 +73,33 @@ export class MuseModelRequestTrace {
     headers.delete(clientHeader)
     if (this.closed) return headers
     const identity = this.context.getStore()?.identity
-    if (identity !== undefined && request.provider === identity.provider && request.model === identity.model
-      && (request.sessionId ?? null) === identity.session_id && (request.purpose ?? null) === identity.purpose
-      && new URL(request.baseURL).origin === this.origin
-      && new URL(request.baseURL).pathname.startsWith('/api/desktop-models/')) {
+    if (identity !== undefined && this.relayBase(request, identity) !== undefined) {
       headers.set(clientHeader, identity.client_request_id)
     }
     return headers
+  }
+
+  /** Trust an authentication classification only on this request's exact Muse relay response.
+   * @param request - Prepared adapter route before dispatch.
+   * @param response - Actual HTTP response observed by the adapter.
+   */
+  observeResponse(request: PiAiRequestHeaderContext, response: Pick<Response, 'url' | 'headers' | 'status' | 'redirected'>): void {
+    const context = this.context.getStore()
+    if (this.closed || context === undefined) return
+    delete context.authFailure
+    if (response.status !== 401 || response.redirected || response.url === '') return
+    const base = this.relayBase(request, context.identity)
+    if (base === undefined || response.url !== new URL(`${base.pathname.replace(/\/$/u, '')}/chat/completions`, base).href) return
+    const marker = response.headers.get(authErrorHeader)
+    if (marker === 'upstream-credentials-rejected') context.authFailure = 'UPSTREAM_CREDENTIAL_REJECTED'
+    if (marker === 'muse-session-expired') context.authFailure = 'MISSING_CREDENTIAL'
+  }
+
+  /** Read the authentication classification for the current relay request.
+   * @returns A trusted classification for the current consumed stream, if present.
+   */
+  authFailure(): MuseModelAuthFailure | undefined {
+    return this.context.getStore()?.authFailure
   }
 
   /** Remember the resolved credential only within its active request for reflected-metadata redaction.
@@ -107,9 +140,11 @@ export class MuseModelRequestTrace {
   /** Wrap every iterator operation in its own async context, including suspended generator resumption.
    * @param options - Exact request routing; messages, tools and credentials are never retained.
    * @param source - Deferred adapter stream, preserving its prepared route and cancellation.
+   * @param settled - Optional content-free terminal observer; omission reports diagnostics only.
    * @returns Byte-for-byte chunk stream with one UUID per consumed iterator and a bounded terminal receipt.
    */
-  stream(options: GenerateOptions<string>, source: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> {
+  stream(options: GenerateOptions<string>, source: () => AsyncIterable<StreamChunk>,
+    settled?: (record: MuseModelRequestMetadata) => void): AsyncIterable<StreamChunk> {
     const route = { session_id: options.sessionId ?? null, provider: options.provider,
       model: options.model, purpose: options.purpose ?? null }
     return { [Symbol.asyncIterator]: (): AsyncIterator<StreamChunk> => {
@@ -125,9 +160,12 @@ export class MuseModelRequestTrace {
         if (finished) return
         finished = true
         run(() => {
-          this.emit({ event: 'model_client_request_metadata', phase: 'finish', ...identity, outcome,
+          const record: MuseModelRequestMetadata = { event: 'model_client_request_metadata', phase: 'finish', ...identity, outcome,
             response_id: this.identifier(response?.responseId, 'id'), response_model: this.identifier(response?.responseModel, 'model'),
-            response_stop: response?.stopReason ?? null, stop, ...usage === undefined ? {} : { usage } })
+            response_stop: response?.stopReason ?? null, stop, ...usage === undefined ? {} : { usage } }
+          this.emit(record)
+          try { settled?.(record) }
+          catch (_error) { /* Receipt diagnostics cannot change the consumed model stream. */ }
         })
         context.credentials.clear()
         this.active.delete(context)

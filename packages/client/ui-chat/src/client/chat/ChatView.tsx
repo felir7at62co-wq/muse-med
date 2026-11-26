@@ -62,7 +62,7 @@ const MOTION_TAIL_MS = 800
  */
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
-  sessionId, openFile, openExternalLink, resolveFilePath, useContextMenu,
+  sessionId, openFile, openExternalLink, openResourceLink, resolveFilePath, useContextMenu,
   loadOlder, consumeOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt,
   usePresentation, useProjection, useInteractionIds, dispatchInteraction, t, fileDrag,
 }: ChatViewSlotProps) {
@@ -276,6 +276,7 @@ export function ChatView({
               getTriggerProps={getMarkdownTriggerProps}
               openFile={requestOpenFile}
               openExternalLink={openExternalLink}
+              openResourceLink={openResourceLink}
               fileImages={fileImages}
               renderCode={renderCode}
             >

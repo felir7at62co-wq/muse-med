@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-character-library/README.md
+/:
+  en: 4f301416d07cbbb3
+  zh: 883a183595c7467a
+/deepseek-ai-dsh-client-ui-character-library:
+  en: 58e51ce3602442f7
+  zh: 3758989b3fbeaedb
+/deepseek-ai-dsh-client-ui-character-library/summary:
+  en: b47f91fb11bde226
+  zh: b3029cd19a290187
+/deepseek-ai-dsh-client-ui-character-library/table-of-contents:
+  en: 4e53164159b5ce41
+  zh: bd61ce1bef78579b
+/deepseek-ai-dsh-client-ui-character-library/use-this-package:
+  en: b38032ae9130eedf
+  zh: 6534105e87f7059d
+/deepseek-ai-dsh-client-ui-character-library/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-client-ui-character-library/model-experience/reference-browsing:
+  en: 0ee8a8966ee44486
+  zh: d06ff93ce483ebc2
+/deepseek-ai-dsh-client-ui-character-library/model-experience/reference-browsing/what-the-model-sees:
+  en: 9918377d84537f76
+  zh: bfa62de4968db735
+/deepseek-ai-dsh-client-ui-character-library/model-experience/reference-browsing/token-effect:
+  en: d004eb1a5509f04c
+  zh: a88ba84c24d34768
+/deepseek-ai-dsh-client-ui-character-library/model-experience/reference-browsing/kv-cache-effect:
+  en: bff845d5114642af
+  zh: 36a07a5a242edd36
+/deepseek-ai-dsh-client-ui-character-library/known-limitations-and-deferred-work:
+  en: 8576eefc5a800d31
+  zh: 6591a0b46d3f190a
+/deepseek-ai-dsh-client-ui-character-library/known-limitations-and-deferred-work/dev-note:
+  en: 9b756e0351fdaafb
+  zh: 00cd25c865899ef2

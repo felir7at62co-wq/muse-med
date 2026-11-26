@@ -69,6 +69,8 @@ The project owns one `video-bans.json`: `{version:1,videos:[{sha256,labels,reaso
 
 ### Render and audio audition methods
 
+`prepare` warns when two shots use byte-identical video files, even under different names. The warning names both shot numbers and leaves the timeline ready for intentional reuse. Compare the shots with the script before rendering.
+
 | Method | Reads | Writes | Use it for |
 |---|---|---|---|
 | `subtitles` | The shot-sources manifest and the per-shot line plan | `editing/<集>.srt` | Giving already-written lines their times from each shot's own audio, without speech recognition |

@@ -192,6 +192,40 @@ for(const code of ['45000006','45000092','55001010']){
  });
 }
 
+test('confirmed standard queue timeout releases the shared worker to another account',async t=>{
+ const thirdQuery=deferred(),release=deferred(),submitted=[];
+ const supplier={appId:'synthetic',accessToken:'synthetic',timeoutMs:1000,resourceId:resourceIds['standard-v2']};
+ let stoppedQueries=0;
+ const env=await fixture(t,()=>({recognize:async()=>({status:'silent'}),
+  submit:async input=>{submitted.push(input.id);},
+  query:async id=>{
+   if(id!==submitted[0])return {status:'silent'};
+   stoppedQueries++;
+   if(stoppedQueries===3){thirdQuery.resolve();await release.promise;}
+   const code=stoppedQueries<=3?'55001011':'20000003';
+   return await queryAsr(supplier,id,async()=>new Response('{}',{headers:{'X-Api-Status-Code':code}}));
+  }
+ }),{quotaGroups:[...['old','second','third'].map(app=>({id:app+'-flash',maxConcurrentJobs:5})),{id:'standard-shared',maxConcurrentJobs:1}]});
+ const original=await env.submit('screenplay','alice');
+ const queued=await env.submit('screenplay','bob');
+ try{
+  await thirdQuery.promise;
+  assert.equal((await env.service.get('alice',original.id)).status,'uncertain');
+  assert.equal((await env.service.get('bob',queued.id)).queued,true);
+  assert.equal(submitted.length,1);
+ }finally{release.resolve();}
+ await env.service.idle();
+ const stopped=await env.service.get('alice',original.id);
+ assert.equal(stopped.status,'failed');
+ assert.equal(stopped.provider_diagnostic.provider_code,'55001011');
+ assert.equal(stopped.recovery.automatic_resubmit,false);
+ assert.equal((await env.service.get('bob',queued.id)).status,'silent');
+ assert.equal(stoppedQueries,3);
+ assert.equal((await env.submit('screenplay','alice',original.id)).status,'failed');
+ assert.equal(submitted.length,2);
+ assert.notEqual(submitted[0],submitted[1]);
+});
+
 test('a queued standard request does not block an available flash resource for the same account',async t=>{
  const blocked=deferred(),release=deferred(),flash=deferred();let standardQueries=0;
  const env=await fixture(t,()=>({recognize:async()=>{flash.resolve();return {status:'silent'};},submit:async()=>{},

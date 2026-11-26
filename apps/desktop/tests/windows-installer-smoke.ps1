@@ -3,6 +3,7 @@
 param([Parameter(Mandatory)][string]$Installer, [Parameter(Mandatory)][string]$ProductName,
     [Parameter(Mandatory)][string]$RegistryKey,
     [Parameter(Mandatory)][string]$OutputDirectory, [Parameter(Mandatory)][string]$Language,
+    [Parameter(Mandatory)][string]$UpgradeReportDirectory,
     [switch]$FailAfterAutomaticRelaunch)
 $ErrorActionPreference = 'Stop'
 $runtimeProcess = [Diagnostics.Process]::GetCurrentProcess()
@@ -47,6 +48,7 @@ $uninstaller = Join-Path $installPath ('Uninstall ' + $ProductName + '.exe')
 $processes = [Collections.Generic.List[Diagnostics.Process]]::new()
 $processHandles = [Collections.Generic.Dictionary[int, IntPtr]]::new()
 $results = [Collections.Generic.List[string]]::new()
+$seenUpgradeReports = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $primaryFailure = $null
 $cleanupFailures = [Collections.Generic.List[System.Management.Automation.ErrorRecord]]::new()
 $discoveredAppProcessIds = [Collections.Generic.List[int]]::new()
@@ -246,13 +248,39 @@ function Read-NativeFailureObserver([Diagnostics.Process]$Process) {
         # Failed termination leaves the registered Process for the ordinary final cleanup.
     }
 }
-function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds,
-    [bool]$InjectLaunchFailure = $true) {
+function Read-OwnUpgradeReports {
+    foreach ($report in @(Get-ChildItem -LiteralPath $UpgradeReportDirectory -Filter '*.completed' -File -ErrorAction SilentlyContinue)) {
+        try { $receipt = [IO.File]::ReadAllText($report.FullName, [Text.Encoding]::Unicode) }
+        catch [IO.IOException] { continue } # The writer owns the receipt exclusively until it flushes and closes.
+        if ($receipt -notmatch '^Upgrade completed\. Retained backup: ([^\r\n]+)\r\nCurrent directory: ([^\r\n]+)\r\n$') { throw 'Malformed completed upgrade receipt' }
+        $backup = $Matches[1]
+        if ($Matches[2] -cne $installPath) { continue }
+        if (-not $backup.StartsWith($installPath + '.old-', [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath (Join-Path $backup ($ProductName + '.exe')) -PathType Leaf)) { throw 'Upgrade receipt did not identify the retained test installation' }
+        [pscustomobject]@{ FullName = $report.FullName; Backup = $backup }
+    }
+}
+function Wait-InstallerFinish([Diagnostics.Process]$Process, [string]$Theme, [bool]$ExpectBackup,
+    [bool]$AllowBackupReceipt = $false) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $previous = 0
     $window = [InstallerCapture]::Find($Process.Id)
+    $acknowledgedBackups = 0
     while ([InstallerCapture]::FindButton($Process.Id, $copy.INSTALLER_FINISH) -eq [IntPtr]::Zero) {
         if ($Process.HasExited -or $timer.Elapsed.TotalSeconds -gt 30) { throw 'Installer did not complete' }
+        foreach ($report in @(Read-OwnUpgradeReports)) {
+            if ($seenUpgradeReports.Contains($report.FullName)) { continue }
+            if (-not $ExpectBackup -and -not $AllowBackupReceipt) { throw 'Fresh installation unexpectedly retained an old directory' }
+            $backup = $report.Backup
+            $control = [InstallerCapture]::FindDialogText($Process.Id, $backup)
+            if ($control -eq [IntPtr]::Zero) { continue }
+            if (-not $ExpectBackup) { throw 'Automatic update waited for a retained-backup acknowledgement' }
+            [void][InstallerCapture]::SaveNative([InstallerCapture]::TopLevel($control), (Join-Path $OutputDirectory ($Theme + '-backup.png')), $false)
+            Dismiss $Process $backup
+            [void]$seenUpgradeReports.Add($report.FullName)
+            $acknowledgedBackups++
+        }
+        $window = [InstallerCapture]::Find($Process.Id)
         $visible = [InstallerCapture]::VisibleText($Process.Id)
         if ($visible.Contains('msctls_progress32') -ne $expected.nativeProgressVisible) { throw 'Stock green progress bar is visible' }
         if ($visible -match 'HarnessInstallerProgress[^\r\n]*?(\d+)%') {
@@ -263,6 +291,12 @@ function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$The
         }
         Start-Sleep -Milliseconds 25
     }
+    if ($acknowledgedBackups -ne [int]$ExpectBackup) { throw 'Unexpected number of retained-backup notices' }
+    return $window
+}
+function Finish-Setup([Diagnostics.Process]$Process, [bool]$Launch, [string]$Theme, [string]$Bounds,
+    [bool]$InjectLaunchFailure = $true, [bool]$ExpectBackup = $true) {
+    $window = Wait-InstallerFinish $Process $Theme $ExpectBackup
     if ([InstallerCapture]::GetProp($window, 'HarnessInstaller.CompletedPercent').ToInt32() -ne 100) { throw 'Finish page replaced an incomplete progress bar' }
     $checkbox = Wait-Control $Process $copy.INSTALLER_LAUNCH -Button
     $state = [InstallerCapture]::SendMessage($checkbox, 0xF0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
@@ -402,8 +436,8 @@ function Stop-TestProcess([Diagnostics.Process]$Process) {
         $Process.Dispose()
     }
 }
-function Finish-RebootSetup([Diagnostics.Process]$Process) {
-    [void](Wait-Control $Process $copy.INSTALLER_FINISH -Button)
+function Finish-RebootSetup([Diagnostics.Process]$Process, [Parameter(Mandatory)][bool]$ExpectBackup) {
+    [void](Wait-InstallerFinish $Process 'reboot' $ExpectBackup (-not $ExpectBackup))
     [void](Wait-Control $Process $copy.INSTALLER_REBOOT_REQUIRED)
     $checkbox = Wait-Control $Process $copy.INSTALLER_LAUNCH -Button
     $state = [InstallerCapture]::SendMessage($checkbox, 0xF0, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
@@ -485,7 +519,7 @@ try {
     [InstallerCapture]::MoveBy($window, 73, -41)
     $bounds = [InstallerCapture]::Bounds($window)
     Click-Control $process $copy.INSTALLER_INSTALL
-    Finish-Setup $process $false light $bounds
+    Finish-Setup $process $false light $bounds $true $false
     if (-not (Test-Path -LiteralPath $appPath) -or (Test-Path -LiteralPath (Join-Path $installPath 'launched.txt'))) { throw 'Unchecked launch behavior failed' }
     $results.Add('enter-validates-current-path-and-unchecked-launch')
     $results.Add('completion-preserves-window-position')
@@ -616,6 +650,7 @@ try {
     if ($registration.InstallLocation -cne $installPath) { throw 'Silent update changed InstallLocation' }
     $results.Add('silent-update-retains-directory-and-ignores-unrelated-process')
     # The /S argument models older Muse updaters; this automatic restart must still expose installation progress.
+    $beforeAutomaticReports = @(Read-OwnUpgradeReports | ForEach-Object { $_.FullName })
     Set-RegisteredPathForUpdate ($installPath + '\\')
     $process = Start-TestProcess $Installer '/S --updated --force-run /THEME=dark'
     $window = [InstallerCapture]::Find($process.Id)
@@ -646,6 +681,8 @@ try {
         throw 'Automatic update did not canonicalize historical InstallLocation'
     }
     if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete -or -not $capturedProgress) { throw 'Automatic update did not paint verified progress through successful completion' }
+    $automaticReports = @(Read-OwnUpgradeReports | Where-Object { $_.FullName -notin $beforeAutomaticReports })
+    if ($automaticReports.Count -ne 1) { throw 'Automatic update did not retain exactly one completed backup receipt' }
     if ($FailAfterAutomaticRelaunch) {
         $timer.Restart()
         $unregisteredApp = $null
@@ -688,12 +725,15 @@ try {
     if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
     $process = Start-Setup light $installPath '/TEST_REBOOT_REQUIRED=1'
     Click-Control $process $copy.INSTALLER_INSTALL
-    Finish-RebootSetup $process
+    Finish-RebootSetup $process $true
     $results.Add('manual-reboot-required-disables-launch')
 
     if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }
+    $beforeRebootReports = @(Read-OwnUpgradeReports | ForEach-Object { $_.FullName })
     $process = Start-TestProcess $Installer '/S --updated --force-run /TEST_REBOOT_REQUIRED=1 /THEME=dark'
-    Finish-RebootSetup $process
+    Finish-RebootSetup $process $false
+    $rebootReports = @(Read-OwnUpgradeReports | Where-Object { $_.FullName -notin $beforeRebootReports })
+    if ($rebootReports.Count -ne 1) { throw 'Automatic reboot-required update did not retain exactly one completed backup receipt' }
     $results.Add('automatic-update-reboot-required-disables-launch')
 
     if (Test-Path -LiteralPath $launchMarker) { Remove-Item -LiteralPath $launchMarker }

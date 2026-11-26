@@ -8,6 +8,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import type { default as SubprocessRuntime, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
+import { jianyingDraftLibraryMismatch } from './jianying-draft-library.ts'
 
 /** Deployment-owned interpreter, process limits and bundled resource location. */
 export interface Config {
@@ -221,15 +222,21 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
     || (backend.library === 'aa-jianying' && row.backend !== 'aa-jianying')) {
     throw new Error('Draft generator returned inconsistent saved-draft results')
   }
-  if (request.musicReminder !== undefined) {
-    result.warnings = [...new Set([...result.warnings, request.musicReminder])]
+  const libraryMismatch = process.platform === 'win32' ? await jianyingDraftLibraryMismatch(input.drafts_dir) : undefined
+  const libraryWarning = libraryMismatch === undefined ? undefined
+    : `草稿已保存至 ${libraryMismatch.saved_root}，但剪映当前保存设置中的草稿根目录是 ${libraryMismatch.active_root}。`
+      + '当前候选可能不会出现在草稿箱。如果要在草稿箱中使用，请先核对剪映设置中的草稿目录，'
+      + '用 drama_draft_dir 保存确认的根目录，再以唯一新名称生成；保留已保存的候选。'
+  const pending = [request.musicReminder, libraryWarning].filter((note): note is string => note !== undefined)
+  if (pending.length) {
+    result.warnings = [...new Set([...result.warnings, ...pending])]
     result.quality = 'needs_review'
     for (const draft of result.drafts) {
-      draft.warnings = [...new Set([...draft.warnings, request.musicReminder])]
+      draft.warnings = [...new Set([...draft.warnings, ...pending])]
       draft.quality = 'needs_review'
     }
   }
-  return result
+  return libraryMismatch === undefined ? result : { ...result, draft_library: { status: 'different_root', ...libraryMismatch } }
 }
 
 /** Loader identity for Desktop's single draft-building entry point. */

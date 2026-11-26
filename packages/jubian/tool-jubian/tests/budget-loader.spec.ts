@@ -74,7 +74,7 @@ it('mounts the drama default and enforces its current limit in the real tool com
     expect(tool).toBeDefined()
     if (!tool) throw new Error('Missing Jubian video tool')
     const args = { method: 'image_generate', script_id: 2708, asset_name: 'x', asset_type: 1,
-      prompt: 'p', idempotency_key: 'new-paid-image' }
+      prompt: 'p', image_style: 'live_action', idempotency_key: 'new-paid-image' }
     const result = await executeModelToolFixture(ctx, {
       callId: ToolCallId('budget-loader'), name: 'jubian_video', arguments: args,
       signal: new AbortController().signal,
@@ -205,7 +205,7 @@ it.each(['mixed-currency', 'missing-currency'])
     const adapter = new MockAdapter([
       toolCallResponse('currency-budget', 'jubian_budget', { action: 'read', script_id: 2708 }),
       toolCallResponse('currency-image', 'jubian_video', { method: 'image_generate', script_id: 2708,
-        asset_name: '场景', asset_type: 1, prompt: '明亮的房间', idempotency_key: 'currency-new-image' }),
+        asset_name: '场景', asset_type: 1, prompt: '明亮的房间', image_style: 'live_action', idempotency_key: 'currency-new-image' }),
       textResponse('项目历史币种无法核对，预算无法比较。本次没有提交生成，请先核对历史账务。'),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)

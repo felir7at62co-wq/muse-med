@@ -43,7 +43,7 @@ export async function apply(ctx) {
   const queries = []
   class ReceiptAccount extends Service {
     constructor(context) { super(context, 'museAccount') }
-    async status() { return { state: 'signed-in', username: 'fixture', verified: false } }
+    async readLocalStatus() { return { state: 'signed-in', username: 'fixture', verified: false } }
     async submitAudio() { uploads++; throw Error('Legacy result recovery must not upload audio') }
     async audioStatus(id) {
       assert.ok(partIds.includes(id), 'Only the original split tasks are queried')

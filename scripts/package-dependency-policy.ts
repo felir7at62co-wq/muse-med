@@ -85,7 +85,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   '@deepseek-ai/cosmokit': ['isVolatile'],
   '@deepseek-ai/dsh-credentials': ['credentialRef'],
   '@deepseek-ai/dsh-jubian': [
-    'JUBIAN_TOKEN_REF', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
+    'JUBIAN_TOKEN_REF', 'SPENDING_METHODS', 'JubianError', 'JubianLedger', 'centsOf', 'checkBudget',
     'configuredJubianClient', 'workspacePipelineToken',
     'describePayload', 'readProjectBudget', 'updateProjectBudget',
   ],
@@ -108,13 +108,15 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'readReferenceAudio', 'readReferenceImage', 'readScript',
     'readScriptList', 'readStoryboard', 'readStoryboardPage', 'readSubtaskPage', 'readSubtitleTaskId',
     'readTaskList', 'readTaskPage', 'readUpscaleTaskId', 'readVoiceSlot', 'referenceAudioUrls', 'referenceMaterialItem',
-    'resolveImageModel', 'resolveImageStyle', 'resolvePostProcessModel', 'resolveVideoModel', 'responseRecords', 'seedanceVideoVersion', 'signTosObjectPut', 'stableJson',
+    'requestedImageStyle', 'resolveImageModel', 'resolvePostProcessModel', 'resolveProjectImageStyle', 'resolveVideoModel',
+    'responseRecords', 'seedanceVideoVersion', 'signTosObjectPut', 'stableJson',
     'stableSha256', 'storyboardMaterials', 'submissionSemantics', 'taskIdOf', 'taskSemanticFields', 'taskStatusOf',
     'terminalOutcome', 'trustedSubjectId', 'validateAudioMaterial', 'validateImageRequestInput', 'validateNativeVideoPreview',
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled',
     'MEDIAKIT_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
   ],
-  '@deepseek-ai/dsh-llm': ['MessageId', 'createUserMessage', 'freezeMessage'],
+  // The error base is re-exported from dsh-error; both paths must share its constructor.
+  '@deepseek-ai/dsh-llm': ['HarnessError', 'MessageId', 'createUserMessage', 'freezeMessage'],
   // Profile settings must match the installed Node provider's configuration schema.
   '@deepseek-ai/dsh-ptc-runtime-node/configuration': ['resolvePersistentExecution'],
   // CUA checks UserQuestionError and preserves AttachmentError from image admission.

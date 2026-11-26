@@ -246,7 +246,8 @@ export async function audioAssetDeleteMethod(client: JubianClient, ledger: Jubia
     }
     let status = 'unknown', verifiedReadback = false
     try {
-      status = await getAudioAsset(client, scriptId, assetId) === null ? 'deleted' : 'still_present'
+      const asset = await getAudioAsset(client, scriptId, assetId)
+      status = asset === null || asset.liveness === 'deleted' ? 'deleted' : 'still_present'
       verifiedReadback = status === 'deleted'
     } catch (_error) {
       status = 'unknown'

@@ -15,6 +15,8 @@ import Subprocess from '@deepseek-ai/dsh-subprocess-local'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { provideBrowserCredentials } from '../../../api/gateway/tests/browser-credentials.ts'
 import SessionVideo from '../src/index.ts'
+import Tools from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 
 /** Real workspace I/O with the public FileSystem contract's unsupported Host-path mapping. */
 class UnsharedFileSystem extends FileSystem {
@@ -45,6 +47,8 @@ it('lists a stored upload as unavailable when its Host path is not shared with t
   await ctx.plugin(Attachments, { dshHome: root })
   await ctx.plugin(Subprocess)
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
+  await ctx.plugin(SystemPrompt).await()
+  await ctx.plugin(Tools).await()
   await ctx.plugin(SessionVideo)
 
   // Inventory does not decode media; both sources carry the same real, stored bytes.

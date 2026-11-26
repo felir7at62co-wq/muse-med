@@ -46,7 +46,7 @@ export async function apply(ctx) {
   const canonical = await realpath(project)
   await writeFile(join(project, 'project_config.json'), '{"jubian_script_id":2708}\n')
   const preview = previewFixture(), key = preview.idempotencyKey
-  const previewPath = join(canonical, 'video_tasks', 'original.storyboard-native.prepared.json')
+  const previewPath = join(canonical, 'video_tasks', 'original.storyboard-native.prepared.json').replaceAll('\\', '/')
   await writeFile(previewPath, JSON.stringify(preview) + '\n')
   const ledgerRoot = join(cwd, '.dsh', 'recovery-ledger'), ledger = new JubianLedger({ root: ledgerRoot })
   await ledger.begin({ idempotencyKey: key, method: 'storyboard_native_submit', scriptId: 2708,

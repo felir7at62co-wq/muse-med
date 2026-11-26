@@ -1,5 +1,6 @@
 /** Host-only cloud transcription client using the saved MUSE account session. */
 import { openAsBlob } from 'node:fs'
+import { readMuseAccountJson } from './account-details.ts'
 import { readMuseSession } from './session.ts'
 
 /** Transcription use chosen by the caller; the gateway owns the recognition service. */
@@ -126,7 +127,8 @@ function validSegments(value: unknown): boolean {
 /** Fixed failure classes without upstream response bodies or signed object URLs. */
 export class MuseAsrError extends Error {
   constructor(readonly code: 'sign-in-required' | 'server-unavailable' | 'server-not-configured' | 'job-not-found' | 'request-rejected' | 'response-invalid'
-    | 'server_draining' | 'queue_full' | 'upload_busy' | 'request_rate' | 'provider_rate' | 'daily_quota' | 'idempotency_conflict', readonly retryAfterSeconds?: number) {
+    | 'server_draining' | 'queue_full' | 'upload_busy' | 'request_rate' | 'provider_rate' | 'daily_quota' | 'idempotency_conflict'
+    | 'upload-timeout' | 'query-timeout', readonly retryAfterSeconds?: number) {
     super(`MUSE cloud transcription: ${code}`)
   }
 }
@@ -136,16 +138,29 @@ function retryAfterSeconds(response: Response): number | undefined {
   return seconds !== null && /^\d+$/.test(seconds) && Number.isSafeInteger(Number(seconds)) ? Number(seconds) : undefined
 }
 
-async function rejection(response: Response): Promise<MuseAsrError> {
+async function rejection(response: Response, method: string | undefined): Promise<MuseAsrError> {
+  const { status } = response
+  if (status === 405 || (status === 404 && method !== 'GET')) return new MuseAsrError('server-not-configured')
+  if (status >= 500 && status !== 503) return new MuseAsrError('server-unavailable', retryAfterSeconds(response))
   let value: unknown
-  try { value = await response.json() }
-  catch { return new MuseAsrError('request-rejected') }
-  const code = typeof value === 'object' && value !== null && 'error_code' in value ? value.error_code : undefined
-  if (response.status === 429 && (code === 'queue_full' || code === 'upload_busy' || code === 'request_rate' || code === 'provider_rate' || code === 'daily_quota')) {
+  try { value = await readMuseAccountJson(response) }
+  catch { value = undefined }
+  const detail = typeof value === 'object' && value !== null ? value as Record<string, unknown> : undefined
+  const code = detail?.error_code
+  if (status === 404) {
+    // Only the gateway's job lookup can confirm absence and permit upload recovery under the original ID.
+    return new MuseAsrError(detail?.error === 'ASR job not found' ? 'job-not-found' : 'server-not-configured')
+  }
+  if (status === 429 && (code === 'queue_full' || code === 'upload_busy' || code === 'request_rate' || code === 'provider_rate' || code === 'daily_quota')) {
     return new MuseAsrError(code, retryAfterSeconds(response))
   }
-  if (response.status === 503 && code === 'server_draining') return new MuseAsrError(code, retryAfterSeconds(response))
-  if (response.status === 409 && code === 'idempotency_conflict') return new MuseAsrError(code)
+  if (status === 503) {
+    const retryAfter = retryAfterSeconds(response)
+    if (code === 'server_draining') return new MuseAsrError(code, retryAfter)
+    if (detail?.error === 'Muse cloud transcription is not configured on this server') return new MuseAsrError('server-not-configured')
+    return new MuseAsrError('server-unavailable', retryAfter)
+  }
+  if (status === 409 && code === 'idempotency_conflict') return new MuseAsrError(code)
   return new MuseAsrError('request-rejected')
 }
 
@@ -153,42 +168,69 @@ async function rejection(response: Response): Promise<MuseAsrError> {
 export interface MuseAsrOptions {
   readonly baseUrl: string
   readonly sessionFile: string
+  /** Total request ceiling, including an upload and the gateway response. */
   readonly requestTimeoutMs: number
+  /** Inactivity limit for uploads. Omission uses only the total request ceiling. */
+  readonly uploadIdleTimeoutMs?: number
+  /** Shorter ceiling for status requests. Omission uses the total request ceiling. */
+  readonly queryTimeoutMs?: number
   readonly fetcher?: typeof fetch
+}
+
+/** Keep streaming the original bytes while observing fetch demand and response inactivity. */
+function watchUpload(file: Blob, idleMs: number) {
+  const chunks = file.stream().getReader()
+  const timeout = new AbortController()
+  const timer = setTimeout(() => { timeout.abort() }, idleMs).unref()
+  let stopping: Promise<void> | undefined
+  const stopReading = () => stopping ??= chunks.cancel()
+  return {
+    signal: timeout.signal,
+    body: new ReadableStream<Uint8Array>({
+      async pull(consumer) {
+        const chunk = await chunks.read()
+        if (chunk.done) { consumer.close(); return }
+        if (stopping === undefined && !timeout.signal.aborted) timer.refresh()
+        consumer.enqueue(chunk.value)
+      },
+      cancel: stopReading,
+    }, { highWaterMark: 0 }),
+    async [Symbol.asyncDispose]() {
+      clearTimeout(timer)
+      try { await stopReading() }
+      catch (_error) { /* The body already reported its read failure to fetch. */ }
+      finally { chunks.releaseLock() }
+    },
+  }
 }
 
 /** Submit or query by one caller-persisted UUID; no provider credential reaches the Host. */
 export class MuseAsrClient {
   constructor(private readonly options: MuseAsrOptions) {}
 
-  private async request(path: string, init: RequestInit, signal?: AbortSignal): Promise<MuseAsrJob> {
+  private async request(path: string, init: RequestInit, signal?: AbortSignal, idle?: AbortSignal): Promise<MuseAsrJob> {
     signal?.throwIfAborted()
     const session = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
     signal?.throwIfAborted()
     if (session === null) throw new MuseAsrError('sign-in-required')
-    let response: Response
+    const query = init.method === 'GET'
+    const total = this.options.requestTimeoutMs
+    const ceiling = AbortSignal.timeout(query ? Math.min(this.options.queryTimeoutMs ?? total, total) : total)
+    const requestSignal = AbortSignal.any([ceiling, ...(signal === undefined ? [] : [signal]), ...(idle === undefined ? [] : [idle])])
+    let response: Response | undefined
     try {
       const headers = new Headers(init.headers)
       headers.set('cookie', session.cookie)
-      response = await (this.options.fetcher ?? fetch)(new URL(path, this.options.baseUrl), {
-        ...init, headers, redirect: 'manual',
-        signal: signal === undefined ? AbortSignal.timeout(this.options.requestTimeoutMs)
-          : AbortSignal.any([signal, AbortSignal.timeout(this.options.requestTimeoutMs)]),
-      })
-    } catch {
-      signal?.throwIfAborted()
-      throw new MuseAsrError('server-unavailable')
-    }
-    try {
-      signal?.throwIfAborted()
-      if (response.status === 303 || response.status === 401) throw new MuseAsrError('sign-in-required')
-      if (response.status === 404 && init.method === 'GET') throw new MuseAsrError('job-not-found')
-      if (response.status === 503 && retryAfterSeconds(response) !== undefined) {
-        const error = await rejection(response)
-        throw error.code === 'server_draining' ? error : new MuseAsrError('server-unavailable', retryAfterSeconds(response))
+      try {
+        response = await (this.options.fetcher ?? fetch)(new URL(path, this.options.baseUrl), {
+          ...init, headers, redirect: 'manual', signal: requestSignal,
+        })
+      } catch (_error) {
+        throw new MuseAsrError('server-unavailable')
       }
-      if (response.status === 404 || response.status === 405 || response.status === 503) throw new MuseAsrError('server-not-configured')
-      if (!response.ok) throw await rejection(response)
+      requestSignal.throwIfAborted()
+      if (response.status === 303 || response.status === 401) throw new MuseAsrError('sign-in-required')
+      if (!response.ok) throw await rejection(response, init.method)
       let value: unknown
       try { value = await response.json() } catch { throw new MuseAsrError('response-invalid') }
       if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new MuseAsrError('response-invalid')
@@ -201,7 +243,7 @@ export class MuseAsrClient {
         throw new MuseAsrError('response-invalid')
       }
       if (job.status === 'complete' && !validSegments(job.segments)) throw new MuseAsrError('response-invalid')
-      signal?.throwIfAborted()
+      requestSignal.throwIfAborted()
       return {
         id: job.id, status: job.status as MuseAsrJob['status'],
         ...(job.purpose === undefined ? {} : { purpose: job.purpose }),
@@ -211,9 +253,10 @@ export class MuseAsrClient {
       }
     } catch (error) {
       signal?.throwIfAborted()
+      if (ceiling.aborted || idle?.aborted === true) throw new MuseAsrError(query ? 'query-timeout' : 'upload-timeout')
       throw error
     } finally {
-      if (response.body !== null && !response.bodyUsed) {
+      if (response?.body != null && !response.bodyUsed) {
         try { await response.body.cancel() }
         catch (_error) { /* The transport may have already errored its aborted body. */ }
       }
@@ -229,16 +272,22 @@ export class MuseAsrClient {
    * @param purpose - Persisted transcription use; omission retains legacy gateway routing.
    * @param signal - Caller cancellation; awaited transport/body settlement preserves its reason.
    * @returns Account-scoped job status.
+   * @throws {MuseAsrError} An upload deadline leaves acceptance unknown; query the original ID.
    */
   async submit(file: string, id: string, sha256: string, language: 'zh' | 'auto', purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<MuseAsrJob> {
     signal?.throwIfAborted()
-    const init: RequestInit & { duplex: 'half' } = {
-      method: 'POST', headers: { origin: this.options.baseUrl, 'content-type': file.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg',
-        'idempotency-key': id, 'x-audio-sha256': sha256, 'x-audio-language': language,
-        ...(purpose === undefined ? {} : { 'x-muse-asr-purpose': purpose }) },
-      body: await openAsBlob(file), duplex: 'half',
+    const audio = await openAsBlob(file)
+    const headers = { origin: this.options.baseUrl, 'content-type': file.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg',
+      'content-length': String(audio.size), 'idempotency-key': id, 'x-audio-sha256': sha256, 'x-audio-language': language,
+      ...(purpose === undefined ? {} : { 'x-muse-asr-purpose': purpose }) }
+    const init: RequestInit & { duplex: 'half' } = { method: 'POST', headers, duplex: 'half' }
+    if (this.options.uploadIdleTimeoutMs === undefined) {
+      init.body = audio
+      return await this.request('/api/asr/jobs', init, signal)
     }
-    return await this.request('/api/asr/jobs', init, signal)
+    await using upload = watchUpload(audio, this.options.uploadIdleTimeoutMs)
+    init.body = upload.body
+    return await this.request('/api/asr/jobs', init, signal, upload.signal)
   }
 
   /**
@@ -246,6 +295,7 @@ export class MuseAsrClient {
    * @param id - Durable idempotency UUID.
    * @param signal - Caller cancellation; awaited transport/body settlement preserves its reason.
    * @returns Account-scoped job status.
+   * @throws {MuseAsrError} A query deadline leaves the last known receipt intact.
    */
   async get(id: string, signal?: AbortSignal): Promise<MuseAsrJob> {
     return await this.request(`/api/asr/jobs/${encodeURIComponent(id)}`, { method: 'GET' }, signal)

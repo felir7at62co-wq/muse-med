@@ -1,0 +1,15 @@
+{
+  "clips": [
+    {
+      "shot": 1,
+      "start_us": 0,
+      "duration_us": 3000000
+    }
+  ],
+  "body_end": 3,
+  "delivery": {
+    "width": 1440,
+    "height": 2560,
+    "fps": 60
+  }
+}

@@ -286,9 +286,11 @@ export async function checkBudget(input: {
   if (chargeCents === null) {
     return { status: 'refused', ...base,
       reason: `这次 ${input.method} 没有报价，无法证明它落在 ${(limitCents / 100).toFixed(2)} ${entry.unit} 之内。`
-        + (input.method === 'storyboard_native_submit'
-          ? '请由 Agent 先从当前项目模型目录取得计价信息，按本包内容提供 estimated_cost_cny 与 estimate_basis；'
-          : '请先从当前目录取得本次操作的计价信息；')
+        + (input.method === 'image_generate'
+          ? '生图需要按张人民币价格或已授权的单次估算。目录中的用量费率须换算为本次金额。'
+          : input.method === 'storyboard_native_submit'
+            ? '请由 Agent 先从当前项目模型目录取得计价信息，按本包内容提供 estimated_cost_cny 与 estimate_basis；'
+            : '请先从当前目录取得本次操作的计价信息；')
         + '无需让用户填写单次估价；无法估价时明确报告缺失的计价依据，不把未知费用当作零。' }
   }
   if (chargeCents === 0) {

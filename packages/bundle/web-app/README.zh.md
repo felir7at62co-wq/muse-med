@@ -46,6 +46,8 @@ dsh --profile web --no-open --port 8080
 
 已保存的模型选择覆盖组合默认值。设置卡接受兼容 Messages 的 API 地址与凭据引用。
 
+左侧功能区可打开[人物参考库](../../client/ui-character-library/README.zh.md)，筛选目录并预览图片；浏览器接口只提供读取。Web 与 Muse 桌面端默认启用 [TOS 读取插件](../../drama/character-library-tos/README.zh.md)的 `publicRead` 模式，通过实时云端列表发现已公开人物，无需 Muse 账号或 TOS 凭据。打开的页面自动同步云端新增人物。
+
 ### 配置
 
 `minimal` agent preset 使用持久 Shell、`read_image` 工具和固定 persona，支持自动历史压缩以及会话空闲时的 `/compact` 命令。它复用 Host token meter，并拥有隔离的压缩后端。[压缩配置与保留策略](../../compaction/compaction-basic/README.zh.md#use-this-package) 沿用现有后端。图片读取复用 Host 文件系统和附件存储，要求模型支持图片输入；不加载文本读取、写入和编辑工具。

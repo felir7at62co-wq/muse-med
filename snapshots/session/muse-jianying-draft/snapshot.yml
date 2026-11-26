@@ -4,6 +4,8 @@ profile: headless
 composition: muse-jianying-draft
 recording: authored
 writerOutput: true
+environment:
+  LOCALAPPDATA: ''
 header:
   class: muse-jianying-draft
   pin: true

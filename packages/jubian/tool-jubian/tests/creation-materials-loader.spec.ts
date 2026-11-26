@@ -1,5 +1,9 @@
 /** Unverified creation references are refused; the model can create and select official assets afterward. */
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { expect, it, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -51,16 +55,21 @@ it('records the refusal and recovers through official subject selection without 
     return new Response(JSON.stringify({ code: 200, data }))
   })
   try {
+    await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
     await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false,
       baseUrl: 'https://material-identity.invalid/prod-api' } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(LocalFileSystem, { cwd: home })
+    await ctx.plugin(WorkingDirectory)
     await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
     const adapter = new MockAdapter([
       toolCallResponse('unchecked-create', 'jubian_storyboard', { method: 'create', idempotency_key: 'unchecked',
         body: { ...emptyBody, storyboardMaterialList: [{ assetId: 'unrelated', materialAssetId: 123,
           fileName: '林子明', materialType: 'image', materialUrl: 'https://example.test/hall.jpg', materialKey: 'lead' }] } }),
+      toolCallResponse('stale-project-batch', 'jubian_storyboard', { method: 'create_batch', script_id: 2709,
+        storyboards: [{ idempotency_key: 'stale-project', body: { ...emptyBody, scriptId: 2709 } }] }),
       toolCallResponse('empty-create', 'jubian_storyboard', { method: 'create', idempotency_key: 'empty', body: emptyBody }),
       toolCallResponse('official-select', 'jubian_storyboard', { method: 'select_assets', idempotency_key: 'official',
         storyboard_id: 916953, selections: [{ material_key: 'lead', asset_id: 81285 }] }),
@@ -72,9 +81,10 @@ it('records the refusal and recovers through official subject selection without 
     await agent.whenIdle()
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
       .map(event => ({ isError: event.data.message.isError, content: event.data.message.content }))
-    expect(results.map(result => Boolean(result.isError)), JSON.stringify(results)).toEqual([true, false, false])
+    expect(results.map(result => Boolean(result.isError)), JSON.stringify(results)).toEqual([true, true, false, false])
     expect(results[0]).toMatchSnapshot('unverified material refusal before creation')
-    expect(adapter.requests).toHaveLength(4)
+    expect(JSON.stringify(results[1]?.content)).toContain('与目标剧变项目不符')
+    expect(adapter.requests).toHaveLength(5)
     expect(adapter.requests[1]!.messages.filter(message => message.role === 'tool').map(message => message.content))
       .toEqual([results[0]!.content])
     expect(writes.map(write => write.method)).toEqual(['POST', 'PUT'])

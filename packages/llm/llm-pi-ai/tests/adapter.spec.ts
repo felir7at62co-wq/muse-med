@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { AttachmentId, AttachmentStore, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
   ImageAttachmentLimits,
@@ -99,7 +100,7 @@ async function harness(baseURL: string, overrides: Record<string, unknown> = {})
 function adapterOf(
   providers: Record<string, LlmPiAi.PiAiProviderProfile>,
   apiKey: string | undefined = 'test-key',
-  options: Pick<LlmPiAi.PiAiAdapterOptions, 'onProviderFailure'> = {},
+  options: Pick<LlmPiAi.PiAiAdapterOptions, 'onProviderFailure' | 'onProviderResponse' | 'prepareHeaders'> = {},
 ): PiAiAdapter {
   return new PiAiAdapter({
     profiles: () => resolveProfiles(providers),
@@ -116,6 +117,94 @@ beforeEach(() => {
 })
 
 describe('PiAiAdapter provider routing', () => {
+  it('observes the unconsumed raw response with the same frozen request context as header preparation', async () => {
+    const server = await mockServer([{ status: 401, headers: { 'x-muse-fixture': 'upstream' },
+      body: JSON.stringify({ error: { message: 'synthetic refusal' } }) }])
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(LlmRuntime)
+    let prepared: LlmPiAi.PiAiRequestHeaderContext | undefined
+    const observations: {
+      request: LlmPiAi.PiAiRequestHeaderContext
+      status: number
+      marker: string | null
+      url: string
+      bodyUsed: boolean
+    }[] = []
+    ctx.llm.registerAdapter(['deepseek'], adapterOf({
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
+    }, 'test-key', {
+      prepareHeaders: (request, headers) => { prepared = request; return headers },
+      onProviderResponse: (request, response) => {
+        observations.push({ request, status: response.status, marker: response.headers.get('x-muse-fixture'),
+          url: response.url, bodyUsed: response.bodyUsed })
+      },
+    }))
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [], sessionId: SessionId('fixture-session') })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { status: 401 } })
+    expect(observations).toHaveLength(1)
+    expect(observations[0]).toMatchObject({ request: {
+      provider: 'deepseek', model: 'deepseek-flash', baseURL: server.url, sessionId: 'fixture-session',
+    }, status: 401, marker: 'upstream', url: `${server.url}/chat/completions`, bodyUsed: false })
+    expect(observations[0]?.request).toBe(prepared)
+    expect(Object.isFrozen(prepared)).toBe(true)
+  })
+
+  it('contains a response observer exception and preserves the successful stream', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(LlmRuntime)
+    const observer = vi.fn(() => { throw new Error('synthetic observer failure') })
+    ctx.llm.registerAdapter(['deepseek'], adapterOf({
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
+    }, 'test-key', { onProviderResponse: observer }))
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+    expect(observer).toHaveBeenCalledOnce()
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(result.finish).toEqual({ kind: 'stop' })
+  })
+
+  it('contains a response observer exception without replacing a provider failure', async () => {
+    const server = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'synthetic refusal' } }) }])
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['deepseek'], adapterOf({
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url },
+    }, 'test-key', { onProviderResponse: () => { throw new Error('synthetic observer failure') } }))
+    const result = await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { status: 401 } })
+    expect(JSON.stringify(result.finish)).not.toContain('synthetic observer failure')
+  })
+
+  it('keeps response observation bound to the originating route during overlapping requests', async () => {
+    const first = await mockServer([{ events: textEvents, holdOpen: true }])
+    const second = await mockServer([{ status: 401, body: JSON.stringify({ error: { message: 'synthetic refusal' } }) }])
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(LlmRuntime)
+    const seen: Array<{ provider: string; baseURL: string; status: number; url: string }> = []
+    const adapter = adapterOf({
+      deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: first.url },
+      fixture: { api: 'openai-completions', baseURL: second.url, models: [{ id: 'm' }] },
+    }, 'test-key', { onProviderResponse: (request, response) => {
+      seen.push({ provider: request.provider, baseURL: request.baseURL, status: response.status, url: response.url })
+    } })
+    ctx.llm.registerAdapter(['deepseek', 'fixture'], adapter)
+    const prepared = await ctx.llm.prepareCall({ provider: 'deepseek', model: 'deepseek-flash' })
+    const iterator = prepared.stream({ ...prepared.config, messages: [], sessionId: SessionId('first') })[Symbol.asyncIterator]()
+    onTestFinished(async () => { await iterator.return?.() })
+    await iterator.next()
+    const secondResult = await assemble(ctx, { provider: 'fixture', model: 'm', messages: [] })
+    expect(secondResult.finish).toMatchObject({ kind: 'error', failure: { status: 401 } })
+    await iterator.return?.()
+    expect(seen).toEqual([
+      { provider: 'deepseek', baseURL: first.url, status: 200, url: `${first.url}/chat/completions` },
+      { provider: 'fixture', baseURL: second.url, status: 401, url: `${second.url}/chat/completions` },
+    ])
+  })
+
   it('resolves a catalog model dynamically and uses a private endpoint', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url)

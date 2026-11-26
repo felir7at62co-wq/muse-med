@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-native-episode-ownership
+profile: headless
+composition: muse-native-flat-child-claim
+recording: authored
+header:
+  class: muse-native-flat-child-claim
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-episode-ownership-fixture

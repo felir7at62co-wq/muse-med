@@ -23,6 +23,7 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'office-docx',
   'office-pptx',
   'office-xlsx',
+  'protagonist-asset-sheet',
   'screenplay-format',
   'shot-script-creator-16-9-3d',
   'shot-script-creator-9-16',

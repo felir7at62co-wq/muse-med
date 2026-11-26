@@ -8,7 +8,7 @@ export const name = 'snapshot-asr-recovery-account'
 export const inject = ['llm']
 class ReceiptAccount extends Service {
   constructor(ctx) { super(ctx, 'museAccount') }
-  async status() { return { state: 'signed-in', username: 'fixture', verified: false } }
+  async readLocalStatus() { return { state: 'signed-in', username: 'fixture', verified: false } }
   async submitAudio() { throw new Error('Recovery must never submit another paid request') }
   async audioStatus(id) {
     const flash = id.endsWith('1')

@@ -1,0 +1,12 @@
+{
+  "shots": [
+    {
+      "shot": 1,
+      "package": 1,
+      "video": "{{cwd}}/source.mp4",
+      "audio": "{{cwd}}/source.mp4",
+      "sha256": "3fd93d54066b67a54dd876d7c8a0f6e5059ee1eed9ffce44bdbc74f9d57a24fb",
+      "package_sha256": "5f1850e8435f0307b08d9e28dbe13ba9070a3a3a8f5622b5b0ddbffe5c46fc25"
+    }
+  ]
+}

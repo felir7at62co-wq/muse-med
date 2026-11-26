@@ -9,11 +9,41 @@ kind: "package-reference"
 
 ## Summary
 
-本目录包含单独部署的 Muse 账号网关。网关提供按账号隔离的语音转写、按管理员授权阅读参考资料，以及私有剧本保存。桌面端和工作区包不启动它，也不保存火山或 TOS 凭据。
+单独部署的 Muse 账号网关支持飞书登录、个人分组和 Token 用量查询，并提供按账号隔离的语音转写、按管理员授权阅读参考资料，以及私有剧本保存。桌面端和工作区包不启动它，也不保存火山或 TOS 凭据。
 
 ## 管理员账号概览
 
 `admin: true` 的账号可从 `/account` → 管理账户，或直接进入 `/admin`，查看账号状态、绑定的飞书姓名与组织标识、最近登录和主动任务活动，以及桌面连接数量。在线账号按多台电脑去重，连接不表示有人正在操作。注册账号包含历史与测试账号；飞书绑定人数只统计已验证绑定的账号。今日与近七天使用按北京时间及最近一次主动任务事件统计，不包含停用账号；启用上报之前的历史活动无法还原。普通账号不能进入该页；查看这些信息不读取私人会话和稿件。
+
+<a id="account-details"></a>
+## 个人分组与 Token 用量
+
+登录后，`/account` 展示当前账号的 Muse 分组、已同步的飞书部门路径和 Token 用量。管理员通过 `/admin` 中的**编辑分组**入口分配最多 20 个含说明的分组，清空名称可移除该分组。Muse 分组仅用于信息展示，不授予管理员或飞书权限。分组变更保留账号 ID、登录 revision、密码与会话。
+
+`GET /api/muse/profile` 返回版本 1 的当前账号安全资料、已分配分组和账号级部门路径，独立于 Token 存储。接口不接受查询参数，不能选择其他账号。提供的组织快照必须包含当前账号的完整成员关系路径；同步不可用或不完整时返回 `organization.status: "unavailable"`。未提供快照时，每个已绑定身份都必须具有可用且已验证的组织记录。响应不暴露凭据或其他用户，也不根据 Muse 分组或角色推断部门。
+
+`GET /api/muse.account/details` 只返回当前登录账号的身份、分组与用量，即使查询指定其他账号或管理员工作区也不改变归属。`period=all|today|7d|30d` 按北京时间选择统计范围，默认为 `30d`。`offset` 为非负整数，`limit` 为 1–100，默认 50。响应包含已知计数汇总、按模型和按日统计、逐次请求记录，以及 `{offset,limit,total,hasMore}` 分页信息。逐次请求缺失的计数保留为 null，汇总只累加供应方提供的计数。缓存输入与推理输出是相关计数的细分，不重复计入总 Token。
+
+桌面和云端代理在响应结束后记录供应商返回的用量。新版桌面通过已认证同源 `POST /api/muse.account/usage` 上报直连请求计数，这些记录明确标记 `desktop-direct` 来源，属于客户端上报，不是独立核验的供应商账单。上报仅含请求 UUID、供应商、模型、已知 HTTP 状态，以及可为 null 的输入、输出、总量、缓存输入和推理计数。相同账号与请求 ID 的相同内容去重，内容改变返回 409。请求正文上限为 4 KiB。`MUSE_USAGE_RATE_PER_MINUTE` 配置每账号／IP 每分钟接收次数，默认 600，范围 1–10000。
+
+网关默认在账号文件旁写入仅所有者可访问、只追加的 `model-usage.jsonl`；也可用 `MUSE_USAGE_FILE` 指定发布目录之外的其他私密绝对路径。部署时保留此文件，每份账本只运行一个网关写入者。首条记录确定统计起点，不重建接入前历史。供应商未返回用量、旧客户端、离线操作和直连上报失败均可能造成缺口，因此统计不等于供应商账单。记录不包含消息、生成内容、账号 Cookie 或供应商凭据。启动时拒绝损坏或不完整记录，持久化失败会让用量查询明确报错。嵌入式网关未传入已打开账本时使用独立内存存储。
+
+<a id="production-profile-overlay"></a>
+## 生产个人资料补丁
+
+所有用户都需升级桌面客户端后才能看到此账号页面。单独部署的正式网关 `20261117-r25-account-profile` 提供配套个人资料接口和既有 account-data-v1 用量接口。每次请求使用该用户自己的登录，不依赖共享员工账号。Muse 分组为空是有效状态。既有企业组织同步提供部门路径，新绑定用户可能需要等待下一次同步。此目录的源码网关与正式发布版采用不同的组织和用量实现：**不得用此源码树整体替换生产服务目录**。正式环境须保留既有组织协调器、仅飞书登录策略、工作台、账号数据和用量账本。
+
+[固定基线清单](deployment/baselines.json)和三份[本地补丁](deployment/patches)维护这项范围有限的生产改动。构建器仅接受 `20261117-r24-native-company`、已验证的 `20261117-r25-account-profile` 或已包含当前补丁的精确受影响文件哈希，创建候选前即拒绝未知或混用来源。它只读取三份待修改源码和两个资料模块，要求普通文件，不读取配置、会话或凭据。r24 输入应用三份补丁；已识别的 r25 输入保留这三份文件，仅在需要时更新经过审核的资料模块。候选产物包含五个模块和哈希清单，不是完整服务发布包。
+
+准备 Node 22 或更新版本及 Git，选择受支持服务目录的本地副本，并指定另一个尚不存在的输出目录：
+
+```sh
+node services/muse-accounts/deployment/profile-overlay.mjs verify --source <local-service-directory>
+node services/muse-accounts/deployment/profile-overlay.mjs build --source <local-service-directory> --output <new-candidate-directory>
+node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate <new-candidate-directory>
+```
+
+`verify` 报告五份当前文件是否已存在，对已识别的当前状态再次构建保持幂等。`build` 校验输入与输出哈希，保留来源目录不变，并固定 Windows 与 POSIX 上的 Git 换行行为。`preflight` 校验候选哈希、JavaScript 语法，以及普通账号、新用户、零分组、多飞书绑定、跨账号隔离和不完整部门路径的合成资料场景。这些检查只覆盖补丁本身。发布负责人须保留完整固定基线中的其他生产文件与外部私密数据，在完整候选中运行既有网关集成检查，并另行审核启用步骤。工具不访问网络、不重启服务、不切换发布，也不部署。账号 JSON 仍为版本 2；分组是可选展示字段，不改变登录 revision，也不要求用户重新注册。准备发布时保留账号、会话存储与既有用量历史。
 
 ## 意见箱
 
@@ -55,7 +85,7 @@ kind: "package-reference"
 <a id="feishu-login"></a>
 ## 飞书登录
 
-将 `MUSE_FEISHU_LOGIN_CONFIG` 设为发布目录之外、绝对路径且仅所有者可读的普通 JSON 文件；省略时关闭飞书入口。企业内部使用配置 `appType: "custom"`，并在飞书后台将应用可用范围设为允许登录的企业成员。已有机器人应用可增加网页能力；企业自建应用不开放给其他企业或飞书个人版用户。`appType: "store"` 仅适用于另行发布的商店应用，其安装与可用范围仍由飞书控制。开启网页应用能力，将重定向 URL 精确设为公开源地址加 `/auth/feishu/callback`。基础登录不申请手机号、邮箱、通讯录、消息或 `offline_access` 权限。复用已有应用时，飞书可能显示用户此前已授予的权限；Muse 仅使用登录身份，不持久保存飞书令牌。
+将 `MUSE_FEISHU_LOGIN_CONFIG` 设为发布目录之外、绝对路径且仅所有者可读的普通 JSON 文件；省略时关闭飞书入口。企业内部使用配置 `appType: "custom"`，并在飞书后台将应用可用范围设为允许登录的企业成员。已有机器人应用可增加网页能力；企业自建应用不开放给其他企业或飞书个人版用户。`appType: "store"` 仅适用于另行发布的商店应用，其安装与可用范围仍由飞书控制。开启网页应用能力，将重定向 URL 精确设为公开源地址加 `/auth/feishu/callback`。基础登录不申请手机号、邮箱、通讯录、消息或 `offline_access` 权限。复用已有应用时，飞书可能显示用户此前已授予的权限；Muse 保存已验证登录身份和明确启用的部门同步结果，不持久保存飞书令牌。
 
 ```json
 {
@@ -65,6 +95,8 @@ kind: "package-reference"
   "redirectUri": "https://muse.aigc-pipeline.cn/auth/feishu/callback"
 }
 ```
+
+`organizationSync` 默认为 `false`。设为 `true` 后申请 `contact:contact.base:readonly`、`contact:user.department:readonly` 和 `contact:user.department_path:readonly`，并通过[飞书官方 Contact v3 用户接口](https://open.feishu.cn/document/server-docs/contact-v3/user/get)读取当前用户。请先在飞书应用中开通并发布这些权限，再让已有用户重新登录。回调只在本次请求中使用临时用户令牌，不保存令牌。身份验证完成后，部门查询单独受 `requestTimeoutMs` 限制，查询超时记录为部门不可用，登录继续。服务关闭或回调连接断开仍会取消整个登录，阻止账号或会话提交。账号记录保存部门 ID、名称、格式化部门路径、上级部门 ID 和同步时间。缺少权限及同步不可用均有明确状态，不会覆盖成功登录；旧记录未同步时提示重新登录。部门信息是上次登录的同步快照，不是实时组织目录；租户标识不等于组织名称。
 
 `tokenEndpointVersion` 默认为 `"v3"`；`"v2"` 显式选择固定的 v2 端点以兼容。Muse 不自动回退，也不复用换取失败的授权码；选择版本后须从全新授权开始验证。[授权码文档](https://open.feishu.cn/document/authentication-management/access-token/obtain-oauth-code) 描述了 PKCE 搭配 v2 的方式；[SDK issue #230](https://github.com/larksuite/oapi-sdk-go/issues/230) 报告了 v3 返回 `20049`、v2 对照成功的情况，这不代表官方确认。
 
@@ -82,6 +114,8 @@ kind: "package-reference"
 用 MUSE_VOICE_SLOTS_DIR 启用 POST /api/jubian/voice-slots，路径必须是不可变发布目录之外的绝对私密持久目录。MUSE_VOICE_SLOTS_LEASE_MS、MUSE_VOICE_SLOTS_LOCK_WAIT_MS、MUSE_VOICE_SLOTS_LOCK_POLL_MS 和 MUSE_VOICE_SLOTS_TIMEOUT_MS 分别配置认领到期、锁等待／轮询及供应商核验超时。接口要求有效的 Muse Cookie 或 Bearer 会话、同源写请求和私密 X-Jubian-Token。每项操作通过固定源地址核验精确剧变项目访问权；ready／complete 还要求 delFlag=0 且无冲突删除标记，并核对真实音频资产、规范人物／时期标签及 HTTPS 地址。供应商凭据不持久化、不返回。
 
 操作为 acquire、start、complete、abandon 与 read，键包含项目／人物／人生时期及原登记操作。排他文件系统锁在多个网关进程间串行化写入。只有尚未开始的认领会到期，持久化 submitted 操作不会放行第二次创建。完成后保留精确资产 ID，不悄悄更换。未知结果沿原操作对账。遗留锁目录须确认写进程已停止后由运维核查，不能删除 submitted 回执，不能把登录过期当成重新创建许可。未配置返回 503。服务协调参与的新 Muse 客户端，不阻止剧变网页或旧客户端写入，也不自动删除资产。
+
+替换已就绪声线前，须独立核验精确旧资产所属项目、槽位及明确删除状态，仅成功的 data:null 不能释放槽位。新操作接收仅向其所有者返回的 replaces_asset_id 许可，start 再次核验删除状态。当前回执改变前，原账号／key 已通过 retired-<hash>.json 持久化关闭。未使用的替代登记预留在到期或放弃后仍保留此许可，重新预留时再次核验删除状态。备份整个 MUSE_VOICE_SLOTS_DIR，包含已退役回执；参见[升级指南](../../docs/upgrade-guide/v0.2.2-rc.2/deleted-voice-replacement/guide.zh.md)。不要通过移除 submitted 或已退役回执来解除登记阻塞。
 
 ## Release inputs
 
@@ -115,7 +149,7 @@ kind: "package-reference"
 | 组 `submitQps`、`queryQps` | 标准版提交与查询的独立频率，各默认 10；合计不超过 20 QPS，不表示在途任务数。 |
 | 组 `rollingAudioWindowSeconds`、`maxRollingAudioSeconds` | 可选且成对配置的组时长上限，覆盖所有账号与版本。标准版部署使用 1,800 秒／1,800,000 音频秒，对应官方半小时提交 500 小时限制。 |
 | `legacyAppId` | 用于迁移无资源字段收据的原应用 ID，默认取保留的顶层 `appId`。显式资源池存在旧收据时必须提供此归属，并与默认应用一致。 |
-| `maxConcurrentJobs`、`maxQueuedJobs` | 全局工作线程上限与真实等待容量（默认 20）。旧线程默认 5 且不能超过 5；资源池按组与应用／服务组合计算容量，显式全局上限不得更大。标准版名额保留到完成，包括未知结果；连续确认终止失败时释放名额，不重提原任务；等待队列满时返回 429。 |
+| `maxConcurrentJobs`、`maxQueuedJobs` | 全局工作线程上限与真实等待容量（默认 20）。旧线程默认 5 且不能超过 5；资源池按组与应用／服务组合计算容量，显式全局上限不得更大。标准版名额保留到完成，包括未知结果；连续确认终止失败时释放名额，不重提原任务。提供方排队超时 `55001011` 属于终止失败。等待队列满时返回 429。 |
 | `requestRatePerMinute` | 每账号／IP 每分钟共享的 ASR 提交／状态请求上限，默认 60；须覆盖并发客户端轮询需求，不改变提供方提交／查询 QPS。 |
 | `maxPendingUploadsPerAccount` | 每账号未完成上传上限（默认 4）；请求等待前次账号上传与额度预约后才暂存，超过上限返回 429。 |
 | `storageKind`、`gatewayStorage` | 标准版存储：`tos`（旧默认）或显式 `gateway`。网关需要独立的绝对私有 `root`、路径严格为 `/api/asr/audio/` 的 HTTPS `baseURL` 及至少 32 UTF-8 字节的服务器私密 `secret`；极速版均不需要。 |
@@ -156,7 +190,7 @@ kind: "package-reference"
 
 预约优先使用有空位的应用／服务；调度轮流处理账号，在可用资源内保留等待顺序并执行资源／组／全局限制。只有尚无提交时间戳的排队请求可以在核验共享日额度和滚动预约后，转到原服务版本的空闲应用；重新绑定先持久化再向提供方发请求。用途、任务 ID、音频摘要和预约时间戳不变；提交中、处理中及未知任务始终保留原应用和服务。启动先核验全部归属，再给旧收据补缺失绑定，原字段、提供方类型与未提供用途不变；缺应用字段时要求 `legacyAppId` 与保留默认资源一致，旧单应用代码不能恢复新绑定。资源缺失或应用／组／服务／存储变更会拒绝启动。存在收据时保留定义；私有账本字段不改变已发布 Session 数据。
 
-响应保留旧状态值、可选 `queued: true` 和实际 `service_version`；带用途请求再增加 `purpose`。失败可报告 `provider_rejected`、`provider_unavailable` 或提交前的 `storage_unavailable`。可选 `provider_diagnostic` 只含校验过的操作、HTTP／提供方状态和固定原因 `timeout`、`transport`、`http`、`response`、`json`、`result` 或 `audio`；旧收据缺原因时仍省略。`recovery` 说明支持的操作：查询原标准任务、等待当前极速响应、核查已结束的未知极速收据、使用结果，或用同 ID 恢复未提交上传；不授权再次付费提交。未知极速任务没有提供方查询能力，反复读取不变的服务器收据无法恢复丢失的同步响应。诊断不证明收费或退款；凭据、签名 URL、响应正文、原始异常与应用身份不进入响应。
+响应保留旧状态值、可选 `queued: true` 和实际 `service_version`；带用途请求再增加 `purpose`。失败可报告 `provider_rejected`、`provider_unavailable` 或提交前的 `storage_unavailable`。可选 `provider_diagnostic` 只含校验过的操作、HTTP／提供方状态和固定原因 `timeout`、`transport`、`http`、`response`、`json`、`result` 或 `audio`；旧收据缺原因时仍省略。标准版提交或极速版识别收到 HTTP 429 时，`quota_type` 保留提供方明确返回且在白名单内的额度类型。仍须按原任务对账。`recovery` 说明支持的操作：查询原标准任务、等待当前极速响应、核查已结束的未知极速收据、使用结果，或用同 ID 恢复未提交上传；不授权再次付费提交。未知极速任务没有提供方查询能力，反复读取不变的服务器收据无法恢复丢失的同步响应。诊断不证明收费或退款；凭据、签名 URL、响应正文、原始异常与应用身份不进入响应。
 
 账号自己的音频仍在暂存、持久收据尚未写入时，查询返回 `preparing` 和恢复动作 `wait`。此临时响应不代表已向提供方提交，也不会跨网关重启保留；上传失败后仍可能返回 404。
 
@@ -173,6 +207,8 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 全局目录中的各模型可将 `defaultReasoningEffort` 声明为其 `reasoningEfforts` 映射中已启用的键。两条转发路径只在请求未提供 `reasoning_effort` 时将默认档位映射成上游值；请求显式选择的受支持档位优先。未配置默认档位时保留提供方默认行为。GLM-5.3 请求通过 `clear_thinking: false` 在工具续接时保留思考，关闭该模型思考的请求会被拒绝。配置中的 `maxTokens` 为省略输出上限的请求提供默认值并限制更大的请求，显式更小的上限保持原值。直接编辑私有目录文件后须重启网关；管理员设置更新实时生效。
 
 上游拒绝通过固定的 `error.code` 与 `error.message` 区分认证、额度、限流、上下文、输出上限和无效参数。分类最多读取 64 KiB，提供方控制的诊断和凭据不会返回。仅提及额度而未说明耗尽，不会归为额度耗尽。上游 429 拒绝会保留经验证的整数 `Retry-After`。未知服务器失败返回通用错误；结束原因 `finish_reason: length` 仍报告输出截断。
+
+桌面模型请求的 Muse 会话失效响应带有 `X-Muse-Model-Auth-Error: muse-session-expired`。转发网关仅在上游 401 的有界响应明确包含 API Key 无效代码且错误类型不冲突时返回 `upstream-credentials-rejected`；其他认证和权限拒绝不带此标记。原有 HTTP 状态和脱敏响应内容保持不变，供应商返回的头不能设置这些标记。
 
 `MUSE_DESKTOP_MODEL_TRANSPORT=direct` 明确启用向已登录 Desktop Host 分发供应商凭据。新版 Host 在元数据请求中通过 `X-Muse-Model-Access: direct-v1` 协商，再从 `GET /api/desktop-models/access` 取得含供应商私密地址和密钥的当前目录；两个响应均禁止缓存。旧版客户端继续使用中转。直连要求完整的原生全局模型目录：供应商中的每个模型必须解析为其公布的 ID、相同的 HTTPS API 根地址和相同的已配置密钥。智谱 Key 池通过协商后的网关路由使用，其他供应商单独验证直连凭据。配置缺失会报错，不回退到云端中转。Host 将凭据存入账号目录并直接调用供应商；模型请求正文和 SSE 回复不经过此网关。账号禁用、过期和退出会阻止再次领取凭据，但无法使已复制的供应商密钥失效，也无法终止 Muse 之外的直连请求；需要时应在供应商处撤销或轮换密钥。该选项不提供供应商执行的用户配额、临时密钥或请求审计。仅对已获授权分发的凭据启用。
 

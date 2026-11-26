@@ -113,6 +113,45 @@ describe('script-level rules', () => {
   })
 })
 
+describe('trailing shot-script review appendices', () => {
+  it.each(['覆盖表（7段 121字）', '分包 (3 包)', '衔接缺口', '风险（8条）'])(
+    'stops the last shot at the review heading %s',
+    (heading) => {
+      const authored = scriptOf(
+        '场次20-1：鉴定台 日 内',
+        actionShot(1),
+        speakingShot(2, '苏晚：表面这层黑灰和绿锈', ['核心场景：鉴定台', '关键道具：铜器']),
+      ).replaceAll('\n', '\r\n')
+      const withReview = authored + '\r\n\r\n## ' + heading + '\r\n台词：苏晚：下一集的台词。\r\n'
+      const parsed = parse(withReview)
+      expect(parsed).toEqual(parse(authored))
+      expect(parsed.shots[1]).toMatchObject({
+        text: '表面这层黑灰和绿锈',
+        sceneField: '鉴定台',
+        propsField: '铜器',
+      })
+    },
+  )
+
+  it('preserves named headings before the final shot and ordinary headings and quotes inside the final shot', () => {
+    const authored = scriptOf(
+      actionShot(1, ['## 风险', '镜中道具页上的标题']),
+      speakingShot(2, '苏晚：结果上写着「分包」', [
+        '## 画面细节',
+        '## 风险提示',
+        '### 衔接缺口',
+        '> ## 覆盖表',
+        '画面：苏晚把纸条收起来。',
+      ]),
+    )
+    const { shots } = parse(authored + '\n\n## 风险\n附录内容')
+    expect(shots[0]?.visual).toContain('## 风险\n镜中道具页上的标题')
+    expect(shots[1]?.text).toBe('结果上写着「分包」')
+    expect(shots[1]?.visual).toContain('## 画面细节\n## 风险提示\n### 衔接缺口\n> ## 覆盖表\n画面：苏晚把纸条收起来。')
+    expect(shots[1]?.visual).not.toContain('附录内容')
+  })
+})
+
 describe('explicit source-scene headings', () => {
   it('keeps a leading scene heading in its shots and sends a later heading only to subsequent shots', () => {
     const text = [

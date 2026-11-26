@@ -1,16 +1,5 @@
-.inlineCard {
-  color-scheme: dark;
-  --dsw-alias-label-primary: var(--dsw-alias-video-shelf-label);
-  --dsw-alias-label-secondary: var(--dsw-alias-video-shelf-label-secondary);
-  --dsw-alias-label-tertiary: var(--dsw-alias-video-shelf-label-secondary);
-  --dsw-alias-bg-base: var(--dsw-alias-video-shelf-bg);
-  --dsw-alias-bg-module-platform: var(--dsw-alias-video-shelf-stroke);
-  --dsw-alias-border-l2: var(--dsw-alias-video-shelf-stroke);
-  --dsw-elevation-stroke-color: var(--dsw-alias-video-shelf-stroke);
-  color: var(--dsw-alias-video-shelf-label);
-}
-.picture { position: relative; width: 100%; height: clamp(140px, 32vh, 340px); border-radius: var(--dsw-radius-lg); corner-shape: round; overflow: hidden; background: var(--dsw-alias-bg-base); }
-.picture > video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.picture { position: relative; flex: 1 1 0; width: 100%; min-height: 140px; border-radius: var(--dsw-radius-lg); corner-shape: round; overflow: hidden; background: var(--dsw-alias-bg-base); }
+.picture > video { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
 .controls { position: relative; display: flex; height: 38px; align-items: center; justify-content: center; }
 .controls .play { box-sizing: border-box; flex: 0 0 22px; width: 22px; min-width: 22px; height: 22px; min-height: 22px; padding: 0; border-radius: 50%; corner-shape: round; box-shadow: var(--dsw-elevation-panel); }
 .controls .play > svg { width: 20px; height: 20px; flex-shrink: 0; }
@@ -24,15 +13,11 @@
 .zoom input::-moz-range-track { height: 3px; border-radius: 999px; corner-shape: round; background: var(--dsw-alias-video-shelf-stroke); }
 .zoom input::-moz-range-thumb { width: 8px; height: 14px; border: 0; border-radius: var(--dsw-radius-xs); background: var(--dsw-alias-label-primary); }
 .zoom input:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 0; }
-.status { padding: 6px; margin: 0; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .mediaError { position: absolute; inset: 0; display: flex; gap: 8px; align-items: center; justify-content: center; background: var(--dsw-alias-video-shelf-bg); font-size: 12px; }
-.inlineCard { position: relative; width: 100%; border-radius: var(--dsw-radius-lg); corner-shape: round; overflow: hidden; background: var(--dsw-alias-video-shelf-bg); box-shadow: var(--dsw-elevation-panel); }
-.inlineCard > video { display: block; width: 100%; max-height: 440px; object-fit: contain; }
-.inlineLabel { padding: 5px 10px; font-size: 11px; color: var(--dsw-alias-label-secondary); }
-.inlineHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; }
-.inlineHeading select { display: block; min-width: 0; max-width: 65%; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--dsw-alias-label-secondary); background: transparent; text-overflow: ellipsis; }
-.inlineHeading button { color: var(--dsw-alias-label-secondary); }
-.inlineContents { padding: 0 10px 9px; }
-.history { width: min(var(--dsh-chat-content-width, 840px), calc(100% - 32px)); max-height: min(60vh, 520px); overflow-y: auto; margin: 8px auto; }
-.historyActions { display: flex; justify-content: flex-end; }
-.historyActions button { min-width: 24px; min-height: 24px; padding: 3px; }
+.inlineCard { width: 100%; min-width: 0; }
+.inlineOpen { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-width: 0; height: auto; min-height: 48px; padding: 6px; }
+.inlineThumbnail { display: flex; align-items: center; justify-content: center; flex: 0 0 56px; width: 56px; height: 36px; overflow: hidden; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-video-shelf-bg); color: var(--dsw-alias-video-shelf-label); }
+.inlineThumbnail > video { width: 100%; height: 100%; object-fit: cover; }
+.inlineThumbnail > svg { width: 18px; height: 18px; }
+.inlineLabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; font-size: 12px; }
+.inlineOpen > svg { flex-shrink: 0; width: 14px; height: 14px; color: var(--dsw-alias-label-secondary); }

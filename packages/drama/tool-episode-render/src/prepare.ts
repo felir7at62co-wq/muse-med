@@ -286,7 +286,7 @@ async function buildMaster(
 /**
  * Lay out one episode's render inputs.
  * @param input - The resolved call.
- * @returns The shots, the timeline, the installed cues, every path written, and the non-blocking warnings.
+ * @returns The shots, timeline, installed cues, written paths, and advice including repeated video hashes.
  * @throws {Error} When the manifest, a source video, the master build, or the subtitle is unusable.
  */
 export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpisode> {
@@ -333,6 +333,8 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   await assertVideosAllowed(input.project, shots.flatMap(shot => [shot.video, shot.audio]))
   await recheckReviews()
   const written: string[] = []
+  const repeatedClipWarnings: string[] = []
+  const firstShotByVideoHash = new Map<string, number>()
   await rm(paths.sources, { force: true })
   const selected = []
   await mkdir(paths.videoDir, { recursive: true })
@@ -345,6 +347,12 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
       throw new Error(`镜头 ${shot.source.shot} 复制期间已审核画面变化，请重新核对。`)
     }
     await assertVideoHashesAllowed(input.project, [sha256])
+    const firstShot = firstShotByVideoHash.get(sha256)
+    if (firstShot === undefined) {
+      firstShotByVideoHash.set(sha256, shot.source.shot)
+    } else {
+      repeatedClipWarnings.push(`镜头 ${shot.source.shot} 与镜头 ${firstShot} 的视频文件字节完全一致。请按剧本确认是否有意复用。`)
+    }
     written.push(target)
     selected.push({
       ...shot.source, video: shot.video, audio: shot.audio, sha256,
@@ -387,7 +395,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
 
   return {
     shots, timeline, cues, written,
-    warnings: [...subtitleWarnings, ...subtitleTextWarnings(cues), ...deliveryPolicyFor(delivery).warnings,
+    warnings: [...subtitleWarnings, ...repeatedClipWarnings, ...subtitleTextWarnings(cues), ...deliveryPolicyFor(delivery).warnings,
       ...cueOverrunWarnings(cues, timeline.bodyEndSeconds)],
   }
 }

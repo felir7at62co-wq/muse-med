@@ -1,0 +1,33 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`checks once, records rejection, then reads the renewed token without restarting or generating > renewed credential check 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "Error: AUTHENTICATION_REQUIRED: Jubian login is unavailable or expired. Check the credential used by Muse. Renew it in Muse settings if the server rejected it; website sign-in alone does not update that value.",
+        "type": "text",
+      },
+    ],
+    "isError": true,
+  },
+  {
+    "content": [
+      {
+        "text": "{
+  "authentication": {
+    "status": "read_access_confirmed",
+    "checked": "own_project_list",
+    "http_status": 200,
+    "application_code": 200,
+    "generation_submitted": false,
+    "note": "The credential currently used by Muse can read this list. Project-specific access and paid generation have not been verified."
+  }
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;

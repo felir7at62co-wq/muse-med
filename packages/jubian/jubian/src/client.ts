@@ -313,15 +313,19 @@ export class JubianClient {
 
   private async resolveToken(): Promise<string> {
     let stored: string
-    try { stored = await this.credential() } catch { throw new JubianError('AUTHENTICATION_REQUIRED') }
+    try { stored = await this.credential() }
+    catch { throw new JubianError('AUTHENTICATION_REQUIRED', 'credential_resolution_failed; check the active Muse credential provider') }
     const trimmed = trimBearerToken(stored)
-    if (!isUsableBearerToken(trimmed)) throw new JubianError('AUTHENTICATION_REQUIRED')
+    if (!trimmed) throw new JubianError('AUTHENTICATION_REQUIRED',
+      'credential_not_configured; sign in or save the renewed Jubian token in Muse settings; signing in on the Jubian website alone does not update Muse')
+    if (!isUsableBearerToken(trimmed)) throw new JubianError('AUTHENTICATION_REQUIRED',
+      'credential_invalid_format; replace the value in Muse settings without sending it in chat')
     return trimmed
   }
 
   private async readBounded(response: Response, signal: AbortSignal, timeout: AbortSignal): Promise<Uint8Array> {
     const reader = response.body?.getReader()
-    if (!reader) throw new JubianError('CONTRACT_CHANGED', 'response body is not readable')
+    if (!reader) return new Uint8Array(0)
     const chunks: Uint8Array[] = []
     let size = 0
     try {

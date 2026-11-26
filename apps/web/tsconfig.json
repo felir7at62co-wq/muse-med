@@ -23,6 +23,7 @@
   // this client-registered project must not also hold them (one program
   // cannot see both sides of the cordis Context merges).
   "exclude": [
+    "tests/character-library.e2e.ts",
     "tests/muse-main-display-cards.e2e.ts",
     "tests/muse-session-coordinator.e2e.ts",
     "tests/pwa-manifest.e2e.ts",
@@ -159,7 +160,10 @@
     "tests/developer-tools-settings.e2e.ts",
     "tests/system-dns-settings.e2e.ts",
     "tests/models-settings.e2e.ts",
+    "tests/model-browser-case.ts",
     "tests/muse-personal-models.e2e.ts",
+    "tests/muse-user-details.e2e.ts",
+    "tests/muse-user-legacy-details.e2e.ts",
     "tests/deepseek-messages-settings.e2e.ts",
     "tests/model-badge.e2e.ts",
     "tests/deepseek-messages-chat.e2e.ts",

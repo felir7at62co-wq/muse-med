@@ -69,6 +69,22 @@ it('replaces thrown typed errors without keeping their cause', async () => {
   await expect(pending).rejects.not.toHaveProperty('cause')
 })
 
+it('reclassifies an early relay refusal and preserves authentication failures after output', async () => {
+  const failure = { code: 'AUTH', message: 'private supplier error', status: 401 }
+  const refusal: StreamChunk = { type: 'finish', reason: { kind: 'error', failure } }
+  async function* source(partial: boolean): AsyncGenerator<StreamChunk> {
+    if (partial) yield { type: 'text-delta', index: 0, text: 'Already received' }
+    yield refusal
+  }
+  const classify = () => 'UPSTREAM_CREDENTIAL_REJECTED' as const
+  const early = await collect(safeMuseModelStream(() => source(false), classify))
+  expect(early.at(-1)).toMatchObject({ reason: { failure: { code: 'UPSTREAM_CREDENTIAL_REJECTED', status: 401 } } })
+  const partial = await collect(safeMuseModelStream(() => source(true), classify))
+  expect(partial.at(-1)).toMatchObject({ reason: { failure: { code: 'AUTH', status: 401 } } })
+  await expect(collect(safeMuseModelStream(() => { throw LlmError.fromFailure(failure) }, classify)))
+    .rejects.toMatchObject({ code: 'UPSTREAM_CREDENTIAL_REJECTED' })
+})
+
 it('replaces untyped iteration failures without coercing supplier values', async () => {
   async function* source(): AsyncGenerator<StreamChunk> {
     yield { type: 'text-delta', index: 0, text: 'Partial answer' }

@@ -138,14 +138,15 @@ function referencePending(error: VoiceReferencePending, key: string, attempt: Re
  * Optional character_id and voice_period_id together add a reserved, project-scoped voice-slot
  * suffix. A complete inventory excludes deleted rows; the lowest remaining slot candidate must
  * independently GET back with unchanged identity, URL and explicit active deletion evidence before
- * reuse. A slot with missing, deleted, ambiguous or changed evidence does not authorize replacement.
+ * reuse. Replacement requires the gateway to retire the exact deleted ready asset and the
+ * complete local inventory to confirm the same deleted slot; ambiguous evidence never permits it.
  * Shared post-send and coordination-ready results perform the same exact active readback;
  * after POST it reports the lowest slot ID and duplicates separately from the submitted URL's
  * uniquely identified addition. New shared-slot POSTs require a durable server start permission;
  * a submitted or ambiguous operation only reconciles. Legacy clients can still create duplicates,
  * and none are deleted automatically. Slot metadata is not evidence of sound quality. Missing,
- * deleted, uncertain or changed same-project voice references return a scoped pending result;
- * they cannot be adopted or trigger automatic replacement, and independent work may continue.
+ * deleted without replacement permission, uncertain or changed same-project voice references
+ * return a scoped pending result, and independent work may continue.
  * A claimed key only reconciles; changed requests cannot reuse that key.
  * @param client - Provider asset transport.
  * @param ledger - Durable registration claims.
@@ -193,7 +194,9 @@ async function registerAudioAssetAttempt(client: JubianClient, ledger: JubianLed
   }
   attempt.replayed = prior !== undefined
   attempt.outcome = prior === undefined ? 'not_submitted' : prior.outcome ?? 'unknown'
-  if (prior === undefined && slot !== undefined && before.some(asset => asset.voice_slot_tag === slot)
+  const slotAssets = slot === undefined ? [] : before.filter(asset => asset.voice_slot_tag === slot)
+  if (prior === undefined && slot !== undefined && slotAssets.length > 0
+    && (coordinator === undefined || slotAssets.some(asset => asset.liveness !== 'deleted'))
     && await ledger.find(key) === undefined) {
     return { replayed: false, outcome: 'not_submitted', status: 'reuse_current', verified_readback: true,
       created_asset_id: null, new_asset_ids: [], matching_assets: [], paid_requests: 0,
@@ -210,6 +213,9 @@ async function registerAudioAssetAttempt(client: JubianClient, ledger: JubianLed
       try { coordination = await coordinator.request(scope) }
       catch (error) {
         if (error instanceof JubianError && error.code === 'CONTRACT_CHANGED') throw error
+        if (prior === undefined && slotAssets[0]?.liveness === 'deleted') {
+          throw new VoiceReferencePending('asset-deleted', slotAssets[0].asset_id)
+        }
         if (prior === undefined) return coordinationPending('coordination_unavailable', key,
           error instanceof VoiceCoordinationUnavailableError ? error.code : 'unavailable')
       }
@@ -228,13 +234,27 @@ async function registerAudioAssetAttempt(client: JubianClient, ledger: JubianLed
   let responseStatus = prior?.outcome ?? 'unknown'
   let replayed = prior !== undefined
   if (prior === undefined && (scope === undefined || coordination?.state === 'reserved')) {
+    if (scope !== undefined && (slotAssets.length > 0 || coordination?.replaces_asset_id !== undefined)) {
+      const replaced = slotAssets.find(asset => asset.asset_id === coordination?.replaces_asset_id && asset.liveness === 'deleted')
+      if (replaced === undefined) {
+        try {
+          const abandoned = await need(coordinator).request({ ...scope, action: 'abandon', lease_id: need(coordination?.lease_id) })
+          if (abandoned.state !== 'available') throw new VoiceCoordinationUnavailableError('unavailable')
+        } catch (error) {
+          return coordinationPending('coordination_unavailable', key,
+            error instanceof VoiceCoordinationUnavailableError ? error.code : 'unavailable')
+        }
+        throw new VoiceReferencePending('asset-deleted', coordination?.replaces_asset_id ?? need(slotAssets[0]).asset_id)
+      }
+    }
     const send = { started: false }
     try {
       const result = await writeUnderLedger(ledger, key, 'asset_register', () => body, async (payload) => {
         if (scope !== undefined) {
           const lease = need(coordination?.lease_id)
           const started = await need(coordinator).request({ ...scope, action: 'start', lease_id: lease })
-          if (started.state !== 'submitted' || started.owner_operation !== true || started.lease_id !== lease || started.started_now !== true) {
+          if (started.state !== 'submitted' || started.owner_operation !== true || started.lease_id !== lease || started.started_now !== true
+            || started.replaces_asset_id !== coordination?.replaces_asset_id) {
             throw new JubianError('CONTRACT_CHANGED', 'Shared voice registration start was already used or the lease changed; reconcile only')
           }
           coordination = started
@@ -272,9 +292,25 @@ async function registerAudioAssetAttempt(client: JubianClient, ledger: JubianLed
     && coordination.owner_operation === true && coordination.lease_id !== undefined) {
     try {
       await verifyExistingAsset(client, createdAsset)
-      coordination = await coordinator.request({ ...scope, action: 'complete', lease_id: coordination.lease_id, asset_id: createdAsset.asset_id })
-      if (coordination.state !== 'ready') throw new JubianError('CONTRACT_CHANGED', 'Shared voice completion is not ready')
-      ready = await verifiedReady(client, coordination)
+      let complete: VoiceCoordinationState | undefined
+      try {
+        complete = await coordinator.request({ ...scope, action: 'complete', lease_id: coordination.lease_id, asset_id: createdAsset.asset_id })
+        if (complete.state !== 'ready') throw new JubianError('CONTRACT_CHANGED', 'Shared voice completion is not ready')
+      } catch (error) {
+        if (error instanceof JubianError && error.code === 'CONTRACT_CHANGED') throw error
+        // A read can return the shared slot even when this lease did not complete it.
+        const reread = await coordinator.request({ ...scope, action: 'read' })
+        if (reread.state === 'ready' && reread.owner_operation === true && reread.lease_id === coordination.lease_id) {
+          const asset = need(reread.asset)
+          if (asset.asset_id === createdAsset.asset_id && asset.name === createdAsset.name && asset.url === createdAsset.url) {
+            complete = reread
+          }
+        }
+      }
+      if (complete?.state === 'ready') {
+        ready = await verifiedReady(client, complete)
+        coordination = complete
+      }
     } catch (error) {
       if (error instanceof JubianError && error.code === 'CONTRACT_CHANGED') throw error
       // Remote registration may be complete; retain its original operation for read-only reconciliation.

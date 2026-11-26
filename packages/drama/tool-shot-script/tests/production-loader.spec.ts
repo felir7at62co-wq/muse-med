@@ -1,6 +1,6 @@
 /** Real Loader, session model and native free-write paths with an offline Jubian server. */
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import { copyFile, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -10,12 +10,15 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { registerProductionTool } from '../src/production.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
-import { encodeVoiceSlot } from '@deepseek-ai/dsh-jubian-api'
+import { encodeVoiceSlot, stableSha256 } from '@deepseek-ai/dsh-jubian-api'
 import type { ProductionConfig } from '../src/production.ts'
+import type { ProductionPlan } from '../src/production-types.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { sessionVideoShot } from './fixtures/session-video.ts'
 import { actionShot, speakingShot, tempDir, cleanup } from './harness.ts'
 import type { Config } from '../src/index.ts'
+import { productionHash } from '../src/production-plan.ts'
+import * as AtomicWrite from '@deepseek-ai/dsh-atomic-write'
 
 const disposers: Array<() => Promise<unknown>> = []
 afterEach(async () => {
@@ -111,17 +114,237 @@ it('previews appearances under Loader and publishes a batch once with actual ima
   const stored = JSON.parse(await readFile(path, 'utf8')) as { packages: { images: { asset_id: number }[] }[] }
   expect(stored.packages[0]?.images.map(row => row.asset_id)).toEqual([101, 201, 102])
   const applied = await f.call({ method: 'apply', plan_path: path })
-  expect(applied, JSON.stringify(applied)).toMatchObject({ paid_requests: 0, saved: 1 })
+  const manifestPath = join(f.root, 'episode_packages', '01', 'package.json')
+  expect(applied, JSON.stringify(applied)).toMatchObject({ paid_requests: 0, saved: 1,
+    source_manifest: { status: 'published', path: manifestPath } })
+  const manifestBytes = await readFile(manifestPath, 'utf8')
+  const manifest: unknown = JSON.parse(manifestBytes)
+  expect(applied.source_manifest).toMatchObject({ sha256: productionHash(manifestBytes) })
+  expect(manifest).toMatchObject({ operation: 'muse_production', mode: 'advisory', episode: '01',
+    media_acceptance: false, plan_path: path, source_sha256: productionHash(f.source),
+    video_tasks: [{ index: 1, shots: [1, 2], storyboard_id: 10000,
+      material_bindings: [expect.objectContaining({ materialAssetId: 101 }),
+        expect.objectContaining({ materialAssetId: 201 }), expect.objectContaining({ materialAssetId: 102 })] }] })
+  expect(manifest).not.toHaveProperty('content_review')
+  await expect(readFile(join(f.root, 'reviews', 'ep01-p01.json'))).rejects.toThrow()
   expect(f.cards.size).toBe(1)
   const writes = f.calls.filter(call => ['POST', 'PUT'].includes(call.method) && call.path === '/aigc/storyboard')
   expect(writes.length).toBeGreaterThan(0)
   expect(writes.every(call => call.body?.isGenerate === 0)).toBe(true)
-  expect(await f.call({ method: 'apply', plan_path: path })).toMatchObject({ saved: 1 })
+  expect(await f.call({ method: 'apply', plan_path: path })).toMatchObject({ saved: 1,
+    source_manifest: { status: 'unchanged', sha256: productionHash(manifestBytes) } })
+  expect(await readFile(manifestPath, 'utf8')).toBe(manifestBytes)
   expect(f.calls.filter(call => ['POST', 'PUT'].includes(call.method) && call.path === '/aigc/storyboard')).toHaveLength(writes.length)
   expect(await readFile(f.script, 'utf8')).toBe(f.source)
   const registry = f.ctx.tools
   await f.ctx.fiber.dispose()
   expect(registry.get('muse_production')).toBeUndefined()
+})
+
+it('keeps the previous manifest when one package has an uncertain free-write outcome', async () => {
+  const f = await fixture(), report = await f.preview()
+  const path = join(f.root, 'episode_packages', '01', 'package.json')
+  await mkdir(join(f.root, 'episode_packages', '01'), { recursive: true })
+  const before = '{"previous":"retained"}\n'; await writeFile(path, before)
+  f.unknownCreate()
+  expect(await f.call({ method: 'apply', plan_path: report.plan_path })).toMatchObject({ saved: 0,
+    source_manifest: { status: 'not_published', reason: 'package_results_incomplete' } })
+  expect(await readFile(path, 'utf8')).toBe(before)
+})
+
+it('requires a refreshed plan for a saved offscreen prop reference and continues the independent package', async () => {
+  const f = await fixture()
+  const prop = { id: 301, scriptId: 4908, assetType: 3, assetName: '三足铜蟾',
+    assetUrl: 'https://cdn.example.test/toad.png', delFlag: '0' }
+  f.assets.push(prop)
+  f.materials.push({ id: 1301, scriptId: 4908, assetId: 301, hsAssetId: 'asset-301',
+    assetName: prop.assetName, assetUrl: prop.assetUrl, isUsed: 1, hsAssetStatus: 'Active' })
+  await f.service.initialize(f.agent)
+  const short = (await f.service.catalogue()).find(item => item.maxDurationSeconds === 15)!
+  await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+  const initial = await f.preview()
+  expect(await f.call({ method: 'apply', plan_path: initial.plan_path })).toMatchObject({ saved: 2 })
+  const originalFirstCard = structuredClone(f.cards.get(10000))
+  const manifestPath = join(f.root, 'episode_packages', '01', 'package.json')
+  const originalManifest = await readFile(manifestPath, 'utf8')
+
+  const dialogue = '铜蟾：你仔细听。'
+  const visible = '画面：苏晚低头端详三足铜蟾。'
+  const offscreen = '画面：苏晚低头，器物不在画面内、不开口。'
+  const secondDialogue = '苏晚：这回我听明白了。'
+  const source = [speakingShot(1, dialogue, ['出镜人物：苏晚', '核心场景：后厨', '关键道具：三足铜蟾',
+    visible, '发声类型：心声', '时长：8秒']), speakingShot(2, secondDialogue,
+    ['出镜人物：苏晚', '核心场景：后厨', '发声类型：dialogue', '时长：8秒'])].join('\n\n')
+  await writeFile(f.script, source)
+  const preview = await f.preview()
+  const { fingerprint: _previewFingerprint, ...legacy } = JSON.parse(await readFile(String(preview.plan_path), 'utf8')) as ProductionPlan
+  const firstPack = legacy.packages[0]!
+  expect(legacy.matches).toContainEqual(expect.objectContaining({ shot: 1, kind: 'prop', selected_asset_id: 301 }))
+  expect(firstPack.prompt).toContain('@[三足铜蟾](asset_301)')
+  expect(firstPack.prompt).toContain(visible)
+  // Preserve the old compiler's binding while bringing the signed fixture and source onto the same raw revision.
+  legacy.source = source.replace(visible, offscreen)
+  legacy.source_sha256 = productionHash(legacy.source)
+  firstPack.prompt = firstPack.prompt.replace(visible, offscreen)
+  const fingerprint = stableSha256(legacy)
+  const planPath = join(f.root, '.muse', 'production', `${fingerprint}.json`)
+  await writeFile(f.script, legacy.source)
+  await writeFile(planPath, JSON.stringify({ ...legacy, fingerprint }))
+
+  const beforeApply = f.calls.length
+  const partial = await f.call({ method: 'apply', plan_path: planPath })
+  expect(partial).toMatchObject({ paid_requests: 0, processed: 2, saved: 1,
+    results: [{ index: 1, status: 'offscreen_prop_plan_needs_update' }, { index: 2, status: 'saved', storyboard_id: 10001 }],
+    source_manifest: { status: 'not_published' } })
+  const writes = f.calls.slice(beforeApply).filter(call => call.method !== 'GET' && call.path === '/aigc/storyboard')
+  expect(new Set(writes.map(call => `${call.method}:${String(call.body?.id)}`))).toEqual(new Set(['PUT:10001']))
+  expect(f.cards.get(10000)).toEqual(originalFirstCard)
+  expect(String(f.cards.get(10001)?.modelConfig)).toContain(secondDialogue)
+  expect(await readFile(manifestPath, 'utf8')).toBe(originalManifest)
+
+  const refreshed = await f.call({ method: 'update', plan_path: planPath })
+  expect(await f.call({ method: 'apply', plan_path: refreshed.plan_path })).toMatchObject({ paid_requests: 0, saved: 2,
+    results: [{ index: 1, storyboard_id: 10000 }, { index: 2, storyboard_id: 10001 }], source_manifest: { status: 'published' } })
+  const prompt = String(f.cards.get(10000)?.modelConfig)
+  expect(prompt).toContain(dialogue)
+  expect(prompt).toContain(offscreen)
+  expect(prompt).not.toContain('(asset_301)')
+  expect(f.cards.size).toBe(2)
+  expect(await readFile(f.script, 'utf8')).toBe(legacy.source)
+})
+
+it('retains saved card receipts when the manifest cannot be written', async () => {
+  const f = await fixture(), report = await f.preview(), path = String(report.plan_path)
+  const manifestPath = join(f.root, 'episode_packages', '01', 'package.json')
+  await mkdir(manifestPath, { recursive: true })
+  const result = await f.call({ method: 'apply', plan_path: path })
+  expect(result).toMatchObject({ saved: 1, source_manifest: { status: 'failed', path: manifestPath } })
+  expect((await stat(manifestPath)).isDirectory()).toBe(true)
+  expect(JSON.parse(await readFile(path.replace(/\.json$/u, '.receipts.json'), 'utf8')))
+    .toMatchObject({ '1': { storyboard_id: 10000 } })
+  const writes = f.calls.filter(call => call.method === 'POST').length
+  expect(await f.call({ method: 'apply', plan_path: path })).toMatchObject({ saved: 1,
+    source_manifest: { status: 'failed' }, results: [{ status: 'already_saved' }] })
+  expect(f.calls.filter(call => call.method === 'POST')).toHaveLength(writes)
+})
+
+it('preserves the previous manifest and saved receipt when final provider readback throws a non-Error', async () => {
+  vi.spyOn(Publication, 'productionCard').mockRejectedValueOnce('provider readback unavailable')
+  const f = await fixture(), report = await f.preview(), planPath = String(report.plan_path)
+  const path = join(f.root, 'episode_packages', '01', 'package.json')
+  await mkdir(join(f.root, 'episode_packages', '01'), { recursive: true })
+  const before = '{"previous":"retained"}\n'; await writeFile(path, before)
+  const result = await f.call({ method: 'apply', plan_path: planPath })
+  expect(result).toMatchObject({ saved: 1,
+    results: [{ status: 'saved', storyboard_id: 10000 }],
+    source_manifest: { status: 'failed', path, reason: 'Source manifest publication failed' } })
+  expect(result.next).toEqual(expect.stringContaining('不要正式合成'))
+  expect(await readFile(path, 'utf8')).toBe(before)
+  expect(JSON.parse(await readFile(planPath.replace(/\.json$/u, '.receipts.json'), 'utf8')))
+    .toMatchObject({ '1': { storyboard_id: 10000 } })
+  expect(f.cards.size).toBe(1)
+})
+
+it.each(['source', 'model', 'project', 'card'] as const)('refuses publication when %s changes after free card saving', async (change) => {
+  const readCard = Publication.productionCard
+  let mutate: (() => Promise<void>) | undefined
+  vi.spyOn(Publication, 'productionCard').mockImplementation(async (...args) => {
+    if (mutate) { const operation = mutate; mutate = undefined; await operation() }
+    return readCard(...args)
+  })
+  const f = await fixture(), report = await f.preview()
+  const path = join(f.root, 'episode_packages', '01', 'package.json')
+  await mkdir(join(f.root, 'episode_packages', '01'), { recursive: true })
+  const before = '{"previous":"retained"}\n'; await writeFile(path, before)
+  mutate = async () => {
+    if (change === 'source') await writeFile(f.script, f.source + '\n新原稿\n')
+    if (change === 'project') await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ jubian_script_id: 9999 }))
+    if (change === 'card') f.cards.get(10000)!.storyboardName = '协作者新名称'
+    if (change === 'model') {
+      const short = (await f.service.catalogue()).find(item => item.maxDurationSeconds === 15)!
+      await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+    }
+  }
+  const result = await f.call({ method: 'apply', plan_path: report.plan_path })
+  expect(result).toMatchObject({ saved: 1, source_manifest: { status: 'not_published', reason:
+    change === 'source' ? 'source_changed' : change === 'model' ? 'model_selection_changed'
+      : change === 'project' ? 'project_binding_changed' : 'current_card_changed' } })
+  expect(await readFile(path, 'utf8')).toBe(before)
+})
+
+it('serializes different saved plans for the same episode before either can mix card versions', async () => {
+  const f = await fixture({ timeoutMs: 10_000 })
+  await f.service.initialize(f.agent)
+  const short = (await f.service.catalogue()).find(item => item.maxDurationSeconds === 15)!
+  await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+  const initial = await f.preview()
+  await f.call({ method: 'apply', plan_path: initial.plan_path })
+  const first = await f.preview(), second = await f.call({ method: 'update', plan_path: first.plan_path,
+    choices: [{ shot: 1, kind: 'character', name: '苏晚', asset_id: 102 }] })
+  const other = await f.create('production-concurrent')
+  await f.service.initialize(other)
+  await f.service.select(other, short.key, f.service.current(other)!.revision)
+  const lock = AtomicWrite.withFileLock
+  let enterSecond!: () => void
+  const enteredSecond = new Promise<void>((resolve) => { enterSecond = resolve })
+  let lockCalls = 0
+  vi.spyOn(AtomicWrite, 'withFileLock').mockImplementation(async (filename, operation, options) => {
+    if (filename.endsWith('episode-1.apply') && ++lockCalls === 2) enterSecond()
+    return lock(filename, operation, options)
+  })
+  let releaseFirst!: () => void, reachedFirst!: () => void
+  const holdFirst = new Promise<void>((resolve) => { releaseFirst = resolve })
+  const firstRead = new Promise<void>((resolve) => { reachedFirst = resolve })
+  let hold = true
+  f.respond(async (path, data) => {
+    if (hold && path === '/aigc/storyboard/10000') {
+      hold = false; reachedFirst(); await holdFirst
+    }
+    return data
+  })
+  const applyingFirst = f.call({ method: 'apply', plan_path: first.plan_path })
+  await firstRead
+  const applyingSecond = f.call({ method: 'apply', plan_path: second.plan_path }, false, other)
+  try { await enteredSecond } finally { releaseFirst() }
+  const [one, two] = await Promise.all([applyingFirst, applyingSecond])
+  expect(one).toMatchObject({ saved: 2, source_manifest: { status: 'published' } })
+  expect(two).toMatchObject({ saved: 2, source_manifest: { status: 'published' } })
+  const manifest: unknown = JSON.parse(await readFile(join(f.root, 'episode_packages', '01', 'package.json'), 'utf8'))
+  expect(manifest).toMatchObject({ plan_fingerprint: String(second.plan_path).split(/[\\/]/u).at(-1)?.replace('.json', ''),
+    video_tasks: [{ storyboard_id: 10000 }, { storyboard_id: 10001 }] })
+  expect(f.calls.filter(call => call.method === 'POST' && call.path === '/aigc/storyboard')).toHaveLength(2)
+})
+
+it.each(['source', 'model', 'project'] as const)('rechecks %s after waiting for the episode writer before any remote mutation', async (change) => {
+  const f = await fixture({ timeoutMs: 10_000 }), report = await f.preview()
+  const lockPath = join(f.root, '.muse', 'production', 'episode-1.apply')
+  const lock = AtomicWrite.withFileLock
+  let release!: () => void, held!: () => void, pending!: () => void
+  const releasePromise = new Promise<void>((resolve) => { release = resolve })
+  const heldPromise = new Promise<void>((resolve) => { held = resolve })
+  const pendingPromise = new Promise<void>((resolve) => { pending = resolve })
+  const holding = lock(lockPath, async () => { held(); await releasePromise })
+  await heldPromise
+  vi.spyOn(AtomicWrite, 'withFileLock').mockImplementation((filename, operation, options) => {
+    if (filename === lockPath) pending()
+    return lock(filename, operation, options)
+  })
+  const applying = f.call({ method: 'apply', plan_path: report.plan_path })
+  try {
+    await pendingPromise
+    if (change === 'source') await writeFile(f.script, f.source + '\n等待期间的原稿修改\n')
+    if (change === 'project') await writeFile(join(f.root, 'project_config.json'), JSON.stringify({ jubian_script_id: 9999 }))
+    if (change === 'model') {
+      const short = (await f.service.catalogue()).find(item => item.maxDurationSeconds === 15)!
+      await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
+    }
+  } finally { release() }
+  const result = await applying; await holding
+  const reason = change === 'source' ? 'source_changed' : change === 'project' ? 'project_binding_changed' : 'model_selection_changed'
+  expect(result).toMatchObject({ status: reason, processed: 0, saved: 0,
+    source_manifest: { status: 'not_published', reason } })
+  expect(f.calls.every(call => call.method === 'GET')).toBe(true)
+  expect(f.cards.size).toBe(0)
 })
 
 it('reviews the actual native prepared prompt when cards are authored without compiler validation', async () => {

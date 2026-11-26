@@ -660,6 +660,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'characterLibraryBrowser',
+    summary: 'Browser facade exposing catalog reads and verified previews only.',
+    description: 'Browser facade exposing catalog reads and verified previews only.',
+    methods: [
+      {
+        signature: '@Remote status(): Promise<CharacterLibraryStatus>',
+        description: 'Report whether the library is available without reading storage.',
+        parameters: [],
+        returns: 'Configured state and the library\'s read-only status.',
+      },
+      {
+        signature: '@Remote async browse(request: CharacterLibraryBrowseRequest, signal: AbortSignal): Promise<CharacterLibraryBrowseResult>',
+        description: 'Read one bounded catalog page without modifying its metadata.',
+        parameters: [{ name: 'request', description: 'Collection, search text and optional continuation cursor.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'Catalog entries and their next-page cursor.',
+      },
+      {
+        signature: '@Remote async preview(request: CharacterLibraryPreviewRequest, signal: AbortSignal): Promise<CharacterLibraryImage>',
+        description: 'Read and verify one catalog image without returning a storage location.',
+        parameters: [{ name: 'request', description: 'Exact catalog identity and optional expected image digest.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'Verified image bytes encoded as a data URL and their digest.',
+      },
+    ],
+  },
+  {
     key: 'characterLibraryObjectStore',
     summary: 'Least-capability object store.',
     description: 'Least-capability object store. It deliberately has no delete, copy, ACL, policy or presigned-URL operation.',
@@ -2713,10 +2738,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Task state and timed segments when complete.',
       },
       {
+        signature: 'async readLocalStatus(): Promise<MuseAccountStatus>',
+        description: 'Read the saved identity for Host tools without refreshing Desktop consumers.',
+        parameters: [],
+        returns: 'Current local account state without credentials.',
+      },
+      {
         signature: '@Remote(\'status\') async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus>',
         description: 'Read the stored identity or confirm it with the gateway.',
         parameters: [{ name: 'request', description: 'Whether to verify the cookie online.' }],
         returns: 'A browser-safe status without a cookie.',
+      },
+      {
+        signature: '@Remote(\'details\') async details(request: MuseAccountDetailsRequest): Promise<MuseAccountDetails>',
+        description: 'Read profile, assigned groups, and token usage for the saved Muse login.',
+        parameters: [{ name: 'request', description: 'Usage period and page; omission of fields selects gateway defaults.' }],
+        returns: 'Validated current-account data without credentials or model content.',
       },
       {
         signature: '@Remote(\'login\') async login(request: MuseAccountLoginRequest): Promise<MuseAccountLoginResult>',
@@ -7225,6 +7262,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CharacterLibraryEntry {\n    readonly catalogAssetId: CatalogAssetId;\n    readonly originalAssetId: OriginalCharacterAssetId;\n    readonly collection: CharacterLibraryCollection;\n    readonly format: MetadataFormat;\n    readonly metadataStatus: MetadataStatusClass;\n    readonly metadataKey: string;\n    readonly imageKey: string;\n    readonly category: string | null;\n    readonly setting: string | null;\n    readonly artStyle: string | null;\n    readonly era: readonly string[];\n    readonly gender: string | null;\n    readonly appearance: readonly string[];\n    readonly tags: readonly string[];\n    readonly safety: {\n        readonly canPublish: false;\n        readonly canReuse: false;\n        readonly canBind: false;\n        readonly applyAllowed: false;\n    };\n}',
   },
   {
+    name: 'CharacterLibraryImage',
+    declaration: 'export interface CharacterLibraryImage {\n    readonly catalogAssetId: CharacterLibraryPreview[\'catalogAssetId\'];\n    readonly dataUrl: string;\n    readonly sha256: string;\n}',
+  },
+  {
     name: 'CharacterLibraryObjectGet',
     declaration: 'export interface CharacterLibraryObjectGet extends CharacterLibraryObjectHead {\n    readonly data: Uint8Array;\n}',
   },
@@ -9109,6 +9150,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ModTier = \'prepend\' | \'user\' | \'append\' | \'builtin\' | \'core\';',
   },
   {
+    name: 'MuseAccountDetails',
+    declaration: 'export type MuseAccountDetails = MuseAccountFullDetails | MuseAccountRelayDetails;',
+  },
+  {
+    name: 'MuseAccountDetailsRequest',
+    declaration: 'export interface MuseAccountDetailsRequest {\n    readonly period?: \'all\' | \'today\' | \'7d\' | \'30d\';\n    readonly offset?: number;\n    readonly limit?: number;\n    readonly cursor?: string;\n    readonly range?: {\n        readonly from: string;\n        readonly to: string;\n    };\n}',
+  },
+  {
+    name: 'MuseAccountFullDetails',
+    declaration: 'export interface MuseAccountFullDetails {\n    readonly protocol?: \'muse-account-details\';\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n        readonly createdAt: string;\n        readonly lastLoginAt: string | null;\n        readonly lastActivityAt: string | null;\n        readonly feishuIdentities: readonly {\n            readonly name: string;\n            readonly tenantKey: string | null;\n            readonly boundAt: string;\n            readonly lastLoginAt: string | null;\n            readonly organization?: {\n                readonly status: \'available\' | \'permission-required\' | \'unavailable\';\n                readonly syncedAt: string;\n                readonly departments: readonly {\n                    readonly id: MuseFeishuDepartmentId;\n                    readonly name: string;\n                    readonly path: string;\n                    readonly pathIds: readonly MuseFeishuDepartmentId[];\n                }[];\n            };\n        }[];\n    };\n    readonly groups: readonly {\n        readonly id: MuseAccountGroupId;\n        readonly name: string;\n        readonly description: string;\n    }[];\n    readonly usage: {\n        readonly since: string;\n        readonly updatedAt: string;\n        readonly tracking: \'gateway-and-desktop\';\n        readonly summary: MuseAccountUsageCounts;\n        readonly byModel: readonly (MuseAccountUsageCounts & {\n            readonly provider: string;\n            readonly model: string;\n     /* …truncated — full shape in source */',
+  },
+  {
+    name: 'MuseAccountGroupId',
+    declaration: 'export type MuseAccountGroupId = Branded<\'MuseAccountGroupId\'>;',
+  },
+  {
+    name: 'MuseAccountId',
+    declaration: 'export type MuseAccountId = Branded<\'MuseAccountId\'>;',
+  },
+  {
     name: 'MuseAccountLoginRequest',
     declaration: 'export interface MuseAccountLoginRequest {\n    readonly username: string;\n    readonly password: string;\n    readonly registerIfMissing: boolean;\n}',
   },
@@ -9117,12 +9178,40 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MuseAccountLoginResult {\n    readonly outcome: \'signed-in\' | \'registered\';\n    readonly status: Extract<MuseAccountStatus, {\n        readonly state: \'signed-in\';\n    }>;\n}',
   },
   {
+    name: 'MuseAccountProfile',
+    declaration: 'export interface MuseAccountProfile {\n    readonly version: 1;\n    readonly account: MuseAccountFullDetails[\'account\'];\n    readonly groups: MuseAccountFullDetails[\'groups\'];\n    readonly organization: {\n        readonly status: \'available\' | \'unavailable\';\n        readonly updatedAt: string | null;\n        readonly departments: readonly {\n            readonly id: MuseFeishuDepartmentId;\n            readonly name: string;\n            readonly path: string;\n            readonly pathIds: readonly MuseFeishuDepartmentId[];\n        }[];\n    };\n}',
+  },
+  {
+    name: 'MuseAccountRelayDetails',
+    declaration: 'export interface MuseAccountRelayDetails {\n    readonly protocol: \'account-data-v1\';\n    readonly account: {\n        readonly id: MuseAccountId;\n        readonly username: string;\n    };\n    readonly profile?: MuseAccountProfile;\n    readonly organization?: MuseAccountProfile[\'organization\'];\n    readonly history?: MuseAccountRelayHistory;\n    readonly availability: {\n        readonly profile: \'available\' | \'unavailable\';\n        readonly groups: \'available\' | \'unavailable\';\n        readonly feishuOrganization: \'available\' | \'unavailable\';\n    };\n    readonly usage: MuseAccountRelayUsage;\n}',
+  },
+  {
+    name: 'MuseAccountRelayHistory',
+    declaration: 'export interface MuseAccountRelayHistory {\n    readonly from: string;\n    readonly to: string;\n    readonly timeZone: \'Asia/Shanghai\';\n    readonly recordingSince: string | null;\n    readonly limited: boolean;\n    readonly health: {\n        readonly state: \'ok\' | \'degraded\';\n    };\n    readonly summary: {\n        readonly requests: number;\n        readonly reported: number;\n        readonly partial: number;\n        readonly unknown: number;\n        readonly inputTokens: number | null;\n        readonly outputTokens: number | null;\n        readonly totalTokens: number | null;\n        readonly inputTokensReports: number;\n        readonly outputTokensReports: number;\n        readonly totalTokensReports: number;\n    };\n}',
+  },
+  {
+    name: 'MuseAccountRelayTokenFields',
+    declaration: 'export interface MuseAccountRelayTokenFields {\n    readonly prompt_tokens?: number | undefined;\n    readonly completion_tokens?: number | undefined;\n    readonly total_tokens?: number | undefined;\n    readonly input_tokens?: number | undefined;\n    readonly output_tokens?: number | undefined;\n    readonly prompt_cache_hit_tokens?: number | undefined;\n    readonly prompt_cache_miss_tokens?: number | undefined;\n    readonly reasoning_tokens?: number | undefined;\n    readonly prompt_tokens_details?: {\n        readonly cached_tokens?: number | undefined;\n        readonly audio_tokens?: number | undefined;\n    } | undefined;\n    readonly completion_tokens_details?: {\n        readonly reasoning_tokens?: number | undefined;\n        readonly audio_tokens?: number | undefined;\n        readonly accepted_prediction_tokens?: number | undefined;\n        readonly rejected_prediction_tokens?: number | undefined;\n    } | undefined;\n    readonly input_tokens_details?: {\n        readonly cached_tokens?: number | undefined;\n        readonly audio_tokens?: number | undefined;\n    } | undefined;\n    readonly output_tokens_details?: {\n        readonly reasoning_tokens?: number | undefined;\n        readonly audio_tokens?: number | undefined;\n    } | undefined;\n}',
+  },
+  {
+    name: 'MuseAccountRelayUsage',
+    declaration: 'export interface MuseAccountRelayUsage {\n    readonly version: 1;\n    readonly coverage: {\n        readonly transport: \'relay-only\';\n        readonly direct: \'unobserved\';\n    };\n    readonly from: string;\n    readonly to: string;\n    readonly summary: {\n        readonly requests: number;\n        readonly completedRequests: number;\n        readonly failedRequests: number;\n        readonly pendingRequests: number;\n        readonly unknownRequests: number;\n        readonly reportedUsageRequests: number;\n        readonly partialUsageRequests: number;\n        readonly unreportedUsageRequests: number;\n        readonly inputTokens: number | null;\n        readonly outputTokens: number | null;\n        readonly totalTokens: number | null;\n    };\n    readonly items: readonly {\n        readonly requestId: MuseAccountUsageId;\n        readonly startedAt: string;\n        readonly finishedAt: string | null;\n        readonly channel: \'cloud-relay\' | \'desktop-relay\';\n        readonly route: string | null;\n        readonly state: \'completed\' | \'failed\' | \'pending\' | \'unknown\';\n        readonly usageStatus: \'reported\' | \'partial\' | \'unreported\';\n        readonly usage: MuseAccountRelayTokenFields | null;\n        readonly requestedModel: string | null;\n        readonly forwardedModel: string | null;\n        readonly responseModel: string | null;\n        readonly upstreamStatus: number | null;\n        readonly clientStatus: number | null;\n        readonly errorKind: \'request_rejected\' | \'upstream /* …truncated — full shape in source */',
+  },
+  {
     name: 'MuseAccountStatus',
     declaration: 'export type MuseAccountStatus = {\n    readonly state: \'signed-out\';\n} | {\n    readonly state: \'signed-in\';\n    readonly username: string;\n    readonly verified: boolean;\n    readonly environment?: string;\n    readonly workspaceLabel?: string;\n    readonly admin?: boolean;\n    readonly adminUrl?: string;\n};',
   },
   {
     name: 'MuseAccountStatusRequest',
     declaration: 'export interface MuseAccountStatusRequest {\n    readonly verify?: boolean;\n}',
+  },
+  {
+    name: 'MuseAccountUsageCounts',
+    declaration: 'export interface MuseAccountUsageCounts {\n    readonly requests: number;\n    readonly reportedRequests: number;\n    readonly inputTokens: number;\n    readonly outputTokens: number;\n    readonly totalTokens: number;\n    readonly cachedInputTokens: number;\n    readonly reasoningTokens: number;\n}',
+  },
+  {
+    name: 'MuseAccountUsageId',
+    declaration: 'export type MuseAccountUsageId = Branded<\'MuseAccountUsageId\'>;',
   },
   {
     name: 'MuseAsrJob',
@@ -9179,6 +9268,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseFeedbackRequest',
     declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n    readonly title?: string;\n    readonly kind?: \'bug\' | \'suggestion\' | \'other\';\n    readonly requestId?: string;\n}',
+  },
+  {
+    name: 'MuseFeishuDepartmentId',
+    declaration: 'export type MuseFeishuDepartmentId = Branded<\'MuseFeishuDepartmentId\'>;',
   },
   {
     name: 'MuseMarketBindingEntry',
@@ -9878,7 +9971,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RequestErrorAction',
-    declaration: 'export type RequestErrorAction = {\n    kind: \'retry\';\n} | {\n    kind: \'switch\';\n    selection: ModelSelection;\n} | undefined;',
+    declaration: 'export type RequestErrorAction = {\n    kind: \'retry\';\n    onDispatch?: () => void;\n} | {\n    kind: \'switch\';\n    selection: ModelSelection;\n} | undefined;',
   },
   {
     name: 'RequestHeaderReason',
@@ -9910,7 +10003,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ResolvedNormalRetryPolicy',
-    declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n}',
+    declaration: 'export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'normal\';\n    readonly maxRetries: number;\n    readonly retryableCodes: readonly string[];\n    readonly consecutiveRetryLimits?: Readonly<Record<string, number>>;\n}',
   },
   {
     name: 'ResolvedRetryBackoff',
@@ -10793,6 +10886,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionVideoInventory {\n    readonly sessionId: SessionId;\n    readonly sources: readonly SessionVideoSource[];\n    readonly complete: boolean;\n    readonly issues: readonly string[];\n}',
   },
   {
+    name: 'SessionVideoProduction',
+    declaration: 'export interface SessionVideoProduction {\n    readonly scriptId: number;\n    readonly episodeId?: number | undefined;\n    readonly episodeNumber?: number | undefined;\n    readonly packageIndex?: number | undefined;\n    readonly storyboardId?: number | undefined;\n    readonly taskId?: number | undefined;\n    readonly subtaskId?: number | undefined;\n    readonly shotNumbers?: readonly number[] | undefined;\n    readonly shotRanges?: readonly {\n        readonly shotNumber: number;\n        readonly startSeconds: number;\n        readonly endSeconds: number;\n    }[] | undefined;\n}',
+  },
+  {
     name: 'SessionVideoSelection',
     declaration: 'export type SessionVideoSelection = VideoModelOption & {\n    revision: number;\n};',
   },
@@ -10806,7 +10903,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionVideoSource',
-    declaration: 'export interface SessionVideoSource {\n    readonly id: SessionVideoSourceId;\n    readonly label: string;\n    readonly origin: \'workspace\' | \'presented\' | \'attachment\' | \'generated\';\n    readonly path: string | null;\n    readonly eventSeq: number;\n    readonly presentedIndex: number | null;\n    readonly callId: string | null;\n    readonly status: \'local\' | \'remote-only\' | \'missing\' | \'unsupported\';\n    readonly version: string | null;\n    readonly playbackUrl: string | null;\n    readonly remoteUrl: string | null;\n    readonly issue: string | null;\n}',
+    declaration: 'export interface SessionVideoSource {\n    readonly id: SessionVideoSourceId;\n    readonly label: string;\n    readonly origin: \'workspace\' | \'presented\' | \'attachment\' | \'generated\';\n    readonly path: string | null;\n    readonly eventSeq: number;\n    readonly presentedIndex: number | null;\n    readonly callId: string | null;\n    readonly status: \'local\' | \'remote-only\' | \'missing\' | \'unsupported\';\n    readonly version: string | null;\n    readonly playbackUrl: string | null;\n    readonly remoteUrl: string | null;\n    readonly issue: string | null;\n    readonly production?: SessionVideoProduction | undefined;\n}',
   },
   {
     name: 'SessionVideoSourceId',

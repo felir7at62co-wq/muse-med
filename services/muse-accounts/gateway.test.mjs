@@ -9,6 +9,22 @@ import {openStore} from './store.mjs';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const listen=s=>new Promise(r=>s.listen(0,'127.0.0.1',()=>r(`http://127.0.0.1:${s.address().port}`)));
+test('desktop model session rejection is distinct from origin and provider policy',async t=>{
+ const {createAccountServer}=await import('./gateway.mjs');const dir=await mkdtemp(join(tmpdir(),'muse-model-auth-'));
+ const store=await openStore(join(dir,'accounts'));await store.create('editor','pw');
+ const origin='https://muse.test',server=createAccountServer({store,publicOrigin:origin});const base=await listen(server);
+ t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true});});
+ const path='/api/desktop-models/providers';
+ const anonymous=await fetch(base+path);assert.equal(anonymous.status,401);
+ assert.equal(anonymous.headers.get('x-muse-model-auth-error'),'muse-session-expired');
+ assert.deepEqual(await anonymous.json(),{error:{message:'请先登录 Muse'}});
+ const login=await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username:'editor',password:'pw'}),redirect:'manual'});
+ const cookie=login.headers.get('set-cookie').split(';')[0];
+ const forbidden=await fetch(base+path,{method:'POST',headers:{cookie,origin:'https://other.test'}});
+ assert.equal(forbidden.status,403);assert.equal(forbidden.headers.get('x-muse-model-auth-error'),null);
+ const success=await fetch(base+path,{headers:{cookie}});assert.equal(success.status,200);
+ assert.equal(success.headers.get('x-muse-model-auth-error'),null);
+});
 test('native built-in DeepSeek settings are global and never written to a tenant',async t=>{
  const {createAccountServer}=await import('./gateway.mjs'),{openGlobalModels}=await import('./global-models.mjs');
  const dir=await mkdtemp(join(tmpdir(),'muse-official-rpc-'));t.after(()=>rm(dir,{recursive:true,force:true}));const store=await openStore(join(dir,'accounts'));await store.create('admin','pw',{admin:true});await store.create('editor','pw');

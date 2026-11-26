@@ -1,6 +1,6 @@
 /** Authoritative project settings, revision previews and a derived readable project bible. */
-import { createHash } from 'node:crypto'
-import { lstat, open, readFile, unlink } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { link, lstat, open, readFile, readdir, unlink } from 'node:fs/promises'
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import type SettingsForms from '@deepseek-ai/dsh-settings'
@@ -15,6 +15,14 @@ type ProjectDefaults = JsonObject & { initial_budget_cents: number }
 export interface ProjectBudgetReader {
   /** @param scriptId - Bound remote project ID. @returns Effective authorization and actual ledger totals. */
   read(scriptId: number): Promise<ProjectBudget>
+}
+
+/** Existing local project whose creative settings may initialize a different project directory. */
+export interface ProjectMigrationSource {
+  /** Existing absolute source directory; its files are retained unchanged. */
+  project_dir: string
+  /** Expected remote project ID currently recorded in the source configuration. */
+  script_id: number
 }
 
 const VOICE_PROFILE_FIELDS = {
@@ -158,6 +166,49 @@ async function projectRoot(directory: string): Promise<string> {
   }
   if (!(await lstat(root)).isDirectory()) throw new Error('Project path must be a directory.')
   return root
+}
+
+/** Create only the confirmed remote identity, without initializing project defaults.
+ * Existing project files are never replaced; choose the directory and ID from verified project evidence.
+ * @param directory - Existing project directory verified to belong to this project.
+ * @param scriptId - Verified remote project ID.
+ * @param signal - Optional cancellation signal, checked before publishing the binding.
+ * @returns The newly created binding and its path.
+ */
+export async function createProjectBinding(directory: string, scriptId: number,
+  signal?: AbortSignal): Promise<{ project_dir: string; script_id: number }> {
+  signal?.throwIfAborted()
+  const root = await projectRoot(directory)
+  const id = positive(scriptId, 'jubian_script_id')
+  const configPath = join(root, 'project_config.json')
+  const lockPath = join(root, '.project-bible.lock')
+  const lock = await open(lockPath, 'wx', 0o600)
+  let committed = false
+  try {
+    try {
+      try {
+        await lstat(join(root, 'project-bible.md'))
+        throw new Error('An existing project bible needs manual identity review before binding.')
+      } catch (error) {
+        if (!hasCode(error, 'ENOENT')) throw error
+      }
+      const temporary = join(root, `.project-binding-${randomUUID()}.tmp`)
+      const file = await open(temporary, 'wx', 0o600)
+      try {
+        try { await file.writeFile(`${JSON.stringify({ jubian_script_id: id })}\n`, 'utf8') } finally { await file.close() }
+        signal?.throwIfAborted()
+        await link(temporary, configPath)
+        committed = true
+      } finally { await unlink(temporary) }
+      return { project_dir: root, script_id: id }
+    } finally {
+      await lock.close()
+      await unlink(lockPath)
+    }
+  } catch (error) {
+    if (committed) throw new Error('Project binding was created but cleanup failed; read the original config before retrying.', { cause: error })
+    throw error
+  }
 }
 
 /** JSON object from a durable file or model/tool input. */
@@ -510,10 +561,10 @@ function affected(keys: string[]): string[] {
 
 /** Build a candidate from current data, preserving unrelated legacy fields. */
 function candidate(config: JsonObject, initial: JsonObject, changes: JsonObject,
-  reason: string): { config: JsonObject; fields: string[]; stages: string[] } {
+  reason: string, inherited: JsonObject = {}): { config: JsonObject; fields: string[]; stages: string[] } {
   if (!reason.trim()) throw new Error('A project update reason is required.')
   for (const key of Object.keys(changes)) if (!Object.hasOwn(PROJECT_BIBLE_CHANGES, key)) throw new Error(`Unsupported project change: ${key}`)
-  const previous = config.project_bible === undefined ? {} : object(config.project_bible, 'project_bible')
+  const previous = { ...inherited, ...(config.project_bible === undefined ? {} : object(config.project_bible, 'project_bible')) }
   const bible: JsonObject = {
     ...initial, ...previous, schema_version: 1, revision: Number(previous.revision ?? 0) + 1,
   }
@@ -579,6 +630,100 @@ function candidate(config: JsonObject, initial: JsonObject, changes: JsonObject,
   }
   validateBible(bible)
   return { config: next, fields, stages }
+}
+
+/** Select portable fields without retaining unknown legacy references. */
+function selectedFields(value: JsonObject, fields: readonly string[]): JsonObject {
+  return Object.fromEntries(Object.entries(value).filter(([key]) => fields.includes(key)))
+}
+
+/** Copy creative settings and local character identities, excluding remote work and media references. */
+function migrationSettings(value: JsonObject): JsonObject {
+  const selected = selectedFields(value,
+    ['title', 'style', 'visual_medium', 'aspect_ratio', 'video', 'delivery', 'episode_plan', 'characters'])
+  if (selected.video !== undefined) {
+    selected.video = selectedFields(object(selected.video, 'video'), Object.keys(PROJECT_BIBLE_CHANGES.video.properties))
+  }
+  if (selected.episode_plan !== undefined) {
+    selected.episode_plan = selectedFields(object(selected.episode_plan, 'episode_plan'), Object.keys(PROJECT_BIBLE_CHANGES.episode_plan.properties))
+  }
+  if (selected.delivery !== undefined) {
+    const delivery = selectedFields(object(selected.delivery, 'delivery'), Object.keys(PROJECT_BIBLE_CHANGES.delivery.properties))
+    if (delivery.audio !== undefined) {
+      delivery.audio = selectedFields(object(delivery.audio, 'delivery.audio'), ['master_gain', 'bgm_gain', 'require_music_decision'])
+    }
+    if (delivery.subtitle !== undefined) {
+      delivery.subtitle = selectedFields(object(delivery.subtitle, 'delivery.subtitle'),
+        ['font_family', 'font_size_px', 'margin_bottom_px', 'require_no_punctuation', 'require_speech_coverage'])
+    }
+    if (delivery.subtitle_visual !== undefined) {
+      delivery.subtitle_visual = selectedFields(object(delivery.subtitle_visual, 'delivery.subtitle_visual'),
+        Object.keys(PROJECT_BIBLE_CHANGES.delivery.properties.subtitle_visual.properties))
+    }
+    if (delivery.draft_style !== undefined) {
+      const draft = selectedFields(object(delivery.draft_style, 'delivery.draft_style'), ['watermark', 'subtitle'])
+      for (const section of ['watermark', 'subtitle'] as const) {
+        if (draft[section] !== undefined) {
+          draft[section] = selectedFields(object(draft[section], `delivery.draft_style.${section}`),
+            Object.keys(PROJECT_BIBLE_CHANGES.delivery.properties.draft_style.properties[section].properties))
+        }
+      }
+      delivery.draft_style = draft
+    }
+    selected.delivery = delivery
+  }
+  if (selected.characters !== undefined) {
+    selected.characters = records(selected.characters, 'characters').map((character) => {
+      const row = selectedFields(character, ['character_id', 'name', 'aliases', 'role_class', 'voice_profile', 'voice_profiles'])
+      if (row.voice_profile !== undefined) {
+        row.voice_profile = selectedFields(object(row.voice_profile, 'voice_profile'), ['description'])
+      }
+      if (row.voice_profiles !== undefined) {
+        row.voice_profiles = records(row.voice_profiles, 'voice_profiles').map(profile =>
+          selectedFields(profile, ['voice_period_id', 'label', 'description']))
+      }
+      return row
+    })
+  }
+  return selected
+}
+
+/** Inspect the source and prepare a fresh target without changing either project. */
+async function migrationCandidate(root: string, target: { config: JsonObject; revision: string },
+  changes: JsonObject, source: ProjectMigrationSource): Promise<{ settings: JsonObject; migration: JsonObject }> {
+  const sourceRoot = await projectRoot(source.project_dir)
+  if (relative(sourceRoot, root) === '') {
+    throw new Error('Project migration requires a different target directory; retain the source project.')
+  }
+  if (target.revision !== 'missing') throw new Error('Project migration requires a target without project_config.json.')
+  if ((await readdir(root)).some(name => name !== '.project-bible.lock')) {
+    throw new Error('Project migration requires an empty target directory; retain existing files in their original project.')
+  }
+  const snapshot = await state(sourceRoot)
+  const sourceId = positive(source.script_id, 'migration_from.script_id')
+  if (snapshot.config.jubian_script_id !== sourceId) throw new Error('migration_from.script_id differs from the source project binding.')
+  const targetId = positive(changes.jubian_script_id, 'changes.jubian_script_id')
+  if (sourceId === targetId) throw new Error('Project migration requires a different target jubian_script_id.')
+  const { jubian_script_id: _binding, ...creativeChanges } = changes
+  const portableChanges = migrationSettings(creativeChanges)
+  if (JSON.stringify(portableChanges) !== JSON.stringify(creativeChanges)) {
+    throw new Error('Project migration changes must contain only creative settings and local character identities; register target assets and tasks afterward.')
+  }
+  const legacy = { ...snapshot.config }
+  if (legacy.title === undefined && typeof legacy.project_name === 'string') legacy.title = legacy.project_name
+  if (legacy.aspect_ratio === undefined && typeof legacy.ratio === 'string') legacy.aspect_ratio = legacy.ratio
+  if (legacy.video === undefined && typeof legacy.video_model === 'string' && legacy.video_model.trim()
+    && typeof legacy.platform_id === 'string' && legacy.platform_id.trim()
+    && typeof legacy.resolution === 'string' && legacy.resolution.trim()) {
+    legacy.video = { model_id: legacy.video_model, platform_id: legacy.platform_id, resolution: legacy.resolution }
+  }
+  const bible = snapshot.config.project_bible === undefined ? {} : object(snapshot.config.project_bible, 'project_bible')
+  const inherited = migrationSettings({ ...legacy, ...bible })
+  return { settings: inherited, migration: {
+    source_project_dir: sourceRoot, source_script_id: sourceId, source_revision: snapshot.revision,
+    target_script_id: targetId, inherited_fields: Object.keys(inherited),
+    reset_fields: ['remote_asset_and_audio_references', 'package_bindings', 'completed_tasks', 'history', 'budget_authorization'],
+  } }
 }
 
 /** Pure readable projection; the JSON file remains the only editable source. */
@@ -649,15 +794,20 @@ export async function readProjectBible(settings: SettingsForms, directory: strin
  * @param changes - Confirmed fields to merge; optional mappings and completed tasks append.
  * @param reason - User-visible reason preserved in revision history.
  * @param budget - Optional live reader shared with the actual Jubian authorization.
+ * @param migrationFrom - Explicit source for initializing a different empty target directory.
  * @returns Candidate config, expected revision, preview fingerprint and affected stages.
  */
 export async function previewProjectBible(settings: SettingsForms, directory: string,
-  changes: JsonObject, reason: string, budget?: ProjectBudgetReader): Promise<ProjectBibleResult & { changed_fields: string[] }> {
+  changes: JsonObject, reason: string, budget?: ProjectBudgetReader,
+  migrationFrom?: ProjectMigrationSource): Promise<ProjectBibleResult & { changed_fields: string[] }> {
   const root = await projectRoot(directory), snapshot = await state(root), initial = defaults(settings)
-  const proposed = candidate(snapshot.config, initial, changes, reason)
-  const fingerprint = digest(JSON.stringify({ root, revision: snapshot.revision, config: proposed.config }))
+  const migration = migrationFrom === undefined ? undefined : await migrationCandidate(root, snapshot, changes, migrationFrom)
+  const proposed = candidate(snapshot.config, initial, changes, reason, migration?.settings)
+  const fingerprint = digest(JSON.stringify({ root, revision: snapshot.revision, config: proposed.config,
+    ...(migration === undefined ? {} : { migration: migration.migration }) }))
   return await withBudget({ ...result(root, snapshot, initial), status: 'preview', proposed: proposed.config,
     preview_fingerprint: fingerprint, changed_fields: proposed.fields, affected_stages: proposed.stages,
+    ...(migration === undefined ? {} : { migration: migration.migration }),
     markdown: markdown(proposed.config) }, budget)
 }
 
@@ -668,8 +818,9 @@ async function atomic(path: string, content: string): Promise<void> {
 }
 
 /**
- * Commit a reviewed update under an exclusive project writer lock and exact file revision.
+ * Commit a reviewed update under exclusive project writer locks and exact file revisions.
  * JSON commits atomically before its derived Markdown; a Markdown failure reports the committed revision.
+ * Migration holds both source and target writer locks and publishes only in the empty target.
  * @param settings - Provider supplying current first-project defaults.
  * @param directory - Existing absolute project directory.
  * @param changes - Same changes used by the preview.
@@ -678,20 +829,30 @@ async function atomic(path: string, content: string): Promise<void> {
  * @param previewFingerprint - Fingerprint of the unchanged reviewed preview.
  * @param signal - Optional caller cancellation; observed before the commit starts.
  * @param budget - Optional live reader shared with the actual Jubian authorization.
+ * @param migrationFrom - Same explicit source used by the reviewed migration preview.
  * @returns Saved config and new revision, preserving completed records and prior versions.
  */
 export async function updateProjectBible(settings: SettingsForms, directory: string, changes: JsonObject, reason: string,
-  expectedRevision: string, previewFingerprint: string, signal?: AbortSignal, budget?: ProjectBudgetReader): Promise<ProjectBibleResult> {
-  const root = await projectRoot(directory), lockPath = join(root, '.project-bible.lock')
-  signal?.throwIfAborted()
-  await plainFile(lockPath)
-  let lock
-  try { lock = await open(lockPath, 'wx', 0o600) } catch (error) {
-    if (hasCode(error, 'EEXIST')) throw new Error('Another project bible update holds .project-bible.lock; inspect that writer before removing an abandoned lock.')
-    throw error
+  expectedRevision: string, previewFingerprint: string, signal?: AbortSignal, budget?: ProjectBudgetReader,
+  migrationFrom?: ProjectMigrationSource): Promise<ProjectBibleResult> {
+  const root = await projectRoot(directory)
+  const directories = [root]
+  if (migrationFrom !== undefined) {
+    const sourceRoot = await projectRoot(migrationFrom.project_dir)
+    if (relative(sourceRoot, root) !== '') directories.push(sourceRoot)
   }
+  const locks: { handle: Awaited<ReturnType<typeof open>>; path: string }[] = []
   try {
-    const preview = await previewProjectBible(settings, root, changes, reason)
+    for (const selected of directories) {
+      signal?.throwIfAborted()
+      const path = join(selected, '.project-bible.lock')
+      await plainFile(path)
+      try { locks.push({ handle: await open(path, 'wx', 0o600), path }) } catch (error) {
+        if (hasCode(error, 'EEXIST')) throw new Error('Another project bible update holds .project-bible.lock; inspect that writer before removing an abandoned lock.')
+        throw error
+      }
+    }
+    const preview = await previewProjectBible(settings, root, changes, reason, undefined, migrationFrom)
     if (preview.expected_revision !== expectedRevision) throw new Error('Project file revision changed; read and preview again.')
     if (preview.preview_fingerprint !== previewFingerprint) throw new Error('Preview changed; preview the same changes and Settings again.')
     const configPath = join(root, 'project_config.json'), biblePath = join(root, 'project-bible.md')
@@ -704,9 +865,11 @@ export async function updateProjectBible(settings: SettingsForms, directory: str
       throw new Error(`Project JSON committed at revision ${digest(contents)}, but rendering project-bible.md failed. Read current config before retrying.`, { cause: error })
     }
     return await withBudget({ ...result(root, { config: preview.proposed, revision: digest(contents) }, defaults(settings)),
-      status: 'ready', affected_stages: preview.affected_stages, changed_fields: preview.changed_fields }, budget)
+      status: 'ready', affected_stages: preview.affected_stages, changed_fields: preview.changed_fields,
+      ...(preview.migration === undefined ? {} : { migration: preview.migration }) }, budget)
   } finally {
-    await lock.close()
-    await unlink(lockPath)
+    await Promise.all(locks.map(async ({ handle, path }) => {
+      try { await handle.close() } finally { await unlink(path) }
+    }))
   }
 }

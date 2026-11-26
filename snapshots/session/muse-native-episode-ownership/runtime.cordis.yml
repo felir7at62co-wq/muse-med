@@ -1,0 +1,9 @@
+- id: flat-child-fixture
+  disabled: true
+- id: tool-jubian
+  config:
+    baseUrl: https://episode-ownership.invalid/prod-api
+    workspaceSecrets: false
+- insert:
+    - id: native-episode-ownership-fixture
+      name: './episode-fixture.mjs'

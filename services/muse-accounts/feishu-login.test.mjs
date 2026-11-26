@@ -61,7 +61,7 @@ test('private configuration validates the callback, Feishu app type and bounded 
  const loaded=await loadFeishuLoginConfig(file,{publicOrigin:origin});assert.equal(loaded.appType,'custom');assert.equal(loaded.requestTimeoutMs,15000);assert.equal(loaded.tokenEndpointVersion,'v3');
  await writeFile(file,JSON.stringify({...config,appType:'store'}));assert.equal((await loadFeishuLoginConfig(file,{publicOrigin:origin})).appType,'store');
  await assert.rejects(loadFeishuLoginConfig('relative.json',{publicOrigin:origin}),/absolute/);
- for(const change of [{redirectUri:'https://evil.test/auth/feishu/callback'},{redirectUri:origin+'/auth/feishu/callback?x=1'},{appType:'unknown'},{requestTimeoutMs:0},{unknown:'ignored?'},{appSecret:'short'}]){
+ for(const change of [{redirectUri:'https://evil.test/auth/feishu/callback'},{redirectUri:origin+'/auth/feishu/callback?x=1'},{appType:'unknown'},{requestTimeoutMs:0},{unknown:'ignored?'},{appSecret:'short'},{organizationSync:'true'}]){
   await writeFile(file,JSON.stringify({...config,...change}));await assert.rejects(loadFeishuLoginConfig(file,{publicOrigin:origin}),/Feishu/);
  }
  for(const tokenEndpointVersion of ['v3','v2']){await writeFile(file,JSON.stringify({...config,tokenEndpointVersion}));assert.equal((await loadFeishuLoginConfig(file,{publicOrigin:origin})).tokenEndpointVersion,tokenEndpointVersion);}
@@ -118,6 +118,52 @@ test('an explicit v2 selection retains JSON, PKCE and one-use authorization code
  assert.equal((await f.callback(a,'v2-binding-code')).status,410);assert.equal(f.calls.length,2);assert.equal(f.resolved[0].bind.bindAccountId,f.admin.id);
 });
 
+test('organization opt-in requests user consent and persists only current department paths',async t=>{
+ const f=await fixture(t,{config:{organizationSync:true},fetchImpl:async url=>{
+  if(url.endsWith('/token'))return response({code:0,access_token:'private-organization-token',token_type:'Bearer'});
+  if(url.includes('/contact/v3/users/'))return response({code:0,data:{user:{open_id:profile.open_id,department_path:[{
+   department_id:'od-writing',department_name:{name:'编剧组'},department_path:{department_ids:['od-studio','od-writing'],department_path_name:{name:'内容中心/编剧组'}},
+  }],mobile:'private-phone'}}});
+  return response({code:0,data:profile});
+ }});
+ const attempt=await f.start();assert.match(attempt.authorize.searchParams.get('scope'),/contact:user.department_path:readonly/);
+ const result=await f.callback(attempt);assert.equal(result.status,200);assert.equal(f.calls.length,3);
+ assert.equal(f.resolved[0].value.organization.status,'available');assert.equal(f.resolved[0].value.organization.departments[0].path,'内容中心/编剧组');
+ assert.doesNotMatch(JSON.stringify(f.resolved),/private-organization-token|private-phone/);
+});
+
+test('missing directory permission keeps Feishu sign-in usable and publishes a setup state',async t=>{
+ const f=await fixture(t,{config:{organizationSync:true},fetchImpl:async url=>url.endsWith('/token')
+  ?response({code:0,access_token:'private-token',token_type:'Bearer'})
+  :url.includes('/contact/v3/users/')?new Response('private-provider-detail',{status:403}):response({code:0,data:profile})});
+ assert.equal((await f.callback(await f.start())).status,200);
+ assert.equal(f.resolved[0].value.organization.status,'permission-required');
+ assert.deepEqual(f.resolved[0].value.organization.departments,[]);
+});
+
+test('a directory timeout records unavailable departments while the verified identity can sign in',async t=>{
+ let directoryAborted=false;
+ const f=await fixture(t,{config:{organizationSync:true,requestTimeoutMs:1000},fetchImpl:async(url,request)=>{
+  if(url.endsWith('/token'))return response({code:0,access_token:'private-token',token_type:'Bearer'});
+  if(!url.includes('/contact/v3/users/'))return response({code:0,data:profile});
+  return new Promise((_resolve,reject)=>request.signal.addEventListener('abort',()=>{directoryAborted=true;reject(request.signal.reason);},{once:true}));
+ }});
+ assert.equal((await f.callback(await f.start())).status,200);assert.equal(directoryAborted,true);
+ assert.equal(f.resolved[0].value.organization.status,'unavailable');assert.deepEqual(f.resolved[0].value.organization.departments,[]);
+ assert.equal(f.recorded.length,1);assert.equal(f.sessionStore.size(),2);assert.equal(f.diagnostics.length,0);
+});
+
+test('shutdown during department lookup prevents a late identity or session commit',async t=>{
+ let entered;const ready=new Promise(resolve=>entered=resolve);
+ const f=await fixture(t,{config:{organizationSync:true},fetchImpl:async(url,request)=>{
+  if(url.endsWith('/token'))return response({code:0,access_token:'private-token',token_type:'Bearer'});
+  if(!url.includes('/contact/v3/users/'))return response({code:0,data:profile});
+  entered();return new Promise((_resolve,reject)=>request.signal.addEventListener('abort',()=>reject(Error('cancelled directory lookup')),{once:true}));
+ }});
+ const pending=f.callback(await f.start());await ready;await f.feature.close();
+ assert.equal((await pending).status,502);assert.equal(f.resolved.length,0);assert.equal(f.sessionStore.size(),1);
+});
+
 test('PKCE provider rejection never falls back or repeats the selected token endpoint',async t=>{
  for(const tokenEndpointVersion of [undefined,'v2']){
   const f=await fixture(t,{config:tokenEndpointVersion===undefined?{}:{tokenEndpointVersion},fetchImpl:async()=>new Response(JSON.stringify({code:20049,error_description:'fixture-sensitive-pkce-error'}),{status:400})}),a=await f.start();
@@ -131,7 +177,7 @@ test('verified personal profiles with absent or null optional fields work and se
  for(const optional of [{},{tenant_key:null,union_id:null,avatar_url:null}]){
   const f=await fixture(t);f.setProfile({open_id:'ou_personal',name:'个人用户',email:'not-an-identity@example.test',mobile:'not-collected',...optional});
   assert.equal((await f.callback(await f.start())).status,200);
-  assert.deepEqual(f.resolved[0].value,{appId:config.appId,openId:'ou_personal',name:'个人用户'});
+  assert.deepEqual(f.resolved[0].value,{appId:config.appId,openId:'ou_personal',name:'个人用户',organization:{status:'permission-required',syncedAt:new Date(f.now()).toISOString(),departments:[]}});
  }
 });
 

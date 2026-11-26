@@ -2,7 +2,7 @@
 
 [English](character-library.md) | 中文
 
-Host 管理的[人物库](../../packages/drama/character-library/README.zh.md)通过对象存储服务读取历史人物参考。[TOS 提供方](../../packages/drama/character-library-tos/README.zh.md)使用 Host 凭据引用，从固定前缀执行有界读取。[模型工具](../../packages/drama/tool-character-reference/README.zh.md)检索候选并将校验后的图片加入会话；它们不审批、上传、绑定或生成资产。
+Host 管理的[人物库](../../packages/drama/character-library/README.zh.md)通过对象存储服务读取历史人物参考。Web 与 Muse 桌面端默认启用 [TOS 提供方](../../packages/drama/character-library-tos/README.zh.md)的 `publicRead` 模式，从固定前缀有界列举和读取云端对象，发现当前人物，无需 Muse 账号或 TOS 凭据。[浏览页面](../../packages/client/ui-character-library/README.zh.md)在打开期间自动同步显示的目录。[模型工具](../../packages/drama/tool-character-reference/README.zh.md)检索候选并将校验后的图片加入会话；它们不审批、上传、绑定或生成资产。
 
 对于已登录用户本人委托生成并上传的图片，独立的剧变工具可直接询问该用户来源及本项目参考生图权利。Host 在签发一次项目私有授权、托管上传精确字节并允许预算内生图前，重读项目、角色、Catalog 身份与 SHA。这不是公共库审核：`pending_review` 不变，原图与衍生图不能自动确认出演、正式绑定、发布或供其他用户、项目复用。付费结果未知时仍只能用原幂等键对账。
 
@@ -69,6 +69,38 @@ async matchCandidates( request: CharacterRecommendationRequest, signal?: AbortSi
 ```
 
 Source: [`packages/drama/character-library/src/library.ts`](../../packages/drama/character-library/src/library.ts)
+
+<a id="ctxcharacterlibrarybrowser--characterlibrarybrowser"></a>
+
+### `ctx.characterLibraryBrowser` — `CharacterLibraryBrowser`
+
+Browser facade exposing catalog reads and verified previews only.
+
+```ts cordis-catalog
+/**
+ * Report whether the library is available without reading storage.
+ * @returns Configured state and the library's read-only status.
+ */
+@Remote status(): Promise<CharacterLibraryStatus>
+
+/**
+ * Read one bounded catalog page without modifying its metadata.
+ * @param request - Collection, search text and optional continuation cursor.
+ * @param signal - Caller cancellation.
+ * @returns Catalog entries and their next-page cursor.
+ */
+@Remote async browse(request: CharacterLibraryBrowseRequest, signal: AbortSignal): Promise<CharacterLibraryBrowseResult>
+
+/**
+ * Read and verify one catalog image without returning a storage location.
+ * @param request - Exact catalog identity and optional expected image digest.
+ * @param signal - Caller cancellation.
+ * @returns Verified image bytes encoded as a data URL and their digest.
+ */
+@Remote async preview(request: CharacterLibraryPreviewRequest, signal: AbortSignal): Promise<CharacterLibraryImage>
+```
+
+Source: [`packages/api/character-library/src/index.ts`](../../packages/api/character-library/src/index.ts)
 
 <a id="ctxcharacterlibraryobjectstore--characterlibraryobjectstore-abstract-seam"></a>
 

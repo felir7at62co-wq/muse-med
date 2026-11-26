@@ -1,0 +1,25 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
+- insert:
+    - id: tool-episode-render
+      name: '../drama-project-delivery/renderer-fixture.mjs'
+      config:
+        ffmpegPath: repeated-clip-fixture-ffmpeg
+        ffprobePath: repeated-clip-fixture-ffprobe
+        preferNvenc: false
+        fontsDir: ''
+    - id: repeated-clip-media-fixture
+      name: './media-fixture.mjs'
+
+- id: skill
+  name: '@deepseek-ai/dsh-skill'
+  disabled: true
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  disabled: true
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: true

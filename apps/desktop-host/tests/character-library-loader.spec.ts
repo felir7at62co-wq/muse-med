@@ -37,6 +37,7 @@ import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import Tools from '@deepseek-ai/dsh-tools'
 import { parse as parseYaml } from 'yaml'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as CreationPolicy from '../src/creation-policy.ts'
 
 const metadataKey = `${URBAN_PREFIX}char_urban_lead_001/metadata.json`
 const secondMetadataKey = `${URBAN_PREFIX}char_urban_lead_002/metadata.json`
@@ -336,8 +337,8 @@ async function loadFixture() {
 }
 
 describe('character library real Loader composition', () => {
-  it('mounts the shipped authority in an isolate realm for a fresh short-drama Agent', async () => {
-    const raw = await readFile(new URL('../presets/short-drama/agent.cordis.yml', import.meta.url), 'utf8')
+  it.each(['short-drama', 'creation'])('mounts read-only character references for a fresh %s Agent', async (presetId) => {
+    const raw = await readFile(new URL(`../presets/${presetId}/agent.cordis.yml`, import.meta.url), 'utf8')
     const rows = parseYaml(raw, {
       customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
     }) as PresetDefinition['plugins']
@@ -355,7 +356,7 @@ describe('character library real Loader composition', () => {
 
     const context = new Context()
     contexts.push(context)
-    context.baseUrl = new URL('../presets/short-drama/', import.meta.url).href
+    context.baseUrl = new URL(`../presets/${presetId}/`, import.meta.url).href
     await context.plugin(Loader)
     context.loader.builtins.group = Group
     context.loader.internal = {
@@ -366,10 +367,9 @@ describe('character library real Loader composition', () => {
       resolveSync() { throw new Error('Unexpected Loader resolution') },
       load() { throw new Error('Unexpected Loader load') },
       async import(specifier: string) {
-        if (specifier !== '@deepseek-ai/dsh-tool-character-reference') {
-          throw new Error('Unexpected Loader import: ' + specifier)
-        }
-        return CharacterReferenceTool
+        if (specifier === '@deepseek-ai/dsh-tool-character-reference') return CharacterReferenceTool
+        if (specifier === '@deepseek-ai/dsh-desktop-host/creation-policy') return CreationPolicy
+        throw new Error('Unexpected Loader import: ' + specifier)
       },
     }
     await context.plugin(LoaderFixtureStore)
@@ -383,11 +383,16 @@ describe('character library real Loader composition', () => {
     await context.plugin(SystemPrompt)
     await context.plugin(AgentRegistry)
     await context.plugin(AgentLoop, { agents: [] })
-    await context.plugin(AgentPresets, { default: 'short-drama' })
-    await context.agentPresets.register({ id: 'short-drama', plugins: [characterReference] })
+    await context.plugin(AgentPresets, { default: presetId })
+    const creationPolicy = rows.find(row => row.id === 'creation-policy')
+    const plugins = creationPolicy === undefined ? [characterReference] : [creationPolicy, characterReference]
+    await context.agentPresets.register({ id: presetId, plugins })
 
     const agent = await context.agentLoop.create(SessionId('character-reference-preset-realm'), {}, { cwd: process.cwd() })
-    await context.agentPresets.mount(agent.ctx, 'short-drama')
+    await context.agentPresets.mount(agent.ctx, presetId)
+    expect(context.tools.schemas(agent).map(tool => tool.name).sort()).toEqual([
+      'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references',
+    ])
     expect(context.get('characterReferenceAuthority')).toBeUndefined()
     expect(context.agentPresets.serviceFor(agent, 'characterReferenceAuthority')).toBeDefined()
   })

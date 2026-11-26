@@ -1,0 +1,8 @@
+{
+  "completionNoticeQueuedDuringOriginalTurn": true,
+  "reconciledWhileNativeGuardHeld": true,
+  "confirmedOriginalTask": "335343",
+  "paidMockPuts": 1,
+  "nativeLedgerRecords": 1,
+  "realProviderRequests": 0
+}

@@ -7,6 +7,26 @@ export type SessionVideoSourceId = Branded<'SessionVideoSourceId'>
 /** Opaque identity of one range in a version-bound detection result. */
 export type SessionVideoShotId = Branded<'SessionVideoShotId'>
 
+/** Recorded production identities; absent fields have no verified association. */
+export interface SessionVideoProduction {
+  readonly scriptId: number
+  readonly episodeId?: number | undefined
+  /** Display episode number from an episode directory or production plan, never an ID. */
+  readonly episodeNumber?: number | undefined
+  readonly packageIndex?: number | undefined
+  readonly storyboardId?: number | undefined
+  readonly taskId?: number | undefined
+  readonly subtaskId?: number | undefined
+  /** Authored production shot numbers, independent of detected visual cuts. */
+  readonly shotNumbers?: readonly number[] | undefined
+  /** Observed source-local intervals; absent authored shots remain unlocated. */
+  readonly shotRanges?: readonly {
+    readonly shotNumber: number
+    readonly startSeconds: number
+    readonly endSeconds: number
+  }[] | undefined
+}
+
 /** One video explicitly recorded by the selected conversation. */
 export interface SessionVideoSource {
   readonly id: SessionVideoSourceId
@@ -24,6 +44,7 @@ export interface SessionVideoSource {
   readonly playbackUrl: string | null
   readonly remoteUrl: string | null
   readonly issue: string | null
+  readonly production?: SessionVideoProduction | undefined
 }
 
 /** Complete or explicitly bounded inventory from one Session log observation. */
