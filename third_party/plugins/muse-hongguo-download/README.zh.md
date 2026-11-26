@@ -23,7 +23,7 @@ description: "使用固定版本的 GPL 引擎和 Muse 会话权限下载红果�
 <a id="model-experience"></a>
 ## 下载任务
 
-向 `hongguo_download` 传入 `mode: background` 可启动会话拥有的后台任务；默认 `wait` 保留前台取消语义。`hongguo_download_task` 可以列出、查看、暂停、继续、取消、重试任务，或移除已结束的记录。暂停和取消必须携带状态查询返回的精确 `expectedRunId`；只有 `acknowledged` 才表示清理和最终状态写入均已完成，`pending` 不表示停止成功。
+向 `hongguo_download` 传入 `mode: background` 可启动会话拥有的后台任务；默认 `wait` 保留前台取消语义。`hongguo_download_task` 可以列出、查看、暂停、继续、取消、重试任务，或移除已结束的记录。暂停和取消必须携带状态查询返回的精确 `expectedRunId`；只有 `acknowledged` 才表示清理和最终状态写入均已完成，`pending` 不表示停止成功。已记录的来源失败可在任务状态和列表的 `summary.sourceDiagnostic` 中查看阶段、是否可重试和已知来源错误码。旧任务可能只有总错误码。
 
 当前工作区在 `.muse-downloads/hongguo` 保存私有记录，可通过 `taskDirectory` 配置。任务固定原会话或 CLI 所有者、规范工作区、输出目录、清晰度和来源标识。显式继续时重新检查当前写入权限与已验证进度。重启不会自动请求；进程清理未知时保持阻塞。移除记录保留视频和下载进度。指定分集的任务完成不代表整剧已下载。
 
