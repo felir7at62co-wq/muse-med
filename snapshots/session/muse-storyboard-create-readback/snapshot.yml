@@ -1,0 +1,15 @@
+version: 1
+scenario: muse-storyboard-create-readback
+profile: headless
+composition: muse-storyboard-create-readback
+recording: authored
+header:
+  class: muse-storyboard-create-readback
+  pin: true
+  systemPromptSource: muse-image-material-readback
+  toolSchemasSource: muse-image-material-readback
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-create-readback-fixture

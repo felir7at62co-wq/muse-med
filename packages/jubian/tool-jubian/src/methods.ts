@@ -40,6 +40,8 @@ import { uploadAudioReferenceMethod, uploadReferenceMethod } from './reference.t
 import type { ReferenceUploadDeps } from './reference.ts'
 import { bodyHash, estimatedCostReservation, need, recordedWriteBudget, requireKey, writeUnderLedger } from './write.ts'
 import { storyboardEditMethod } from './storyboard-edit.ts'
+import { storyboardCreateReadback } from './storyboard-create-readback.ts'
+import { defaultProjectInventoryLimits } from './project-inventory.ts'
 import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { storyboardDeleteMethod } from './storyboard-delete.ts'
 import { resolveDeletionTaskScanOptions } from './storyboard-delete-tasks.ts'
@@ -301,7 +303,9 @@ export interface MethodDeps {
   creationWorkspaceDir?: string | undefined
   /** Bounded read-only discovery of existing sources on an original card. */
   videoSources?: VideoSourceOptions
-  /** Foreground cancellation for image-reference reads and reservation. */
+  /** Shared project inventory bounds for complete free-storyboard creation readback. */
+  projectInventoryLimits?: { pageSize: number; pageLimit: number }
+  /** Foreground cancellation for provider reads and reservation. */
   signal?: AbortSignal
   /** Complete project inventory bounds for omitted character regeneration references. */
   imageReferenceScan?: ImageReferenceScanOptions
@@ -1538,28 +1542,49 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         prepared.push({ key, body: { ...body, isGenerate: 0 } })
       }
       const results: Record<string, unknown>[] = Array.from({ length: prepared.length }, () => ({}))
-      let cursor = 0
-      const worker = async (): Promise<void> => {
-        for (;;) {
-          const index = cursor++
-          const item = prepared[index]
-          if (item === undefined) return
-          const identity = { index, idempotency_key: item.key, storyboard_name: item.body.storyboardName }
-          try {
-            const result = await writeUnderLedger(ledger, item.key, 'storyboard_create', () => item.body,
-              body => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(body) }),
-              undefined, { scriptId, verifyReplayBody: true })
-            results[index] = { ...identity, status: 'returned', ...result }
-          } catch (error) {
-            results[index] = { ...identity, status: 'error', outcome: 'reconcile_required',
-              error: error instanceof Error ? error.message : 'Storyboard creation failed' }
+      const runBatch = async (operation: (item: (typeof prepared)[number], index: number) => Promise<void>) => {
+        let cursor = 0
+        const worker = async (): Promise<void> => {
+          for (;;) {
+            const index = cursor++, item = prepared[index]
+            if (item === undefined) return
+            await operation(item, index)
           }
         }
+        await Promise.all(Array.from({ length: Math.min(limits.concurrency, prepared.length) }, () => worker()))
       }
-      await Promise.all(Array.from({ length: Math.min(limits.concurrency, prepared.length) }, () => worker()))
+      await runBatch(async (item, index) => {
+        const identity = { index, idempotency_key: item.key, script_id: scriptId,
+          episode_id: Number(item.body.episodeId), storyboard_name: item.body.storyboardName, sort_order: item.body.sortOrder }
+        try {
+          const result = await writeUnderLedger(ledger, item.key, 'storyboard_create', () => item.body,
+            body => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(body) }),
+            undefined, { scriptId, verifyReplayBody: true })
+          const id = result.data
+          results[index] = { ...identity, status: 'returned', ...result,
+            ...(result.outcome === 'accepted' && typeof id === 'number' && Number.isSafeInteger(id) && id > 0
+              ? { storyboard_id: id } : {}) }
+        } catch (error) {
+          results[index] = { ...identity, status: 'error', outcome: 'reconcile_required',
+            error: error instanceof Error ? error.message : 'Storyboard creation failed' }
+        }
+      })
+      const readback = storyboardCreateReadback(client, ledger, scriptId,
+        deps.projectInventoryLimits ?? defaultProjectInventoryLimits, deps.signal)
+      await runBatch(async (item, index) => {
+        const result = need(results[index])
+        if (result.storyboard_id !== undefined) return
+        const reconciliation = await readback(item.key, item.body)
+        result.reconciliation = reconciliation
+        if (reconciliation.status === 'verified_matching_card') result.storyboard_id = reconciliation.storyboard_id
+      })
       const errors = results.filter(row => row.status === 'error').length
-      return { script_id: scriptId, total: results.length, returned: results.length - errors, errors, results,
-        next: '整批创建免费，不生成。逐项按返回 ID get 回读 model_config.prompt 与分集归属，再选材；returned 不代表校验完成。未知结果先 list/get 对账，保留原 key，不能换 key 重建。' }
+      const verifiedExisting = results.filter(row => (row.reconciliation as { status: string } | undefined)?.status === 'verified_matching_card').length
+      const needsReconciliation = results.filter(row => row.storyboard_id === undefined).length
+      return { script_id: scriptId, total: results.length, returned: results.length - errors, errors,
+        verified_existing: verifiedExisting, reconcile_required: needsReconciliation, results,
+        next: '整批创建免费，不生成。供应商直接返回的卡 ID 请用 get 核对；reconciliation.status=verified_matching_card 指已核对项目、分集及卡片内容的既有卡。'
+          + '以 reconcile_required 识别待对账项，保留原 key 和 body，已有匹配卡可以复用，状态未知不换 key 重建。' }
     }
 
     case 'list': {

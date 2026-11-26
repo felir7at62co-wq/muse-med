@@ -41,6 +41,7 @@ import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { manuscriptMethod, type ManuscriptArgs } from './manuscript.ts'
 import { projectMethod, type ProjectArgs } from './project.ts'
 import { projectShareMethod, type ProjectShareArgs } from './project-share.ts'
+import { defaultProjectInventoryLimits } from './project-inventory.ts'
 import { findMethod } from './find.ts'
 import type { FindArgs } from './find.ts'
 import { claimMethod, claimWatchArgs, claimWatchJob, resolveClaimWatchConfig } from './claim.ts'
@@ -649,8 +650,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
   const watchConfig = resolveWatchConfig(config)
   const projectShare = {
-    pageSize: config.projectSharePageSize ?? 100,
-    pageLimit: config.projectSharePageLimit ?? 20,
+    pageSize: config.projectSharePageSize ?? defaultProjectInventoryLimits.pageSize,
+    pageLimit: config.projectSharePageLimit ?? defaultProjectInventoryLimits.pageLimit,
     maxDirectoryItems: config.projectShareMaxDirectoryItems ?? 10000,
     maxPreviewBytes: config.projectShareMaxPreviewBytes ?? 2097152,
     maxResultChars: config.projectShareMaxResultChars ?? 24000,
@@ -1325,6 +1326,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const dispatch = async (beforeVideoSend?: (key: string) => Promise<void>) => {
           const result = await storyboardMethod(client, ledger, input, {
             naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal, creationWorkspaceDir,
+            projectInventoryLimits: projectShare,
             ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
             ...(promptRiskReview ? { promptRiskReview } : {}),
             ...(assertVideoModel ? { assertVideoModel } : {}),
