@@ -134,6 +134,8 @@ export function deletionInspectionReason(value: unknown): string | undefined {
 
 /**
  * Preview exact card deletion or apply a reviewed preview once, with live readback.
+ * A lost response permits continuing only after exact absence and the original unknown claim
+ * are both verified. Every remaining target is inspected again; replays perform reads only.
  * @param client - Transport for live card/task inspection and the provider's DELETE endpoint.
  * @param ledger - Records the plan and each deletion; replay performs readback only.
  * @param args - Project, exact target IDs, authorization and reviewed preview location.
@@ -199,25 +201,38 @@ export async function storyboardDeleteMethod(client: JubianClient, ledger: Jubia
   for (const target of plan.targets) {
     if (stopped) { items.push({ storyboard_id: target.storyboard_id, status: 'not_attempted', verified_readback: false }); continue }
     const item: Row = { storyboard_id: target.storyboard_id, status: 'unknown', verified_readback: false }
+    const dispatch = { started: false }
+    let recordedAttempt = false
     try {
       if (stableSha256(await inspect(client, scriptId, target.storyboard_id, taskScan)) !== stableSha256(target)) {
         item.status = 'stale'; stopped = true
       } else {
         const result = await writeUnderLedger(ledger, `${key}:${target.storyboard_id}`, 'storyboard_remove',
           () => removalRequest(scriptId, target),
-          () => client.request({ method: 'DELETE', path: `/aigc/storyboard/${target.storyboard_id}` }), undefined,
+          () => { dispatch.started = true; return client.request({ method: 'DELETE', path: `/aigc/storyboard/${target.storyboard_id}` }) }, undefined,
           { scriptId, verifyReplayBody: true })
         item.response_status = result.outcome
+        recordedAttempt = !result.replayed
         if (result.outcome !== 'accepted' || result.replayed) stopped = true
       }
     } catch (error) {
       item.response_status = 'unknown'; item.error = error instanceof JubianError ? error.code : 'REQUEST_OR_READBACK_FAILED'; stopped = true
+      if (dispatch.started) {
+        try {
+          const record = await ledger.find(`${key}:${target.storyboard_id}`)
+          if (record !== undefined) {
+            verifyClaim(record, scriptId, bodyHash(removalRequest(scriptId, target)))
+            recordedAttempt = record.outcome === 'unknown'
+          }
+        } catch (_error) { /* An unreadable claim cannot authorize continuing the reviewed batch. */ }
+      }
     }
     if (item.status !== 'stale') {
       try { item.status = await readBoard(client, scriptId, target.storyboard_id) === null ? 'deleted' : 'still_present' }
       catch (error) { item.status = 'unknown'; item.error = error instanceof JubianError ? error.code : 'READBACK_FAILED' }
       item.verified_readback = item.status === 'deleted'
       if (item.status !== 'deleted') stopped = true
+      else if (recordedAttempt) stopped = false
     }
     items.push(item)
   }

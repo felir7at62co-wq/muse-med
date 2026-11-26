@@ -77,8 +77,22 @@ exports[`records an active candidate without confirming its casting or charging 
   "budget": {
     "status": "authorized",
     "reason": "",
-    "settledCents": 0,
-    "reservedCents": 0
+    "this_submission": {
+      "reservation": {
+        "status": "recorded",
+        "amount": "0.12",
+        "unit": "CNY",
+        "basis": "quote_or_estimate"
+      },
+      "provider_billing": "not_observed"
+    },
+    "project_accounting": {
+      "scope": "project_before_submission",
+      "basis": "local_reservations",
+      "unit": "CNY",
+      "accepted_reservations_cents": 0,
+      "pending_reservations_cents": 0
+    }
   },
   "identity_reference": {
     "status": "missing",

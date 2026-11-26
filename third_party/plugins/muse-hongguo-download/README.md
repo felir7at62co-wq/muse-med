@@ -21,7 +21,7 @@ The pipeline checks complete ordered catalogs, transfers, decrypted MP4 structur
 
 ## Download tasks
 
-Pass `mode: background` to `hongguo_download` for a Session-owned background job; the default `wait` retains foreground cancellation. `hongguo_download_task` lists and inspects tasks, pauses, resumes, cancels, retries, or removes ended records. Pause and cancel require the exact `expectedRunId` from status; only an `acknowledged` control confirms that cleanup and final state publication finished. A pending request is not confirmation.
+Pass `mode: background` to `hongguo_download` for a Session-owned background job; the default `wait` retains foreground cancellation. `hongguo_download_task` lists and inspects tasks, pauses, resumes, cancels, retries, or removes ended records. Pause and cancel require the exact `expectedRunId` from status; only an `acknowledged` control confirms that cleanup and final state publication finished. A pending request is not confirmation. When a task records a source failure, task status and list results can include its stage, retryability and known source codes in `summary.sourceDiagnostic`. Earlier task records may contain only the top-level error code.
 
 The current workspace keeps private records under `.muse-downloads/hongguo`, configurable through `taskDirectory`. Tasks freeze the original Session or CLI owner, canonical workspace, output directory, quality and source identity. Explicit resume rechecks current write permissions and verified checkpoints. Restart never replays requests; unknown process cleanup remains blocked. Removing a record preserves media and checkpoints. Task completion for a selected subset does not claim full-series completion.
 

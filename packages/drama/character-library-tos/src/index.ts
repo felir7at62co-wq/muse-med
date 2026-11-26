@@ -10,6 +10,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 
 import z from '@deepseek-ai/schemastery'
 import { TosCharacterLibraryAdapter, loadLockedTosSdk } from './adapter.ts'
+import { PublicTosCharacterLibraryAdapter } from './public-adapter.ts'
 import type { CharacterLibraryTosOptions, ResolvedConfig, TosReadCredentials } from './types.ts'
 
 export {
@@ -39,6 +40,7 @@ export interface Config extends CharacterLibraryTosOptions {
 
 /** Schemastery definition for the read-only TOS identity and bounded timeouts. */
 export const Config = z.object({
+  publicRead: z.boolean().default(false),
   readAccessKeyIdRef: z.string().role('credential-ref'),
   readSecretAccessKeyRef: z.string().role('credential-ref'),
   connectionTimeoutMs: z.number().step(1).min(100).max(MAX_CONNECTION_TIMEOUT_MS)
@@ -50,6 +52,9 @@ export const Config = z.object({
 function resolveConfig(config: Config): ResolvedConfig {
   const accessRef = config.readAccessKeyIdRef
   const secretRef = config.readSecretAccessKeyRef
+  if (config.publicRead === true && (accessRef !== undefined || secretRef !== undefined)) {
+    throw new TypeError('character-library-tos: publicRead cannot be combined with credential references')
+  }
   if ((accessRef === undefined) !== (secretRef === undefined)) {
     throw new TypeError('character-library-tos: both read credential references are required together')
   }
@@ -67,17 +72,19 @@ function resolveConfig(config: Config): ResolvedConfig {
 
 /** TOS-backed deployment provider for the character-library object store. */
 export class TosCharacterLibraryObjectStore extends CharacterLibraryObjectStore {
-  private readonly adapter: TosCharacterLibraryAdapter
+  private readonly adapter: TosCharacterLibraryAdapter | PublicTosCharacterLibraryAdapter
   private readonly readConfigured: boolean
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
     const resolved = resolveConfig(config)
-    this.readConfigured = resolved.readCredentials !== null
-    this.adapter = new TosCharacterLibraryAdapter(resolved, {
-      loadSdk: loadLockedTosSdk,
-      resolveReadCredentials: () => this.resolveCredentials(resolved),
-    })
+    this.readConfigured = config.publicRead === true || resolved.readCredentials !== null
+    this.adapter = config.publicRead === true
+      ? new PublicTosCharacterLibraryAdapter(resolved.requestTimeoutMs)
+      : new TosCharacterLibraryAdapter(resolved, {
+        loadSdk: loadLockedTosSdk,
+        resolveReadCredentials: () => this.resolveCredentials(resolved),
+      })
   }
 
   /** Report deployment configuration without resolving secrets or loading the SDK. */

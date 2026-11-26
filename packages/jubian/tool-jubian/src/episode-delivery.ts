@@ -220,6 +220,13 @@ async function readEpisodeHandle(file: FileHandle, opened: Stats, maxBytes: numb
   return buffer.subarray(0, count)
 }
 
+/** Two bounded regular file identities differed between path inspection and open.
+ * @internal
+ */
+export class EpisodeJournalReplacementError extends Error {
+  constructor() { super('Episode journal changed while opening') }
+}
+
 /**
  * Read exact bounded regular bytes without treating invalid files as absent.
  * @param path - Captured local journal path.
@@ -238,9 +245,10 @@ export async function readEpisodeBytes(path: string, maxBytes: number, signal?: 
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
     const opened = await file.stat()
-    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size > maxBytes) {
+    if (!opened.isFile() || opened.size > maxBytes) {
       throw new Error('Episode journal changed while opening')
     }
+    if (opened.dev !== before.dev || opened.ino !== before.ino) throw new EpisodeJournalReplacementError()
     return await readEpisodeHandle(file, opened, maxBytes, signal)
   } finally { await file.close() }
 }

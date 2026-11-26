@@ -40,7 +40,7 @@ Choose this library when you read or submit Jubian business data and you do not 
 
 Pool rows expose `claim_leader_id` and `claim_member_id` when available. The claim tool checks these account IDs against the authenticated user because claimant names cannot verify ownership.
 
-`ImageRequestInput.imageStyle` selects `anime` or `live_action`; the provider receives `style: 1` or `style: 0`. `resolveImageStyle` recognizes a leading positive anime or live-action declaration, optionally preceded by the exact `项目风格:` or `项目风格：` prefix on the same first line, when the field is omitted; unmarked legacy prompts retain live action. Other text and negative instructions do not supply a medium. An explicit choice conflicting with the leading declaration fails before submission. The prompt remains byte-for-byte unchanged, including the 3D subtype. This selector describes the request medium and does not establish generated-image quality.
+`ImageRequestInput.imageStyle` accepts `live_action`, `anime`, and `realistic_3d`. The provider receives `modelConfig.style` as `0`, `1`, and `3`, respectively. `resolveImageStyle` recognizes a positive style declaration at the start of the first line, optionally after the exact `项目风格:` or `项目风格：` prefix. An explicit choice that conflicts with a recognized declaration fails before submission. A caller may supply the saved `scriptStyle` as the third argument to `resolveImageStyle`. That setting is consulted only when the caller supplies neither a choice nor a recognized declaration. Missing settings retain live action. The request preserves the complete prompt byte for byte.
 
 Image requests set `skipAssetReferenceTemplate: true` so the provider is asked to use the caller's composition, face masks and art direction instead of its asset reference template. The prompt and ordered reference images remain unchanged for creates and edits. This request setting does not establish visual acceptance.
 
@@ -97,6 +97,8 @@ async function readResults(client: JubianClient) {
   }
 }
 ```
+
+Use each child's `storyboard_id` to match it to the original card when a generation task covers several cards. The reader omits the field when the provider supplies no valid child card ID.
 
 `needsUpscale()` compares the current file against the delivery target. A recorded SeedVR2 pass counts the current file as 1080p even when the generation row keeps its old label; after another model's pass, such as MediaKit, a source row below the target returns `null` because its output resolution is recorded only on the provider's upscale row. Otherwise the function returns `true` below the target, `false` at or above it, and `null` when the available evidence cannot rank either side. Use `row.video_url` as the file to use: after an upscale the provider keeps the generation output in `row.base_video_url` and reports the newest file in `video_url`.
 

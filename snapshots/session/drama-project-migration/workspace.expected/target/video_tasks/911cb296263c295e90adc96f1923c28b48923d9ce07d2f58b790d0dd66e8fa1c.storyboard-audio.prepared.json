@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "operation": "storyboard_audio",
+  "script_id": 6750,
+  "storyboard_id": 2743862,
+  "audio_references": [
+    {
+      "materialType": "audio",
+      "materialKey": "voice_shen",
+      "materialUrl": "https://media.example/shen.wav",
+      "materialName": "沈明棠声线",
+      "fileName": "shen.wav",
+      "sortOrder": 1,
+      "audioDuration": 2
+    }
+  ],
+  "audio_asset_bindings": [
+    {
+      "asset_id": 310790,
+      "material_key": "voice_shen",
+      "url": "https://media.example/shen.wav"
+    }
+  ],
+  "prompt": "@[沈明棠](shen)坐在镜前。@[沈明棠声线](voice_shen)",
+  "before_snapshot": {
+    "id": 2743862,
+    "scriptId": 6750,
+    "episodeId": 159430,
+    "episodeCount": 1,
+    "storyboardName": "EP01-P1",
+    "modelConfig": {
+      "modelId": "doubao-seedance-2-5-260628",
+      "platformId": "FANG_ZHOU",
+      "standardId": 61,
+      "modelGenerationTypeId": 71,
+      "videoStandardId": 337,
+      "genType": 3,
+      "genNum": 1,
+      "ratio": "9:16",
+      "resolution": "480p",
+      "duration": 20,
+      "prompt": "@[沈明棠](shen)坐在镜前。",
+      "materialList": [
+        {
+          "assetId": "target-shen",
+          "materialAssetId": 310706,
+          "materialType": "image",
+          "materialUrl": "https://media.example/shen.png",
+          "fileName": "沈明棠",
+          "materialKey": "shen",
+          "sortOrder": 1
+        }
+      ]
+    },
+    "storyboardMaterialList": [
+      {
+        "assetId": "target-shen",
+        "materialAssetId": 310706,
+        "materialType": "image",
+        "materialUrl": "https://media.example/shen.png",
+        "fileName": "沈明棠",
+        "materialKey": "shen",
+        "sortOrder": 1
+      }
+    ]
+  },
+  "after_snapshot": {
+    "id": 2743862,
+    "scriptId": 6750,
+    "episodeId": 159430,
+    "episodeCount": 1,
+    "storyboardName": "EP01-P1",
+    "modelConfig": {
+      "modelId": "doubao-seedance-2-5-260628",
+      "platformId": "FANG_ZHOU",
+      "standardId": 61,
+      "modelGenerationTypeId": 71,
+      "videoStandardId": 337,
+      "genType": 3,
+      "genNum": 1,
+      "ratio": "9:16",
+      "resolution": "480p",
+      "duration": 20,
+      "prompt": "@[沈明棠](shen)坐在镜前。@[沈明棠声线](voice_shen)",
+      "materialList": [
+        {
+          "assetId": "target-shen",
+          "materialAssetId": 310706,
+          "materialType": "image",
+          "materialUrl": "https://media.example/shen.png",
+          "fileName": "沈明棠",
+          "materialKey": "shen",
+          "sortOrder": 1
+        },
+        {
+          "materialType": "audio",
+          "materialUrl": "https://media.example/shen.wav",
+          "fileName": "shen.wav",
+          "materialName": "沈明棠声线",
+          "materialKey": "voice_shen",
+          "sortOrder": 1,
+          "audioDuration": 2
+        }
+      ]
+    },
+    "storyboardMaterialList": [
+      {
+        "assetId": "target-shen",
+        "materialAssetId": 310706,
+        "materialType": "image",
+        "materialUrl": "https://media.example/shen.png",
+        "fileName": "沈明棠",
+        "materialKey": "shen",
+        "sortOrder": 1
+      },
+      {
+        "materialType": "audio",
+        "materialUrl": "https://media.example/shen.wav",
+        "fileName": "shen.wav",
+        "materialKey": "voice_shen",
+        "sortOrder": 1,
+        "audioDuration": 2
+      }
+    ]
+  },
+  "request_hash": "sha256:7376b7b2b061367daf73f160a9212f7bebcd39e807b6a58407fbf23ce7c1de37",
+  "fingerprint": "911cb296263c295e90adc96f1923c28b48923d9ce07d2f58b790d0dd66e8fa1c"
+}

@@ -76,8 +76,8 @@ Two layouts are documented, and the client hides the difference from you. A sing
 
 | Code | Raised when |
 |---|---|
-| `AUTHENTICATION_REQUIRED` | The credential resolver throws, the repaired token is unusable, HTTP is 401 or 403, or the envelope `code` is 401 |
-| `PERMISSION_DENIED` | The envelope `code` is 403 while HTTP is 2xx |
+| `AUTHENTICATION_REQUIRED` | The credential resolver throws, the repaired token is unusable, HTTP is 401, or the envelope `code` is 401 |
+| `PERMISSION_DENIED` | HTTP is 403, or the envelope `code` is 403 while HTTP is 2xx |
 | `RATE_LIMITED` | HTTP is 429, or the envelope `code` is 429 |
 | `CONTRACT_CHANGED` | The body is not JSON, is not valid UTF-8, is not an object, exceeds the byte cap, carries no integer `code`, or carries a code this package does not map; the detail describes the body's structure |
 | `VIDEO_TASK_EVIDENCE_INVALID` | Native video task ownership is invalid, contradictory or exceeds the bounded candidate scan; package-authored detail names the episode or scan rule. This is a local reconciliation failure, not a remote envelope rejection |
@@ -182,7 +182,7 @@ The body is parsed once and read as one of the layouts above. `failureForEnvelop
 
 ### Safe failure diagnostics
 
-The client matches exact transport codes or timeout/abort names on the thrown object and its immediate cause, without traversing deeper causes. The combined signal identifies caller cancellation or the client's deadline, including during body reads. HTTP 401 and 403 remain `AUTHENTICATION_REQUIRED`; an envelope `code` of 403 behind HTTP 2xx remains `PERMISSION_DENIED`. A body this client will not accept is reported with `describePayload()` or `describeUnparsed()`: top-level type, own key names, array length, byte count and one bounded excerpt, with credential-named fields redacted and absolute URLs reduced to their origin, so a tool result can say what arrived without reproducing it. The [diagnostic decision](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.md) records the redaction trade-off and verification limits, and the [layout decision](../../../.agents/notes/implemented/bug-fix/2026-09-28-jubian-unreadable-response-diagnostics.md) records why the tolerated layouts exist.
+The client matches exact transport codes or timeout/abort names on the thrown object and its immediate cause, without traversing deeper causes. The combined signal identifies caller cancellation or the client's deadline, including during body reads. HTTP 401 remains `AUTHENTICATION_REQUIRED`; HTTP 403 and an envelope `code` of 403 behind HTTP 2xx are `PERMISSION_DENIED`, without asserting that the login expired. A body this client will not accept is reported with `describePayload()` or `describeUnparsed()`: top-level type, own key names, array length, byte count and one bounded excerpt, with credential-named fields redacted and absolute URLs reduced to their origin, so a tool result can say what arrived without reproducing it. The [diagnostic decision](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.md) records the redaction trade-off and verification limits, and the [layout decision](../../../.agents/notes/implemented/bug-fix/2026-09-28-jubian-unreadable-response-diagnostics.md) records why the tolerated layouts exist.
 
 <a id="dumping-responses-on-purpose"></a>
 ### Dumping responses on purpose

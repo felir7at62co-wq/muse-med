@@ -42,6 +42,7 @@ const baseArgs = {
   asset_name: CHARACTER_NAME,
   asset_type: 1,
   prompt: '真人写实人物设定图。',
+  image_style: 'live_action',
   character_reference: binding,
 } satisfies MethodArgs
 
@@ -400,12 +401,19 @@ describe('managed character-reference image generation', () => {
 
   it('labels a normal Muse user grant as project-private rather than isolated QA', async () => {
     const events: string[] = []
-    const { client } = stubClient(events)
+    const { client, calls } = stubClient(events)
     const managed = preparation(events)
-    const result = await videoMethod(client, ledger, baseArgs, {
+    const prompt = '真人，白底，只有一位人物的完整全身肖像，面容清晰。'
+    const result = await videoMethod(client, ledger, { ...baseArgs, prompt }, {
       characterReferenceGeneration: { ...managed.value, authorizationEnvironment: 'project_private' },
       deferImageReadback: true,
     })
+
+    const sent = calls.find(call => call.method === 'POST')
+    expect(sent?.body).toMatchObject({ assetType: 1 })
+    const config: unknown = JSON.parse(String(sent?.body?.modelConfig))
+    expect(config).toMatchObject({ skipAssetReferenceTemplate: true, prompt,
+      materialList: [{ materialUrl: MATERIAL_URI, materialType: 'image', sortOrder: 1 }] })
 
     expect(result).toMatchObject({ character_reference: {
       qa_only: false,

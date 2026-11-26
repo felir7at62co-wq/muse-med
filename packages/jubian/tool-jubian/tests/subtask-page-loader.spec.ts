@@ -38,6 +38,7 @@ it('exposes subtask rows in PTC output types while accepting other video-method 
     expect(type).toContain('subtasks?: {')
     expect(type).toContain('rows: (')
     expect(type).toContain('parent_task_id: number | null')
+    expect(type).toContain('storyboard_id?: number')
     expect(type).toContain('status: string | null')
     expect(type).toContain('video_url: string | null')
     expect(type).toContain('project_complete: boolean')
@@ -46,12 +47,19 @@ it('exposes subtask rows in PTC output types while accepting other video-method 
     expect(sdk).toContain('interface ToolOutputMap')
     expect(sdk).toContain('subtasks?: {')
     expect(sdk).toContain('result.subtasks.rows')
-    expect(validateJsonSchemaValue(schema, { subtasks: { total: 1,
+    const subtaskPage = { total: 1,
       queried_at: '2026-10-28T00:00:00.000Z', page_num: 1, page_size: 20, returned: 1,
       total_verified: true, complete: true, has_more: false, next_page: null, rows: [{
         subtask_id: 901, parent_task_id: 42, status: 'succeeded', video_url: 'https://media.example/video.mp4',
         resolution: '480p',
-      }] }, guidance: 'read rows' }, '')).toEqual([])
+      }] }
+    expect(validateJsonSchemaValue(schema, { subtasks: subtaskPage, guidance: 'read rows' }, '')).toEqual([])
+    expect(validateJsonSchemaValue(schema, { subtasks: { ...subtaskPage,
+      rows: [{ ...subtaskPage.rows[0], storyboard_id: 201 }] } }, '')).toEqual([])
+    for (const storyboard_id of ['201', 1.5]) {
+      expect(validateJsonSchemaValue(schema, { subtasks: { ...subtaskPage,
+        rows: [{ ...subtaskPage.rows[0], storyboard_id }] } }, '')).not.toEqual([])
+    }
     expect(validateJsonSchemaValue(schema, { task: { task_id: 42, status: 'running' } }, '')).toEqual([])
     expect(validateJsonSchemaValue(schema, { outcome: 'accepted', parent_asset_id: 12 }, '')).toEqual([])
     expect(validateJsonSchemaValue(schema, { subtasks: [] }, '')).not.toEqual([])
@@ -180,6 +188,85 @@ it.each(['succeeded', 'running', 'failed'])('logs the actual %s child page and i
   }
 })
 
+it('keeps each merged-task child identity and readiness when the parent name has no package number', async () => {
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-19T00:00:00.000Z') })
+  onTestFinished(() => { vi.useRealTimers() })
+  const requests: { method: string; path: string; body: unknown }[] = []
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString())
+    const method = String(init?.method)
+    const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : null
+    requests.push({ method, path: url.pathname, body })
+    if (method === 'GET' && url.pathname.endsWith('/admin/aigc/video/task/71')) {
+      return new Response(JSON.stringify({ code: 200, data: { id: 71, taskType: 1,
+        taskStatus: 'succeeded', scriptId: 301, episodeId: 401, episodeCount: 7,
+        taskName: '第7集-合并生成' } }))
+    }
+    if (method !== 'POST' || !url.pathname.endsWith('/admin/aigc/video/task/sub/list')) {
+      throw new Error('Unexpected merged-task inventory request')
+    }
+    return new Response(JSON.stringify({ code: 200, data: { total: 5, rows: [
+      { id: 101, aigcVideoTaskId: 71, storyboardId: 201, taskStatus: 'succeeded',
+        resultList: [{ taskType: 1, resultStatus: 'succeeded', tosVideoUrl: 'https://media.example/first.mp4' }] },
+      { id: 102, aigcVideoTaskId: 71, storyboardId: '202', taskStatus: 'running',
+        resultList: [{ taskType: 1, resultStatus: 'running', tosVideoUrl: 'https://media.example/running.mp4' }] },
+      { id: 103, aigcVideoTaskId: 71, storyboardId: 0, taskStatus: 'failed' },
+      { id: 104, aigcVideoTaskId: 71, taskStatus: 'succeeded',
+        resultList: [{ taskType: 1, resultStatus: 'succeeded', tosVideoUrl: 'https://media.example/unmapped.mp4' }] },
+      { id: 105, aigcVideoTaskId: 71, storyboardId: 203, taskStatus: 'succeeded' },
+    ] } }))
+  })
+  onTestFinished(() => { fetch.mockRestore() })
+  const { ctx, home } = await fixture()
+  try {
+    await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    const adapter = new MockAdapter([
+      toolCallResponse('merged-parent', 'jubian_video', { method: 'task', task_id: 71 }),
+      toolCallResponse('merged-children', 'jubian_video', { method: 'subtasks', task_id: 71 }),
+      textResponse('Read every child; retain the unknown storyboard mapping and do not treat the running file as finished.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('merged-task-child-owner'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text',
+      text: 'Inspect the merged parent and its children without generating or downloading anything.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => ({ isError: event.data.message.isError, content: event.data.message.content }))
+    expect(results).toHaveLength(2)
+    expect(results.every(result => !result.isError)).toBe(true)
+    const text = (index: number): string => results[index]!.content
+      .filter(block => block.type === 'text').map(block => block.text).join('')
+    const parent: unknown = JSON.parse(text(0)), children: unknown = JSON.parse(text(1))
+    expect(parent).toMatchObject({ task: { task_id: 71, task_name: '第7集-合并生成' } })
+    expect(children).toMatchObject({ subtasks: { total: 5, returned: 5, complete: true, rows: [
+      { subtask_id: 101, parent_task_id: 71, storyboard_id: 201, status: 'succeeded',
+        video_url: 'https://media.example/first.mp4' },
+      { subtask_id: 102, parent_task_id: 71, storyboard_id: 202, status: 'running',
+        video_url: 'https://media.example/running.mp4' },
+      { subtask_id: 103, parent_task_id: 71, status: 'failed', video_url: null },
+      { subtask_id: 104, parent_task_id: 71, status: 'succeeded',
+        video_url: 'https://media.example/unmapped.mp4' },
+      { subtask_id: 105, parent_task_id: 71, storyboard_id: 203, status: 'succeeded', video_url: null },
+    ] } })
+    expect(children).not.toHaveProperty('subtasks.rows.2.storyboard_id')
+    expect(children).not.toHaveProperty('subtasks.rows.3.storyboard_id')
+    expect(text(1)).toContain('本页有 2 项属于本任务、已成功且带 video_url 的结果')
+    expect(validateJsonSchemaValue(ctx.tools.get('jubian_video')!.output.schema, children, '')).toEqual([])
+    expect(adapter.requests).toHaveLength(3)
+    expect(adapter.requests[2]!.messages.filter(message => message.role === 'tool')
+      .map(message => message.content)).toEqual(results.map(result => result.content))
+    expect(requests).toEqual([
+      { method: 'GET', path: '/prod-api/admin/aigc/video/task/71', body: null },
+      { method: 'POST', path: '/prod-api/admin/aigc/video/task/sub/list', body: { aigcVideoTaskId: 71 } },
+    ])
+  } finally {
+    fetch.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
 it('logs provider-limited empty discovery before reading a known task without changing its original key', async () => {
   vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-06T06:00:00.000Z') })
   onTestFinished(() => { vi.useRealTimers() })
@@ -249,4 +336,83 @@ it('logs provider-limited empty discovery before reading a known task without ch
     fetch.mockRestore()
     await ctx.fiber.dispose()
   }
+})
+
+it('reads existing sources and the original ledger key when a model fills the entire video form', async () => {
+  const requests: { method: string; path: string; body: unknown }[] = []
+  const task = { id: 77, scriptId: 301, storyboardId: 201, taskType: 1, taskStatus: 'succeeded' }
+  const child = { id: 88, aigcVideoTaskId: 77, scriptId: 301, storyboardId: 201, taskStatus: 'succeeded',
+    resolution: '720p', resultList: [{ firstResultId: 99, tosVideoUrl: 'https://media.example/original.mp4' }] }
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input.toString())
+    const method = String(init?.method)
+    const path = url.pathname.replace('/prod-api', '') + url.search
+    const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : null
+    requests.push({ method, path, body })
+    const respond = (data: unknown) => new Response(JSON.stringify({ code: 200, data }))
+    if (method === 'GET') {
+      if (path === '/aigc/storyboard/201') return respond({ id: 201, scriptId: 301 })
+      if (path === '/aigc/storyboard/byStoryboard/201') return respond([task])
+      if (path === '/admin/aigc/video/task/77') return respond(task)
+      if (path === '/admin/aigc/video/task/list?scriptId=301&taskType=1&pageNum=1&pageSize=1000') {
+        return respond({ total: 1, rows: [task] })
+      }
+    }
+    if (method === 'POST' && url.pathname.endsWith('/admin/aigc/video/task/sub/list')) {
+      return respond({ total: 1, rows: [child] })
+    }
+    throw new Error('Unexpected Jubian provider request')
+  })
+  onTestFinished(() => { fetch.mockRestore() })
+  const { ctx, home } = await fixture()
+  try {
+    const ledger = new JubianLedger({ root: home })
+    const originalKey = 'original-video-generation'
+    await ledger.begin({ idempotencyKey: originalKey, method: 'storyboard_generate',
+      scriptId: 301, requestSha256: 'original-request', beforeTaskIds: [] })
+    const before = await ledger.records()
+    await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    const character_reference = { authorization_id: '', authorization_version: 1, character_id: '',
+      catalog_asset_id: '', image_sha256: '', managed_reference_id: '' }
+    const form = { asset_category: '角色', asset_name: '', asset_type: 1, character_reference,
+      delivery_resolution: '', episode: '', idempotency_key: '', image_aspect_ratio: '16:9',
+      image_model_id: '', image_platform_id: '', image_resolution: '', image_spec_id: 0, image_style: 'live_action',
+      items: [], model_id: '', package_number: '', page_num: 1, page_size: 20, parent_asset_id: 0,
+      platform_id: '', prompt: '', references: [], resolution: '', script_id: 301, storyboard_id: 201,
+      task_id: 0, task_name: '', task_type: 0 }
+    const adapter = new MockAdapter([
+      toolCallResponse('original-card-sources', 'jubian_video', { ...form, method: 'sources' }),
+      toolCallResponse('generation-task-list', 'jubian_video', { ...form, method: 'tasks',
+        character_reference: { ...character_reference, authorization_version: 0 }, storyboard_id: 0,
+        page_size: 1000, task_type: 1 }),
+      toolCallResponse('original-key', 'jubian_video', { ...form, method: 'unresolved' }),
+      textResponse('Existing card sources and the pending generation record were read.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('existing-card-filled-video-form'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text',
+      text: 'Read the card history, generation task list, and pending ledger without generating another video.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+      .map(event => event.data.message)
+    expect(results.map(result => result.isError)).toEqual([false, false, false])
+    const [sources, tasks, unresolved] = results.map((result): unknown =>
+      JSON.parse(result.content.filter(block => block.type === 'text').map(block => block.text).join('')))
+    expect(sources).toMatchObject({ sources: { script_id: 301, storyboard_id: 201, status: 'available', complete: true,
+      sources: [{ task_id: 77, subtask_id: 88, video_url: 'https://media.example/original.mp4' }] } })
+    expect(tasks).toMatchObject({ tasks: { scope: { script_id: 301, task_type: 1 },
+      project_complete: false, rows: [{ task_id: 77 }] } })
+    expect(unresolved).toMatchObject({ unresolved: [{ idempotency_key: originalKey, outcome: 'unsettled' }] })
+    expect(requests).toEqual([
+      { method: 'GET', path: '/aigc/storyboard/201', body: null },
+      { method: 'GET', path: '/aigc/storyboard/byStoryboard/201', body: null },
+      { method: 'GET', path: '/admin/aigc/video/task/77', body: null },
+      { method: 'POST', path: '/admin/aigc/video/task/sub/list?pageNum=1&pageSize=100&orderByColumn=createTime&orderBy=desc',
+        body: { aigcVideoTaskId: 77 } },
+      { method: 'GET', path: '/admin/aigc/video/task/list?scriptId=301&taskType=1&pageNum=1&pageSize=1000', body: null },
+    ])
+    expect(await ledger.records()).toEqual(before)
+  } finally { await ctx.fiber.dispose() }
 })

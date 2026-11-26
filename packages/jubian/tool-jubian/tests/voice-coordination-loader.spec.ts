@@ -71,7 +71,7 @@ it.each([
   expect(JSON.stringify(result.content)).not.toContain('private-provider-secret')
   expect(JSON.stringify(result.value)).not.toContain('lease_id')
   expect(requests.every(row => row.startsWith('GET'))).toBe(true)
-  expect(actions).toEqual(reason === 'no-provider' || reason === 'asset-deleted' ? [] : ['acquire'])
+  expect(actions).toEqual(reason === 'no-provider' ? [] : ['acquire'])
   expect(await new JubianLedger({ root: join(home, 'ledger') }).records()).toEqual([])
   expect(workspaceToken).toHaveBeenCalledTimes(credential === '' && workspaceSecrets ? 1 : 0)
 })

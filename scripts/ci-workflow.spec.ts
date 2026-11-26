@@ -96,6 +96,7 @@ describe('CI workflow', () => {
       run: 'pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned',
     }))
     const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
+    const voiceCheck = steps.find(step => step.name === 'Check shared voice reservation and replacement')
     const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
     const macPrewarm = steps.find(step => step.name === 'Prewarm locked Mac media sources')
     expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs')
@@ -107,6 +108,9 @@ describe('CI workflow', () => {
     expect(macPrewarm?.run).toContain('gh release download v1.2.0 --repo felir7at62co-wq/muse-med')
     expect(macPrewarm?.run).toContain('--archive "$RUNNER_TEMP/mac-source-archive/muse-macos-media-9.0.2-locked-source-inputs.tar.gz"')
     expect(modelCheck).not.toHaveProperty('continue-on-error')
+    expect(voiceCheck).toMatchObject({ run: 'node --test services/muse-accounts/voice-slots.test.mjs' })
+    expect(voiceCheck).not.toHaveProperty('continue-on-error')
+    expect(voiceCheck).not.toHaveProperty('if')
     expect(packagingCheck).not.toHaveProperty('continue-on-error')
     const installerUi = steps.find(step => step.name === 'Check native Windows install and automatic update UI')
     expect(installerUi).toMatchObject({ if: "matrix.target == 'win-x64'", run: 'pnpm --dir apps/desktop run test:installer' })
@@ -114,6 +118,7 @@ describe('CI workflow', () => {
     const gatewayInstall = steps.findIndex(step => step.run === 'npm ci --prefix services/muse-accounts --ignore-scripts')
     expect(gatewayInstall).toBeGreaterThanOrEqual(0)
     expect(steps.indexOf(modelCheck ?? {})).toBeGreaterThan(gatewayInstall)
+    expect(steps.indexOf(voiceCheck ?? {})).toBeGreaterThan(gatewayInstall)
   })
 
   it('expires Muse installer artifacts after their only reader, keeping dispatched candidates for a week', () => {

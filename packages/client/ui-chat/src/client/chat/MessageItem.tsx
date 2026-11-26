@@ -57,12 +57,14 @@ function failureMessage(
   if (code === 'INTERRUPTED') return t('message.failure.interrupted')
   if (code === 'ACCOUNT_SIGN_IN_REQUIRED') return t('message.failure.accountSignInRequired')
   if (code === 'QUOTA' || code === 'ACCOUNT_QUOTA') return t('message.failure.quota')
+  if (code === 'PROMPT_USAGE_SHORTFALL') return t('message.failure.promptUsageShortfall', { detail: message })
   return code === 'AUTH' ? t('message.failure.auth') : message
 }
 
-function ModelRetryItem({ node, active, t }: {
+function ModelRetryItem({ node, active, startedCount, t }: {
   node: ModelRetryNode
   active: boolean
+  startedCount: number
   t: ChatViewSlotProps['t']
 }) {
   // Anchor the host-scheduled delay to this browser's first render of the
@@ -70,6 +72,7 @@ function ModelRetryItem({ node, active, t }: {
   const deadline = useMemo(() => Date.now() + node.delayMs, [node.delayMs, node.seq])
   const scheduledSeconds = retrySeconds(node.delayMs)
   const maximum = node.mode === 'normal' ? node.maxRetries : '∞'
+  const usageShortfall = node.failure.code === 'PROMPT_USAGE_SHORTFALL'
   const [countdown, setCountdown] = useState<RetryCountdown>(() => ({
     deadline,
     seconds: retrySeconds(deadline - Date.now()),
@@ -79,7 +82,7 @@ function ModelRetryItem({ node, active, t }: {
     : retrySeconds(deadline - Date.now())
 
   useEffect(() => {
-    if (!active) return
+    if (!active || usageShortfall) return
     const updateCountdown = (): number => {
       const next = retrySeconds(deadline - Date.now())
       setCountdown(current => (
@@ -94,7 +97,7 @@ function ModelRetryItem({ node, active, t }: {
       if (updateCountdown() === 1) window.clearInterval(timer)
     }, 250)
     return () => { window.clearInterval(timer) }
-  }, [active, deadline])
+  }, [active, deadline, usageShortfall])
 
   const label = active
     ? t('message.retry.active')
@@ -104,13 +107,18 @@ function ModelRetryItem({ node, active, t }: {
         ? t('message.retry.started')
         : t('message.retry.scheduled')
   const seconds = active ? remainingSeconds : scheduledSeconds
+  const status = usageShortfall
+    ? active
+      ? t('message.retry.promptUsageScheduled', { count: startedCount })
+      : t('message.retry.promptUsageFinished', { label, count: startedCount })
+    : t('message.retry.status', { label, retry: node.retry, maximum, seconds })
 
   return (
     <details className={css.retryRow} data-active={active || undefined}>
       <summary className={css.retrySummary}>
         <span className={css.retryText} role="status">
           <TextShimmer active={active}>
-            {t('message.retry.status', { label, retry: node.retry, maximum, seconds })}
+            {status}
           </TextShimmer>
         </span>
       </summary>
@@ -382,7 +390,8 @@ export const CompactionNodeView = memo(function CompactionNodeView({ node, t }: 
 /** Correlated retry-chain keyed Chat renderer. */
 export const RetryNodeView = memo(function RetryNodeView({ node, t }: ChatNodeViewProps<'model-retry'>) {
   const data = node.data
-  return <ModelRetryItem node={data.current} active={data.current.retryState === 'scheduled'} t={t} />
+  return <ModelRetryItem node={data.current} active={data.current.retryState === 'scheduled'}
+    startedCount={data.attempts.filter(attempt => attempt.retryState === 'started').length} t={t} />
 })
 
 /** Terminal turn-error keyed Chat renderer. */

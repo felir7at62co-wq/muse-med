@@ -346,6 +346,8 @@ export interface ChatViewInjected {
   }
   /** Open one HTTP(S) message link at the selected destination, using an external tab if Sidebar Browser is unavailable. */
   openExternalLink: (url: string) => void
+  /** Open an application resource in the native Sidebar, reporting refusal through this Session's composer. */
+  openResourceLink: (address: string) => void
   openFile: (path: string, options?: OpenFileOptions) => Promise<void>
   /** Prepare one older page without publishing it. */
   loadOlder: () => void

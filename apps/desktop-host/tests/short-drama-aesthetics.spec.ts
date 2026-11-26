@@ -63,7 +63,8 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     ctx.llm.registerAdapter(['mock'], adapter)
     const agent = await ctx.agentLoop.create(SessionId('short-drama-aesthetics'), { provider: 'mock', model: 'mock' }, { cwd: home })
     await ctx.agentPresets.mount(agent.ctx, 'short-drama-aesthetics')
-    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '为短剧设计有魅力的3D角色，并沿用我认可的妆造。' }] }))
+    const request = '为短剧设计有魅力的3D角色，并沿用我认可的妆造。只要一个单画面全身立绘，面容清晰。'
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: request }] }))
     await agent.whenIdle()
     const system = adapter.requests[0]!.messages.filter(message => message.role === 'system')
       .flatMap(message => message.content).filter(part => part.type === 'text').map(part => part.text).join('\n')
@@ -90,15 +91,22 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('所有资产图默认16:9横版')
     expect(system).toContain('用户明确指定其他比例时按指定执行')
     expect(system).toContain('资产图比例与视频成片比例分别处理')
-    expect(system).toContain('人物资产生成与交付提醒：先查看 tweet-drama-asset-vision-check 的 references/character-delivery-layout.md 及配图')
+    expect(system).toContain('人物设定板生成与交付提醒：采用默认设定板时，先查看 tweet-drama-asset-vision-check 的 references/character-delivery-layout.md 及配图')
     expect(system).toContain('只参考交付版式，不参考五官或人物形象')
     expect(system).toContain('配图默认只供看版式，不自动混入角色身份或画风参考')
-    for (const requirement of ['人物角色资产图：16:9横版白底', '四个独立区域从左到右依次',
+    for (const requirement of ['人物素材未指定版式时，默认使用16:9横版白底设定板', '四个独立区域从左到右依次',
       '正脸胸像', '正面（0°）全身、严格侧面（90°）全身、背面（180°）全身',
       '肩部和上胸，不遮罩', '完整保留头部、发型和双脚', '纯白遮罩仅贴合右侧正面和侧面的脸部轮廓',
       '背面完整呈现后脑、发型、颈部和服装，不加任何遮罩或白块', '以正背两视图替代三视图']) {
       expect(system).toContain(requirement)
     }
+    expect(system).not.toContain('人物角色资产图：16:9横版白底')
+    expect(system).toContain('本轮用户明确要求单画面全身图、单视图或人物立绘时，只展示一个完整、面容可见的人物')
+    expect(system).toContain('实际生图提示词用“单个人物、一个全身视图、面容清晰”等正向描述表达本次构图')
+    expect(system).toContain('项目风格中的旧版式文字不覆盖本轮明确要求')
+    expect(system).toContain('用户明确要求单画面时，不加载或混入四区版式模板')
+    expect(system).toContain('生成、重绘主角形象或为主角换装前，必须先用 skill 加载 protagonist-asset-sheet')
+    expect(system).toContain('加载 character-reference-library，检索并实际看图后决定是否参考')
     expect(system).not.toContain('未指定时可用16:9横版白底设定板')
     expect(system).not.toContain('不强套横版拼贴和三视图')
     expect(system).toContain('不凭提示词、参数或任务成功就宣称艺术效果达标')
@@ -112,6 +120,7 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     })
     expect(adapter.requests).toHaveLength(names.length + 1)
     const finalMessages = JSON.stringify(adapter.requests.at(-1)!.messages)
+    expect(finalMessages).toContain(request)
     for (const result of results) expect(finalMessages).toContain(JSON.stringify(result.data.message.content[0]).slice(1, -1))
     expect(bodies[1]).toContain('次世代高精度建模 CG、物理可信 PBR 材质')
     expect(bodies[1]).toContain('保留人物身份、物种、关键形态、剧情尺度、动作、道具功能与原台词')
@@ -123,6 +132,13 @@ it('keeps shot requirements resident and loads creative direction with skills', 
       '三视图从完整头顶到鞋底', '严禁无头、截头或裁脚']) {
       expect(bodies[0]).toContain(requirement)
     }
+    expect(bodies[0]).toContain('本次需要人物设定板且未指定其他版式时')
+    expect(bodies[0]).toContain('单画面全身图或立绘只展示一个完整、面容可见的人物')
+    expect(bodies[0]).toContain('用户明确要求单画面时，不调用四区提示词助手')
+    expect(bodies[0]).toContain('必须先用 `skill` 加载 [protagonist-asset-sheet]')
+    const firstPass = await readFile(new URL('anime-3d-assets/references/first-pass-cg.md', `file://${skillRoot}`), 'utf8')
+    expect(firstPass).toContain('未指定其他版式的人物设定板提示词')
+    expect(firstPass).toContain('用户明确要求单画面全身图或立绘时，使用单个人物的一个完整全身视图并保留清晰面容')
     expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('preflight <集号> --script <本集镜头脚本>')
     expect(bodies[names.indexOf('shot-script-creator-9-16')]).toContain('重复短句按出现次数核对')
     const summaries = await ctx.skills.list()

@@ -99,7 +99,8 @@ it('finds an original after full Context restart and repairs its missing receipt
   expect((await stat(output)).ino).toBe(before.ino)
   expect(await readFile(output, 'utf8')).toBe('full episode fixture bytes')
   expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(1)
-  expect(service.hasActiveWork()).toBe(false); expect(f.fetch).not.toHaveBeenCalled()
+  await expect.poll(() => service.hasActiveWork()).toBe(false)
+  expect(f.fetch).not.toHaveBeenCalled()
 })
 
 it.each(['missing', 'malformed', 'foreign'] as const)('keeps the original selectable when its recorded state is %s', async (fault) => {

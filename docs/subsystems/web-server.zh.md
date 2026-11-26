@@ -226,11 +226,24 @@ async submitAudio(file: string, id: string, sha256: string, language: 'zh' | 'au
 async audioStatus(id: string, signal?: AbortSignal): Promise<MuseAsrJob>
 
 /**
+ * Read the saved identity for Host tools without refreshing Desktop consumers.
+ * @returns Current local account state without credentials.
+ */
+async readLocalStatus(): Promise<MuseAccountStatus>
+
+/**
  * Read the stored identity or confirm it with the gateway.
  * @param request - Whether to verify the cookie online.
  * @returns A browser-safe status without a cookie.
  */
 @Remote('status') async status(request: MuseAccountStatusRequest): Promise<MuseAccountStatus>
+
+/**
+ * Read profile, assigned groups, and token usage for the saved Muse login.
+ * @param request - Usage period and page; omission of fields selects gateway defaults.
+ * @returns Validated current-account data without credentials or model content.
+ */
+@Remote('details') async details(request: MuseAccountDetailsRequest): Promise<MuseAccountDetails>
 
 /**
  * Sign in using UI-submitted credentials; registration requires an explicit choice.

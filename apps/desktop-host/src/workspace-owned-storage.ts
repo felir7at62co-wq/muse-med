@@ -11,7 +11,7 @@ import { StorageError, storageBackendServiceKey } from '@deepseek-ai/dsh-storage
 import type { KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
 import { workspaceDomainState, workspaceRecord } from '@deepseek-ai/dsh-workspace'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { generationWorkspaceIdentitySchema } from '@deepseek-ai/dsh-tool-jubian/generation-binding'
+import { GenerationWorkspaceBusy, generationWorkspaceIdentitySchema } from '@deepseek-ai/dsh-tool-jubian/generation-binding'
 import type { GenerationWorkspaceAuthority, GenerationWorkspaceIdentity, GenerationWorkspaceLease } from '@deepseek-ai/dsh-tool-jubian/generation-binding'
 import { JsonStorageBackend } from '@deepseek-ai/dsh-storage-json'
 import { acquireWorkspaceOwner, publishWorkspacePath } from './workspace-owner-lease.ts'
@@ -224,7 +224,7 @@ export class OwnedWorkspaceStorage implements StorageBackend, GenerationWorkspac
     return waitForOwner(this.enqueue(() => {
       signal.throwIfAborted()
       if (this.closing || this.unitClosing) throw new StorageError('closed', 'workspace successor is closing')
-      if (this.active.has(identity.sessionId)) throw new Error('workspace Session already has an active continuation')
+      if (this.active.has(identity.sessionId)) throw new GenerationWorkspaceBusy()
       if (!matches(this.requireState(), identity)) throw new Error('original workspace membership changed')
       const controller = new AbortController()
       const release = () => {

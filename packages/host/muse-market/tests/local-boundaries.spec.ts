@@ -112,6 +112,40 @@ it('refuses file growth beyond the read budget and closes the owned descriptor',
   expect(closed).toBe(true)
 })
 
+it('refuses an in-place archive rewrite after reading the opened file', async () => {
+  const f = await fixture(), file = join(f.root, 'rewritten-archive')
+  await files.writeFile(file, '12345')
+  const original = await files.lstat(file, { bigint: true })
+  const stamp = new Date(Number(original.mtimeMs / 1000n) * 1000 - 60_000)
+  const open = files.open
+  let changed = false
+  let restoreHandle: (() => void) | undefined
+  const inspect = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    const handle = await open(...args)
+    if (args[0] === file) {
+      const stat = handle.stat.bind(handle)
+      const measure = vi.spyOn(handle, 'stat').mockImplementationOnce(stat).mockImplementationOnce(async () => {
+        await files.writeFile(file, '54321')
+        await files.utimes(file, stamp, stamp)
+        const observed = await stat({ bigint: true })
+        changed = observed.dev === original.dev && observed.ino === original.ino && observed.size === original.size
+          && observed.mtimeNs !== original.mtimeNs
+        return observed
+      })
+      restoreHandle = () => { measure.mockRestore() }
+    }
+    return handle
+  })
+  try {
+    await expect(readMarketBytes(file, 5)).rejects.toMatchObject({ code: 'changed-resource' })
+    expect(changed).toBe(true)
+    expect(await files.readFile(file, 'utf8')).toBe('54321')
+  } finally {
+    restoreHandle?.()
+    inspect.mockRestore()
+  }
+})
+
 it('uses the platform-specific regular-file flags while preserving exact bytes', async () => {
   const f = await fixture(), file = join(f.root, 'resource'); await files.writeFile(file, '12345')
   const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')

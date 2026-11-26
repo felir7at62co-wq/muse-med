@@ -52,7 +52,8 @@ class SyntheticRelayAdapter extends LlmAdapter {
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    yield* this.requests.length >= this.healthyFrom ? reply('Recovered answer.', 1_000_000) : reply(DROPPED, 40)
+    yield* this.requests.length >= this.healthyFrom
+      ? reply('Recovered answer.', 1_000_000) : reply(DROPPED, this.requests.length === 1 ? 40 : 71)
   }
 }
 
@@ -69,12 +70,13 @@ try {
   const shippedPolicy: NormalRetryPolicyConfig = {
     mode: 'normal', maxRetries: 8,
     retryableCodes: ['EMPTY_RESPONSE', 'INVALID_TOOL_ARGUMENTS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', CODE],
+    consecutiveRetryLimits: { [CODE]: 1 },
     backoff: { initialDelayMs: 2000, maxDelayMs: 60000 },
   }
   const accountConfig: unknown = rows.find(row => row.id === 'muse-account')?.config
   assert.deepEqual(field(accountConfig, 'modelRetryPolicy'), shippedPolicy)
   const goalConfig: unknown = desktop.find(patch => patch.id === 'goal-round-driver')?.config
-  assert.deepEqual(field(goalConfig, 'transientErrorResume'), { maxAttempts: 3, delayMs: 120000, codes: ['SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED', CODE] })
+  assert.deepEqual(field(goalConfig, 'transientErrorResume'), { maxAttempts: 3, delayMs: 120000, codes: ['SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED'] })
 
   ctx = await boot('prompt-usage-loader-test', configPath, [{ insert: guardRows }])
   const loaded = ctx
@@ -99,13 +101,18 @@ try {
   await agent.whenIdle()
   const events = agent.session.snapshotEvents()
   const attempts = events.filter(event => event.type === 'assistant/attempt')
-  for (const attempt of attempts) {
+  for (const [index, attempt] of attempts.entries()) {
     const finish = expandAssistantStream(attempt.data.stream).map(record => record.chunk).at(-1)
     assert.ok(finish?.type === 'finish' && finish.reason.kind === 'error' && finish.reason.failure.code === CODE)
+    assert.ok(finish.reason.failure.message.includes(`reported ${index === 0 ? 40 : 71} prompt tokens`))
   }
   const retries = events.filter(event => event.type === 'llm/retry')
   const messages = events.filter(event => event.type === 'assistant/message')
   const turnEnd = events.findLast(event => event.type === 'turn/end')
+  assert.ok(retries[0]?.data.failure.message.includes('reported 40 prompt tokens'))
+  if (scenario === 'exhausted') {
+    assert.ok(turnEnd?.data.reason.kind === 'error' && turnEnd.data.reason.error.message.includes('reported 71 prompt tokens'))
+  }
   const laterRequests = adapter.requests.slice(1).map(request => JSON.stringify(request.messages))
   await writeFile(join(process.cwd(), 'events.jsonl'), events.map(event => JSON.stringify(event)).join('\n') + '\n', { flag: 'wx' })
   await loaded.fiber.dispose()

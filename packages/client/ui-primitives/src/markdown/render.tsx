@@ -592,7 +592,7 @@ function anchorWrapsOnlyImages(children: Md.PhrasingContent[]): boolean {
   return children.length > 0 && children.every(child => child.type === 'image' || child.type === 'imageReference')
 }
 
-/** Anchor over a safe absolute href, with optional owner navigation for HTTP(S). */
+/** Anchor over a safe absolute href, with optional resource or HTTP(S) navigation. */
 function renderSafeLink(href: string, children: ReactNode[], key: Key, glyph = true): ReactNode {
   const safeHref = sanitizeUrl(href)
   if (safeHref === '') return <Fragment key={key}>{children}</Fragment>
@@ -604,9 +604,10 @@ function MarkdownAnchor({ href, glyph, children }: {
   readonly glyph: boolean
   readonly children: ReactNode[]
 }): ReactNode {
-  const { openExternalLink, getTriggerProps } = useMarkdownDelegate()
-  const external = ['http:', 'https:'].includes(new URL(href).protocol)
-  const open = external ? openExternalLink : undefined
+  const { openExternalLink, openResourceLink, getTriggerProps } = useMarkdownDelegate()
+  const protocol = new URL(href).protocol
+  const external = ['http:', 'https:'].includes(protocol)
+  const open = external ? openExternalLink : protocol === 'dsh-resource:' ? openResourceLink : undefined
   return (
     <a
       href={href}

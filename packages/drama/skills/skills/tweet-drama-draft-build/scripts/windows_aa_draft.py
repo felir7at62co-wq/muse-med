@@ -29,7 +29,7 @@ CORE_SCRIPTS = SCRIPT_ROOT.parents[1] / 'tweet-drama-core' / 'scripts'
 sys.path.insert(0, str(CORE_SCRIPTS))
 from video_bans import check_videos, find_project
 from draft_inputs import (audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues,
-                          subtitle_font_request, write_product_subtitles)
+                          subtitle_font_recovery, subtitle_font_request, verify_draft_episode_scope, write_product_subtitles)
 from generate_draft_request import attach_episode_source_receipt, read_subtitle_overlay_report, verify_draft_subtitle_clock
 from draft_stage_guard import BuildLease, DraftStageGuard
 from draft_integrity import (DraftIntegrityUnavailable, verify_saved_identity, verify_embedded_source_ranges,
@@ -297,7 +297,6 @@ def prepare_plan(request: dict, drafts_dir: str, *, lifetime: ExitStack | None =
     if not isinstance(inputs, list) or not inputs:
         raise ValueError('videos must contain the selected episode files in shot order')
     sources = [require_file(path, 'videos') for path in inputs]
-    check_videos(find_project(project, str(project)), sources)
     timeline_path = require_file(request['timeline'], 'timeline')
     subtitle_path = require_file(request['subtitle_srt'], 'subtitle_srt')
     timeline = json.loads(timeline_path.read_text(encoding='utf-8-sig'))
@@ -307,6 +306,8 @@ def prepare_plan(request: dict, drafts_dir: str, *, lifetime: ExitStack | None =
     shots = [row.get('shot') if isinstance(row, dict) else None for row in clips]
     if any(isinstance(shot, bool) or not isinstance(shot, int) or shot < 1 for shot in shots) or len(set(shots)) != len(shots):
         raise ValueError('Timeline shot IDs must be distinct positive integers')
+    verify_draft_episode_scope(project, episode, root, sources, shots, timeline=timeline_path, subtitle=subtitle_path)
+    check_videos(find_project(project, str(project)), sources)
     ordered = sorted(clips, key=lambda row: row.get('start_us', -1))
     cursor = 0
     for row in ordered:
@@ -779,14 +780,15 @@ def generate_candidate(request: dict, drafts_dir: str, plan: dict, stage: Path) 
     subtitle_font = verification['subtitle_font']
     font_ready = subtitle_font['delivery_ready']
     quality = 'needs_review' if font_ready else 'needs_repair'
+    recovery = '' if font_ready else subtitle_font_recovery(subtitle_font)
     error = '' if font_ready else (
-        f'请求字幕字体尚未绑定并验证，禁止交付。可编辑候选：{plan["draft_path"]}；核对记录：{review_path}')
+        f'请求字幕字体尚未绑定并验证，禁止交付。可编辑候选：{plan["draft_path"]}；核对记录：{review_path}。{recovery}')
     review = {'status': quality, 'backend': 'aa-jianying', 'warnings': warnings,
               'draft_style': plan['draft_style'], 'subtitle_font': subtitle_font,
               'verification': verification, 'runtime_receipt': str(receipt),
               'materials': plan['materials'], 'runtime': result['runtime'],
               'next': ('原生草稿已保存并回读；实际剪映打开、重开、字幕与声音仍需验收。' if font_ready else
-                       '草稿字体待修，禁止交付；保留本候选，补齐后端字体绑定并重新验证。')}
+                       recovery)}
     if 'subtitle_overlay' in plan:
         review['subtitle_overlay'] = plan['subtitle_overlay']
     candidate = {'episode': str(request['episode']).zfill(2), 'name': plan['name'],

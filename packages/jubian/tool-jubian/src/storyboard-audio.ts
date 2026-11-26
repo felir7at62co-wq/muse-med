@@ -114,8 +114,9 @@ async function verifyBindings(client: JubianClient, scriptId: number, bindings: 
   for (const binding of bindings) {
     const asset = await getAudioAsset(client, scriptId, binding.asset_id)
     if (asset === null || asset.url !== binding.url) refuse('Audio asset is missing or its URL differs from the reviewed reference')
-    if (asset.liveness === 'deleted' || (binding.voice_period_id !== undefined && asset.liveness !== 'active')) {
-      refuse('Only this storyboard audio binding is pending: deleted asset or unconfirmed phased voice; continue independent work without saving this card')
+    if (asset.liveness === 'deleted' || asset.liveness === 'unknown'
+      || (binding.voice_period_id !== undefined && asset.liveness !== 'active')) {
+      refuse('Only this storyboard audio binding is pending: deleted or unconfirmed voice asset; continue independent work without saving this card')
     }
     if (asset.character_id !== undefined && binding.character_id === undefined) {
       invalid('Shared character voice requires character_id and voice_period_id; adopt its approved project voice before previewing, do not remove identity fields')

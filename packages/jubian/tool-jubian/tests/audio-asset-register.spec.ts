@@ -462,6 +462,59 @@ it.each(['not-ready', 'contract', 'unavailable'])('retains the original operatio
   expect(f.requests.filter(row => row.startsWith('POST'))).toHaveLength(1)
 })
 
+it('reads back a replayed voice registration when the completion response was lost', async () => {
+  const f = await fixture({ pages: () => ({ total: 1, rows: [sharedAsset(7, 'adult', { assetName: readyAsset.name })] }) })
+  await f.ledger.begin({ idempotencyKey: args.idempotency_key, method: 'asset_register', scriptId: 2708,
+    requestSha256: bodyHash({ ...body, assetName: readyAsset.name }) })
+  let ready = false
+  const request = vi.fn<VoiceCoordinator['request']>(async (call) => {
+    if (call.action === 'complete') {
+      ready = true
+      throw new Error('Response lost after completion')
+    }
+    return readVoiceCoordination(ready ? { ...call, state: 'ready', asset: readyAsset, owner_operation: true, lease_id: 'a'.repeat(43) }
+      : { ...call, state: 'submitted', lease_id: 'a'.repeat(43), owner_operation: true }, call)
+  })
+  expect(await registerAudioAsset(f.client, f.ledger, sharedArgs, limits, { request })).toMatchObject({
+    replayed: true, coordination_state: 'ready', exclusive_registration: true, canonical_voice_asset_id: 7,
+  })
+  expect(request.mock.calls.map(([call]) => call.action)).toEqual(['read', 'complete', 'read'])
+  expect(f.requests.filter(row => row.startsWith('POST'))).toEqual([])
+  expect(await f.ledger.records()).toHaveLength(1)
+})
+
+const differentReadyAsset = { ...readyAsset, asset_id: 8, name: '替代声线 ' + slotTag(), url: 'https://media.example/other.wav' }
+it.each([
+  { label: 'other operation', owner_operation: undefined, lease_id: undefined, asset: differentReadyAsset },
+  { label: 'other lease', owner_operation: true, lease_id: 'b'.repeat(43), asset: readyAsset },
+  { label: 'other asset', owner_operation: true, lease_id: 'a'.repeat(43), asset: differentReadyAsset },
+  { label: 'changed name', owner_operation: true, lease_id: 'a'.repeat(43), asset: { ...readyAsset, name: differentReadyAsset.name } },
+  { label: 'changed URL', owner_operation: true, lease_id: 'a'.repeat(43), asset: { ...readyAsset, url: differentReadyAsset.url } },
+])('keeps completion unresolved if the fallback read returns $label', async ({ label: _label, ...receipt }) => {
+  const f = await fixture({ pages: (_read, page) => ({ total: 2,
+    rows: page === 1 ? [sharedAsset(7, 'adult', { assetName: readyAsset.name })]
+      : [sharedAsset(8, 'adult', { assetName: differentReadyAsset.name, url: differentReadyAsset.url })] }) })
+  await f.ledger.begin({ idempotencyKey: args.idempotency_key, method: 'asset_register', scriptId: 2708,
+    requestSha256: bodyHash({ ...body, assetName: readyAsset.name }) })
+  let completeAttempted = false
+  const request = vi.fn<VoiceCoordinator['request']>(async (call) => {
+    if (call.action === 'complete') {
+      completeAttempted = true
+      throw new Error('Completion reply lost')
+    }
+    return readVoiceCoordination(completeAttempted ? { ...call, state: 'ready', ...receipt }
+      : { ...call, state: 'submitted', lease_id: 'a'.repeat(43), owner_operation: true }, call)
+  })
+  expect(await registerAudioAsset(f.client, f.ledger, sharedArgs, limits, { request })).toMatchObject({
+    replayed: true, coordination_state: 'submitted', exclusive_registration: false,
+    registration_created_asset_id: 7, canonical_voice_asset_id: 7, shared_slot_verified: true,
+  })
+  expect(request.mock.calls.map(([call]) => call.action)).toEqual(['read', 'complete', 'read'])
+  expect(f.requests.filter(row => row.startsWith('POST'))).toEqual([])
+  expect(f.requests).not.toContain('GET /aigc/asset/8')
+  expect(await f.ledger.records()).toHaveLength(1)
+})
+
 it.each(['sign-in-required', 'account-changed', 'not-configured', 'network', 'unavailable'] as const)('keeps %s pending local to registration before a start permission', async (reason) => {
   const f = await fixture()
   const coordinator: VoiceCoordinator = { async request(request) {
@@ -487,6 +540,76 @@ it('does not reuse or automatically replace a shared slot that the list explicit
   expect(await f.ledger.records()).toEqual([])
 })
 
+it('registers a replacement only with the gateway retired asset permission and keeps both operation replays read-only', async () => {
+  const deleted = sharedAsset(13, 'adult', { delFlag: '1' })
+  const added = { ...asset, assetName: `${args.asset_name} ${slotTag()}` }
+  const f = await fixture({ pages: read => ({ total: read === 1 ? 1 : 2, rows: read === 1 ? [deleted] : [deleted, added] }) })
+  const actions: string[] = []
+  const coordinator: VoiceCoordinator = { async request(request) {
+    actions.push(request.action)
+    const ready = request.action === 'complete' || request.action === 'read'
+    return readVoiceCoordination({ ...request, state: ready ? 'ready' : request.action === 'acquire' ? 'reserved' : 'submitted',
+      owner_operation: true, lease_id: 'a'.repeat(43), replaces_asset_id: 13,
+      ...(request.action === 'start' ? { started_now: true } : {}),
+      ...(ready ? { asset: { asset_id: 7, script_id: 2708, asset_type: 4, name: added.assetName, url: added.url,
+        character_id: 'zhou', voice_period_id: 'adult', voice_slot_tag: slotTag() } } : {}) }, request)
+  } }
+  expect(await registerAudioAsset(f.client, f.ledger, sharedArgs, { pageLimit: 1, pageSize: 10 }, coordinator))
+    .toMatchObject({ outcome: 'accepted', created_asset_id: 7, canonical_voice_asset_id: 7,
+      exclusive_registration: true, shared_slot_verified: true, duplicate_assets: [{ asset_id: 13, liveness: 'deleted' }] })
+  expect(actions).toEqual(['acquire', 'start', 'complete'])
+  expect(await registerAudioAsset(f.client, f.ledger, sharedArgs, { pageLimit: 1, pageSize: 10 }, coordinator))
+    .toMatchObject({ replayed: true, created_asset_id: 7, canonical_voice_asset_id: 7, exclusive_registration: true })
+  expect(f.requests.filter(request => request.startsWith('POST'))).toHaveLength(1)
+})
+
+it.each([
+  { marker: undefined, listed: true }, { marker: 99, listed: true }, { marker: 13, listed: false },
+])('abandons a replacement reservation without matching deleted inventory evidence %j', async ({ marker, listed }) => {
+  const deleted = sharedAsset(13, 'adult', { delFlag: '1' })
+  const f = await fixture({ pages: () => ({ total: listed ? 1 : 0, rows: listed ? [deleted] : [] }) })
+  const actions: string[] = []
+  const coordinator: VoiceCoordinator = { async request(request) {
+    actions.push(request.action)
+    return readVoiceCoordination(request.action === 'abandon' ? { ...request, state: 'available' }
+      : { ...request, state: 'reserved', lease_id: 'a'.repeat(43), owner_operation: true,
+        ...(marker === undefined ? {} : { replaces_asset_id: marker }) }, request)
+  } }
+  expect(await registerAudioAsset(f.client, f.ledger, sharedArgs, limits, coordinator))
+    .toMatchObject({ status: 'voice_reference_pending', reason_code: 'asset-deleted', submission_attempted: false })
+  expect(actions).toEqual(['acquire', 'abandon'])
+  expect(await f.ledger.records()).toEqual([])
+  expect(f.requests.some(request => request.startsWith('POST'))).toBe(false)
+})
+
+it.each(['network', 'exception', 'not-available'])('reports a failed unused replacement abandonment without claiming or posting: %s', async (failure) => {
+  const f = await fixture({ pages: () => ({ total: 1, rows: [sharedAsset(13, 'adult', { delFlag: '1' })] }) })
+  const coordinator: VoiceCoordinator = { async request(request) {
+    if (request.action === 'abandon') {
+      if (failure === 'network') throw new VoiceCoordinationUnavailableError('network')
+      if (failure === 'exception') throw new Error('private remote body')
+    }
+    return readVoiceCoordination({ ...request, state: 'reserved', lease_id: 'a'.repeat(43), owner_operation: true }, request)
+  } }
+  expect(await registerAudioAsset(f.client, f.ledger, sharedArgs, limits, coordinator))
+    .toMatchObject({ status: 'coordination_unavailable', reason_code: failure === 'network' ? 'network' : 'unavailable',
+      submission_attempted: false, retry_registration: false })
+  expect(await f.ledger.records()).toEqual([])
+  expect(f.requests.some(request => request.startsWith('POST'))).toBe(false)
+})
+
+it('does not POST if replacement permission changes between acquisition and start', async () => {
+  const f = await fixture({ pages: () => ({ total: 1, rows: [sharedAsset(13, 'adult', { delFlag: '1' })] }) })
+  const coordinator: VoiceCoordinator = { async request(request) {
+    return readVoiceCoordination({ ...request, state: request.action === 'acquire' ? 'reserved' : 'submitted',
+      lease_id: 'a'.repeat(43), owner_operation: true,
+      ...(request.action === 'acquire' ? { replaces_asset_id: 13 } : { started_now: true, replaces_asset_id: 14 }) }, request)
+  } }
+  await expect(registerAudioAsset(f.client, f.ledger, sharedArgs, limits, coordinator)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(f.requests.some(request => request.startsWith('POST'))).toBe(false)
+  expect(await f.ledger.find(args.idempotency_key)).toMatchObject({ method: 'asset_register', outcome: 'unknown' })
+})
+
 it('excludes a deleted lower ID and verifies the next active candidate through its exact detail endpoint', async () => {
   const f = await fixture({ pages: (_read, page) => ({ total: 2,
     rows: [page === 1 ? sharedAsset(13, 'adult', { delFlag: 1 }) : sharedAsset(14)] }) })
@@ -504,7 +627,7 @@ const failedDetails: { label: string; detail: unknown; protocol?: boolean; reaso
   { label: 'absent flag', detail: sharedAsset(13, 'adult', { delFlag: undefined }), reason: 'asset-liveness-unknown' },
   { label: 'ambiguous flag', detail: sharedAsset(13, 'adult', { delFlag: 'pending' }), reason: 'asset-liveness-unknown' },
   { label: 'null deleted flag', detail: sharedAsset(13, 'adult', { deleted: null }), reason: 'asset-liveness-unknown' },
-  { label: 'conflicting deleted flag', detail: sharedAsset(13, 'adult', { deleted: true }), reason: 'asset-deleted' },
+  { label: 'conflicting deleted flag', detail: sharedAsset(13, 'adult', { deleted: true }), reason: 'asset-liveness-unknown' },
   { label: 'URL drift', detail: sharedAsset(13, 'adult', { url: 'https://media.example/replaced.wav' }), reason: 'asset-identity-changed' },
   { label: 'name drift', detail: sharedAsset(13, 'adult', { assetName: `新的声音 ${slotTag()}` }), reason: 'asset-identity-changed' },
   { label: 'period drift', detail: sharedAsset(13, 'child'), reason: 'asset-identity-changed' },

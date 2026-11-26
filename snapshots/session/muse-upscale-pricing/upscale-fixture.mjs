@@ -12,6 +12,9 @@ const catalogue = [
   { id: 27, modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT',
     unitPrice: 0.375, unit: '元/分钟(1系数)', genTypes: [],
     videoStandards: [{ id: 165, modelId: 'AI MediaKit', resolution: '1080p', height: 4, width: 0 }] },
+  { id: 105, modelId: 'enhance-video-generative', platformId: 'AI_MEDIA_KIT',
+    unitPrice: 2.5, unit: '元/分钟(1系数)', genTypes: [],
+    videoStandards: [{ id: 514, modelId: 'enhance-video-generative', resolution: '1080p', frames: 30, price: 5 }] },
   { id: 55, modelId: '2074071626416742401', platformId: 'RUNNING_HUB',
     unitPrice: 1, unit: '元/条', genTypes: [],
     videoStandards: [{ id: 303, modelId: '2074071626416742401', resolution: '1080p' }] },
@@ -113,7 +116,17 @@ export async function apply(ctx) {
     const refused = result('call_upscale_unpriced', true), budget = await readProjectBudget(ledger, 2708)
     assert.equal(submitted.replayed, false); assert.equal(submitted.outcome, 'accepted')
     assert.equal(submitted.accepted_task_id, '429001'); assert.equal(submitted.budget.status, 'authorized')
+    assert.deepEqual(submitted.budget, {
+      status: 'authorized', reason: '',
+      this_submission: { reservation: { status: 'recorded', amount: '1.50', unit: 'CNY', basis: 'quote_or_estimate' },
+        provider_billing: 'not_observed' },
+      project_accounting: { scope: 'project_before_submission', basis: 'local_reservations', unit: 'CNY',
+        accepted_reservations_cents: 0, pending_reservations_cents: 0 },
+    })
     assert.equal(replayed.replayed, true); assert.equal(replayed.outcome, 'accepted')
+    assert.deepEqual(replayed.budget, { status: 'not_rechecked', reason: '', project_accounting: null,
+      this_submission: { reservation: { status: 'recorded', amount: '1.50', unit: 'CNY', basis: 'quote_or_estimate' },
+        provider_billing: 'not_observed' } })
     assert.match(refused, /没有报价/)
     assert.equal(budget.source, 'default'); assert.equal(budget.limit_cents, 400000)
     assert.equal(budget.settled_cents, 150); assert.equal(budget.reserved_cents, 0)

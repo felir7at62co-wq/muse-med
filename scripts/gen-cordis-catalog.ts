@@ -51,6 +51,7 @@ export { REGION_BEGIN, REGION_END }
  */
 export const SERVICE_PAGE: Record<string, string> = {
   characterLibrary: 'character-library.md',
+  characterLibraryBrowser: 'character-library.md',
   characterLibraryObjectStore: 'character-library.md',
   characterReferenceAuthority: 'character-library.md',
   headlessStartup: 'boot.md',
@@ -1079,6 +1080,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AuthoritativeCharacterReference: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',
   CharacterReferenceAuthorityRequest: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',
   CharacterLibraryStatus: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
+  CharacterLibraryImage: 'browser preview fields are owned by packages/api/character-library/README.md and src/types.ts',
   CharacterLibraryBrowseRequest: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
   CharacterLibraryBrowseResult: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
   CharacterLibraryDetailRequest: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',
@@ -1135,6 +1137,12 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   MuseDesktopTunnel: 'desktop connection lifetime is owned by packages/host/muse-account/README.md',
   MuseDesktopTunnelOptions: 'desktop provider configuration is owned by packages/host/muse-account/README.md',
   MuseVoiceSlotRequest: 'Muse account operations are owned by packages/host/muse-account/README.md and its source types',
+  MuseAccountDetails: 'Muse account details are owned by packages/host/muse-account/README.md and its source types',
+  MuseAccountFullDetails: 'Muse account details are owned by packages/host/muse-account/README.md and its source types',
+  MuseAccountRelayDetails: 'Muse account details are owned by packages/host/muse-account/README.md and its source types',
+  MuseAccountRelayUsage: 'Muse account details are owned by packages/host/muse-account/README.md and its source types',
+  MuseAccountRelayTokenFields: 'Muse account details are owned by packages/host/muse-account/README.md and its source types',
+  MuseAccountDetailsRequest: 'Muse account details are owned by packages/host/muse-account/README.md and its source types',
   MuseAccountStatus: 'Muse account operations are owned by packages/host/muse-account/README.md and its source types',
   MuseAccountStatusRequest: 'Muse account operations are owned by packages/host/muse-account/README.md and its source types',
   MuseAccountLoginRequest: 'Muse account operations are owned by packages/host/muse-account/README.md and its source types',

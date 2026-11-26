@@ -42,7 +42,8 @@ it('keeps an accepted image pending and resolves only verified numeric video par
     const method = String(init?.method)
     calls.push({ method, path })
     let data: unknown
-    if (path.includes('getSelectList?taskType=2')) data = [{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI',
+    if (path.endsWith('/aigc/script/2708')) data = { id: 2708, scriptStyle: 0 }
+    else if (path.includes('getSelectList?taskType=2')) data = [{ id: 66, modelId: 'gpt-image-2', platformId: 'KU_AI',
       unitPrice: 0.12, unit: '张', genTypes: [{ id: 7, type: 3 }],
       videoStandards: [{ id: 93, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] }]
     else if (method === 'POST' && path.endsWith('/aigc/asset')) data = 83749

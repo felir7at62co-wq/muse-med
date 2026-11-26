@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/muse-model-auth-codes/guide.md
+/:
+  en: ae40a87aadf10c66
+  zh: 3ece36055fb85c53
+/muse-model-authentication-error-codes:
+  en: 138f172c193d60dd
+  zh: 45713b6a035e1611
+/muse-model-authentication-error-codes/change:
+  en: 14d6acf8edce675f
+  zh: 153d2e55850a34cd
+/muse-model-authentication-error-codes/migration:
+  en: de912ec39f8f16c6
+  zh: 8bcf10b109883ddb

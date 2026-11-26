@@ -191,10 +191,11 @@ describe('retry projection', () => {
       }
     })
     const definition = definitions.find(spec => spec.key === 'llmRetry')!
-    const event: SessionEvent = {
-      type: 'llm/retry',
-      data: { provider: 'mock', policyKey: 'policy', retry: 1, retryId: 'retry-1' },
-    } as never
+    const session = ctx.sessions.create(SessionId('retry-projection'))
+    const event = session.append('llm/retry', {
+      provider: 'mock', policyKey: 'policy', turn: 1, step: 1, retry: 1, retryId: retry.RetryId('retry-1'),
+      mode: 'normal', maxRetries: 2, delayMs: 1, failure: { code: 'SERVER', message: 'synthetic failure' },
+    })
     const state = definition.apply({}, event)
 
     expect(definition.apply(state, event)).toBe(state)

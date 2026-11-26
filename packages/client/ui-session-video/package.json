@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-session-video",
-  "description": "Muse chat video cards, shot timelines and conversation video history",
+  "description": "Muse conversation video workspace, shot selection and chat editing",
   "version": "0.2.2-rc.2",
   "publishConfig": {
     "access": "public"
@@ -28,6 +28,7 @@
     },
     "./src/*": "./src/*",
     "./locale/*.json": "./locale/*.json",
+    "./assets/*": "./lib/assets/*",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -39,7 +40,11 @@
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-deliverables",
         "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-settings"
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-resources",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-input-trigger"
       ],
       "platform": "web"
     }
@@ -79,12 +84,18 @@
     "clsx": "^2.0.0",
     "@deepseek-ai/dsh-brand": "workspace:*",
     "@deepseek-ai/dsh-client-ui-settings": "workspace:*",
-    "@deepseek-ai/dsh-settings": "workspace:*"
+    "@deepseek-ai/dsh-settings": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "workspace:*",
+    "@deepseek-ai/dsh-client-resources": "workspace:*",
+    "@deepseek-ai/dsh-api-session-controller": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-input-trigger": "workspace:*",
+    "zod": "4.6.6"
   },
   "files": [
     "locale/*.json",
     "lib/index.js",
     "lib/client.js",
+    "lib/assets",
     "lib/types/*.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",

@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-asr-wait-recovery
+profile: headless
+composition: muse-asr-wait-recovery
+recording: authored
+header:
+  class: muse-asr-purpose
+  pin: true
+  systemPromptSource: muse-asr-purpose
+  toolSchemasSource: muse-asr-purpose
+workspace:
+  setup: muse-asr-purpose
+writerOutput: true

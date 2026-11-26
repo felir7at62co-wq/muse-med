@@ -43,6 +43,8 @@ const result = await runLoaderSmoke({
 
 Set `sourceImport: 'tsx/esm'` when a source smoke exercises the supported `dsh` launcher; built mode ignores this option. Set `expectedExitCode` when the scenario pins a designed failure surface — a one-shot turn ending in an error result — and a run that exits any other way, including succeeding, still fails the smoke.
 
+The default subprocess deadline is 30 seconds, and `LOADER_SMOKE_TEST_TIMEOUT_MS` gives the enclosing test 45 seconds. Pass `loaderSmokeProcessTimeout(task.timeout)` as `processTimeoutMs` to inherit an effective Vitest budget while reserving diagnostic and cleanup time. A disabled test deadline (`0`) keeps the 30-second subprocess deadline; a deadline too short for the reserve fails before launch.
+
 ### Testing a shipped profile
 
 Profile integration drivers use the repository-only `tests/fixtures/production-profile.ts` helper. It loads the named shipped profile and its bundle patches through `loadProfile`, computes the runtime resolution, installs it through `PluginPackages`, and passes the bundle patches followed by the test's `*.patch.yml` files to the root `cordis:include` mounted by `boot`. Those patches should contain only the test provider or model, isolated persistence paths, and subject-specific changes. Package-level unit tests that need an agent loop without profile integration mount `dsh-agent-loop-testkit` locally instead.
@@ -80,6 +82,7 @@ The harness is built on one separation: the smoke runs in a child process under 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Mode resolver, `runLoaderSmoke` subprocess harness, options and result types |
+| [`src/deadline.ts`](src/deadline.ts) | Shared default deadlines and runner-budget allocation |
 | [`src/agent-turn.ts`](src/agent-turn.ts) | `runFixtureTurn` direct-agent driver and result envelope |
 | [`tests/fixtures/production-profile.ts`](tests/fixtures/production-profile.ts) | Repository-only shipped-profile composition helper for integration fixtures |
 

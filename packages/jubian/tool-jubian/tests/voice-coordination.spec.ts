@@ -13,6 +13,19 @@ it('projects only finite response fields and validates an exact ready voice', ()
     character_id: 'zhou', voice_period_id: 'adult', owner_operation: true, lease_id: 'a'.repeat(43) })
   expect(readVoiceCoordination({ ...request, state: 'ready', asset }, request)).toMatchObject({ state: 'ready', asset })
 })
+it('projects replacement permission only for a valid owner operation', () => {
+  expect(readVoiceCoordination({ ...reserved, replaces_asset_id: 6 }, request)).toMatchObject({ replaces_asset_id: 6 })
+})
+it.each([0, -1, 1.5, '6', null, Number.MAX_SAFE_INTEGER + 1])('rejects invalid replacement asset identity %j', (replaces) => {
+  expect(() => readVoiceCoordination({ ...reserved, replaces_asset_id: replaces }, request)).toThrow()
+})
+it.each([
+  { state: 'ready', asset }, { state: 'available', owner_operation: true },
+  { state: 'busy', blocking_state: 'submitted' },
+  { state: 'ready', asset: { ...asset, asset_id: 6 }, owner_operation: true },
+])('rejects replacement permission outside its owner registration %j', (change) => {
+  expect(() => readVoiceCoordination({ ...request, ...change, replaces_asset_id: 6 }, request)).toThrow()
+})
 it.each([null, [], 3, {}, { ...reserved, state: 'unknown' }, { ...reserved, script_id: 9 }, { ...reserved, character_id: 'other' },
   { ...reserved, voice_period_id: 'child' }, { ...reserved, owner_operation: 'true' }, { ...reserved, started_now: 'true' },
   { ...reserved, started_now: true }, { ...reserved, lease_id: '' }, { ...reserved, lease_id: 5 }, { ...reserved, owner_operation: false },

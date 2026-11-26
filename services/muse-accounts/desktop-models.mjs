@@ -28,7 +28,7 @@ export function desktopModelCatalog(globalModels,modelConfig){
  * @param {object} options Model configuration, forwarding operation, login clock and optional synchronous metadata sink.
  * @returns {object} Request handling and stream cancellation operations.
  */
-export function createDesktopModels({globalModels,modelConfig,forward=forwardModel,now=Date.now,transport='relay',keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool,directLeases,metadataSink}){
+export function createDesktopModels({globalModels,modelConfig,forward=forwardModel,now=Date.now,transport='relay',keyPoolPolicy=resolveModelKeyPoolPolicy(),keyPool,directLeases,metadataSink,usageLedger}){
  if(!['relay','direct'].includes(transport))throw Error('Invalid Desktop model transport');
  const active=new Map();
  const poolKeys=()=>globalModels?.credentialPool?.('zhipu-official')??[];
@@ -91,7 +91,7 @@ export function createDesktopModels({globalModels,modelConfig,forward=forwardMod
   }
   const route=/^\/api\/desktop-models\/([a-z][a-z0-9-]{0,63})\/chat\/completions$/.exec(path)?.[1];
   if(!route||req.method!=='POST'){fail(404,'模型接口不存在');return;}
-  metadata=createModelRequestMetadata({clientId:req.headers?.['x-muse-client-request-id'],route,sink:metadataSink,sensitiveTokens:[session.token]});
+  metadata=createModelRequestMetadata({clientId:req.headers?.['x-muse-client-request-id'],route,sink:usageLedger?record=>{try{(metadataSink??(value=>console.info('[muse-model-metadata]',JSON.stringify(value))))(record);}finally{void usageLedger.capture(session.id,record).catch(error=>{void error;console.error('[muse-usage] Response usage could not be saved');});}}:metadataSink,sensitiveTokens:[session.token]});
   res.setHeader('x-muse-server-request-id',metadata.serverRequestId);
   const controller=new AbortController(),item={accountId:session.id,controller};
   const items=active.get(session.token)??new Set();active.set(session.token,items);items.add(item);

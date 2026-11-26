@@ -1,11 +1,13 @@
 ---
 name: tweet-drama-project-bible
-description: Use when 读取制作剧本、分析受众定位与题材影视风格、创建短剧、确认项目参数、维护项目圣经与配乐用户反馈或修改既有角色、声音、镜头包与交付要求。
+description: Use when 读取制作剧本、分析受众定位与题材影视风格、创建短剧、迁移到另一个剧变项目、确认项目参数、维护项目圣经与配乐用户反馈或修改既有角色、声音、镜头包与交付要求。
 ---
 
 # 项目圣经与创作启动
 
 `project_config.json` 是唯一权威的结构化项目圣经；`project-bible.md` 由 `drama_project` 从同一数据生成，供人阅读。设定、版本与影响记录在 `project_bible`，远端身份保留顶层 `jubian_script_id`，每镜有效字上限兼容顶层 `delivery.max_effective_chars_per_shot`。不要分别编辑两份设定，也不要猜测远端 ID。
+
+对已存在的剧变项目，先按真实 `script_id` 核对本地目录的 `jubian_script_id`，不要把当前目录或同名目录当成项目归属。目录已绑定其他项目时保留原配置与产物，使用经过剧本或其他实际项目证据核对的目标目录；身份不明或存在多个候选时先核对，不自动猜测。目标已有工作稿但缺少 `project_config.json` 和 `project-bible.md` 时，可用 `drama_project action=bind_only`、该目录及 `changes={jubian_script_id:真实ID}` 建立最小绑定并回读；它不写预算、交付默认值或项目圣经，也不覆盖已有配置。报错时先回读该目录配置确认是否已创建及实际 ID，不换目录盲目重试；不支持硬链接的文件系统会报错。之后用目标目录对原卡做预览，保持原卡 ID；不要因绑定错误重建卡或提交生成。正常新项目的完整设定仍沿下述流程。
 
 ## 短剧的创作方向
 
@@ -53,6 +55,14 @@ description: Use when 读取制作剧本、分析受众定位与题材影视风�
 project_bible 的 style、visual_medium、aspect_ratio、video（model_id/platform_id/resolution）、delivery 与 episode_plan 分别保存。initial_budget_cents 只记录初建时的预算，current_settings_budget_cents 是未单独授权项目的默认值；实际项目额度和已花/预留从 drama_project 结果的 budget 或 jubian_budget action=read 读取。单独明确授权的项目额度覆盖默认值，不被默认4000再次压低；不要改 cordis.patch.yml 或 project_config.json 来提高额度。video 只记录当前目录验证的精确选择；工具不代替供应商能力检查，也不自动收费生成。不同生成分辨率和导出尺寸可以并存，不因导出较大就强制购买转高清；普通缩放须如实区分源分辨率与输出尺寸。
 
 额度不够时先核对已花、在途预留及所需总额度。用户已明确该项目与新总金额就直接用 jubian_budget update 保存并真实回读，不重复询问；没有明确额度授权时用 ask_user_question，id 固定为 jubian-budget-<script_id>，正文说明“项目<真实ID>的总预算调整为多少元”，选项或用户填写答案必须包含新总金额。普通聊天金额应明确项目ID，或使用当前真实项目根目录的会话；较宽工作区内未指明项目的“预算5000”不能套给任意项目。update 的 project_dir 必须绑定同一 script_id，limit_cny 是新总额度而非追加金额，expected_revision 原样取 read 结果。版本冲突先重读，再用同一仍有效授权金额提交；撤回、拒绝或金额不符不能写入。设置页的“项目实际预算”与工具读写同一 authorization.json，保存后下一次计费立即生效，无需重启。保留已有花费、在途预留及历史估算；不能通过清账或新建项目规避额度。
+
+## 迁移到另一个剧变项目
+
+用户明确要求把制作迁移到另一个 script_id 时，先用 `jubian_project get` 核实来源与目标项目，再用 `drama_project read` 读取来源目录。用户已指定目标项目与迁移范围就按该授权推进，不重复确认；仅遇到项目身份或范围不明时澄清。普通 update 不能替换已有 `jubian_script_id`，不能手改旧配置把旧资产和任务当成新项目记录。
+
+创建独立的本地目标目录，用 `drama_project action=preview project_dir=<目标目录> migration_from={project_dir:<来源目录>,script_id:<来源ID>} changes={jubian_script_id:<目标ID>}` 准备迁移，reason 写明用户要求。目标须为预先创建的空目录，来源与目标须为不同目录。核对 proposed 后，update 传相同的 migration_from、changes、reason 及原样的 expected_revision、preview_fingerprint；失败时按实际原因重读，不绕过版本检查。
+
+工具只初始化本地设定，来源目录不变；可继承的内容及排除项见[项目迁移说明](../../../drama-settings/README.zh.md#project-migration)。它不复制远端项目、资产、分镜或本地媒体文件。回读目标 `jubian_script_id` 后，后续制作工具统一使用目标 project_dir 和 script_id；按用户范围迁移正文，核实目标项目实际的分集、图片、声音与卡片 ID 并写入目标映射，再执行绑定和免费预览。旧目录只保留来源与历史用途，不将旧声线 URL/ID、包绑定、已完成任务或额度套给目标。不能因为通用预览错误就推断新项目不支持声线、删除声音或重建整部剧。
 
 ## 项目配乐反馈
 

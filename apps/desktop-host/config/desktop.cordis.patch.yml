@@ -8,11 +8,11 @@
     personaPrefix: ''
     includeHarnessIdentity: false
 
-# Unattended whole-series goals resume after a model outage, or after replies discarded by
-# prompt-usage-guard, that outlasts provider retries.
+# Unattended whole-series goals resume after a model outage that outlasts provider retries.
+# Prompt-usage validation failures stop after the model's bounded recovery.
 - id: goal-round-driver
   config:
-    transientErrorResume: { maxAttempts: 3, delayMs: 120000, codes: [SERVER, TIMEOUT, TRANSPORT, STREAM_CLOSED, PROMPT_USAGE_SHORTFALL] }
+    transientErrorResume: { maxAttempts: 3, delayMs: 120000, codes: [SERVER, TIMEOUT, TRANSPORT, STREAM_CLOSED] }
 
 # New tasks use one unified creative Agent; legacy preset ids remain recoverable.
 - id: agent-preset-registry
@@ -222,19 +222,23 @@
         visibleModels:
           - { providerId: yunying, modelId: gemini-3.1-pro }
           - { providerId: yunying, modelId: gpt-6.1-sol }
+        defaultModelRollout:
+          revision: jubian-deepseek-v4-flash-v1
+          providerId: jubian
+          modelId: deepseek-v4-flash
         requestTimeoutMs: 60000
-        # Gateway outages of a few minutes and replies discarded by prompt-usage-guard are retried
-        # inside the same step; the list restates the defaults because it replaces them.
+        # Keep the outage budget. A reply discarded by prompt-usage-guard gets one recovery
+        # before a consecutive shortfall ends the step.
         modelRetryPolicy:
           mode: normal
           maxRetries: 8
           retryableCodes: [EMPTY_RESPONSE, INVALID_TOOL_ARGUMENTS, RATE_LIMIT, SERVER, TIMEOUT, TRANSPORT, PROMPT_USAGE_SHORTFALL]
+          consecutiveRetryLimits: { PROMPT_USAGE_SHORTFALL: 1 }
           backoff: { initialDelayMs: 2000, maxDelayMs: 60000 }
         remoteAccess: true
 
-    # The Yunying gemini-3.1-pro relay intermittently answers from an upstream lane that drops tool
-    # definitions and tool history. Discard such a tool-less reply before it is committed; the
-    # muse-account model retry policy above resends the same request.
+    # Discard tool-less replies with unexplained prompt usage on the affected Yunying route
+    # before committing them. The model retry policy above permits a single consecutive retry.
     - id: prompt-usage-guard
       name: '@deepseek-ai/dsh-prompt-usage'
       config:
@@ -276,7 +280,7 @@
           manuscript_revision: [稿件版本, 原稿对照, 修改对比, 剧本差异, 精修核对, 重复剧情, 重复剧集, 剧情衔接, 跨集衔接, 前后矛盾, 连续性审校]
           source_recover: [恢复来源, 原始工具结果, 回读历史工具, 完整读取]
           skill_catalog: [技能目录, 技能清单, 查找技能, 搜索技能]
-          jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 制作卡片, 去字幕, 擦除烧录字幕]
+          jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 原有分镜, 已有分镜, 现有分镜, 制作卡片, 去字幕, 擦除烧录字幕]
           jubian_asset: [角色素材, 场景素材, 道具素材, 上传素材, 素材查询]
           jubian_video: [视频生成, 制作视频, 生成任务, 视频任务查询]
           jubian_video_review: [视频质检报告, 查看视频审核, 视频复核, 质检结果]

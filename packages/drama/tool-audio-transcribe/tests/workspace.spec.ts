@@ -1,11 +1,12 @@
 /** Relative projects resolve against the calling Session workspace, and silent screenplay results carry a model-visible note. */
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { Context } from '@deepseek-ai/cordis'
-import { MuseAccountService, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
+import { MuseAccountService, MuseAsrClient, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -24,13 +25,15 @@ afterEach(async () => {
   for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true })
 })
 
-async function fixture() {
+async function fixture(options: { identity?: MuseAccountStatus; refreshModels?: () => Promise<void>; asr?: MuseAsrClient } = {}) {
   const ctx = new Context()
   contexts.push(ctx)
-  const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' })
+  const status = async (): Promise<MuseAccountStatus> => options.identity ?? { state: 'signed-out' }
   await ctx.plugin(MuseAccountService, { controller: {
+    details: async () => { throw new Error('Unused fixture details') },
     status, logout: status, login: async () => { throw new Error('login is not part of a model tool call') },
-  } })
+  }, ...(options.refreshModels === undefined ? {} : { models: { refresh: options.refreshModels } }),
+  ...(options.asr === undefined ? {} : { asr: options.asr }) })
   await ctx.plugin(SystemPrompt).await()
   await ctx.plugin(ToolRuntime, {}).await()
   await ctx.plugin(NativeToolExecutor)
@@ -52,7 +55,7 @@ async function fixture() {
     if (tool.output === undefined) throw new Error('audio_transcribe has no output renderer')
     return tool.output.render({}, value)
   }
-  return { workspace, call, render, agent: { session: { header: { cwd: workspace } } } as Agent }
+  return { workspace, call, render, account: ctx.museAccount, agent: { session: { header: { cwd: workspace } } } as Agent }
 }
 
 function text(content: readonly ContentBlock[]): string {
@@ -75,6 +78,82 @@ it('reads a relative receipt under the Session workspace project and names the j
   const outside = await call({ method: 'status', project: 'proj', receipt: 'ep1-v1.json' }, agent)
   expect(outside.isError).toBe(true)
   expect(text(outside.content)).toContain(`transcript/jobs directory: ${join(workspace, 'proj', 'transcript', 'jobs')}`)
+})
+
+it('resumes an owned receipt without waiting for the model catalog and still rejects a different owner', async () => {
+  const refreshing = Promise.withResolvers<'models'>(), release = Promise.withResolvers<undefined>()
+  const refreshModels = vi.fn(async () => { refreshing.resolve('models'); await release.promise })
+  const { workspace, call, agent, account } = await fixture({ refreshModels,
+    identity: { state: 'signed-in', username: 'writer', verified: false } })
+  const project = join(workspace, 'proj'), jobs = join(project, 'transcript', 'jobs'), raw = join(project, 'transcript', 'raw')
+  await Promise.all([mkdir(jobs, { recursive: true }), mkdir(raw, { recursive: true })])
+  const own = randomUUID(), foreign = randomUUID()
+  for (const [stem, accountUsername, id] of [['own', 'writer', own], ['foreign', 'other', foreign]] as const) {
+    await writeFile(join(jobs, stem + '-v1.json'), JSON.stringify({ id, source: join(project, stem + '.wav'),
+      stem, version: 1, accountUsername, language: 'zh', purpose: 'subtitles', status: 'complete',
+      sha256: 'a'.repeat(64), mp3: join(jobs, '.' + id + '.wav') }))
+  }
+  await Promise.all([writeFile(join(raw, 'own-v1.txt'), 'speech'),
+    writeFile(join(raw, 'own-v1.json'), JSON.stringify([{ start: 0, end: 1, text: 'speech' }]))])
+  const inspect = (stem: string) => call({ method: 'inspect', project: 'proj', receipt: 'transcript/jobs/' + stem + '-v1.json' }, agent)
+  const operation = inspect('own')
+  try {
+    expect(await Promise.race([refreshing.promise, operation.then(() => 'transcription')])).toBe('transcription')
+    const completed = await operation
+    expect(completed.isError).toBe(false)
+    expect(text(completed.content)).toContain('"status":"complete"')
+    const denied = await inspect('foreign')
+    expect(denied.isError).toBe(true)
+    expect(text(denied.content)).toContain('Sign in to the Muse account that created this transcription receipt')
+    expect(refreshModels).not.toHaveBeenCalled()
+  } finally { release.resolve(undefined); await operation }
+  await account.status({})
+  expect(refreshModels).toHaveBeenCalledOnce()
+})
+
+it('only status can resume a never-accepted receipt with its original audio and purpose', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-audio-local-gateway-'))
+  directories.push(home)
+  const baseUrl = 'https://muse.test', username = 'writer', sessionFile = join(home, 'session.json')
+  await writeFile(sessionFile, JSON.stringify({ baseUrl, username, revision: randomUUID(), cookie: '__Host-muse=fixture' }))
+  const id = randomUUID(), audio = 'fixtures are local', sha256 = createHash('sha256').update(audio).digest('hex')
+  const job = { id, purpose: 'screenplay', service_version: 'standard-v2', status: 'processing' }
+  let accepted = false
+  const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+    if (init?.method === 'GET') return accepted ? Response.json(job) : Response.json({ error: 'ASR job not found' }, { status: 404 })
+    if (init?.method !== 'POST' || !(init.body instanceof Blob)) throw new Error('Expected staged audio upload')
+    expect(await init.body.text()).toBe(audio)
+    accepted = true
+    return Response.json(job, { status: 202 })
+  })
+  const asr = new MuseAsrClient({ baseUrl, sessionFile, requestTimeoutMs: 2000, fetcher })
+  const { workspace, call, agent } = await fixture({ asr, identity: { state: 'signed-in', username, verified: false } })
+  const project = join(workspace, 'proj'), jobs = join(project, 'transcript', 'jobs'), mp3 = join(jobs, '.' + id + '.wav')
+  const receipt = 'transcript/jobs/original-v1.json'
+  await mkdir(jobs, { recursive: true })
+  await writeFile(mp3, audio)
+  await writeFile(join(project, receipt), JSON.stringify({ id, sha256, mp3, source: join(project, 'original.mp4'),
+    stem: 'original', version: 1, accountUsername: username, language: 'auto', purpose: 'screenplay', status: 'prepared' }))
+  const read = (method: 'inspect' | 'status') => call({ method, project: 'proj', receipt }, agent)
+  const inspected = await read('inspect')
+  expect(inspected.isError).toBe(false)
+  expect(inspected.value).toMatchObject({ job_id: id, error_code: 'job-not-found' })
+  expect(fetcher.mock.calls.map(([, init]) => init?.method)).toEqual(['GET'])
+  for (const _attempt of [1, 2]) {
+    const result = await read('status')
+    expect(result.isError).toBe(false)
+    expect(result.value).toMatchObject({ job_id: id, purpose: 'screenplay', status: 'processing', service_version: 'standard-v2' })
+  }
+  const queryPath = '/api/asr/jobs/' + id
+  expect(fetcher.mock.calls.map(([input, init]) => {
+    const url = new URL(input instanceof Request ? input.url : input)
+    return [url.pathname, init?.method]
+  })).toEqual([
+    [queryPath, 'GET'], [queryPath, 'GET'], ['/api/asr/jobs', 'POST'], [queryPath, 'GET'],
+  ])
+  const headers = new Headers(fetcher.mock.calls[2]?.[1]?.headers)
+  expect(['idempotency-key', 'x-audio-sha256', 'x-audio-language', 'x-muse-asr-purpose'].map(name => headers.get(name)))
+    .toEqual([id, sha256, 'auto', 'screenplay'])
 })
 
 it('rejects a relative project without a Session workspace and keeps an absolute project as given', async () => {
@@ -112,17 +191,28 @@ it('prepends the silent note once to a batch after any queue refusal sentence', 
   const complete = { input: 'a.mp4', status: 'complete', receipt: '/w/proj/transcript/jobs/a-v1.json', job_id: 'job-1', purpose: 'screenplay' } satisfies AudioBatchResult['items'][number]
   const mixed = { items: [complete, { input: 'b.mp4', ...silent }, { input: 'c.mp4', ...silent }] } satisfies AudioBatchResult
   const mixedContent = render(mixed)
-  expect(mixedContent).toHaveLength(2)
+  expect(mixedContent).toHaveLength(3)
   expect(note(mixedContent)).toEqual([mixedContent[0]])
+  expect(mixedContent[1]).toEqual({ type: 'text', text: '转写进度：第1项已完成、第2项无语音、第3项无语音。' })
   const queued = { items: [
     { input: 'a.mp4', status: 'processing', receipt: complete.receipt, job_id: 'job-1', error_code: 'queue_full' },
     { input: 'b.mp4', ...silent },
   ] } satisfies AudioBatchResult
   const queuedContent = render(queued)
-  expect(queuedContent).toHaveLength(3)
+  expect(queuedContent).toHaveLength(4)
   expect(queuedContent[0]).toEqual({ type: 'text', text: 'Muse 转写队列已满，请稍后重试' })
   expect(note(queuedContent)).toEqual([queuedContent[1]])
-  expect(queuedContent[2]).toEqual({ type: 'text', text: JSON.stringify(queued) })
+  expect(queuedContent[2]).toEqual({ type: 'text', text: '转写进度：第1项暂未推进、第2项无语音。' })
+  expect(queuedContent[3]).toEqual({ type: 'text', text: JSON.stringify(queued) })
   const stopped = { items: [complete, { input: 'b.mp4', error: 'Transcription input is not a file' }], not_started: ['c.mp4'] } satisfies AudioBatchResult
-  expect(render(stopped)).toEqual([{ type: 'text', text: JSON.stringify(stopped) }])
+  expect(render(stopped)).toEqual([
+    { type: 'text', text: '转写进度：第1项已完成、第2项出错、另有 1 项本次未开始。' },
+    { type: 'text', text: JSON.stringify(stopped) },
+  ])
+})
+
+it('does not label an unfamiliar status as a successful upload', async () => {
+  const { render } = await fixture()
+  const batch = { items: [{ input: 'clip.mp4', status: 'not-recognized' }] }
+  expect(render(batch)[0]).toEqual({ type: 'text', text: '转写进度：第1项待核对。' })
 })

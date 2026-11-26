@@ -202,6 +202,29 @@ describe('MarkdownText', () => {
     expect(second).toHaveBeenCalledOnce()
   })
 
+  it('delegates application resources separately from HTTP links and updates cached handlers', () => {
+    const resource = 'dsh-resource://example/session/one/item?version=v1&start=2'
+    const first = vi.fn(), second = vi.fn(), external = vi.fn()
+    const text = `[locate](${resource}) [website](https://example.com/)`
+    const view = render(<MarkdownDelegateProvider openResourceLink={first} openExternalLink={external}>
+      <MarkdownText text={text} />
+    </MarkdownDelegateProvider>)
+    const link = screen.getByRole('link', { name: 'locate' })
+    expect(link.getAttribute('href')).toBe(resource)
+    expect(link.getAttribute('target')).toBeNull()
+    expect(fireEvent.click(link)).toBe(false)
+    expect(first).toHaveBeenCalledExactlyOnceWith(resource)
+    expect(external).not.toHaveBeenCalled()
+    expect(fireEvent.click(screen.getByRole('link', { name: 'website' }))).toBe(false)
+    expect(external).toHaveBeenCalledExactlyOnceWith('https://example.com/')
+    view.rerender(<MarkdownDelegateProvider openResourceLink={second} openExternalLink={external}>
+      <MarkdownText text={text} />
+    </MarkdownDelegateProvider>)
+    fireEvent.click(link)
+    expect(first).toHaveBeenCalledOnce()
+    expect(second).toHaveBeenCalledExactlyOnceWith(resource)
+  })
+
   it('links inline code through the file-mention resolver: URL first, settled only, never inside links', () => {
     const opened: string[] = []
     const fileMentions = {

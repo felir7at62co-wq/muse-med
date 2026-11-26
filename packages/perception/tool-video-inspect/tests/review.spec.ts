@@ -29,7 +29,7 @@ import * as Media from '../src/media.ts'
 import sharp from 'sharp'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import { scanReviewFrames, appearanceCandidates } from '../src/review-scan.ts'
-import { reviewsOf, installReviewState, reviewImage, saveReview, pendingReview, VideoReviewId } from '../src/review-state.ts'
+import { reviewsOf, installReviewState, reviewImage, saveReview, pendingReview, reviewFrameSchema, VideoReviewId } from '../src/review-state.ts'
 import { applyCompleteReview } from '../src/review.ts'
 import { compareReviewDraft } from '../src/review-compare.ts'
 import { z } from 'zod'
@@ -163,6 +163,31 @@ async function finishReview(h: Awaited<ReturnType<typeof fixture>>, ptc = false)
   for (let batch = 0; pendingReview(h.review()) > 0 && batch < 20; batch++) await h.run(toolRoute(ptc, h.call('next')), record, undefined)
   expect(pendingReview(h.review())).toBe(0)
 }
+
+it('persists per-character findings for an actual viewed frame and updates only rechecked roles', async () => {
+  const h = await fixture({ companion: true })
+  await finishReview(h)
+  const frameId = h.review().frames[0]!.id
+  const note = { frame_id: frameId, visible: '测试画面完整呈现预设的红色背景。', change: '当前帧无切换。' }
+  const observe = (observation: object) => h.call('observe', { observations: [observation] })
+  const unknown = { character: '顾青', status: 'needs_review', reason: '测试回执中缺正式参考' }
+  const mismatch = { character: '周律师', reference_asset_id: '41', status: 'mismatch', reason: '测试回执中记录替脸' }
+  await h.run(observe({ ...note, character_checks: [unknown, mismatch] }), undefined)
+  const saved = z.object({ frames: z.array(reviewFrameSchema) }).parse(JSON.parse(await readFile(reportPath(h), 'utf8')))
+  expect(saved.frames[0]?.observation?.character_checks).toEqual([unknown, mismatch])
+
+  await h.run(observe(note), undefined)
+  expect(h.review().frames[0]?.observation?.character_checks).toEqual([unknown, mismatch])
+  await h.run(observe({ ...note, character_checks: [{ ...mismatch, reference_asset_id: undefined }] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(true)
+  expect(h.review().frames[0]?.observation?.character_checks).toEqual([unknown, mismatch])
+  await h.run(observe({ ...note, character_checks: [mismatch, { ...mismatch, status: 'match' }] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(true)
+
+  const rechecked = { ...unknown, reference_asset_id: '42', status: 'match', reason: '测试回执已核对同一角色' }
+  await h.run(h.call('revisit', { frame_ids: [frameId] }), observe({ ...note, character_checks: [rechecked] }), undefined)
+  expect(h.review().frames[0]?.observation?.character_checks).toEqual([rechecked, mismatch])
+}, 30_000)
 
 it('supplements a complete scan with bounded source times while preserving prior frame identities and observations', async () => {
   const h = await fixture()
@@ -2359,6 +2384,23 @@ it('does not attribute unrelated image requests or their budget failures to an e
   await h.run(h.call('next'), undefined)
   expect(h.results().at(-1)!.content.filter(block => block.type === 'image')).toHaveLength(2)
 })
+
+it('completes a scan whose last interval would be shorter than one analysis sample', async () => {
+  const h = await fixture({ config: { reviewChunkSeconds: 1 } })
+  await rm(h.input)
+  const ffmpeg = await h.ctx.subprocess.resolveExecutable('ffmpeg')
+  await runMedia(h.ctx, [ffmpeg, '-nostdin', '-v', 'error', '-f', 'lavfi', '-i', 'color=red:s=96x64:r=25:d=2.04',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', h.input], { mode: 'danger-full-access', workspaceRoot: h.root }, undefined,
+  { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
+  const calls = vi.spyOn(Media, 'runMedia')
+  await h.run(h.call('scan'), undefined)
+  expect(h.results().filter(result => result.isError)).toEqual([])
+  expect(h.review().scan_complete).toBe(true)
+  expect(h.review().scanned_until).toBe(h.review().duration)
+  // Two intervals, 0–1 s and 1–2.04 s, each run cut detection and thumbnail sampling once.
+  expect(calls.mock.calls.filter(([, argv]) => argv.some(argument => argument.includes('gte(scene,0)')))).toHaveLength(2)
+  expect(h.review().frames.at(-1)?.reasons).toContain('closing')
+}, 30_000)
 
 it('decodes the exact first frame after a cut in a later scan chunk', async () => {
   const h = await fixture()

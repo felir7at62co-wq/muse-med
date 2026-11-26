@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-audio-preview-diagnostics
+profile: headless
+composition: muse-audio-preview-diagnostics
+recording: authored
+writerOutput: true
+header:
+  class: muse-audio-preview-diagnostics
+  pin: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-audio-preview-fixture
+workspace:
+  final: true

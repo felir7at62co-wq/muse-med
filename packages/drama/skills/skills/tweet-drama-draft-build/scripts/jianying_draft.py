@@ -2175,6 +2175,7 @@ def main_with_args(args, results=None):
                 warn(warning)
         quality = 'needs_review' if font_ready else 'needs_repair'
         review_path = draft_path / 'muse-review.json'
+        recovery = '' if font_ready else _draft_inputs.subtitle_font_recovery(subtitle_font)
         review_path.write_text(json.dumps({
             'status': quality, 'warnings': review_warnings,
             'draft_style': ending_plan['draft_style'], 'subtitle_font': subtitle_font,
@@ -2182,11 +2183,11 @@ def main_with_args(args, results=None):
                 'subtitle_visual_adapter': ending_plan['subtitle_visual_adapter']}
                if 'subtitle_visual' in ending_plan else {}),
             'next': ('草稿已保存；这不代表创作或交付质量通过，由 Muse 查看实际轨道后继续。' if font_ready else
-                     '草稿字体待修，禁止交付；保留本候选，补齐后端字体绑定并重新验证。')
+                     recovery)
         }, ensure_ascii=False, indent=2), encoding='utf-8')
         result.update(success=font_ready, saved=True, id=saved_content.get("id", ""),
                       error='' if font_ready else (
-                          f'请求字幕字体尚未绑定并验证，禁止交付。可编辑候选：{draft_path}；核对记录：{review_path}'),
+                          f'请求字幕字体尚未绑定并验证，禁止交付。可编辑候选：{draft_path}；核对记录：{review_path}。{recovery}'),
                       quality=quality, subtitle_font=subtitle_font,
                       warnings=review_warnings.copy(), review_path=str(review_path))
         if not font_ready:

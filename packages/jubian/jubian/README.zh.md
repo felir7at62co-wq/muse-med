@@ -76,8 +76,8 @@ try {
 
 | 错误码 | 触发条件 |
 |---|---|
-| `AUTHENTICATION_REQUIRED` | 凭据解析器抛出异常、修复后的令牌不可用、HTTP 为 401 或 403，或信封 `code` 为 401 |
-| `PERMISSION_DENIED` | HTTP 为 2xx 而信封 `code` 为 403 |
+| `AUTHENTICATION_REQUIRED` | 凭据解析器抛出异常、修复后的令牌不可用、HTTP 为 401，或信封 `code` 为 401 |
+| `PERMISSION_DENIED` | HTTP 为 403，或 HTTP 为 2xx 而信封 `code` 为 403 |
 | `RATE_LIMITED` | HTTP 为 429，或信封 `code` 为 429 |
 | `CONTRACT_CHANGED` | 响应体不是 JSON、不是合法 UTF-8、不是对象、超出字节上限、不带整数 `code`，或带有本包不映射的错误码；详情描述响应体的结构 |
 | `VIDEO_TASK_EVIDENCE_INVALID` | 原生视频任务归属无效、矛盾或超过候选扫描上限；本地详情指出剧集字段或扫描规则。这是本地对账失败，不是远端信封拒绝 |
@@ -182,7 +182,7 @@ if (!begun.replayed) {
 
 ### 安全的失败诊断
 
-客户端在抛出的对象及其直接 cause 上精确匹配传输错误码或超时／中止名称，不遍历更深的 cause。合并后的 signal 标识调用方取消或客户端截止时间，也覆盖响应体读取阶段。HTTP 401 与 403 仍为 `AUTHENTICATION_REQUIRED`；HTTP 2xx 背后的信封 `code` 为 403 时仍为 `PERMISSION_DENIED`。本客户端无法接受的响应体改由 `describePayload()` 或 `describeUnparsed()` 报告：顶层类型、自身键名、数组长度、字节数与一段有界摘录，凭据类字段被脱敏、绝对 URL 被缩减为来源，因此工具结果可以说清收到的是什么，而不必把它复述出来。[诊断决策](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.zh.md)记录脱敏的取舍与验证范围限制，[形态决策](../../../.agents/notes/implemented/bug-fix/2026-09-28-jubian-unreadable-response-diagnostics.zh.md)记录被容忍形态的由来。
+客户端在抛出的对象及其直接 cause 上精确匹配传输错误码或超时／中止名称，不遍历更深的 cause。合并后的 signal 标识调用方取消或客户端截止时间，也覆盖响应体读取阶段。HTTP 401 仍为 `AUTHENTICATION_REQUIRED`；HTTP 403 或 HTTP 2xx 背后的信封 `code` 为 403 时为 `PERMISSION_DENIED`，不据此断言登录过期。本客户端无法接受的响应体改由 `describePayload()` 或 `describeUnparsed()` 报告：顶层类型、自身键名、数组长度、字节数与一段有界摘录，凭据类字段被脱敏、绝对 URL 被缩减为来源，因此工具结果可以说清收到的是什么，而不必把它复述出来。[诊断决策](../../../.agents/notes/implemented/bug-fix/2026-09-23-jubian-safe-transport-diagnostics.zh.md)记录脱敏的取舍与验证范围限制，[形态决策](../../../.agents/notes/implemented/bug-fix/2026-09-28-jubian-unreadable-response-diagnostics.zh.md)记录被容忍形态的由来。
 
 <a id="dumping-responses-on-purpose"></a>
 ### 按需把响应落盘

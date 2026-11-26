@@ -465,8 +465,26 @@ it('does not use the previous account catalog after the login revision changes',
     .toMatchObject({ kind: 'error', error: { code: 'MISSING_CREDENTIAL' } })
 })
 
-it('tries each account supplier at most once and reports an error when all are unavailable', async () => {
-  const { ctx, agent, server } = await harness(providerIds.map(() => ({ status: 503, body: '{}' })))
+const credentialRefusal = { status: 401, body: '{"error":{"code":"authentication_error","message":"private supplier diagnostic"}}',
+  headers: { 'x-muse-model-auth-error': 'upstream-credentials-rejected' } }
+
+it('switches only after a Muse relay identifies an upstream credential rejection', async () => {
+  const { ctx, agent, server } = await harness([credentialRefusal, { events: textEvents }], { retryBeforeModels: true })
+  await send(ctx, agent)
+
+  expect(server.paths).toEqual(['/api/desktop-models/alpha/chat/completions', '/api/desktop-models/beta/chat/completions'])
+  const events = agent.session.snapshotEvents()
+  expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)
+  expect(events.filter(event => event.type === 'assistant/message')).toHaveLength(1)
+  expect(events.find(event => event.type === 'turn/end')?.data.reason).toMatchObject({ kind: 'completed' })
+  expect(JSON.stringify(events)).not.toContain('private supplier diagnostic')
+})
+
+it.each([
+  ['service failure', { status: 503, body: '{}' }],
+  ['credential rejection', credentialRefusal],
+] as const)('tries each account supplier only once when all fail with %s', async (_case, reply) => {
+  const { ctx, agent, server } = await harness(providerIds.map(() => reply))
   await send(ctx, agent)
 
   expect(server.paths).toEqual(providerIds.map(id => `/api/desktop-models/${id}/chat/completions`))
@@ -492,6 +510,29 @@ it('does not switch suppliers when the account gateway returns 401 authenticatio
   const { ctx, agent, server } = await harness([
     { status: 401, body: '{"error":{"message":"account session expired"}}' },
   ])
+  await send(ctx, agent)
+
+  expect(server.paths).toEqual(['/api/desktop-models/alpha/chat/completions'])
+  expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')?.data.reason)
+    .toMatchObject({ kind: 'error', error: { code: 'AUTH' } })
+})
+
+it('reports an expired Muse relay session without switching routes or deleting the saved session', async () => {
+  const { ctx, agent, server, root } = await harness([{ ...credentialRefusal,
+    headers: { 'x-muse-model-auth-error': 'muse-session-expired' } }])
+  const path = join(root, 'session.json')
+  const before = await sessionStorage.readMuseSession(path, server.url)
+  await send(ctx, agent)
+
+  expect(server.paths).toEqual(['/api/desktop-models/alpha/chat/completions'])
+  const reason = agent.session.snapshotEvents().find(event => event.type === 'turn/end')?.data.reason
+  expect(reason).toMatchObject({ kind: 'error', error: { code: 'MISSING_CREDENTIAL' } })
+  expect(reason?.kind === 'error' ? reason.error.message : undefined).toContain('sign in to Muse')
+  expect(await sessionStorage.readMuseSession(path, server.url)).toEqual(before)
+})
+
+it('does not switch on a forbidden response even if it carries the upstream credential marker', async () => {
+  const { ctx, agent, server } = await harness([{ ...credentialRefusal, status: 403 }])
   await send(ctx, agent)
 
   expect(server.paths).toEqual(['/api/desktop-models/alpha/chat/completions'])

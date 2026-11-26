@@ -533,7 +533,7 @@ export class CharacterReferenceQaAuthorizationStore {
    * @param idempotencyKey - Fixed upload key claimed before the external call.
    * @param managedReferenceId - Host-private identifier allocated at claim time.
    * @param materialUri - Provider URI retained only in the private Host ledger.
-   * @param imageSha256 - SHA-256 of the uploaded bytes.
+   * @param imageSha256 - SHA-256 of the authorized Catalog source, unchanged by private-copy normalization.
    * @param receiptSha256 - SHA-256 of the provider receipt evidence.
    * @param occurredAt - ISO timestamp of settlement.
    */

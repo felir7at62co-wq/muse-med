@@ -428,6 +428,31 @@ describe('prepareEpisode', () => {
     ])
   })
 
+  it.each([true, false])('checks repeated complete clips by content, with equal bytes: %s', async (sameBytes) => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '02')
+    const first = join(project, 'first.mp4'), second = join(project, 'alternate-name.mp4')
+    const shotsPath = join(project, 'shots.json'), subtitle = join(project, 'input.srt')
+    await Promise.all([
+      writePlaceholder(first, 'first video'),
+      writePlaceholder(second, sameBytes ? 'first video' : 'other video'),
+      writePlaceholder(subtitle, ''),
+      writePlaceholder(shotsPath, JSON.stringify({ shots: [{ shot: 1, video: first }, { shot: 2, video: second }] })),
+    ])
+    const media = { durationSeconds: 4, video: {}, audio: {} }
+    const channel = stubChannel([probeHandler({ [first]: media, [second]: media }), call => ({
+      after: async () => { await writeFile(call.args.at(-1)!, 'generated master', 'utf8') },
+    })])
+    const result = await prepareEpisode({ project, episode: '02', shotsPath, subtitleSrt: subtitle,
+      toolkit: createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }) })
+    expect(result.warnings.filter(warning => warning.includes('视频文件字节完全一致'))).toEqual(sameBytes
+      ? ['镜头 2 与镜头 1 的视频文件字节完全一致。请按剧本确认是否有意复用。']
+      : [])
+    expect(result.timeline.clips).toHaveLength(2)
+    expect(result.written).toContain(paths.sources)
+  })
+
   it('warns when a cue runs past the picture the manifest assembled', async () => {
     const project = await tempProject()
     temporary.push(project)

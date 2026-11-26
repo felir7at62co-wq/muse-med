@@ -1008,7 +1008,7 @@ it.each(['strict', 'development'] as const)('rejects incomplete smoke in %s mode
     if (mode === 'development') {
       expect(cliEntry).toBe(join(smokeEnvironment.DSH_HOME, 'desktop-cli.mjs'))
       expect(cliSource).toContain('import { runDesktopCli } from ')
-      expect(cliSource).toContain(`await runDesktopCli(${JSON.stringify(root)}, ${JSON.stringify(resources)})`)
+      expect(cliSource).toContain(`await runDesktopCli(${JSON.stringify(resources)})`)
     } else {
       expect(cliEntry).toBe(join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js'))
       expect(cliSource).toBeUndefined()

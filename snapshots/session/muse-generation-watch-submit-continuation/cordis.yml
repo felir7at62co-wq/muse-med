@@ -1,0 +1,75 @@
+# This shell-free replay pins an unused runner so its skill catalog is platform-independent.
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+
+# This scenario exercises native business tools, not a platform shell.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
+- id: llm-deepseek
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: deepseek-official
+            name: DeepSeek
+            models:
+              - id: deepseek-v4-flash
+                contextWindow: 1000000
+                defaultMaxTokens: 256000
+                reasoningEfforts: [off, low, high, max]
+                defaultReasoningEffort: max
+    - id: watch-fixture
+      name: './watch-fixture.mjs'
+    - id: tool-jubian
+      name: './jubian-plugin.mjs'
+      config:
+        baseUrl: https://generation-watch.invalid/prod-api
+        workspaceSecrets: false
+        generationWatch: true
+        watchPollIntervalMs: 10
+        watchTimeoutMs: 60000
+- id: agent-loop
+  config:
+    agents: []
+    durableInboxClaims: true
+- id: credentials
+  disabled: false
+  config:
+    watch: false
+- id: storage-domain
+  config:
+    backend: json
+    routes:
+      workspace: muse-workspace-owned
+- insert:
+    - id: watch-entropy-fixture
+      name: './entropy-fixture.mjs'
+    - id: watch-owned-workspace
+      name: './workspace-plugin.mjs'
+      config:
+        sourceBackend: json
+        root: !!js process.env.DSH_HOME + '/storages/watch-owned'
+    - id: watch-webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: 127.0.0.1
+        port: 0
+    - id: watch-connection
+      name: '@deepseek-ai/dsh-client-connection'
+    - id: watch-workspace
+      name: '@deepseek-ai/dsh-workspace'
+    - id: watch-file-upload
+      name: '@deepseek-ai/dsh-client-file-upload'
+    - id: watch-session-controller
+      name: '@deepseek-ai/dsh-api-session-controller'

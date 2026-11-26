@@ -67,6 +67,8 @@ python -B <本技能目录>/scripts/extract_voice_reference.py --source <首次�
 
 ## 预览并绑定原任务卡
 
+先用 `drama_project read` 核对 project_dir 的 `jubian_script_id` 与本次 script_id 一致。用户要求迁移而本地仍绑定旧项目时，先完成[项目迁移流程](../tweet-drama-project-bible/SKILL.md#迁移到另一个剧变项目)，改用回读一致的目标目录，并重新核实该项目的音频 ID 与 URL；不能混用旧目录和新项目 ID，也不能通过重复上传音频或去掉声线绕过归属错误。
+
 上传工具的 SHA-256 带 `sha256:` 前缀；先与提取脚本的摘要核对一致，写入项目圣经时保存去掉前缀的裸 64 位十六进制。
 
 用 `jubian_storyboard get` 读原 storyboard_id 的最新完整内容。若图像选源需要修正，先 select_assets 再读卡；随后用 `jubian_storyboard audio_preview` 提交 script_id、project_dir、storyboard_id、audio_references 与需要同步修改的完整 prompt。audio_references 是**最终有序**的全部音频行；添加或替换单个角色时保留其他已选音频，不只传新增那一行。每行使用 materialType="audio"、materialKey、materialUrl、fileName、音频组内从 1 递增的 sortOrder 与实测 audioDuration，并附已登记的 audio_asset_id 与实际 character_id；分期项目还附 voice_period_id。工具在预览与发送前核对本角色本时期的当前 ID／URL；选定声线改变就重预览，其他时期或衣服变化不替换本次声音。已删除音频不能绑定，分期引用须回读到 delFlag=0 且无矛盾删除字段；状态未知时仅暂缓该卡的音频保存，其他独立工作继续。人物与时期字段只用于本地核对，不进入供应商素材行。工具核对同项目音频资产和 URL，把自有 audio_asset_id 留在预览绑定记录中；不编造图片 materialAssetId、hsAssetId 或音频生成材质 ID。

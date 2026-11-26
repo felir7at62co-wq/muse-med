@@ -14,6 +14,7 @@ Owns the durable `drama` settings section, the **Settings → 短剧** page that
 ## Table of Contents
 
 - [Use this package](#use-this-package)
+- [Move production to another project](#project-migration)
 - [Understand the implementation](#understand-the-implementation)
 - [Further Exploration](#further-exploration)
 - [Model Experience](#model-experience)
@@ -46,6 +47,8 @@ There is no config. A default is the schema's own, and a deployment that wants a
 
 ### The project bible
 
+For an existing remote project with a verified local work directory but no `project_config.json` or `project-bible.md`, `drama_project action=bind_only` with that directory and `changes: { jubian_script_id: <verified ID> }` creates only the local binding. It never overwrites an existing configuration or creates a project bible, budget or delivery defaults. Verify the directory belongs to the remote project before calling it; do not infer ownership from the directory name. On error, reread the same directory's configuration to check whether creation succeeded and verify its ID before retrying; filesystems without hard links report failure. Existing full project setup continues through preview and update.
+
 `drama_project` reads, previews and updates a project in an existing absolute directory. `read` returns `unconfigured` when no structured bible exists, preserves legacy config and exposes current Settings defaults without creating files. New projects record delivery defaults and an immutable `initial_budget_cents` snapshot. `current_settings_budget_cents` reports the default; bound projects also return live `budget` accounting from the same authorization used by paid calls. An explicit project ceiling replaces the default. Current budget amounts are not duplicated in editable project JSON; returned Markdown includes the live readback, while the saved bible directs readers to the authorization. Change a ceiling through `jubian_budget` or the project budget editor. `preview` merges confirmed changes and identifies affected stages; `update` requires the same changes/reason, exact `expected_revision` and matching `preview_fingerprint`.
 
 `project_config.json` is authoritative. Its `project_bible` stores style, explicit visual medium, aspect ratio, exact video model/platform/generation resolution, independent delivery pixels/fps/bitrate, flexible episode plans, optional character identities and approved voice descriptions, stable package-to-storyboard mappings, completed task references and revision history. Style is free text and preserves a confirmed custom answer. The top-level `jubian_script_id` and `delivery.max_effective_chars_per_shot` remain available to existing consumers. Other legacy fields survive updates. Existing project and package bindings cannot be silently replaced; completed task references append without erasing earlier records.
@@ -69,6 +72,13 @@ Each character's `voice_profile` can bind an approved audio asset using `referen
 `voice_profiles` stores separate life-period voices of the same `character_id`, such as child and adult. Each entry has a unique nonempty `voice_period_id`, optional `label` and the same flat voice fields; a new period requires `description`. Updates merge by period ID, preserving other periods and the legacy `voice_profile`. Omission and `[]` do not remove periods. `reference_audio: null` clears only that period's reference fields. Costume and emotion changes do not establish a different voice period. Deletion inspection reports each referencing period independently.
 
 The tool atomically replaces JSON under an exclusive project writer lock and then atomically replaces its derived `project-bible.md`. Both replacements request mode `0600` through the shared atomic writer, which handles transient Windows rename interference with bounded retries; persistent failure still rejects and retains the old target bytes. Paths containing symbolic links or junctions are refused. A stale file, altered preview, invalid field or held lock fails before either output changes. If Markdown rendering fails after the JSON commit, the error names the committed revision; read the config before retrying. An abandoned `.project-bible.lock` requires inspection before manual removal. Video choices need live Jubian catalogue and preparation validation; stored voice guidance does not guarantee a provider can force the same generated voice.
+
+<a id="project-migration"></a>
+### Move production to another project
+
+For an explicitly requested move to a different Jubian project, first verify both remote project IDs and create a separate empty local target directory. Call `drama_project action=preview` with `project_dir` set to the target, `migration_from: { project_dir: <source directory>, script_id: <source ID> }`, and `changes.jubian_script_id` set to the different target ID. Apply that preview with the same `migration_from`, changes and reason, plus its `expected_revision` and `preview_fingerprint`. The preview also binds the source revision; changed source data requires a new preview. Ordinary updates still reject replacement of an existing project binding.
+
+Migration initializes the target from portable creative, generation, delivery and episode settings, stable character identities and voice descriptions. It excludes source asset IDs, audio references, package bindings, completed tasks, budget records and revision history. The source directory remains unchanged. Migration does not copy or create remote projects, assets or storyboards; verify and register target-project references separately before binding them. Continue production from the target directory only after rereading its `jubian_script_id` and reviewing the target mappings.
 
 ### The Settings page
 
@@ -115,7 +125,6 @@ The Host imports `defineTool` through a peer dependency on `dsh-tools`; the depl
 | [`src/client/components.ts`](src/client/components.ts) | The composed packages and the fold from one inventory answer to the status each row shows |
 | [`src/client/DramaSettingsSection.tsx`](src/client/DramaSettingsSection.tsx) | The Settings page component, the route picker and the component list included |
 | [`src/client/locales.ts`](src/client/locales.ts) | The page's copy, including every component role and status label |
-
 
 The page registers through `ctx.slots.inject`, which waits for the Settings shell to declare its slot and removes the contribution when that declaration collapses.
 
@@ -174,7 +183,7 @@ Tool results append to the transcript and preserve its existing prefix. A direct
 
 #### What the model sees
 
-`drama_project` returns the current config, project paths, exact file revision and current Settings defaults. A preview adds the proposed config, review fingerprint, changed fields, affected stages and readable Markdown; an update returns the committed config and its new revision. Results use the standard JSON text presentation. The [project bible skill](../skills/skills/tweet-drama-project-bible/SKILL.md) owns grouped startup questions and the existing Jubian workflow.
+`drama_project` returns the current config, project paths, exact file revision and current Settings defaults. A preview adds the proposed config, review fingerprint, changed fields, affected stages and readable Markdown; an update returns the committed config and its new revision. A migration also reports the source directory, project ID and revision, the target ID, inherited fields and excluded record groups. Results use the standard JSON text presentation. The [project bible skill](../skills/skills/tweet-drama-project-bible/SKILL.md) owns grouped startup questions and the existing Jubian workflow.
 
 #### Token effect
 

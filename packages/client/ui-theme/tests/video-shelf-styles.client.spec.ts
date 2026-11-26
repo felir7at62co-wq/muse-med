@@ -4,7 +4,7 @@ import { expect, it } from 'vitest'
 import { parseRules } from './stylesheet-scan.ts'
 
 const platform = parseRules(readFileSync(new URL('../src/styles/design-platform.css', import.meta.url), 'utf8'))
-const shelf = readFileSync(new URL('../../ui-session-video/src/client/VideoShelf.module.css', import.meta.url), 'utf8')
+const workspace = parseRules(readFileSync(new URL('../../ui-session-video/src/client/VideoWorkspace.module.css', import.meta.url), 'utf8'))
 
 type Color = readonly [number, number, number]
 
@@ -49,8 +49,9 @@ it.each([false, true])('keeps a dark Muse material and readable primary and seco
   expect(Math.max(...color(values, '--dsw-alias-video-shelf-stroke'))).toBeLessThan(100)
 })
 
-it('keeps the player, inline card and nested timeline on the independent video material', () => {
+it('keeps the workspace player and nested controls on the independent video material', () => {
+  const material = new Map(workspace.find(rule => rule.selectors.includes('.island'))?.declarations)
   for (const alias of ['label-primary', 'label-secondary', 'label-tertiary', 'bg-base']) {
-    expect(shelf).toContain(`--dsw-alias-${alias}: var(--dsw-alias-video-shelf-`)
+    expect(material.get(`--dsw-alias-${alias}`)).toMatch(/^var\(--dsw-alias-video-shelf-/u)
   }
 })

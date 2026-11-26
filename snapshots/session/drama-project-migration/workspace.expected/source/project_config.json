@@ -1,0 +1,21 @@
+{
+  "jubian_script_id": 6292,
+  "asset_dir": "source-assets",
+  "project_bible": {
+    "schema_version": 1,
+    "revision": 2,
+    "title": "替嫁复仇",
+    "style": "现代写实电影质感",
+    "visual_medium": "photorealistic",
+    "aspect_ratio": "9:16",
+    "initial_budget_cents": 1234,
+    "delivery": { "width": 1080, "height": 1920, "fps": 24, "min_bitrate_mbps": 4.6 },
+    "characters": [
+      { "character_id": "shen", "name": "沈明棠", "asset_id": 70001,
+        "voice_profile": { "description": "平静成年女声", "speaker_id": "old-provider-speaker", "reference_audio": "old-voice.wav" } }
+    ],
+    "package_bindings": [{ "package_id": "P1", "storyboard_id": 80001, "episode_id": 80002 }],
+    "completed_tasks": [{ "task_id": "90001", "kind": "video", "result_ref": "old-result.mp4" }],
+    "history": [{ "revision": 2, "reason": "原项目记录", "changed_fields": ["characters"], "affected_stages": ["video_tasks"] }]
+  }
+}
