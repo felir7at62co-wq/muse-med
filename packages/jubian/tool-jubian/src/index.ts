@@ -35,7 +35,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
-import { assertNewNativeDispatchAllowed, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
+import { assertNewNativeDispatchAllowed, reconcileRecordedVideo, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { manuscriptMethod, type ManuscriptArgs } from './manuscript.ts'
@@ -74,8 +74,8 @@ import type {
 } from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 import { GenerationWatchRuntime } from './generation-watch.ts'
-import { GenerationWatchStore } from './generation-watch-store.ts'
-import { GenerationSessionBindings } from './generation-binding.ts'
+import { GenerationWatchOwnershipConflict, GenerationWatchStore } from './generation-watch-store.ts'
+import { GenerationSessionBindings, GenerationWorkspaceBusy } from './generation-binding.ts'
 import type { GenerationSessionBinding } from './generation-binding.ts'
 import { registerGenerationWatchDelivery } from './generation-watch-delivery.ts'
 import { createNativeGenerationDelivery } from './generation-watch-native-delivery.ts'
@@ -1348,14 +1348,29 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
           : [{ previewPath: await resolvePreviewPath(input), key: requireKey(input.idempotency_key) }]
         if (packs.length === 0 || packs.length > videoBatch.maxItems) return await dispatch()
-        const captured = await generationSessionBindings.capture(agent, exec.signal)
-        if (captured === undefined) throw new Error('Video submission requires the original native Session, model and owned Workspace')
+        let captured: Awaited<ReturnType<GenerationSessionBindings['capture']>>
+        let enrollment: Awaited<ReturnType<GenerationWatchRuntime['enroll']>>
         try {
+          captured = await generationSessionBindings.capture(agent, exec.signal)
+          if (captured === undefined) throw new Error('Video submission requires the original native Session, model and owned Workspace')
           dispatchSignal = AbortSignal.any([exec.signal, captured.lease.signal])
           captured.lease.assertCurrent()
           await assertNewNativeDispatchAllowed(ledger, packs)
           captured.lease.assertCurrent()
-          const enrollment = await watch.enroll(agent.session.id, packs, undefined, captured.binding)
+          enrollment = await watch.enroll(agent.session.id, packs, undefined, captured.binding)
+        } catch (error) {
+          captured?.lease.release()
+          if (!(error instanceof GenerationWatchOwnershipConflict) && !(error instanceof GenerationWorkspaceBusy)) throw error
+          const original = method === 'submit_video' ? packs[0] : undefined
+          if (original !== undefined) {
+            const evidence = await reconcileRecordedVideo(client, ledger,
+              { preview_path: original.previewPath, idempotency_key: original.key }, exec.signal)
+            if (evidence !== undefined) return { ...evidence, put_sent: false }
+          }
+          throw new Error(error.message + '。本次未发出生成 PUT。已有意图请用 jubian_storyboard reconcile_video，传项目目录与每项原始 key 只读核对。'
+            + '新任务请等当前续跑结束后重新核对。', { cause: error })
+        }
+        try {
           captured.lease.assertCurrent()
           const submit = (beforeSend: (key: string) => Promise<void>) => dispatch(async (key) => {
             captured.lease.assertCurrent()
