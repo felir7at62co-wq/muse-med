@@ -2074,12 +2074,63 @@ describe('jubian_storyboard', () => {
     expect(calls).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
+  it.each(['unique', 'duplicate', 'unknown-episode', 'different', 'malformed', 'missing', 'unavailable', 'cancelled'] as const)(
+    'reads back a timed-out creation from its original batch with %s evidence without another write', async (scenario) => {
+      const body = { ...createBody, storyboardName: 'EP01-P2', sortOrder: 1 }
+      const match = { id: 42, ...body }
+      const first = { id: 41, ...createBody }
+      const rows = [first, ...(scenario === 'missing' ? [] : [match]),
+        ...(scenario === 'duplicate' || scenario === 'unknown-episode'
+          ? [{ ...match, id: 43, episodeId: scenario === 'unknown-episode' ? null : match.episodeId }] : [])]
+      const controller = new AbortController()
+      const { client, calls } = stubClient(({ method, path, body: request }) => {
+        if (method === 'POST') {
+          if (request?.storyboardName === body.storyboardName) {
+            if (scenario === 'cancelled') controller.abort()
+            throw new Error('response lost after creation')
+          }
+          return first.id
+        }
+        if (path.includes('/list?')) return { rows, total: rows.length + Number(scenario === 'unavailable') }
+        const found = path.endsWith('/41') ? first : match
+        const savedConfig = scenario === 'different' ? { prompt: 'A different card' } : found.modelConfig
+        return { ...found, isGenerate: 1, storyboardMaterialList: [],
+          modelConfig: scenario === 'malformed' ? null : JSON.stringify(savedConfig) }
+      })
+      const args: MethodArgs = { method: 'create_batch', script_id: 2708,
+        storyboards: [{ body: createBody, idempotency_key: 'first-card' }, { body, idempotency_key: 'timed-out-card' }] }
+      const result = await storyboardMethod(client, ledger, args, { signal: controller.signal })
+      const reasons = { duplicate: 'multiple_matching_cards', 'unknown-episode': 'matching_card_episode_unknown',
+        different: 'card_details_differ', malformed: 'readback_unavailable', missing: 'matching_card_not_visible',
+        unavailable: 'readback_unavailable', cancelled: 'readback_cancelled' }
+      expect(result).toMatchObject({ total: 2, returned: 1, errors: 1,
+        verified_existing: Number(scenario === 'unique'), reconcile_required: Number(scenario !== 'unique'),
+        results: [{ storyboard_id: 41 }, {
+          index: 1, script_id: 2708, episode_id: 9, sort_order: 1, idempotency_key: 'timed-out-card',
+          status: 'error', reconciliation: scenario === 'unique'
+            ? { status: 'verified_matching_card', storyboard_id: 42 }
+            : { status: 'reconcile_required', storyboard_id: null, reason: reasons[scenario] },
+        }] })
+      const proof = await ledger.records()
+      expect(proof).toContainEqual(expect.objectContaining({ idempotency_key: 'timed-out-card', outcome: 'unknown' }))
+      if (scenario === 'unique') {
+        expect(await storyboardMethod(client, ledger, args)).toMatchObject({ results: [
+          { replayed: true, storyboard_id: 41, reconciliation: { storyboard_id: 41 } },
+          { replayed: true, storyboard_id: 42, reconciliation: { storyboard_id: 42 } },
+        ] })
+        expect(await ledger.records()).toEqual(proof)
+      }
+      expect(calls.filter(call => call.method === 'POST')).toHaveLength(2)
+      expect(calls.some(call => call.method === 'PUT')).toBe(false)
+    })
+
   it('submits prepared storyboard bodies concurrently and keeps replay keys per item', async () => {
     let active = 0
     let peak = 0
     let posted = 0
     let release: (() => void) | undefined
-    const { client, calls } = stubClient(async () => {
+    const { client, calls } = stubClient(async ({ method }) => {
+      if (method === 'GET') return { rows: [], total: 0 }
       active++; peak = Math.max(peak, active)
       if (active === 2) { release?.(); release = undefined }
       else await new Promise<void>((resolve) => { release = resolve })
@@ -2096,7 +2147,8 @@ describe('jubian_storyboard', () => {
     expect(calls).toHaveLength(4)
     expect(calls.every(call => call.body?.isGenerate === 0)).toBe(true)
     await storyboardMethod(client, ledger, args, deps)
-    expect(calls).toHaveLength(4)
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(4)
+    expect(calls.filter(call => call.method === 'GET')).toHaveLength(1)
   })
 
   it('checks every create body before writing any storyboard', async () => {
