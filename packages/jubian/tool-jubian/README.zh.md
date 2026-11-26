@@ -69,6 +69,8 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。来源查询或缺少声线样本不会发起付费请求。新用户消息不再自动追加提取或复用提示；历史提示仍作为已保存的普通上下文保留。
 
+正式的托管人物引用 `character_reference` 只用于 `image_generate`。为兼容自动填充可选字段的调用方，`task`、`tasks`、`subtasks`、`sources` 和 `unresolved` 会忽略五项身份字符串均为空、`authorization_version` 为 `0` 或 `1` 的占位对象。上述只读方法收到其他引用时，会在访问剧变前拒绝调用。
+
 ### 会话视频模型选择
 
 通过当前会话聊天框菜单选择视频模型和分辨率。
@@ -199,6 +201,8 @@ inherited process environment (read-only, highest)
 
 当凭证库解析不出任何值时，这一行才会回落到流水线自己的密钥文件 `.agents/secrets/pipeline.env`，从启动目录逐级向上查找；[共享工作间解析函数](../jubian/README.zh.md)优先使用非空的 `JUBIANAI_ADMIN_TOKEN`，再使用遗留的 `JUBIANAI_TOKEN`。该文件每次调用都重新读取，所以改动无需重启即可生效，值也永远不会被回显。把 `workspaceSecrets` 设为 `false` 可以让凭证库成为唯一来源。
 
+`jubian_catalog` 的 `auth` 方法使用 Muse 当前凭据，只发一次免费 GET 读取本人项目列表首条并丢弃项目内容；它不写远端、不提交生成、不记费用账本、不重试。成功只确认该目录可读，不确认指定项目权限或付费能力。失败保留认证被拒、权限不足、限流、网络或响应格式分类；本地未配置、格式错误和凭据源读取失败各有说明。先在 Muse 设置更新令牌，再重新调用；只在剧变网页重登不会自动更新 Muse。令牌设置的「已配置」表示本地值存在，不代表远端仍接受。
+
 ### 令牌设置页
 
 同一个凭据在**设置 → 剧变**里有一页。这一页属于本包，而不属于通用的配置面：通用面能写页面点名的任意引用，这一页只写 `JUBIANAI_ADMIN_TOKEN`。
@@ -224,7 +228,7 @@ inherited process environment (read-only, highest)
 | 工具 | 方法 | 计费与副作用 |
 |---|---|---|
 | `jubian_budget` | `read`、`update` | 免费；读取真实账务，或核实用户授权后保存项目总额度 |
-| `jubian_catalog` | `models`、`rate`、`script`、`episodes` | 只读，不产生费用 |
+| `jubian_catalog` | `auth`、`models`、`rate`、`script`、`episodes` | 只读，不产生费用 |
 | `jubian_find` | `scope`（`mine`、`pool`）、`mine` 的 `production_type`／`share_target_type` 过滤 | 只读，不产生费用 |
 | `jubian_claim` | `inspect`、`claim` | inspect 只读；claim 需要用户明确授权、`canClaim=1` 与幂等键 |
 | `jubian_snatch` | `ids`、`new_claimable` | 在明确授权的 UTC 时间窗口内后台有限认领 |
@@ -397,7 +401,7 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。删除字段明确有歧义时，所有带资产 ID 的音频引用都不能保存该卡；分期引用还会在有效状态证据缺失时停止。其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。制作方案发布会把共享人物和时期 ID 转交同一核验器，不会代为采纳或认可声线。提供方材质行不接收本地身份字段。带 `audio_asset_id` 且解析到共享槽的引用，以及匹配已采纳分期配置的引用，必须显式提供本地身份字段，不能通过省略字段选择旧式检查。项目圣经尚未采纳声线时会报告本地配置错误与所需修正。未分期旧引用和无关的仅 URL 音频保留已有兼容性，但不验证说话人身份。没有资产 ID、也不匹配本地已采纳配置的 URL 无法证明远端共享身份。
 
-共享声线登记同时提供 character_id 与 voice_period_id。规范音频名称后缀保留精确项目／人物／人生时期，普通名称不能认领声线。完整库存先复用已有候选。首次创建带共享身份的音频需要仅供 Host 使用的 Muse 账号协调器：认领槽、持久化开始状态，再用原账本 key 提交一次。忙碌、不可用或已经提交的状态不会另发 POST。完成时核对真实音频资产，再向协作者发布，客户端还会独立回读资产。coordination_state 与 exclusive_registration 表示协调状态，atomic_registration=false 保留供应商限制。旧客户端和剧变网页不参与协调，重复条目仍如实报告且不自动删除。已提交认领不会到期后放行新创建，未知结果沿原 key 对账。采用录音仍需核对实际说话人与时期。迁移或清理前，用[共享用途查询](../../drama/tool-drama-assets/README.zh.md#shared-project-uses)定位当前绑定。
+共享声线登记同时提供 character_id 与 voice_period_id。规范音频名称后缀保留精确项目／人物／人生时期，普通名称不能认领声线。完整库存先复用已有候选。首次创建带共享身份的音频需要仅供 Host 使用的 Muse 账号协调器：认领槽、持久化开始状态，再用原账本 key 提交一次。忙碌、不可用或已经提交的状态不会另发 POST。完成时核对真实音频资产，再向协作者发布，客户端还会独立回读资产。coordination_state 与 exclusive_registration 表示协调状态，atomic_registration=false 保留供应商限制。旧客户端和剧变网页不参与协调，重复条目仍如实报告且不自动删除。已提交认领不会到期后放行新创建。共享登记完成回执丢失时，只读取一次原操作，并再次核对音频资产后才报告就绪。仍未确认时沿原 key 对账。采用录音仍需核对实际说话人与时期。迁移或清理前，用[共享用途查询](../../drama/tool-drama-assets/README.zh.md#shared-project-uses)定位当前绑定。
 
 已明确删除、此前已就绪的声线可以接受另行授权的替代登记。新操作发出 POST 前，[网关](../../../services/muse-accounts/README.zh.md#shared-voice-registration)必须退役原操作，并返回 replaces_asset_id，与完整本地清单中同槽位的已删除资产匹配。删除证据缺失、矛盾或未经共享登记跟踪时仍保持待处理。替换已删除声线不会重新开放结果不确定的原请求，也不允许用其 key 再发 POST。
 
@@ -409,7 +413,7 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 
 统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。
 
-`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词。姓名台词支持括号内的表演指示和编号镜头内的句末边界；画外心声即使不动嘴也算发声。有标签的台词字段可以在同一行的非空场景或画面文字值之后用空格分隔。明确不发声的指示、动作描述、嵌套场景、画面文字和负面字段、引号内的道具文字及空台词占位不算发声。句末边界或明确的发声字段可结束动作描述；单独的句末边界不能结束画面文字或负面字段，发声标签也不能结束负面字段。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词，也不批准提交或证明实际录音合格。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
+`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词。发声标签和姓名台词均支持括号内的表演指示。配音指令段的姓名台词、编号镜头描述中的明确开口提示和画外心声均算发声。有标签的台词字段可以在同一行的非空场景或画面文字值之后用空格分隔。明确不发声的指示、动作描述、嵌套场景、画面文字和负面字段、引号内的道具文字及空台词占位不算发声。句末边界或明确的发声字段可结束动作描述；单独的句末边界不能结束画面文字或负面字段，发声标签也不能结束负面字段。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词，也不批准提交或证明实际录音合格。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
 
 主体视频由提供方从一次 `isGenerate=1` 的分镜 `PUT` 创建；直接的建任务 `POST` 不会保留主体身份。生产证据把这条差异钉死了：任务 `335343` 来自分镜 `PUT`，七项身份全部保留并成功；`335470` 来自 direct `POST /admin/aigc/video/task/create`，丢失 `assetId`/`materialName` 并失败。因此本包不支持那条路径，也没有任何方法调用它。
 
@@ -554,7 +558,9 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 新建资产时，`image_generate` 会在调用内部等待本次生成图，上限由 `imageActiveTimeoutMs` 决定，超时以 `asset_status: timeout` 报告而不是抛错。重生现有资产时，不把旧 Active 图当作本次结果；须精确回读新任务和新材质后才能核实。
 
-`image_generate` 用 `image_style: "anime"` 选择2D/3D动漫，`"live_action"` 选择真人；批量 `items` 逐项提供，顶层的批次 `image_style` 会被拒绝。旧调用从提示词开头的正向媒介声明解析，可带精确的 `项目风格:` 或 `项目风格：` 前缀，未标记的旧提示词保留真人。显式选择冲突在计费前失败。回执里的 `image_style` 是解析后的请求选择，不是视觉验收结论。完整提示词保留3D细分画风，实际图像仍需查看；未知提交按原 key 对账。
+`image_generate` 的 `image_style` 支持 `"live_action"`（真人写实）、`"anime"`（二维／三维动漫）和 `"realistic_3d"`（3D 写实）。`image_generate_batch` 中需要指定风格时，在对应的 `items` 项内填写。批次顶层传值会被拒绝。显式选择须与提示词开头已识别的风格声明一致。省略字段时，工具优先采用开头声明，其次采用剧变项目保存的风格。项目未保存风格时仍用真人写实。若项目保存的风格不受支持，须通过参数或开头声明指定受支持的风格，才可提交计费请求。
+
+回执回显已解析的请求风格。请查看生成图核对画风，并在提示词中保留完整风格和材质细节。用原 `idempotency_key` 核对结果不明的提交。请求体变化时，原记录无法被覆盖。
 
 -----
 

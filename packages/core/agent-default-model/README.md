@@ -43,7 +43,7 @@ The composition requires a provider and model. Consumers read the live reference
 | `provider` | required | Registered provider route for fresh agents |
 | `model` | required | Provider-owned model id for fresh agents |
 
-The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-agent-default-model) lists every accepted field. `reasoningEffort` is optional; saving a selection without it removes that field from the profile’s complete config override.
+The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-agent-default-model) lists every accepted field. Saving a selection without `reasoningEffort` removes that field from the profile override. The optional `appliedDefaultRevision` records the deployment revision already applied to the profile. Manual model changes preserve this revision.
 
 ### Read and change the default
 

@@ -111,11 +111,14 @@ export async function apply(ctx) {
     if (!events.some(event => event.type === 'user/message' && event.data.source.kind === 'jubian-generation-watch')) return
     const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_reconcile_watch')
     assert.ok(result); assert.equal(result.data.message.isError, false, JSON.stringify(result.data.message.content))
-    assert.equal(JSON.parse(result.data.message.content.find(block => block.type === 'text').text).status, 'submitted')
+    const readback = JSON.parse(result.data.message.content.find(block => block.type === 'text').text)
+    assert.equal(readback.status, 'submitted')
+    assert.equal(readback.replayed, true)
+    assert.equal(readback.task_id, '335343')
     assert.equal(paidPuts, 1); assert.equal(replayedUnderGuard, true)
     assert.equal((await ledger.records()).length, 1)
     const proof = { completionNoticeQueuedDuringOriginalTurn: noticeQueued, reconciledWhileNativeGuardHeld: replayedUnderGuard,
-      paidMockPuts: paidPuts, nativeLedgerRecords: 1, realProviderRequests: 0 }
+      confirmedOriginalTask: readback.task_id, paidMockPuts: paidPuts, nativeLedgerRecords: 1, realProviderRequests: 0 }
     await writeFile(join(agent.session.header.cwd, 'watch-proof.json'), `${JSON.stringify(proof, null, 2)}\n`)
   })
   ctx.provide('snapshotWatchReady', true)

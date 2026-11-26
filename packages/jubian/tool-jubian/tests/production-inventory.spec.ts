@@ -43,6 +43,11 @@ it('respects the acquisition bound and foreground cancellation', async () => {
   expect(f.paths).toHaveLength(1)
 })
 
+it('reads episode identity and total from the shared project inventory', async () => {
+  const f = inventory([{ total: 1, rows: [{ id: 1, scriptId: 4908, episodeIndex: 4, episodeName: 'EP04' }] }])
+  await expect(productionRows(f.client, 4908, 'episode', 1, 1, new AbortController().signal)).resolves.toHaveLength(1)
+})
+
 it('rejects a non-object inventory envelope and invalid row identities', async () => {
   for (const data of [[], { total: 1, rows: [{ id: 0 }] }]) {
     const f = inventory([data])

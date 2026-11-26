@@ -35,12 +35,13 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
-import { assertNewNativeDispatchAllowed, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
+import { assertNewNativeDispatchAllowed, reconcileRecordedVideo, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { manuscriptMethod, type ManuscriptArgs } from './manuscript.ts'
 import { projectMethod, type ProjectArgs } from './project.ts'
 import { projectShareMethod, type ProjectShareArgs } from './project-share.ts'
+import { defaultProjectInventoryLimits } from './project-inventory.ts'
 import { findMethod } from './find.ts'
 import type { FindArgs } from './find.ts'
 import { claimMethod, claimWatchArgs, claimWatchJob, resolveClaimWatchConfig } from './claim.ts'
@@ -74,8 +75,8 @@ import type {
 } from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 import { GenerationWatchRuntime } from './generation-watch.ts'
-import { GenerationWatchStore } from './generation-watch-store.ts'
-import { GenerationSessionBindings } from './generation-binding.ts'
+import { GenerationWatchOwnershipConflict, GenerationWatchStore } from './generation-watch-store.ts'
+import { GenerationSessionBindings, GenerationWorkspaceBusy } from './generation-binding.ts'
 import type { GenerationSessionBinding } from './generation-binding.ts'
 import { registerGenerationWatchDelivery } from './generation-watch-delivery.ts'
 import { createNativeGenerationDelivery } from './generation-watch-native-delivery.ts'
@@ -267,8 +268,8 @@ const ARGS = {
     asset_category: { type: 'string', enum: [...ASSET_CATEGORIES], description: '资产类别；给 episode 时必填。' },
     episode: { type: 'string', description: '集号或全剧；按规范组合资产名。' },
     prompt: { type: 'string', required: true, description: '本项图片提示词。' },
-    image_style: { type: 'string', enum: ['live_action', 'anime'],
-      description: '本项媒介：已确认的2D/3D动画用 anime，真人用 live_action；保留完整项目风格，与提示词开头一致。' },
+    image_style: { type: 'string', enum: ['live_action', 'anime', 'realistic_3d'],
+      description: '本项风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时读提示词首行声明，再读项目设置。' },
     image_spec_id: { type: 'integer', description: '本项可选：模型 videoStandards 中的精确 id；同画幅/分辨率有多条规格时指定。' },
     image_model_id: { type: 'string', description: '本项可选的 task_type=2 实时目录精确 modelId；省略沿用已选默认生图模型。' },
     image_resolution: { type: 'string', description: '本项可选的目录分辨率，如 1K、2K、4K。' },
@@ -277,8 +278,8 @@ const ARGS = {
     references: { type: 'array', items: { type: 'string' }, description: '本项有序参考图 HTTPS URL；角色重生成省略时继承本项目该父资产唯一已采用图片，显式 [] 表示不用参考。新建同一人物的换装或状态资产时，显式引用已认可的人脸图，不凭同名推断身份。' },
     parent_asset_id: { type: 'number', description: '可选：重生成的父资产 ID；省略则新建。' },
   } }, description: 'image_generate_batch 必填：同一 script_id 下各不相同的资产请求；每项独立 key，整批先校验后并发执行。' },
-  image_style: { type: 'string', enum: ['live_action', 'anime'],
-    description: 'image_generate 的媒介：真人用 live_action，2D/3D动漫用 anime；3D细分画风仍完整写入prompt。优先显式提供；省略时识别开头的正向媒介，可带“项目风格：”或“项目风格:”前缀，未标记的旧请求保留真人。与开头声明矛盾时不提交收费请求。image_generate_batch 仅接受每项 items.image_style，顶层提供会被拒绝。' },
+  image_style: { type: 'string', enum: ['live_action', 'anime', 'realistic_3d'],
+    description: 'image_generate 的风格：真人用 live_action，2D/3D动漫用 anime，3D 写实用 realistic_3d。省略时先识别提示词首行声明（可带“项目风格：”），再读取项目风格；项目未保存风格时默认真人。与首行冲突或无法继承项目风格时不提交收费请求。image_generate_batch 仅接受每项 items.image_style。' },
   image_spec_id: { type: 'integer', description: 'image_generate 可选或 image_generate_batch 默认：所选模型 videoStandards 的精确 id，不能把模型计价行 id 当成此规格 id。' },
   image_model_id: { type: 'string', description: 'image_generate 可选或 image_generate_batch 默认：task_type=2 实时目录中的精确 modelId；显式选模型时重新匹配其通道，不套用其他模型的默认通道。' },
   image_resolution: { type: 'string', description: 'image_generate 可选或 image_generate_batch 默认：所选模型目录支持的分辨率，如 1K、2K、4K；批次每项可覆盖。' },
@@ -527,6 +528,18 @@ const QA_READ_METHODS = {
   jubian_video: new Set(['task', 'tasks', 'subtasks', 'sources', 'unresolved']),
 } as const
 
+function videoOperationArguments(input: MethodArgs): MethodArgs {
+  const { character_reference: reference, ...readArgs } = input
+  if (reference === undefined || input.method === 'image_generate') return input
+  if (!QA_READ_METHODS.jubian_video.has(input.method)
+    || (reference.authorization_version !== 0 && reference.authorization_version !== 1)
+    || reference.authorization_id !== '' || reference.character_id !== ''
+    || reference.catalog_asset_id !== '' || reference.image_sha256 !== '' || reference.managed_reference_id !== '') {
+    throw new Error('Managed character references are supported only by image_generate.')
+  }
+  return readArgs
+}
+
 function methodArgument(args: Record<string, unknown>): string | undefined {
   const method = args['method']
   return typeof method === 'string' ? method : undefined
@@ -637,8 +650,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
   const watchConfig = resolveWatchConfig(config)
   const projectShare = {
-    pageSize: config.projectSharePageSize ?? 100,
-    pageLimit: config.projectSharePageLimit ?? 20,
+    pageSize: config.projectSharePageSize ?? defaultProjectInventoryLimits.pageSize,
+    pageLimit: config.projectSharePageLimit ?? defaultProjectInventoryLimits.pageLimit,
     maxDirectoryItems: config.projectShareMaxDirectoryItems ?? 10000,
     maxPreviewBytes: config.projectShareMaxPreviewBytes ?? 2097152,
     maxResultChars: config.projectShareMaxResultChars ?? 24000,
@@ -920,10 +933,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   registerJubianTool(defineTool({
     name: 'jubian_catalog',
-    description: '剧变（Jubian）目录与项目只读查询：账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。',
+    description: '剧变（Jubian）目录与项目只读查询：当前登录连通性、账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。登录后先用 auth 验证 Muse 实际使用的凭据；网页登录不自动更新 Muse 中保存的 Token。401 表示认证被拒，403 仅说明无权访问，网络或响应格式错误均不证明登录过期；不要反复要求重登或自动重试生成。',
     parameters: {
-      method: { type: 'string', required: true, enum: ['models', 'rate', 'script', 'episodes'],
-        description: 'models=账户模型目录；rate=单个计价标准；script=剧本身份；episodes=分集列表。' },
+      method: { type: 'string', required: true, enum: ['auth', 'models', 'rate', 'script', 'episodes'],
+        description: 'auth=免费单次读取本人项目列表并丢弃内容，只核对当前 Muse 凭据可读，不验证指定项目权限或付费生成；models=账户模型目录；rate=单个计价标准；script=剧本身份；episodes=分集列表。' },
       task_type: ARGS.task_type, standard_id: ARGS.standard_id, script_id: ARGS.script_id,
       page_num: ARGS.page_num, page_size: ARGS.page_size,
     },
@@ -1313,6 +1326,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const dispatch = async (beforeVideoSend?: (key: string) => Promise<void>) => {
           const result = await storyboardMethod(client, ledger, input, {
             naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal, creationWorkspaceDir,
+            projectInventoryLimits: projectShare,
             ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
             ...(promptRiskReview ? { promptRiskReview } : {}),
             ...(assertVideoModel ? { assertVideoModel } : {}),
@@ -1336,14 +1350,29 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
           : [{ previewPath: await resolvePreviewPath(input), key: requireKey(input.idempotency_key) }]
         if (packs.length === 0 || packs.length > videoBatch.maxItems) return await dispatch()
-        const captured = await generationSessionBindings.capture(agent, exec.signal)
-        if (captured === undefined) throw new Error('Video submission requires the original native Session, model and owned Workspace')
+        let captured: Awaited<ReturnType<GenerationSessionBindings['capture']>>
+        let enrollment: Awaited<ReturnType<GenerationWatchRuntime['enroll']>>
         try {
+          captured = await generationSessionBindings.capture(agent, exec.signal)
+          if (captured === undefined) throw new Error('Video submission requires the original native Session, model and owned Workspace')
           dispatchSignal = AbortSignal.any([exec.signal, captured.lease.signal])
           captured.lease.assertCurrent()
           await assertNewNativeDispatchAllowed(ledger, packs)
           captured.lease.assertCurrent()
-          const enrollment = await watch.enroll(agent.session.id, packs, undefined, captured.binding)
+          enrollment = await watch.enroll(agent.session.id, packs, undefined, captured.binding)
+        } catch (error) {
+          captured?.lease.release()
+          if (!(error instanceof GenerationWatchOwnershipConflict) && !(error instanceof GenerationWorkspaceBusy)) throw error
+          const original = method === 'submit_video' ? packs[0] : undefined
+          if (original !== undefined) {
+            const evidence = await reconcileRecordedVideo(client, ledger,
+              { preview_path: original.previewPath, idempotency_key: original.key }, exec.signal)
+            if (evidence !== undefined) return { ...evidence, put_sent: false }
+          }
+          throw new Error(error.message + '。本次未发出生成 PUT。已有意图请用 jubian_storyboard reconcile_video，传项目目录与每项原始 key 只读核对。'
+            + '新任务请等当前续跑结束后重新核对。', { cause: error })
+        }
+        try {
           captured.lease.assertCurrent()
           const submit = (beforeSend: (key: string) => Promise<void>) => dispatch(async (key) => {
             captured.lease.assertCurrent()
@@ -1446,10 +1475,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       idempotency_key: ARGS.idempotency_key,
     },
     output: VIDEO_OUTPUT,
-    execute: async (args, exec) => await guarded('jubian_video', async (input) => {
-      if (input.character_reference !== undefined && input.method !== 'image_generate') {
-        throw new Error('Managed character references are supported only by image_generate.')
-      }
+    execute: async (args, exec) => await guarded('jubian_video', async (received) => {
+      const input = videoOperationArguments(received)
       const characterReferenceGeneration = input.character_reference === undefined
         ? undefined
         : await (async () => {

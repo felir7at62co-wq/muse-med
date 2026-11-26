@@ -175,6 +175,72 @@ it('rejects managed references on a different method and absent authority before
   expect(videoMethod).not.toHaveBeenCalled()
 })
 
+const blankReference = {
+  authorization_id: '', authorization_version: 1, character_id: '',
+  catalog_asset_id: '', image_sha256: '', managed_reference_id: '',
+}
+
+it.each([
+  { method: 'task', task_id: 2 },
+  { method: 'tasks', script_id: 1, task_type: 1 },
+  { method: 'subtasks', task_id: 2 },
+  { method: 'sources', script_id: 1, storyboard_id: 3 },
+  { method: 'unresolved', script_id: 1 },
+])('discards fully blank image-reference fields on the read-only $method method', async (args) => {
+  const videoMethod = vi.spyOn(Methods, 'videoMethod').mockResolvedValue({ task: null })
+  const bridge = vi.spyOn(ReferenceBridge, 'createCharacterReferenceQaBridge')
+  onTestFinished(() => { videoMethod.mockRestore(); bridge.mockRestore() })
+  const { registered } = await mount()
+  const video = registered.find(tool => tool.name === 'jubian_video')!
+  for (const authorization_version of [0, 1]) {
+    expect(await video.execute({
+      ...args, character_reference: { ...blankReference, authorization_version },
+    }, {})).toEqual({ task: null })
+  }
+  expect(videoMethod.mock.calls.map(call => call[2])).toStrictEqual([args, args])
+  expect(videoMethod.mock.calls.every(call => call[3]?.characterReferenceGeneration === undefined)).toBe(true)
+  expect(bridge).not.toHaveBeenCalled()
+})
+
+it.each([null, {}, { ...blankReference, unexpected: '' }])
+('rejects a malformed image reference at schema validation: %j', async (character_reference) => {
+  const videoMethod = vi.spyOn(Methods, 'videoMethod').mockResolvedValue({ unused: true })
+  onTestFinished(() => { videoMethod.mockRestore() })
+  const { registered } = await mount()
+  const video = registered.find(tool => tool.name === 'jubian_video')!
+  await expect(video.execute({ method: 'task', task_id: 2, character_reference }, {}))
+    .rejects.toThrow('invalid arguments')
+  expect(videoMethod).not.toHaveBeenCalled()
+})
+
+it.each([
+  { ...blankReference, authorization_version: 2 },
+  { ...blankReference, authorization_id: 'authorization' },
+  { ...blankReference, character_id: 'character' },
+  { ...blankReference, catalog_asset_id: 'asset' },
+  { ...blankReference, image_sha256: 'a'.repeat(64) },
+  { ...blankReference, managed_reference_id: 'managed-upload' },
+])('rejects a non-placeholder image reference on a read-only method: %j', async (character_reference) => {
+  const videoMethod = vi.spyOn(Methods, 'videoMethod').mockResolvedValue({ unused: true })
+  onTestFinished(() => { videoMethod.mockRestore() })
+  const { registered } = await mount()
+  const video = registered.find(tool => tool.name === 'jubian_video')!
+  await expect(video.execute({ method: 'task', task_id: 2, character_reference }, {}))
+    .rejects.toThrow('supported only by image_generate')
+  expect(videoMethod).not.toHaveBeenCalled()
+})
+
+it('rejects a blank image reference on a chargeable video operation before dispatch', async () => {
+  const videoMethod = vi.spyOn(Methods, 'videoMethod').mockResolvedValue({ unused: true })
+  onTestFinished(() => { videoMethod.mockRestore() })
+  const { registered } = await mount()
+  const video = registered.find(tool => tool.name === 'jubian_video')!
+  await expect(video.execute({
+    method: 'upscale', task_id: 2, idempotency_key: 'test-upscale', character_reference: blankReference,
+  }, {})).rejects.toThrow('supported only by image_generate')
+  expect(videoMethod).not.toHaveBeenCalled()
+})
+
 it.each(['no-agent', 'no-question-ui', 'no-account', 'unverified-account'] as const)
 ('refuses project-private authorization with %s without contacting the provider', async (scenario) => {
   const services: Record<string, unknown> = {
@@ -370,7 +436,7 @@ describe('tool-jubian registration', () => {
       ['method', 'page_num', 'page_size', 'script_id', 'standard_id', 'task_type'])
     expect(catalog.required).toEqual(['method'])
     expect((catalog.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['models', 'rate', 'script', 'episodes'])
+      .toEqual(['auth', 'models', 'rate', 'script', 'episodes'])
 
     const video = byName.get('jubian_video')!
     expect((video.properties as Record<string, { enum?: string[] }>).method!.enum)

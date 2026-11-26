@@ -18,7 +18,11 @@ export type HongguoTaskCaller = { kind: 'session'; agent: Agent } | {
 export interface HongguoTaskEnvelope {
   id: HongguoTaskId; taskId: HongguoTaskId; kind: 'download'; runId: HongguoRunId | null; jobId: string | null;
   state: HongguoTaskState; owner: { kind: 'session' | 'cli'; id: string }; cwd: string;
-  request: DownloadOptions; progress: Record<string, number | string> | null; summary: Record<string, string | boolean> | null;
+  request: DownloadOptions; progress: Record<string, number | string> | null;
+  summary: {
+    ok: boolean; complete?: boolean; code?: string; path?: string; cleanupPendingPath?: string;
+    sourceDiagnostic?: Pick<DownloadFailure, 'sourceStage' | 'retryable' | 'sourceFailures'>;
+  } | null;
   createdAt: string; updatedAt: string;
 }
 /** Control acknowledgement is separate from a request being accepted or timed out. */

@@ -8,7 +8,7 @@ import { resolveConfig } from './config.js';
 import { safeError } from './errors.js';
 import { pendingMediaProcess, mediaCleanupError } from './media-ownership.js';
 import { DownloadCheckpoint } from './checkpoint.js';
-import { TaskStore, taskError, validTaskId, validRunId } from './task-store.js';
+import { TaskStore, taskError, taskSourceDiagnostic, validTaskId, validRunId } from './task-store.js';
 const activeStates = ['queued', 'running'];
 const inside = (root, path) => { const part = relative(root, path); return !isAbsolute(part) && part !== '..' && !part.startsWith(`..${sep}`); };
 const identity = () => randomUUID().replaceAll('-', '');
@@ -22,7 +22,8 @@ const envelope = task => ({ id: task.id, taskId: task.id, kind: 'download', runI
     remainingEpisodeCount: task.progress.remainingEpisodeCount, requestedQuality: task.progress.requestedQuality },
   summary: task.summary === null ? null : { ok: task.summary.ok, ...(task.summary.complete !== undefined ? { complete: task.summary.complete } : {}),
     ...(task.summary.code ? { code: task.summary.code } : {}), ...(task.summary.path ? { path: task.summary.path } : {}),
-    ...(task.summary.cleanupPendingPath ? { cleanupPendingPath: task.summary.cleanupPendingPath } : {}) },
+    ...(task.summary.cleanupPendingPath ? { cleanupPendingPath: task.summary.cleanupPendingPath } : {}),
+    ...(task.summary.sourceDiagnostic === undefined ? {} : { sourceDiagnostic: task.summary.sourceDiagnostic }) },
   createdAt: task.createdAt, updatedAt: task.updatedAt });
 const wrapped = task => ({ ok: true, taskId: task.id, runId: task.runId, jobId: task.jobId, state: task.state,
   downloadTask: envelope(task), task: envelope(task) });
@@ -216,22 +217,25 @@ export class HongguoTasks {
         current.state = result.code === 'cleanup_unconfirmed' ? 'blocked' : run.stop ?? (result.ok ? 'completed' : 'failed');
         current.summary = { ok: result.ok, complete: result.complete === true,
           ...(result.code ? { code: result.code } : {}), ...(result.path ? { path: result.path } : {}),
-          ...(result.cleanupPendingPath ? { cleanupPendingPath: result.cleanupPendingPath } : {}) };
+          ...(result.cleanupPendingPath ? { cleanupPendingPath: result.cleanupPendingPath } : {}),
+          ...(!result.ok ? taskSourceDiagnostic(result) : {}) };
         return current;
       });
       published = true;
       return { ...result, ...wrapped(task), ok: result.ok, complete: result.complete === true };
     } catch (error) {
       run.controller.abort(); run.started.reject(error);
+      const failure = safeError(error);
       task = await store.change(task.id, current => {
         if (current.runId !== null && current.runId !== run.id) throw taskError('task_stale_run', '下载任务运行代次已变化');
         const unknown = result?.code === 'cleanup_unconfirmed' || error.code === 'cleanup_unconfirmed';
         current.state = unknown ? 'blocked' : 'failed';
-        current.summary = { ok: false, code: unknown ? 'cleanup_unconfirmed' : safeError(error).code,
-          ...(result?.cleanupPendingPath ? { cleanupPendingPath: result.cleanupPendingPath } : {}) }; return current;
+        current.summary = { ok: false, code: unknown ? 'cleanup_unconfirmed' : failure.code,
+          ...(result?.cleanupPendingPath ? { cleanupPendingPath: result.cleanupPendingPath } : {}),
+          ...(!unknown ? taskSourceDiagnostic(failure) : {}) }; return current;
       });
       published = true;
-      return { ...wrapped(task), ok: false, complete: false, ...safeError(error) };
+      return { ...wrapped(task), ok: false, complete: false, ...failure };
     } finally {
       run.poll.abort(); await polling;
       run.detach(); run.release.resolve();

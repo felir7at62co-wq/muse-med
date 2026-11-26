@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildImageRequest, imageCandidates, readImageDisplayPrice, resolveImageModel, resolveImageStyle } from '../src/image.ts'
+import { buildImageRequest, imageCandidates, readImageDisplayPrice, requestedImageStyle, resolveImageModel, resolveImageStyle,
+  resolveProjectImageStyle } from '../src/image.ts'
 
 const CATALOGUE = [{ id: 42, standardId: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN', unitPrice: 0.5, unit: '张',
   genTypes: [{ id: 7, type: 3 }],
@@ -335,6 +336,10 @@ describe('image medium selection', () => {
     ['项目风格: 动漫，水墨线条与二维平涂。角色身份：男主。', 1],
     ['  项目风格： stylized 3D animation, soft lighting.\nCharacter reference.', 1],
     ['项目风格：真人实拍，人物摄影。', 0],
+    ['项目风格：3d 写实', 3],
+    ['项目风格: 3D写实，PBR 材质。', 3],
+    ['项目风格：【三维写实】人物设定。', 3],
+    ['【3D 写实】人物设定。', 3],
   ])('preserves an official leading project style in %s', (prompt, style) => {
     const body = buildImageRequest({ scriptId: 4908, assetName: '风格样图', assetType: 1,
       prompt, references: [] }, CATALOGUE)
@@ -351,6 +356,42 @@ describe('image medium selection', () => {
   it('rejects an explicit medium conflicting with an official leading project style', () => {
     expect(() => resolveImageStyle('项目风格：3D动漫，角色。', 'live_action')).toThrow('conflicts')
     expect(() => resolveImageStyle('项目风格: 真人实拍，场景。', 'anime')).toThrow('conflicts')
+    expect(() => resolveImageStyle('项目风格：3D 写实', 'live_action')).toThrow('conflicts')
+    expect(() => resolveImageStyle('【动漫】人物设定。', 'realistic_3d')).toThrow('conflicts')
+  })
+
+  it.each(['写实3D CG渲染风格。', '不要3D 写实，人物设定。', '人物设定。\n项目风格：3D 写实',
+    '项目风格：\n3D 写实', '3D写实馆。'])
+  ('leaves the image style unspecified for non-leading or inexact realism wording %s', (prompt) => {
+    expect(requestedImageStyle(prompt)).toBeUndefined()
+    expect(resolveImageStyle(prompt)).toBe('live_action')
+    expect(resolveImageStyle(prompt, undefined, 1)).toBe('anime')
+  })
+
+  it.each([[0, 'live_action'], ['0', 'live_action'], [1, 'anime'], ['1', 'anime'],
+    [3, 'realistic_3d'], ['3', 'realistic_3d']])
+  ('uses the supported project style %s when the caller provides none', (projectStyle, expected) => {
+    expect(resolveProjectImageStyle(projectStyle)).toBe(expected)
+    expect(resolveImageStyle('人物设定图。', undefined, projectStyle)).toBe(expected)
+  })
+
+  it.each([undefined, null, '', '  '])('keeps the legacy default for a missing project style %s', (projectStyle) => {
+    expect(resolveProjectImageStyle(projectStyle)).toBe('live_action')
+  })
+
+  it.each([2, 4, 5, 6, '3D 写实', false])('requires an explicit image style for unsupported project setting %s', (projectStyle) => {
+    expect(() => resolveProjectImageStyle(projectStyle)).toThrow('Set a supported image_style explicitly')
+    expect(resolveImageStyle('人物设定图。', 'realistic_3d', projectStyle)).toBe('realistic_3d')
+    expect(resolveImageStyle('项目风格：3D 写实', undefined, projectStyle)).toBe('realistic_3d')
+  })
+
+  it('writes the explicitly selected 3D realism to a regeneration without rewriting the prompt', () => {
+    const prompt = '人物设定图，精细PBR材质。'
+    const imageStyle = resolveImageStyle(prompt, 'realistic_3d', 0)
+    const body = buildImageRequest({ scriptId: 4908, assetName: '3D 写实小样', assetType: 1,
+      prompt, references: [], imageStyle, parentAssetId: 169279 }, CATALOGUE)
+    expect(body.id).toBe(169279)
+    expect(JSON.parse(String(body.modelConfig))).toMatchObject({ style: 3, prompt })
   })
 
   it.each(['3D动漫／风格化三维动画，PBR材质。', '【动漫】3D角色设定图。',

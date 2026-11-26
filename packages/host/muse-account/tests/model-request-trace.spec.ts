@@ -11,6 +11,34 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const header = 'x-muse-client-request-id'
 const finish: StreamChunk = { type: 'finish', reason: { kind: 'stop' } }
 
+it('accepts the auth marker only from the current unredirected Muse relay request', async () => {
+  const trace = new MuseModelRequestTrace('https://company.test', () => undefined)
+  const request = options('auth')
+  const marker = new Headers({ 'x-muse-model-auth-error': 'upstream-credentials-rejected' })
+  const url = `${baseURL}/chat/completions`
+  for await (const _chunk of trace.stream(request, async function* () {
+    trace.observeResponse({ ...request, baseURL }, { url, headers: marker, status: 401, redirected: false })
+    expect(trace.authFailure()).toBe('UPSTREAM_CREDENTIAL_REJECTED')
+    trace.observeResponse({ ...request, baseURL }, { url, headers: new Headers(), status: 401, redirected: false })
+    expect(trace.authFailure()).toBeUndefined()
+    trace.observeResponse({ ...request, baseURL }, { url, headers: marker, status: 401, redirected: true })
+    expect(trace.authFailure()).toBeUndefined()
+    trace.observeResponse({ ...request, baseURL }, { url: 'https://supplier.test/chat/completions', headers: marker, status: 401, redirected: false })
+    expect(trace.authFailure()).toBeUndefined()
+    trace.observeResponse({ ...request, baseURL: 'https://supplier.test' }, { url, headers: marker, status: 401, redirected: false })
+    expect(trace.authFailure()).toBeUndefined()
+    trace.observeResponse({ ...request, model: 'other', baseURL }, { url, headers: marker, status: 401, redirected: false })
+    expect(trace.authFailure()).toBeUndefined()
+    trace.observeResponse({ ...request, baseURL }, { url: '', headers: marker, status: 401, redirected: false })
+    expect(trace.authFailure()).toBeUndefined()
+    yield finish
+  })) { /* Consume the request-scoped response observation. */ }
+  expect(trace.authFailure()).toBeUndefined()
+  trace.observeResponse({ ...request, baseURL }, { url, headers: marker, status: 401, redirected: false })
+  trace.dispose()
+  trace.observeResponse({ ...request, baseURL }, { url, headers: marker, status: 401, redirected: false })
+})
+
 it('keeps requests without a Session identity explicitly unattributed', async () => {
   const records: MuseModelRequestMetadata[] = []
   const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))

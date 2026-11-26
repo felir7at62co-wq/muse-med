@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -19,6 +19,7 @@ afterEach(async () => {
 
 const PROVIDER = 'muse-cloud-yunying'
 const MODEL = 'gemini-3.1-pro'
+const CODE = 'PROMPT_USAGE_SHORTFALL'
 const DEFAULT_CODES = ['EMPTY_RESPONSE', 'INVALID_TOOL_ARGUMENTS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT']
 const DROPPED = 'I am not running inside the client, so I will write the content directly.'
 
@@ -31,8 +32,11 @@ function reply(text: string, inputTokens: number): StreamChunk[] {
     { type: 'finish', reason: { kind: 'stop' } },
   ]
 }
-const dropped = (): StreamChunk[] => reply(DROPPED, 40)
+const dropped = (inputTokens = 40): StreamChunk[] => reply(DROPPED, inputTokens)
 const healthy = (): StreamChunk[] => reply('Recovered answer.', 1_000_000)
+const serverError = (): StreamChunk[] => [
+  { type: 'finish', reason: { kind: 'error', failure: { code: 'SERVER', message: 'synthetic server error' } } },
+]
 
 class Adapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -56,7 +60,12 @@ class Adapter extends LlmAdapter {
   }
 }
 
-async function harness(script: StreamChunk[][], policy: { mode?: 'normal' | 'always'; maxRetries?: number; codes?: string[] } = {}) {
+async function harness(script: StreamChunk[][], policy: {
+  mode?: 'normal' | 'always'
+  maxRetries?: number
+  codes?: string[]
+  shortfallLimit?: number
+} = {}) {
   const ctx = new Context()
   contexts.add(ctx)
   await mountAgentLoopTestDependencies(ctx)
@@ -67,8 +76,9 @@ async function harness(script: StreamChunk[][], policy: { mode?: 'normal' | 'alw
   const resolved = resolveRetryPolicy({
     mode: policy.mode ?? 'normal',
     ...policy.mode === 'always' ? {} : { maxRetries: policy.maxRetries ?? 2 },
-    retryableCodes: policy.codes ?? [...DEFAULT_CODES, 'PROMPT_USAGE_SHORTFALL'],
-    backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
+    retryableCodes: policy.codes ?? [...DEFAULT_CODES, CODE],
+    ...(policy.shortfallLimit === undefined ? {} : { consecutiveRetryLimits: { [CODE]: policy.shortfallLimit } }),
+    backoff: { initialDelayMs: 1, maxDelayMs: 8, jitterRatio: 0 },
   }, 'test')
   const adapter = new Adapter(ctx, script, resolved)
   ctx.llm.registerAdapter([PROVIDER], adapter)
@@ -89,7 +99,7 @@ async function harness(script: StreamChunk[][], policy: { mode?: 'normal' | 'alw
 
 describe('discarded replies through the real loop and retry policy', () => {
   it('retries a discarded reply and commits only the healthy one', async () => {
-    const test = await harness([dropped(), healthy()])
+    const test = await harness([dropped(), healthy()], { shortfallLimit: 1 })
     await test.run()
     const events = test.events()
     const attempts = events.filter(event => event.type === 'assistant/attempt')
@@ -118,6 +128,95 @@ describe('discarded replies through the real loop and retry policy', () => {
     expect(events.filter(event => event.type === 'llm/retry')).toHaveLength(2)
     expect(events.filter(event => event.type === 'assistant/message')).toHaveLength(0)
     expect(events.findLast(event => event.type === 'turn/end')?.data.reason).toMatchObject({ kind: 'error', error: { code: 'PROMPT_USAGE_SHORTFALL' } })
+  })
+
+  it('keeps the two distinct measurements and ends consecutive shortfall without downstream recovery', async () => {
+    const test = await harness([dropped(40), dropped(71), healthy()], { maxRetries: 8, shortfallLimit: 1 })
+    const downstream = vi.fn(async () => ({ kind: 'retry' as const }))
+    test.ctx.on('agent/request-error', downstream)
+    await test.run()
+
+    const events = test.events()
+    const finishes = events.filter(event => event.type === 'assistant/attempt').map(event =>
+      expandAssistantStream(event.data.stream).at(-1)?.chunk)
+    expect(test.adapter.requests).toHaveLength(2)
+    expect(events.filter(event => event.type === 'assistant/message')).toHaveLength(0)
+    expect(finishes).toHaveLength(2)
+    for (const [index, inputTokens] of [40, 71].entries()) {
+      const finish = finishes[index]
+      if (finish?.type !== 'finish' || finish.reason.kind !== 'error') {
+        throw new Error('expected an unsettled shortfall attempt')
+      }
+      expect(finish.reason.failure.code).toBe(CODE)
+      expect(finish.reason.failure.message).toContain(`reported ${inputTokens} prompt tokens`)
+    }
+    const retries = events.filter(event => event.type === 'llm/retry')
+    expect(retries).toHaveLength(1)
+    expect(retries[0]?.data.failure.message).toContain('reported 40 prompt tokens')
+    const end = events.findLast(event => event.type === 'turn/end')?.data.reason
+    expect(end).toMatchObject({ kind: 'error', error: { code: CODE } })
+    expect(end?.kind === 'error' ? end.error.message : undefined).toContain('reported 71 prompt tokens')
+    expect(downstream).not.toHaveBeenCalled()
+  })
+
+  it('starts another short retry streak after a different failure while preserving the total ordinal', async () => {
+    const test = await harness([dropped(), serverError(), dropped(), dropped()], { maxRetries: 8, shortfallLimit: 1 })
+    await test.run()
+
+    expect(test.adapter.requests).toHaveLength(4)
+    expect(test.events().filter(event => event.type === 'llm/retry').map(event => [
+      event.data.failure.code, event.data.retry, event.data.delayMs,
+    ])).toEqual([[CODE, 1, 1], ['SERVER', 2, 2], [CODE, 3, 1]])
+    expect(test.events().findLast(event => event.type === 'turn/end')?.data.reason)
+      .toMatchObject({ kind: 'error', error: { code: CODE } })
+  })
+
+  it('honors the overall retry budget before starting another streak', async () => {
+    const test = await harness([dropped(), serverError(), dropped()], { maxRetries: 2, shortfallLimit: 1 })
+    await test.run()
+    expect(test.adapter.requests).toHaveLength(3)
+    expect(test.events().filter(event => event.type === 'llm/retry')).toHaveLength(2)
+    expect(test.events().findLast(event => event.type === 'turn/end')?.data.reason)
+      .toMatchObject({ kind: 'error', error: { code: CODE } })
+  })
+
+  it('allows the user to stop before the scheduled shortfall retry starts', async () => {
+    const test = await harness([dropped(), healthy()], { shortfallLimit: 1 })
+    test.ctx.on('session/event', (session, event) => {
+      if (session === test.agent.session && event.type === 'llm/retry') test.agent.cancel({ kind: 'user' })
+    })
+    await test.run()
+
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.events().filter(event => event.type === 'llm/retry')).toHaveLength(1)
+    expect(test.events().filter(event => event.type === 'llm/retry-started')).toHaveLength(0)
+  })
+
+  it('leaves a shortfall retry undispatched if the user stops during request preparation', async () => {
+    const test = await harness([dropped(), healthy()], { shortfallLimit: 1 })
+    const preparingRetry = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let preparations = 0
+    test.ctx.on('agent/request', async ({ agent }, next) => {
+      if (agent === test.agent && ++preparations === 2) {
+        preparingRetry.resolve(undefined)
+        await release.promise
+      }
+      return next()
+    })
+    const running = test.run()
+    try {
+      await Promise.race([preparingRetry.promise, running.then(() => { throw new Error('retry preparation was not reached') })])
+      expect(test.events().filter(event => event.type === 'llm/retry')).toHaveLength(1)
+      expect(test.events().filter(event => event.type === 'llm/retry-started')).toHaveLength(0)
+      test.agent.cancel({ kind: 'user' })
+    } finally {
+      release.resolve(undefined)
+    }
+    await running
+
+    expect(test.adapter.requests).toHaveLength(1)
+    expect(test.events().filter(event => event.type === 'llm/retry-started')).toHaveLength(0)
   })
 
   it('ends the turn at once when the route does not retry the code', async () => {

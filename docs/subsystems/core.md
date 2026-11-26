@@ -428,11 +428,14 @@ type PreStepDecision =
   }
 ```
 
-`agent/request-error` runs after a failed model attempt is recorded and before its step closes. Listeners can repair durable state or await policy work while the turn's signal is live. A handling listener returns `{ kind: 'retry' }` to repeat the same step or `{ kind: 'switch', selection }` to select another provider and continue in a fresh step without repeating accepted user input. The driver preserves a newer user selection and rejects a switch to the failed provider. The default `undefined` leaves the failure terminal.
+`agent/request-error` runs after a failed model attempt is recorded and before its step closes. Listeners can repair durable state or await policy work while the turn's signal is live. A handling listener returns `{ kind: 'retry' }` to repeat the same step or `{ kind: 'switch', selection }` to select another provider and continue in a fresh step without repeating accepted user input. A `retry` action can include `onDispatch`. The driver calls it once before starting the retry stream, so a retry canceled before dispatch never calls it. The driver preserves a newer user selection and rejects a switch to the failed provider. The default `undefined` leaves the failure terminal.
 
 ```ts type-equiv
 /** Action returned by a listener that owns model-request recovery. */
-type RequestErrorAction = { kind: 'retry' } | { kind: 'switch'; selection: ModelSelection } | undefined
+type RequestErrorAction =
+  | { kind: 'retry'; /** Called once when the loop begins the retry stream. */ onDispatch?: () => void }
+  | { kind: 'switch'; selection: ModelSelection }
+  | undefined
 ```
 
 `agent/pre-step` is the only waterfall listener chain before request derivation. `agent/turn-stopping` runs when a turn has no tool or steering continuation, before one final steering drain.

@@ -523,6 +523,13 @@ describe('uploaded voice references', () => {
     '镜头1：场景：客厅 画面文字：禁止通行 旁白：雨停了。',
     '镜头17：画面文字：陆沉舟：无声；近景，陆沉舟：还想走吗？',
     '镜头17：画面文字：台词：无声；台词：陆沉舟：还想走吗？',
+    '镜头2（3.5-7.9s｜近景·平视｜陆知宁）：陆知宁抬眼，口型连贯——台词（继续鉴定）：更是用化学药水强行刷上去的。',
+    '镜头3（中景，相机固定）：周顺来眉心皱起，画内开口说：要不是要交救命钱，我绝不拿出来卖！',
+    '镜头5（中景，相机固定）：口部闭合不开口。铜蛤蟆画外音在画外说完这一句：快把我买回家洗个澡啊！',
+    '镜头6（近景，相机缓慢前推）：他全程闭嘴。他的内心独白以画外音响起：我翻身的机会就彻底来了！',
+    '【配音指令】\n- 陆知宁（继续鉴定）：更是用化学药水强行刷上去的。\n- 沈砚（质疑）：是吗？',
+    '## 配音指令：\n1. 陆知宁（继续鉴定）：更是用化学药水强行刷上去的。',
+    '配音指令：\n- 陆知宁：更是用化学药水强行刷上去的。',
   ])('flags this spoken prompt without a voice reference: %s', async (speech) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${speech}` }) } }
@@ -578,6 +585,12 @@ describe('uploaded voice references', () => {
     '人物：张三\n镜头17：近景，李四：今晚别走。',
     '@[ ](lead)\n镜头17：近景，人物转身',
     '@[场景](lead)\n镜头17：场景：雨夜街头',
+    '镜头2（3.5-7.9s｜近景）：墙上写着“——台词（继续鉴定）：请稍候。”，无人发声。',
+    '镜头3（中景，相机固定）：画面文字：宣传页上印有“他们开口说：欢迎参观”，人物不发声。',
+    '镜头5（中景，相机固定）：负面提示：禁止通过画外音在画外说完这一句：快把我买回家！',
+    '镜头6（近景，相机缓慢前推）：台词（不发声）：我回来了。',
+    '【配音指令】\n- 音色：偏低沉\n- 说明：保留环境音。\n- 陆知宁（不说话）：无对白。\n【画面文字】\n- 张三：请扫码登记。',
+    '【配音指令】\n负面提示：不许说话。\n- 张三：请扫码登记。',
   ])('does not treat a non-speech prompt as dialogue: %s', async (description) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${description}` }) } }

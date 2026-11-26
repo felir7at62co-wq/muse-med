@@ -28,6 +28,8 @@ export interface Config {
   model: Volatile<string>
   /** Adapter-owned reasoning effort; omission follows the provider default. */
   reasoningEffort: Volatile<string | undefined>
+  /** Last deployment revision applied to the profile's default. */
+  appliedDefaultRevision?: Volatile<string | undefined>
 }
 
 /** Project stored settings onto the Agent-facing selection type. */
@@ -52,6 +54,7 @@ export class AgentDefaultModelConfig extends Service {
     provider: z.string().required().volatile(),
     model: z.string().required().volatile(),
     reasoningEffort: z.string().volatile(),
+    appliedDefaultRevision: z.string().volatile(),
   })
 
   constructor(private readonly ownerContext: Context, private config: Config) {
@@ -88,7 +91,10 @@ export class AgentDefaultModelConfig extends Service {
       provider: next.provider, model: next.model,
       ...next.reasoningEffort === undefined ? {} : { reasoningEffort: String(next.reasoningEffort) },
     }
-    const saved = this.saves.then(() => editor.edit(entry, () => config))
+    const saved = this.saves.then(() => editor.edit(entry, current => ({
+      ...config,
+      ...current.appliedDefaultRevision === undefined ? {} : { appliedDefaultRevision: current.appliedDefaultRevision },
+    })))
     this.saves = saved.catch(() => {})
     await saved
   }

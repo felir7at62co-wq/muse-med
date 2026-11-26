@@ -5,6 +5,7 @@ export const name = 'image-material-fixture'
 export function apply(ctx) {
   const board = JSON.parse(readFileSync(new URL(
     '../../../packages/drama/skills/tests/creation/expected/character-board-prompt.json', import.meta.url), 'utf8')).outputs.create
+  const prompt = board.prompt.replace(/^3D动漫，/u, '')
   ctx.on('llm/stream', async function* (_options, next) {
     for await (const chunk of next()) {
       if (chunk.type === 'block-end' && chunk.block.type === 'tool-call' && chunk.block.id === 'call_image_generate') {
@@ -13,7 +14,7 @@ export function apply(ctx) {
           throw new Error('Recorded character-board input changed')
         }
         yield { ...chunk, block: { ...chunk.block, arguments: JSON.stringify({ ...args,
-          prompt: board.prompt, image_style: 'anime', image_aspect_ratio: board.image_aspect_ratio }) } }
+          prompt, image_aspect_ratio: board.image_aspect_ratio }) } }
       } else {
         yield chunk
       }
@@ -54,6 +55,8 @@ export function apply(ctx) {
           : [{ id: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN', unitPrice: 0.5, unit: '张',
           genTypes: [{ id: 7, type: 3 }],
           videoStandards: [{ id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1, quality: 'high' }] }]
+      } else if (url.pathname.endsWith('/aigc/script/2708') && init?.method === 'GET') {
+        data = { id: 2708, scriptStyle: 3 }
       } else if (url.pathname.endsWith('/aigc/storyboard/916953') && init?.method === 'GET') {
         data = storyboard
       } else if (url.pathname.endsWith('/aigc/storyboard') && init?.method === 'PUT') {
@@ -81,7 +84,8 @@ export function apply(ctx) {
         const config = JSON.parse(JSON.parse(init.body).modelConfig)
         if (config.quality !== 'high') throw new Error('Offline image fixture requires the selected high quality')
         if (config.skipAssetReferenceTemplate !== true) throw new Error('Offline image fixture requires caller-controlled composition')
-        if (config.prompt !== board.prompt) throw new Error('Offline image fixture requires the complete character-board prompt')
+        if (config.style !== 3) throw new Error('Offline image fixture requires the saved 3D realistic project style')
+        if (config.prompt !== prompt) throw new Error('Offline image fixture requires the complete character-board prompt')
         data = 83749
       } else if (url.pathname.endsWith('/aigc/asset/83749') && init?.method === 'GET') {
         data = { id: 83749, scriptId: 2708, assetType: 1, assetName: '横屏CG测试角色', hsAssetStatus: null }

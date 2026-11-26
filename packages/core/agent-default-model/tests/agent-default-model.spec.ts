@@ -32,6 +32,26 @@ it('persists complete selections through its owning profile entry', async () => 
   expect(standalone.agentDefaultModel.currentSelection().model).toBe('original')
 })
 
+it('keeps the applied default revision through a manual selection and restart', async () => {
+  const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
+  const { ctx, start } = await configurationFixture({ hmr: false })
+  const appliedDefaultRevision = 'shared-default-v1'
+  await ctx.settings.replace('default-model', {
+    provider: 'shared', model: 'recommended', reasoningEffort: 'high', appliedDefaultRevision,
+  })
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'shared', model: 'recommended', reasoningEffort: 'high' })
+
+  const choice = { provider: 'personal', model: 'preferred' }
+  await ctx.agentDefaultModel.saveSelection(choice)
+  expect(ctx.agentDefaultModel.currentSelection()).toEqual(choice)
+  await ctx.fiber.dispose()
+
+  const restored = await start()
+  expect(restored.agentDefaultModel.currentSelection()).toEqual(choice)
+  expect(restored.settings.describe().find(section => section.ns === 'default-model')?.user)
+    .toEqual({ ...choice, appliedDefaultRevision })
+})
+
 it('serializes overlapping saves and continues after a rejected write', async () => {
   const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
   const { ctx } = await configurationFixture({ hmr: false })

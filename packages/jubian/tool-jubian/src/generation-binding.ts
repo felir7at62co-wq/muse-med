@@ -38,6 +38,11 @@ export type GenerationWorkspaceIdentity = z.infer<typeof generationWorkspaceIden
 /** Durable original native Session, workspace, directory and chat model choice. */
 export type GenerationSessionBinding = z.infer<typeof generationSessionBindingSchema>
 
+/** The workspace already holds a continuation for this Session. */
+export class GenerationWorkspaceBusy extends Error {
+  constructor() { super('workspace Session already has an active continuation') }
+}
+
 /** Revocable access to an unchanged membership, held through continuation work. */
 export interface GenerationWorkspaceLease {
   /** Aborted on release, owner cancellation, disposal or membership change. */

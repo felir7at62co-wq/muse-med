@@ -29,11 +29,12 @@ import * as JsonlSessionPersistence from '../../../session/session-persistence-j
 import { sessionDir } from '../../../session/session-persistence-jsonl/src/format.ts'
 import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
-import { GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
+import { GenerationWatchOwnershipConflict, GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
+import { GenerationWatchRuntime } from '../src/generation-watch.ts'
 import { createGenerationWatchNotice, deliverGenerationWatchNotice, registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
 import { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
-import { GenerationSessionBindings, type GenerationWorkspaceLease } from '../src/generation-binding.ts'
+import { GenerationSessionBindings, GenerationWorkspaceBusy, type GenerationWorkspaceLease } from '../src/generation-binding.ts'
 import * as Jubian from '../src/index.ts'
 import { createNativeGenerationDelivery, type NativeGenerationDelivery } from '../src/generation-watch-native-delivery.ts'
 import { bodyHash } from '../src/write.ts'
@@ -310,7 +311,8 @@ it('wakes an idle owner after provider completion from the normal video submissi
 type AdapterScript = ConstructorParameters<typeof MockAdapter>[0]
 
 async function originalVideoFixture(script: AdapterScript, reasoningEffort?: ReasoningEffortId, initialDispatch = false,
-  method: 'submit_video' | 'generate' = 'submit_video', omitPreviewPath = false, secondStoryboard = false) {
+  method: 'submit_video' | 'generate' = 'submit_video', omitPreviewPath = false, secondStoryboard = false,
+  loseDispatchResponse = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-native-loader-')))
   let host: Context | undefined
   let finished = false
@@ -342,6 +344,7 @@ async function originalVideoFixture(script: AdapterScript, reasoningEffort?: Rea
       }
       dispatchOrder.push({ kind: 'put' })
       childHolder.value = preparedChild
+      if (loseDispatchResponse) return new Response('', { status: 503 })
       return answer(null)
     }
     const taskStatus = finished ? 'succeeded' : 'submit'
@@ -891,6 +894,37 @@ it('persists the real dispatch fence before the first offline provider submissio
   const retained = await h.store.load(h.run.id)
   expect(retained?.binding).toEqual(h.binding)
   expect(retained?.packs).toMatchObject([{ key: h.originalRequest.idempotency_key, taskId: 42 }])
+  expect(await h.store.listAll()).toHaveLength(1)
+})
+
+it.each(['watch', 'workspace'] as const)('reconciles the exact single video key while its %s blocks dispatch', async (blocked) => {
+  const h = await originalVideoFixture([], undefined, true, 'submit_video', false, false, true)
+  const failure = blocked === 'watch'
+    ? vi.spyOn(GenerationWatchRuntime.prototype, 'enroll').mockRejectedValueOnce(new GenerationWatchOwnershipConflict())
+    : vi.spyOn(h.host.generationWorkspaceAuthority, 'acquire').mockRejectedValueOnce(new GenerationWorkspaceBusy())
+  onTestFinished(() => { failure.mockRestore() })
+  const replay = await executeToolFixture(h.host, { callId: ToolCallId('reconcile-blocked-submit'), name: 'jubian_storyboard',
+    arguments: h.originalRequest, signal: new AbortController().signal, agent: h.agent })
+  expect(replay.isError, JSON.stringify(replay.content)).toBe(false)
+  expect(replay.value).toMatchObject({ replayed: true, idempotency_key: h.originalRequest.idempotency_key,
+    outcome: 'unknown', task_id: '42', put_sent: false })
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([{ method: 'PUT', path: '/aigc/storyboard' }])
+  expect(await h.store.listAll()).toHaveLength(1)
+})
+
+it.each(['submit_video', 'submit_video_batch'] as const)('keeps blocked %s requests without a replay path from sending', async (method) => {
+  const h = await originalVideoFixture([], undefined, true)
+  const failure = vi.spyOn(h.host.generationWorkspaceAuthority, 'acquire').mockRejectedValueOnce(new GenerationWorkspaceBusy())
+  onTestFinished(() => { failure.mockRestore() })
+  const { preview_path, idempotency_key } = h.originalRequest
+  const args = method === 'submit_video'
+    ? { ...h.originalRequest, idempotency_key: 'no-recorded-video' }
+    : { method, video_previews: [{ preview_path, idempotency_key, estimated_cost_cny: '1', estimate_basis: 'test budget' }] }
+  const result = await executeToolFixture(h.host, { callId: ToolCallId('blocked-submit-without-replay'), name: 'jubian_storyboard',
+    arguments: args, signal: new AbortController().signal, agent: h.agent })
+  expect(result.isError, JSON.stringify(result.content)).toBe(true)
+  expect(JSON.stringify(result.content)).toContain('reconcile_video')
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([{ method: 'PUT', path: '/aigc/storyboard' }])
   expect(await h.store.listAll()).toHaveLength(1)
 })
 

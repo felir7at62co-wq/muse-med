@@ -146,6 +146,64 @@ test('background detaches the accepted tool signal and logs exact PTC call/root 
   } finally { finish.resolve(); await session.tasks.dispose(); await f.cleanup(); }
 });
 
+test('failed background work retains only safe source diagnostics after a restart', async () => {
+  const f = await fixture(async () => ({
+    ok: false, complete: false, code: 'source_unavailable',
+    sourceStage: 'video_model', retryable: false,
+    upstreamCode: 'PRIVATE_UPSTREAM_CODE', message: 'https://private.invalid/request',
+    sourceFailures: [
+      { source: 'web', code: 'PREVIEW_ONLY', message: 'private upstream response' },
+      { source: 'app', code: 'HTTP_429' },
+      { source: 'api', code: 'PRIVATE_SOURCE_CODE' },
+      { source: 'api', code: 'https://private.invalid/source' },
+    ],
+  }));
+  const session = sessionDependencies(f);
+  const restarted = sessionDependencies(f, () => ({ mode: 'read-only' }));
+  try {
+    const accepted = await session.tasks.download({ seriesIds: ['123'], mode: 'background' }, session.caller,
+      { callId: 'diagnostic-child', rootCallId: 'diagnostic-root' });
+    await session.hooks[0].done;
+    const diagnostic = {
+      sourceStage: 'video_model', retryable: false,
+      sourceFailures: [{ source: 'web', code: 'PREVIEW_ONLY' }, { source: 'app', code: 'HTTP_429' }],
+    };
+    const status = await restarted.tasks.control({ action: 'status', taskId: accepted.taskId }, restarted.caller);
+    assert.equal(status.task.state, 'failed');
+    assert.equal(status.task.summary.code, 'source_unavailable');
+    assert.deepEqual(status.task.summary.sourceDiagnostic, diagnostic);
+    const list = await restarted.tasks.control({ action: 'list' }, restarted.caller);
+    assert.deepEqual(list.tasks[0].summary.sourceDiagnostic, diagnostic);
+    const persisted = await readFile(join(f.cwd, f.config.taskDirectory, accepted.taskId + '.json'), 'utf8');
+    assert.deepEqual(JSON.parse(persisted).summary.sourceDiagnostic, diagnostic);
+    assert.doesNotMatch(persisted + JSON.stringify(status) + JSON.stringify(list), /private\.invalid|private upstream|PRIVATE_/);
+    assert.equal(f.calls(), 1);
+  } finally { await restarted.tasks.dispose(); await session.tasks.dispose(); await f.cleanup(); }
+});
+
+test('a source failure without provider reasons remains readable without inventing a reason', async () => {
+  const f = await fixture(async () => ({ ok: false, code: 'source_unavailable', sourceStage: 'video_model', retryable: false }));
+  try {
+    const result = await f.tasks.download({ seriesIds: ['123'] }, f.caller);
+    assert.deepEqual(result.task.summary.sourceDiagnostic, { sourceStage: 'video_model', retryable: false });
+  } finally { await f.cleanup(); }
+});
+
+test('state records predating source diagnostics still support status and list', async () => {
+  const f = await fixture(async () => ({ ok: false, code: 'source_unavailable' }));
+  try {
+    const result = await f.tasks.download({ seriesIds: ['123'] }, f.caller);
+    const path = join(f.cwd, f.config.taskDirectory, result.taskId + '.json');
+    const legacy = JSON.parse(await readFile(path, 'utf8'));
+    legacy.summary = { ok: false, code: 'source_unavailable', complete: false };
+    await writeFile(path, JSON.stringify(legacy));
+    const status = await f.tasks.control({ action: 'status', taskId: result.taskId }, f.caller);
+    assert.deepEqual(status.task.summary, legacy.summary);
+    const listed = await f.tasks.control({ action: 'list' }, f.caller);
+    assert.deepEqual(listed.tasks[0].summary, legacy.summary);
+  } finally { await f.cleanup(); }
+});
+
 test('a Session background call without its actual root call starts no job or download', async () => {
   const f = await fixture(), session = sessionDependencies(f);
   try {
@@ -185,6 +243,11 @@ test('disk request, progress and summary extras are refused instead of returned 
       const result = await f.tasks.control({ action: 'status', taskId: row.taskId }, f.caller);
       assert.equal(result.code, 'task_state_invalid'); assert.equal(JSON.stringify(result).includes('private-field'), false);
     }
+    const value = structuredClone(original);
+    value.summary.sourceDiagnostic = { sourceFailures: [{ source: 'app', code: 'PRIVATE_CODE', message: 'private-field' }] };
+    await writeFile(path, JSON.stringify(value));
+    const result = await f.tasks.control({ action: 'status', taskId: row.taskId }, f.caller);
+    assert.equal(result.code, 'task_state_invalid'); assert.doesNotMatch(JSON.stringify(result), /private-field|PRIVATE_CODE/);
   } finally { await f.cleanup(); }
 });
 

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Readable} from 'node:stream';
-import {modelFailure,readModelFailure} from './model-errors.mjs';
+import {modelFailure,readModelFailure,readModelFailureDetails} from './model-errors.mjs';
 
 test('provider refusals preserve distinct recovery codes without echoing private diagnostics',()=>{
  const cases=[
@@ -24,4 +24,20 @@ test('oversized provider diagnostics remain bounded and cannot change classifica
  assert.equal((await readModelFailure(response)).error.code,'invalid_request_error');
  const ordinary=Readable.from([Buffer.from('{"error":{"code":"insufficient_quota"}}')]);ordinary.statusCode=429;
  assert.equal((await readModelFailure(ordinary)).error.code,'insufficient_quota');
+});
+
+test('only bounded explicit API key codes with an authentication type mark credential rejection',async()=>{
+ const classify=async(status,body)=>{const response=Readable.from([Buffer.from(body)]);response.statusCode=status;return readModelFailureDetails(response);};
+ for(const [status,body,expected]of [
+  [401,'{"error":{"code":"invalid_api_key"}}',true],
+  [401,'{"error":{"code":"invalid_api_key_error","type":"authentication_error"}}',true],
+  [401,'{"error":{"code":"invalid_api_key","type":"permission_error"}}',false],
+  [401,'{"error":{"type":"authentication_error"}}',false],
+  [401,'{"error":{"message":"invalid_api_key"}}',false],
+  [401,'invalid_api_key',false],
+  [401,'null',false],
+  [403,'{"error":{"code":"invalid_api_key"}}',false],
+  [500,'{"error":{"code":"invalid_api_key"}}',false],
+  [401,' '.repeat(65536)+'{"error":{"code":"invalid_api_key"}}',false],
+ ])assert.equal((await classify(status,body)).credentialsRejected,expected,`${status}: ${body.slice(0,80)}`);
 });
