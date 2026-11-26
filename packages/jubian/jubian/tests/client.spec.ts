@@ -98,7 +98,7 @@ describe('JubianClient.request', () => {
 
   it.each([
     [401, 'AUTHENTICATION_REQUIRED', 'Jubian login is unavailable or expired'],
-    [403, 'AUTHENTICATION_REQUIRED', 'Jubian login is unavailable or expired'],
+    [403, 'PERMISSION_DENIED', 'Jubian account cannot access this resource'],
     [429, 'RATE_LIMITED', 'Jubian rate limit reached'],
     [502, 'NETWORK_ERROR', 'Jubian request failed'],
   ])('reports HTTP %i without response text or another attempt', async (status, code, message) => {
@@ -234,7 +234,7 @@ describe('JubianClient.request', () => {
     const transport = vi.fn<typeof fetch>(async () => jsonResponse({ code: 200, data: null }))
     const subject = client(transport, async () => { throw new Error(TOKEN) })
     await expect(subject.request({ method: 'GET', path: '/x' })).rejects.toMatchObject({
-      code: 'AUTHENTICATION_REQUIRED', message: 'Jubian login is unavailable or expired',
+      code: 'AUTHENTICATION_REQUIRED', detail: 'credential_resolution_failed; check the active Muse credential provider',
     })
     expect(transport).not.toHaveBeenCalled()
   })
@@ -258,7 +258,7 @@ describe('JubianClient.request', () => {
   it('maps a bodyless HTTP error without attempting to read it', async () => {
     const message: unknown = expect.stringContaining('HTTP 403')
     await expect(client(async () => new Response(null, { status: 403 })).request({ method: 'GET', path: '/x' }))
-      .rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED', message })
+      .rejects.toMatchObject({ code: 'PERMISSION_DENIED', message })
   })
 
   it('rejects a body that is not JSON or not an object, and hands an array to the reader', async () => {

@@ -313,9 +313,13 @@ export class JubianClient {
 
   private async resolveToken(): Promise<string> {
     let stored: string
-    try { stored = await this.credential() } catch { throw new JubianError('AUTHENTICATION_REQUIRED') }
+    try { stored = await this.credential() }
+    catch { throw new JubianError('AUTHENTICATION_REQUIRED', 'credential_resolution_failed; check the active Muse credential provider') }
     const trimmed = trimBearerToken(stored)
-    if (!isUsableBearerToken(trimmed)) throw new JubianError('AUTHENTICATION_REQUIRED')
+    if (!trimmed) throw new JubianError('AUTHENTICATION_REQUIRED',
+      'credential_not_configured; sign in or save the renewed Jubian token in Muse settings; signing in on the Jubian website alone does not update Muse')
+    if (!isUsableBearerToken(trimmed)) throw new JubianError('AUTHENTICATION_REQUIRED',
+      'credential_invalid_format; replace the value in Muse settings without sending it in chat')
     return trimmed
   }
 

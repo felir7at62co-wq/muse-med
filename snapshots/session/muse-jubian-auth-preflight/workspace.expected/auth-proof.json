@@ -1,0 +1,9 @@
+{
+  "requests": [
+    "GET",
+    "GET"
+  ],
+  "initial": "AUTHENTICATION_REQUIRED",
+  "renewed": "read_access_confirmed",
+  "submitted": false
+}

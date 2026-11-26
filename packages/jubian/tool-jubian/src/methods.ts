@@ -18,6 +18,7 @@ import { dirname, resolve } from 'node:path'
 import { downloadedMediaPath, resumeMediaDownload } from './media-download.ts'
 import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { authenticationMethod } from './auth.ts'
 import {
   MODEL_TASK_TYPES as TASKS, FAILED_STATUSES, SUCCESS_STATUSES, buildImageRequest, buildSubtitleEraseRequest,
   buildVideoUpscaleRequest, downloadMedia, readAssetList, readAssetPage, readEpisodes, readGeneratedImage,
@@ -774,6 +775,7 @@ function imageCatalogue(value: unknown, allowed: readonly number[] | undefined):
 export async function catalogMethod(client: JubianClient, args: MethodArgs,
   allowedImageStandards?: readonly number[]): Promise<Record<string, unknown>> {
   switch (args.method) {
+    case 'auth': return authenticationMethod(client)
     case 'models': {
       const taskType = need(args.task_type)
       if (![TASKS.video, TASKS.image, TASKS.subtitleErasure, 20].includes(taskType)) {
