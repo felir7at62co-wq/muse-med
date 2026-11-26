@@ -729,12 +729,37 @@ function hasPromptSpeech(prompt: string): boolean {
   }
   const fields = new Set(['场景', '场景名称', '核心场景', '镜头', '景别', '时长', '动作', '人物动作', '动作状态',
     '人物', '角色', '角色名', '出镜人物', '说话人', '主体', '主体状态追踪', '道具', '关键道具',
-    '风格', '声音', '音效', '配乐', '字幕', '发声类型', '语音类型', '负面提示', '负向提示', '禁止', '规则', '提示词'])
+    '风格', '声音', '声音参考', '音色', '语气', '语速', '音量', '停顿', '音效', '配乐', '说明', '参考',
+    '字幕', '画面', '画面文字', '屏幕显示', '发声类型', '语音类型', '负面提示', '负向提示', '禁止', '规则', '提示词'])
   const emptySpeech = /^(?:无(?:对白|台词|旁白|语音|声音)?|没有(?:台词|对白|旁白)?|暂无(?:台词|对白|旁白)?|不说话|不发声|none|null)[。.!！]?$/iu
   const silentDirection = /(?:不说话|不发声|无(?:对白|台词|旁白|语音)|没有(?:对白|台词|旁白|语音))/u
+  const negativeField = /^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)$/iu
+  const negatedCue = /(?:不要|不得|禁止|避免|不写|无|没有|不|并未)(?:使用|通过|用)?\s*$/u
+  const speakerName = /^[\p{L}\p{N}·][\p{L}\p{N}· .]{0,29}$/u
+  const explicitSpeech = new RegExp(
+    String.raw`(?:^|[\s，,；;：:。！？.!?—–])(?:台词|对白|旁白|解说|画外音|画外声|心声|内心独白|VO|OS|dialogue)`
+      + String.raw`\s*(?:[（(]([^（）()]*)[）)]\s*)?[：:]\s*([^；;]+)`,
+    'giu',
+  )
+  const shotSpeech = new RegExp(
+    String.raw`(?:画内开口(?:说)?|(?:随即|再次)开口|(?:内心独白|内心话)(?:以画外音)?(?:响起|继续)|画外内心独白|`
+      + String.raw`画外音(?:在画外)?(?:响起|继续|说完这一句))(?:[，,]\s*语气[^：:，,；;。！？]{1,24})?\s*[：:]\s*([^；;]+)`,
+    'gu',
+  )
+  let inVoiceInstructions = false
   for (const raw of prompt.split(/\r?\n/u)) {
-    const line = raw.trim()
-    if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/iu.test(line)) continue
+    const heading = /^(?:【([^】]+)】|#{1,6}\s+([^：:]+)|\*\*([^*]+)\*\*|配音指令|配音台词|对白台词)\s*[：:]?$/u.exec(raw.trim())
+    if (heading !== null) {
+      inVoiceInstructions = /^(?:配音指令|配音台词|对白台词)$/u.test((heading[1] ?? heading[2] ?? heading[3] ?? heading[0]).replace(/[：:]$/u, '').trim())
+      continue
+    }
+    const line = raw.trim().replace(/^(?:[-*+]\s+|\d+[.)、]\s*)/u, '')
+    if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/iu.test(line)) {
+      inVoiceInstructions = false
+      continue
+    }
+    const numberedShot = /^(?:镜头|分镜|shot)\s*[\d一二三四五六七八九十百零〇]+\s*(?:[（(][^）)]*[）)]\s*)?[：:]/iu.test(line)
+    if (numberedShot) inVoiceInstructions = false
     const ignored = [...line.matchAll(
       /(?:^|[\s：:，,；;。！？.!?])(场景|场景名称|核心场景|动作|人物动作|动作状态|主体状态追踪|字幕|画面文字|屏幕文字|屏幕显示|文字内容|负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/giu,
     )]
@@ -743,7 +768,7 @@ function hasPromptSpeech(prompt: string): boolean {
       && index < quote.index + quote[0].length)
     const speechAt = (index: number, explicitField = false): boolean => outsideQuote(index) && !ignored.some((field) => {
       if (field.index > index || !outsideQuote(field.index)) return false
-      if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)$/iu.test(String(field[1]))) return true
+      if (negativeField.test(String(field[1]))) return true
       const action = /^(?:动作|人物动作|动作状态|主体状态追踪)$/u.test(String(field[1]))
       if (action && explicitField) return false
       if ([...line.slice(field.index, index + 1).matchAll(action ? /[；;。！？.!?]/gu : /[；;]/gu)]
@@ -752,14 +777,19 @@ function hasPromptSpeech(prompt: string): boolean {
         && line.slice(field.index + field[0].length, index).trim() !== '') return false
       return true
     })
-    for (const speech of line.matchAll(/(?:^|[\s，,；;：:。！？.!?])(?:台词|对白|旁白|解说|画外音|画外声|心声|VO|OS|dialogue)\s*[：:]\s*([^；;]+)/giu)) {
-      if (speech[1] === undefined || !speechAt(speech.index, true)) continue
+    for (const speech of line.matchAll(explicitSpeech)) {
+      if (speech[2] === undefined || silentDirection.test(speech[1] ?? '') || !speechAt(speech.index, true)) continue
       const before = line.slice(0, speech.index).trim()
-      const content = speech[1].trim().replace(/^[^：:]{1,30}[：:]\s*/u, '').trim()
-      if (!/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(before)
+      const content = speech[2].trim().replace(/^[^：:]{1,30}[：:]\s*/u, '').trim()
+      if (!negatedCue.test(before)
         && content !== '' && !emptySpeech.test(content)) return true
     }
-    if (/^(?:镜头|分镜|shot)\s*[\d一二三四五六七八九十百零〇]+\s*[：:]/iu.test(line)) {
+    if (numberedShot) {
+      // Positioned voice cues in saved shot descriptions may include prose before the actual words.
+      for (const cue of line.matchAll(shotSpeech)) {
+        if (cue[1] !== undefined && speechAt(cue.index, true) && !negatedCue.test(line.slice(0, cue.index).trim())
+          && cue[1].trim() !== '' && !emptySpeech.test(cue[1].trim())) return true
+      }
       for (const name of names) {
         if (name === '') continue
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
@@ -778,7 +808,8 @@ function hasPromptSpeech(prompt: string): boolean {
     if (!silentDirection.test(direction?.[1] ?? '')
       && !fields.has(speaker) && !/^(?:无(?:对白|台词|旁白|语音|声音|人物|角色)?$|没有|不要|禁止|避免|不得)/u.test(speaker)
       && !emptySpeech.test(content)
-      && (names.has(speaker) || (/^[\p{L}\p{N}·]{1,30}$/u.test(speaker) && /^[“"「『]/u.test(content)))) return true
+      && (names.has(speaker) || (inVoiceInstructions && speakerName.test(speaker))
+        || (/^[\p{L}\p{N}·]{1,30}$/u.test(speaker) && /^[“"「『]/u.test(content)))) return true
   }
   return false
 }
