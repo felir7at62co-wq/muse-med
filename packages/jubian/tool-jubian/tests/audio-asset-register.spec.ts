@@ -462,6 +462,27 @@ it.each(['not-ready', 'contract', 'unavailable'])('retains the original operatio
   expect(f.requests.filter(row => row.startsWith('POST'))).toHaveLength(1)
 })
 
+it('reads back a replayed voice registration when the completion response was lost', async () => {
+  const f = await fixture({ pages: () => ({ total: 1, rows: [sharedAsset(7, 'adult', { assetName: readyAsset.name })] }) })
+  await f.ledger.begin({ idempotencyKey: args.idempotency_key, method: 'asset_register', scriptId: 2708,
+    requestSha256: bodyHash({ ...body, assetName: readyAsset.name }) })
+  let ready = false
+  const request = vi.fn<VoiceCoordinator['request']>(async (call) => {
+    if (call.action === 'complete') {
+      ready = true
+      throw new Error('Response lost after completion')
+    }
+    return readVoiceCoordination(ready ? { ...call, state: 'ready', asset: readyAsset }
+      : { ...call, state: 'submitted', lease_id: 'a'.repeat(43), owner_operation: true }, call)
+  })
+  expect(await registerAudioAsset(f.client, f.ledger, sharedArgs, limits, { request })).toMatchObject({
+    replayed: true, coordination_state: 'ready', exclusive_registration: true, canonical_voice_asset_id: 7,
+  })
+  expect(request.mock.calls.map(([call]) => call.action)).toEqual(['read', 'complete', 'read'])
+  expect(f.requests.filter(row => row.startsWith('POST'))).toEqual([])
+  expect(await f.ledger.records()).toHaveLength(1)
+})
+
 it.each(['sign-in-required', 'account-changed', 'not-configured', 'network', 'unavailable'] as const)('keeps %s pending local to registration before a start permission', async (reason) => {
   const f = await fixture()
   const coordinator: VoiceCoordinator = { async request(request) {
