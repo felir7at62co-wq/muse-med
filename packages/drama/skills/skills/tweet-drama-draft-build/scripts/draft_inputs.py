@@ -210,6 +210,20 @@ def subtitle_font_request(name: str | None, backend: str, *, required: bool = Fa
             'gui_verified': False, 'warnings': [warning] if name or required else []}
 
 
+def subtitle_font_recovery(font: dict) -> str:
+    """Describe how to recover an unverified candidate without relaxing font verification."""
+    status = font['status']
+    if status == 'backendUnsupported' and font['backend'] == 'aa-jianying':
+        return ('Windows 原声后端不能绑定此字体。若已有核准的本集未混配乐完整原声，'
+                '用同一版时间线与字幕，设置 audio_mode=independent 并传入原声 audio，另存新草稿后回读随稿字体。'
+                '必须保留内嵌原声时，当前候选保持待修。')
+    if status == 'missingIdentity':
+        return '请核对当前项目或产品字幕样式中的明确字族，补齐后另存新草稿并重新回读。'
+    if status == 'readbackMismatch':
+        return '请按核对记录检查字幕跨度的字体路径与随稿字体及许可证摘要，再用同一集输入另存并重新回读。'
+    return '请核对请求字族与 Muse 随包的已验证本地字体及许可证，补齐可用的受管资源后另存新草稿并重新回读。'
+
+
 def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: float | None = None,
                 enforce_product: bool | None = None) -> dict:
     """Inherit an omitted watermark while retaining snapshot subtitles, explicit resets and product enforcement."""

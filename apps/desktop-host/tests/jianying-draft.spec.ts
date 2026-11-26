@@ -10,13 +10,14 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { access, copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdtemp, mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import * as Draft from '../src/jianying-draft.ts'
+import { jianyingDraftLibraryMismatch } from '../src/jianying-draft-library.ts'
 import { runDramaBgm } from '@deepseek-ai/dsh-tool-bgm-compose'
 import { createSubprocessChannel } from '@deepseek-ai/dsh-tool-bgm-compose/src/media.ts'
 
@@ -33,6 +34,7 @@ console.log(JSON.stringify({success:true,drafts_created:1,drafts:[{episode:'95',
 // Opt in with the packaged media runtime; never replace Python or the generator in this test.
 const mediaPython = process.env.DSH_TEST_MEDIA_PYTHON
 const mediaFfmpeg = process.env.DSH_FFMPEG_PATH
+const productFont = 'Zhuque Fangsong (technical preview)'
 const nativeCli = process.env.DSH_TEST_JIANYING_CLI
 const nativeVideo = process.env.DSH_TEST_JIANYING_VIDEO
 const nativeMusic = process.env.DSH_TEST_JIANYING_MUSIC
@@ -142,8 +144,10 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
         ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
         graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536,
         ...(styleCase === 'subtitle-only' ? { enforceSubtitleVisual: true,
+          fontsDir: resolve(dirname(mediaPython), '..', 'fonts'),
           defaultSubtitleVisual: { schema_version: 1, reference_width: 480, reference_height: 854,
-            font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 } } : {}) }
+            font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9,
+            font_family: productFont } } : {}) }
       if (styleCase === 'subtitle-only') {
         const file = join(f.root, 'cordis.yml')
         await writeFile(file, JSON.stringify([{ name: 'cordis:draft', config }]))
@@ -185,7 +189,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       expect(content.tracks.find(track => track.name === '视频轨道')?.segments[0]?.volume).toBe(0)
       expect(content.tracks.find(track => track.name === '主音频轨道')?.segments.map(segment => segment.volume)).toEqual([1])
       expect(content.tracks.find(track => track.name === 'BGM轨道')?.segments.map(segment => segment.volume)).toEqual([1])
-      expect(JSON.stringify(response.value)).not.toContain('剪映配乐待完成')
+      expect(JSON.stringify(response)).not.toContain('剪映配乐待完成')
       expect(content.materials.texts.some((text: { content: string }) => text.content.includes('原生草稿回归'))).toBe(true)
       if (photorealistic) {
         expect(content.tracks.find(track => track.name === '片尾特效')?.segments.map(segment => segment.volume)).toEqual([0])
@@ -202,15 +206,21 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
         expect(markSegment?.clip?.transform.y).toBe(-0.8625)
         const dialogueText = content.materials.texts.find(material => material.content.includes('原生草稿回归'))
         expect(dialogueText).toBeDefined()
-        const dialogueStyle = (JSON.parse(dialogueText?.content ?? '{}') as { styles: { size: number }[] }).styles[0]
+        const dialogueStyle = (JSON.parse(dialogueText?.content ?? '{}') as { styles: { size: number; font?: { path: string } }[] }).styles[0]
         expect(dialogueStyle?.size).toBe(11)
-        if (styleCase === 'subtitle-only') expect(dialogueStyle).not.toHaveProperty('font')
         const review = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'muse-review.json'), 'utf8')) as {
           subtitle_font: { requested: string | null; status: string; resolved: string }
         }
         if (styleCase === 'project') {
           expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: '山海经', status: 'backendUnsupported', resolved: null }))
           expect(JSON.stringify(response.content)).toContain('字体')
+        } else if (styleCase === 'subtitle-only') {
+          const shippedFont = join(dirname(mediaPython), '..', 'fonts', 'ZhuqueFangsong-Regular.ttf')
+          const retainedFont = join(f.input.drafts_dir, 'native-host-95', 'Resources', 'fonts', basename(shippedFont))
+          expect(dialogueStyle?.font?.path).toBe(retainedFont)
+          expect(review.subtitle_font).toMatchObject({ requested: productFont, status: 'localFileBound',
+            binding_verified: true, delivery_ready: true })
+          expect(await readFile(retainedFont)).toEqual(await readFile(shippedFont))
         } else {
           expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: null, status: 'notRequested' }))
         }
@@ -412,6 +422,83 @@ it('runs the draft bridge directly with managed argv and removes its tool on dis
     await fiber.dispose()
     expect(f.ctx.tools.get('jianying_draft')).toBeUndefined()
   } finally {
+    spy.mockRestore()
+    await f.dispose()
+  }
+})
+
+it('reads the saved custom draft root without treating case or separators as a mismatch', async () => {
+  const f = await fixture()
+  try {
+    const settings = join(f.root, 'JianyingPro', 'User Data', 'Config')
+    await mkdir(settings, { recursive: true })
+    const path = join(settings, 'globalSetting')
+    const contents = '\uFEFF[General]\r\ncurrentCustomDraftPath=D:\\\\剪映草稿\\\\草稿箱\r\n'
+      + '[Other]\r\ncurrentCustomDraftPath=E:/other\r\n'
+    await writeFile(path, contents)
+    await expect(jianyingDraftLibraryMismatch('d:/剪映草稿/草稿箱/', f.root)).resolves.toBeUndefined()
+    await expect(jianyingDraftLibraryMismatch('C:/候选', f.root)).resolves.toEqual({
+      active_root: 'D:\\剪映草稿\\草稿箱', saved_root: 'C:/候选',
+    })
+    expect(await readFile(path, 'utf8')).toBe(contents)
+  } finally { await f.dispose() }
+})
+
+it('only reports a different library for an unambiguous absolute setting', async () => {
+  const f = await fixture()
+  try {
+    const settings = join(f.root, 'JianyingPro', 'User Data', 'Config')
+    const path = join(settings, 'globalSetting')
+    await expect(jianyingDraftLibraryMismatch('C:/候选', '')).resolves.toBeUndefined()
+    await expect(jianyingDraftLibraryMismatch('C:/候选', 'relative')).resolves.toBeUndefined()
+    await mkdir(settings, { recursive: true })
+    await expect(jianyingDraftLibraryMismatch('C:/候选', f.root)).resolves.toBeUndefined()
+    await mkdir(path)
+    await expect(jianyingDraftLibraryMismatch('C:/候选', f.root)).resolves.toBeUndefined()
+    await rmdir(path)
+    for (const contents of [
+      '[General]\ncurrentCustomDraftPath=relative/drafts\n',
+      '[General]\ncurrentCustomDraftPath=D:/drafts\ncurrentCustomDraftPath=E:/drafts\n',
+      '[General]\ncurrentCustomDraftPath=D:/drafts\ncurrentCustomDraftPath=\n',
+      '[Other]\ncurrentCustomDraftPath=D:/drafts\n',
+      `[General]\ncurrentCustomDraftPath=D:/drafts\n${'#'.repeat(256 * 1024)}`,
+    ]) {
+      await writeFile(path, contents)
+      await expect(jianyingDraftLibraryMismatch('C:/候选', f.root)).resolves.toBeUndefined()
+    }
+    const share = '\\\\server\\share\\草稿'
+    for (const root of [share, share.replaceAll('\\', '\\\\')]) {
+      await writeFile(path, `[General]\ncurrentCustomDraftPath=${root}\n`)
+      await expect(jianyingDraftLibraryMismatch('C:/候选', f.root)).resolves.toEqual({ active_root: share, saved_root: 'C:/候选' })
+    }
+  } finally { await f.dispose() }
+})
+
+it.runIf(process.platform === 'win32')('reports that a saved candidate targets another draft library', async () => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const readyDraft = fakePython.replaceAll("quality:'needs_review'", "quality:'ready'")
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
+    argv: [process.execPath, '-e', readyDraft, f.input.request_file, f.input.drafts_dir] }))
+  vi.stubEnv('LOCALAPPDATA', f.root)
+  try {
+    const settings = join(f.root, 'JianyingPro', 'User Data', 'Config')
+    const editorRoot = join(f.root, '剪映 自定义库')
+    await mkdir(settings, { recursive: true })
+    await mkdir(editorRoot)
+    const settingFile = join(settings, 'globalSetting')
+    const setting = `[General]\r\ncurrentCustomDraftPath=${editorRoot.replaceAll('\\', '\\\\')}\r\n`
+    await writeFile(settingFile, setting)
+    const result = await Draft.generateJianyingDraft(f.ctx.subprocess, f.input, f.config)
+    expect(result).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false, quality: 'needs_review',
+      drafts: [{ quality: 'needs_review' }],
+      draft_library: { status: 'different_root', active_root: editorRoot, saved_root: f.input.drafts_dir } })
+    expect(result.warnings).toContainEqual(expect.stringContaining('当前候选可能不会出现在草稿箱'))
+    expect(await readFile(settingFile, 'utf8')).toBe(setting)
+    expect(await readFile(join(result.drafts[0]!.path, 'draft_content.json'), 'utf8')).toBe('{}\n')
+    expect(spy).toHaveBeenCalledTimes(1)
+  } finally {
+    vi.unstubAllEnvs()
     spy.mockRestore()
     await f.dispose()
   }
