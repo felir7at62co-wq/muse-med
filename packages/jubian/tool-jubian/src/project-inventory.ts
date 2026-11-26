@@ -4,7 +4,7 @@ import { readAssetList, readEpisodes, readMaterialList, readStoryboardPage } fro
 
 type Row = Record<string, unknown>
 
-// These defaults also bound project inventories used by free storyboard readback.
+/** Default project inventory bounds shared by project sharing and free storyboard readback. */
 export const defaultProjectInventoryLimits = { pageSize: 100, pageLimit: 20 } as const
 
 function object(value: unknown): Row {
