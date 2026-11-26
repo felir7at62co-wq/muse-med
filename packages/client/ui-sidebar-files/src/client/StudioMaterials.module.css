@@ -1,0 +1,10 @@
+.action {
+  color: var(--dsw-alias-market-accent-label);
+  white-space: nowrap;
+}
+
+.action svg { flex: none; }
+
+@container (max-width: 360px) {
+  .label { display: none; }
+}

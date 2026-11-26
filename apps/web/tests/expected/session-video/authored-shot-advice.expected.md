@@ -1,0 +1,8 @@
+- group "Shot advice":
+  - text: Muse
+  - link "{{clock}}.25":
+    - /url: dsh-resource://session-video/session/session-video-keyless-web-e2e?source=d14589cf7ad4629c5f737fec7fb2ad4aaa637c3e7d9a0990690af86a8c3e56ec&version={{videoVersion}}&at=1.25&shot=authored%3Ad14589cf7ad4629c5f737fec7fb2ad4aaa637c3e7d9a0990690af86a8c3e56ec%3A{{videoVersion}}%3A12%3A1%3A2&start=1&end=2
+  - strong: The sampled frame is too bright for the dark room.
+  - text: "Basis Screenplay, shot 12: keep the room dim. Suggestion Lower the exposure for the dark room and retain the original framing."
+  - link "Use this suggestion in chat":
+    - /url: dsh-resource://session-video/session/session-video-keyless-web-e2e?source=d14589cf7ad4629c5f737fec7fb2ad4aaa637c3e7d9a0990690af86a8c3e56ec&version={{videoVersion}}&shot=authored%3Ad14589cf7ad4629c5f737fec7fb2ad4aaa637c3e7d9a0990690af86a8c3e56ec%3A{{videoVersion}}%3A12%3A1%3A2&start=1&end=2&at=1.25&problem=The+sampled+frame+is+too+bright+for+the+dark+room.&basis=Screenplay%2C+shot+12%3A+keep+the+room+dim.&suggestion=Lower+the+exposure+for+the+dark+room+and+retain+the+original+framing.

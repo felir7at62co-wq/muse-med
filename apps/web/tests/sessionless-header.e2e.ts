@@ -40,6 +40,8 @@ describe('navigation without a selected Session', () => {
       const tripwire = watchConsole(page)
       await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
       await page.getByRole('textbox', { name: 'Choose workspace', exact: true }).waitFor()
+      expect(await page.getByRole('button', { name: 'Choose folder', exact: true }).isVisible()).toBe(true)
+      expect(await page.getByRole('button', { name: 'Add files', exact: true }).count()).toBe(0)
       const sessionHeader = page.locator('[data-slot="conversation.session.header"]')
       expect(await sessionHeader.count()).toBe(0)
       const header = page.locator('[data-slot="conversation.header"] > header')

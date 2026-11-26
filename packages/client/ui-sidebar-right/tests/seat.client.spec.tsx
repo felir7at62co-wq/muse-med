@@ -20,7 +20,7 @@ import { ShortcutRegistry } from '@deepseek-ai/dsh-client-shortcuts/src/client/r
 import type { SidebarRightTabInfo, SidebarRightTabMenuOwnerProps } from '../src/client/contract/slots.ts'
 import type { createSidebarRightStore } from '../src/client/stores.ts'
 
-declare module '../src/client/contract/params.ts' {
+declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
   interface SidebarRightResourceParamsMap {
     test: { line?: number; x?: number }
   }

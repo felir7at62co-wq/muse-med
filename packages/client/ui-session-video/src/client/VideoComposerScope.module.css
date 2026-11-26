@@ -1,0 +1,22 @@
+.dock {
+  width: calc(100% - 2 * var(--dsh-composer-side-clearance));
+  max-width: var(--dsh-composer-card-max-width);
+  margin-inline: auto;
+}
+
+.scope {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 5px 9px;
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-state-done-primary) 10%, var(--dsw-alias-bg-base));
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.caption { color: var(--dsw-alias-label-secondary); }
+.range { color: var(--dsw-alias-label-primary); overflow-wrap: anywhere; }

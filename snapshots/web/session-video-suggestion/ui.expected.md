@@ -1,0 +1,8 @@
+- group "Shot advice":
+  - text: Muse
+  - link "{{clock}}.50":
+    - /url: dsh-resource://session-video/session/session-video-suggestion-recorded?source=223fc8cff492c59c7a237084f45b3130aadb9fe7b20b006ac1c07da394245021&version=historical-v1&at=8.5&shot=authored%3A223fc8cff492c59c7a237084f45b3130aadb9fe7b20b006ac1c07da394245021%3Ahistorical-v1%3A1%3A0%3A10&start=0&end=10
+  - strong: The performer lowers their head, hiding both eyes near the end.
+  - text: "Basis Screenplay, shot 1: end on a close-up of the eyes. Suggestion Return to the close-up before the shot ends."
+  - link "Use this suggestion in chat":
+    - /url: dsh-resource://session-video/session/session-video-suggestion-recorded?source=223fc8cff492c59c7a237084f45b3130aadb9fe7b20b006ac1c07da394245021&version=historical-v1&shot=authored%3A223fc8cff492c59c7a237084f45b3130aadb9fe7b20b006ac1c07da394245021%3Ahistorical-v1%3A1%3A0%3A10&start=0&end=10&at=8.5&problem=The+performer+lowers+their+head%2C+hiding+both+eyes+near+the+end.&basis=Screenplay%2C+shot+1%3A+end+on+a+close-up+of+the+eyes.&suggestion=Return+to+the+close-up+before+the+shot+ends.

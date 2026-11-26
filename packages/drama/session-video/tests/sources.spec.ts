@@ -209,8 +209,9 @@ describe('complete cut ranges', () => {
 
   it('requires a positive duration and complete integer dimensions from an actual video track', () => {
     expect(facts(bytes(JSON.stringify({ format: { duration: '3.25' }, streams: [
-      { codec_type: 'audio' }, { codec_type: 'video', width: 640, height: 360 },
-    ] })))).toEqual({ durationSeconds: 3.25, width: 640, height: 360 })
+      { codec_type: 'audio' }, { codec_type: 'video', width: 640, height: 360, avg_frame_rate: '30000/1001', bit_rate: '123456' },
+    ] })))).toEqual({ durationSeconds: 3.25, width: 640, height: 360, hasAudio: true,
+      averageFps: 30000 / 1001, videoBitrateBps: 123456 })
     for (const value of [null, {}, { format: { duration: 0 }, streams: [] },
       { format: { duration: 1 }, streams: [{ codec_type: 'video', width: 0, height: 20 }] },
       { format: { duration: 1 }, streams: [{ codec_type: 'video', width: 20, height: 1.5 }] },

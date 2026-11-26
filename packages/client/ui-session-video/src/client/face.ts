@@ -12,10 +12,12 @@ export interface VideoInjected {
   readonly detectShots: (sessionId: SessionId, id: SessionVideoSourceId, version: string,
     signal: AbortSignal) => Promise<SessionVideoAnalysis>
   readonly pixelsPerSecond: number
-  /** Reveal or move this Session's video workspace in the requested host. */
-  readonly openWorkspace: (destination?: 'sidebar' | 'float') => void
+  /** Reveal this Session's video workspace at an exact source or start comparing a returned shot. */
+  readonly openWorkspace: (destination?: 'sidebar' | 'float', target?: VideoTarget, intent?: 'compare') => void
   /** Retry the inventory of existing resource readers without opening another workspace. */
   readonly refreshVideos: () => void
+  /** Open this Session's composer file picker when it accepts attachments. */
+  readonly addVideoAttachment: () => boolean
   /** Insert a video chip after the captured selection; false means the draft refused the edit. */
   readonly addTargetReference: (target: VideoTarget, label: string, span: TokenSpan) => boolean
   /** Remove only an identity-matched video chip; unrelated references are refused. */

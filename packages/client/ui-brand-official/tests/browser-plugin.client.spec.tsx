@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
+import { useSyncExternalStore } from 'react'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply, inject } from '../src/client/index.ts'
 import { OfficialBrandMark, type BrandInjected } from '../src/client/Brand.tsx'
@@ -110,19 +111,21 @@ describe('official browser-brand plugin', () => {
     expect(subject.slots.entries(NAME_HOLE)).toHaveLength(0)
   })
 
-  it('renders black artwork in light themes and white artwork in dark themes at owner sizes', async () => {
+  it('updates artwork on theme changes and renders it at the owner size', async () => {
     const subject = await bench()
     const fiber = subject.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     const { hooks } = subject.slots.entries(HOLES[0])[0]!.inject!() as BrandInjected & Record<string, unknown>
-    const useLogo = <T,>(select: (url: string) => T) => select(hooks.logo.getSnapshot())
+    const subscribe = (listener: () => void) => hooks.logo.subscribe(listener)
+    const getSnapshot = () => hooks.logo.getSnapshot()
+    const useLogo = <T,>(select: (url: string) => T) => select(useSyncExternalStore(subscribe, getSnapshot))
     const mark = render(<OfficialBrandMark size={34} useLogo={useLogo} />)
     expect(mark.container.querySelector('img')?.getAttribute('src')).toBe('./muse-med-logo-black.webp')
     expect(mark.container.querySelector('img')?.getAttribute('width')).toBe('34')
     expect(mark.container.querySelector('img')?.getAttribute('alt')).toBe('')
-    subject.setTheme('dark')
-    mark.rerender(<OfficialBrandMark size={24} useLogo={useLogo} />)
+    act(() => { subject.setTheme('dark') })
     expect(mark.container.querySelector('img')?.getAttribute('src')).toBe('./muse-med-logo-white.webp')
+    mark.rerender(<OfficialBrandMark size={24} useLogo={useLogo} />)
     expect(mark.container.querySelector('img')?.getAttribute('width')).toBe('24')
     await fiber.dispose()
   })

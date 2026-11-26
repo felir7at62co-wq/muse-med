@@ -842,6 +842,75 @@
   width: auto;
 }
 
+.root.studio {
+  --dsh-sidebar-paint-inset: 4px;
+  --dsw-specific-sidebar-fill: color-mix(in srgb, var(--dsw-alias-market-surface-hover) 62%, var(--dsw-alias-bg-base));
+  background: var(--dsw-specific-sidebar-fill);
+}
+
+.root.studio .logoRow {
+  height: 64px;
+}
+
+.studio .brandIdentity { gap: 10px; }
+.studio .brandMark { width: 34px; height: 34px; }
+.studio .fallbackBrandName,
+.studio .localBuildTitle {
+  color: var(--dsw-alias-label-primary);
+  font-size: 22px;
+  line-height: 26px;
+  font-weight: 500;
+}
+
+.studio .localBuildBrand { height: auto; }
+.studio .buildVersion {
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+}
+
+.studioActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--dsw-alias-market-border);
+}
+
+.studio .newSessionLabel { text-overflow: ellipsis; }
+
+.root.studio .newSession {
+  min-height: 44px;
+  margin-top: 2px;
+  border: 1px solid var(--dsw-alias-market-border);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-market-accent-label);
+}
+
+@media (hover: hover) {
+  .root.studio .newSession:hover { background: var(--dsw-alias-market-surface-hover); }
+}
+
+.studioSessionsLabel {
+  padding: 6px var(--dsh-sidebar-row-padding) 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.studioPanels > summary {
+  padding: 8px var(--dsh-sidebar-row-padding);
+  color: var(--dsw-alias-label-secondary);
+  border-radius: var(--dsw-radius-md);
+  cursor: pointer;
+}
+
+.studioPanelList {
+  max-height: min(30dvh, 240px);
+  margin-bottom: 0;
+  overflow-y: auto;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :global([data-animating]:not([data-dragging])) .root,
   .wide,

@@ -31,6 +31,7 @@
       name: ./voice-replacement-fixture.mjs
     - id: tool-jubian
       name: '../../../packages/jubian/tool-jubian/tests/snapshot-plugin.mjs'
+      inject: [snapshotVoiceReplacementReady]
       config:
         baseUrl: https://voice-replacement.invalid/prod-api
         workspaceSecrets: false

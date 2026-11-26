@@ -432,6 +432,19 @@
   cursor: default;
 }
 
+:global(html[data-dsh-product='muse']) .card:not(.cardWorkspaceTrigger) {
+  --dsw-elevation-stroke-color: var(--dsw-alias-market-border);
+}
+
+:global(html[data-dsh-product='muse']) .primary {
+  color: var(--dsw-alias-market-on-accent);
+  background: var(--dsw-alias-market-accent-fill);
+}
+
+@media (hover: hover) {
+  :global(html[data-dsh-product='muse']) .primary:hover:not(:disabled) { background: var(--dsw-alias-market-accent-hover); }
+}
+
 /* Sending: the message waits for the Host to accept it. The circle keeps its
    full fill rather than the disabled fade, and an arc turns where the arrow was. */
 .primary[data-sending]:disabled {

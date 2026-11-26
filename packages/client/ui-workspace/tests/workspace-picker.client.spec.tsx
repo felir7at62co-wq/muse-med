@@ -89,6 +89,7 @@ function mount(
   items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')],
   createWorkspace = vi.fn(),
   occupancy = occupancySource(),
+  open = true,
 ) {
   const onPick = vi.fn()
   const onClose = vi.fn()
@@ -96,7 +97,7 @@ function mount(
   const { probe, renderSlot } = flowProbe()
   const renderPicker = (nextItems: readonly WorkspaceView[]) => (
     <WorkspacePicker
-      open
+      open={open}
       anchorRef={anchorRef}
       useSessions={hook(sessions)}
       useSessionStatus={hook(noPendingInteraction)}
@@ -126,6 +127,24 @@ function chooseAdd(): void {
 }
 
 describe('WorkspacePicker', () => {
+  it('opens the real directory flow directly from the closed empty-chat picker', async () => {
+    const created = workspace('picked-material')
+    const createWorkspace = vi.fn(async () => created)
+    const b = mount([workspace('alpha')], createWorkspace, occupancySource(), false)
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '选择文件夹' }))
+    expect(screen.getByTestId('directory-flow')).toBeTruthy()
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '选择文件夹' }).disabled).toBe(true)
+    await act(async () => { b.probe.owner!.onPicked('/projects/material') })
+    expect(createWorkspace).toHaveBeenCalledExactlyOnceWith({ path: '/projects/material' })
+    expect(b.onPick).toHaveBeenCalledExactlyOnceWith(created.workspaceId)
+    expect(screen.queryByTestId('directory-flow')).toBeNull()
+  })
+
+  it('omits the direct directory action when no real picker is composed', () => {
+    mount([workspace('alpha')], vi.fn(), occupancySource(false), false)
+    expect(screen.queryByRole('button', { name: '选择文件夹' })).toBeNull()
+  })
   it('labels same-title Workspaces with distinguishing path suffixes and forwards the selected id', () => {
     const b = mount([
       { ...workspace('alpha', 'Shared'), path: '/one/a/Shared' },

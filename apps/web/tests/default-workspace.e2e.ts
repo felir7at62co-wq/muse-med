@@ -117,7 +117,7 @@ describe.skipIf(MODE === 'record')('web e2e: default Workspace', () => {
         await compareOrRefreshGolden(FAILURE_EXPECTED, await notice.ariaSnapshot(), MODE)
         expect(await page.getByRole('dialog').count()).toBe(0)
         expect(await input.count()).toBe(0)
-        await page.getByRole('button', { name: '选择工作区', exact: true }).click()
+        await page.getByRole('button', { name: '选择文件夹', exact: true }).click()
         const picker = page.getByRole('dialog', { name: '选择工作区目录' })
         await picker.waitFor()
         await picker.getByRole('button', { name: '编辑路径', exact: true }).click()
@@ -127,6 +127,13 @@ describe.skipIf(MODE === 'record')('web e2e: default Workspace', () => {
         await picker.waitFor({ state: 'hidden' })
         await expect.poll(() => scaffold.ctx.workspaceRegistry.list().length).toBe(1)
         await input.waitFor()
+        expect(await input.textContent()).toBe('')
+        const fileChooserReady = page.waitForEvent('filechooser')
+        await page.getByRole('button', { name: '添加文件', exact: true }).click()
+        const fileChooser = await fileChooserReady
+        expect(await fileChooser.element().evaluate(element => element instanceof HTMLInputElement
+          && element.closest('[data-composer-card]') !== null)).toBe(true)
+        await fileChooser.setFiles([])
         expect(await input.textContent()).toBe('')
         expect(scaffold.ctx.workspaceRegistry.list()[0]?.path).toBe(chosen)
         expect(scaffold.ctx.sessions.list()).toHaveLength(1)

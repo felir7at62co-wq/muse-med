@@ -18,6 +18,7 @@ import { createVideoStore } from './store.ts'
 import { NS, en, zh, ja, es, fr, de, ru, pt } from './locales.ts'
 import { VideoHeader } from './VideoHeader.tsx'
 import { DeliveredVideoCard, GeneratedVideoCards } from './InlineVideoCard.tsx'
+import { VideoSuggestionLink, type VideoSuggestionLinkInjected } from './VideoSuggestionLink.tsx'
 import type { VideoInjected } from './face.ts'
 import { readSessionVideoConfig, SETTINGS_ENTRY } from '../config.ts'
 import { PresentationRuntime } from './presentation-runtime.ts'
@@ -31,6 +32,7 @@ import {
 } from './references.ts'
 import { videoSelectionRule, videoReviewRule } from './user-text-rules.ts'
 import { VideoSelectionText, type VideoSelectionTextInjected } from './VideoSelectionText.tsx'
+import { VideoComposerScope } from './VideoComposerScope.tsx'
 
 export { createVideoStore } from './store.ts'
 
@@ -136,10 +138,18 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
           if (previous !== undefined) return previous
           const value: VideoInjected = {
             ...operations,
-            openWorkspace: (destination = 'sidebar') => {
-              child.sidebarRight.openResource(videoWorkspaceAddress(sessionId), { kind: WORKSPACE_KIND, destination })
+            openWorkspace: (destination = 'sidebar', target, intent) => {
+              const compare = intent === 'compare' && target?.kind === 'shot'
+              child.sidebarRight.openResource(videoWorkspaceAddress(sessionId, compare ? undefined : target), {
+                kind: WORKSPACE_KIND, destination,
+                ...(compare ? { params: { sessionId, target, compareVersions: true } } : {}),
+              })
             },
             refreshVideos: () => { resources.refresh(sessionId) },
+            addVideoAttachment: () => {
+              const binding = sessions.binding(sessionId)
+              return binding !== undefined && child.conversation.input.for(binding.ctx).pickFiles()
+            },
             addTargetReference: (target, label, span) => {
               const binding = sessions.binding(sessionId)
               if (binding === undefined) return false
@@ -174,6 +184,9 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         child.slots.inject('conversation.session.header.utilities', () => child.slots.register({
           name: 'conversation.session.header.utilities', id: 'muse-session-video-menu', locale: NS, store, inject: injected,
         }, VideoHeader))
+        child.slots.inject('conversation.input.dock', () => child.slots.register({
+          name: 'conversation.input.dock', id: 'muse-video-scope', order: 30, locale: NS, store,
+        }, VideoComposerScope))
         child.slots.inject('sidebar.right.pane.tab', () => child.slots.register({
           name: 'sidebar.right.pane.tab', key: WORKSPACE_ID, locale: NS, store, inject: injected,
         }, VideoWorkspace))
@@ -183,6 +196,17 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         child.slots.inject('deliverables.video', () => child.slots.register({
           name: 'deliverables.video', select: () => true, locale: NS, store, inject: injected,
         }, DeliveredVideoCard))
+        child.slots.inject('conversation.chat.markdown.resource-link', () => child.slots.register({
+          name: 'conversation.chat.markdown.resource-link', key: 'session-video', id: 'muse-video-suggestion', locale: NS,
+          inject: (sessionId: SessionId): VideoSuggestionLinkInjected => ({
+            openAdvice: (navigation) => {
+              if (navigation.sessionId !== sessionId) return
+              child.sidebarRight.openResource(videoWorkspaceAddress(sessionId), {
+                kind: WORKSPACE_KIND, destination: 'sidebar', params: navigation,
+              })
+            },
+          }),
+        }, VideoSuggestionLink))
         child.slots.inject('conversation.chat.turnTail', () => child.slots.register({
           name: 'conversation.chat.turnTail', id: 'muse-generated-video', locale: NS, store, inject: injected,
         }, GeneratedVideoCards))

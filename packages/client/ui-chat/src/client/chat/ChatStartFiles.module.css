@@ -1,0 +1,3 @@
+.action { min-width: 0; max-width: 100%; }
+.action > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action > svg { flex-shrink: 0; width: 16px; height: 16px; }

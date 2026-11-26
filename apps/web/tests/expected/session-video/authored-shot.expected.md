@@ -1,23 +1,40 @@
 - region "Conversation videos":
-  - button "Video selection": Episode 46 · Video package 3 · three-shots.mp4
-  - button "Float video preview"
-  - text: Muse Video package 3 · three-shots.mp4
+  - heading "Conversation videos" [level=2]
+  - combobox "Choose episode":
+    - option "All episodes"
+    - option "Episode 31"
+    - option "Episode 33"
+    - option "Episode 46" [selected]
+    - option "Unassigned"
+  - button "Video selection": Video package 3
+  - text: Episode 46 · Shot 12 · {{clock}}–{{clock}}
   - button "Play"
-  - group "Timeline zoom":
-    - button "Zoom out timeline"
-    - slider "Timeline zoom": "1"
-    - button "Zoom in timeline"
-  - group "Visual segment timeline":
-    - button "Video segment 1 · 0.00–1.00"
-    - button "Video segment 2 · 1.00–2.00"
-    - button "Video segment 3 · 2.00–3.00"
-    - slider "Playback position"
-  - text: Authored shots
-  - button "Shot 10" [disabled]
-  - button "Shot 11" [disabled]
-  - button "Shot 12"
-  - text: Disabled shots have no observed timing; cut order does not determine shot numbers. Shot 12 · 1.00–2.00
+  - slider "Playback position": "1"
+  - button "Float video preview"
+  - group: Visual segment timeline
+  - group "Authored shots":
+    - button "Shot 10" [disabled]
+    - button "Shot 11" [disabled]
+    - button "Shot 12" [pressed]
+  - text: Disabled shots have no observed timing; cut order does not determine shot numbers.
   - button "Whole video"
   - button "Add selected segment": Add to chat
   - button "Review selected videos"
-  - paragraph: Choose a video or segment, then describe your changes in chat.
+
+## Current shot in chat
+
+- text: Previewing Episode 46 · Shot 12 · {{clock}}–{{clock}}
+
+## Returned revision
+
+- article:
+  - strong: New version received
+  - text: Episode 46 · Shot 12 · V2
+  - button "Compare with original"
+
+## Same-shot comparison
+
+- region "Shot versions":
+  - button "Original V1"
+  - button "New V2" [pressed]
+  - text: Shot versions

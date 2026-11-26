@@ -20,7 +20,7 @@ async function fixture(interactive: boolean, ownSession = sessionId, wholeVideos
   const second = source('second')
   const serialized = serializeVideoTargets(wholeVideos ? [whole(item), whole(second)] : [shot(item)], [item, second], sessionId)
   if (!serialized.ok) throw new Error('selection fixture is unavailable')
-  const node = videoSelectionRule.match(serialized.text, 0, { read: () => undefined })
+  const node = videoSelectionRule.match(serialized.text, 0)
   if (node?.id !== 'muse-video-selection') throw new Error('selection fixture is malformed')
   const openVideoSelection = vi.fn()
   await runtime.sessions.add({ id: ownSession })

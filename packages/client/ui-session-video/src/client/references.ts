@@ -42,7 +42,8 @@ export function createVideoReviewReferenceSource(copy: {
  */
 export function parseVideoReference(ref: string): { readonly sessionId: SessionId; readonly target: VideoTarget } | null {
   const parsed = parseVideoWorkspaceAddress(ref)
-  return parsed?.target === undefined ? null : { sessionId: parsed.sessionId, target: parsed.target }
+  return parsed?.target === undefined || parsed.seekSeconds !== undefined || parsed.editSuggestion !== undefined
+    ? null : { sessionId: parsed.sessionId, target: parsed.target }
 }
 
 /** Copy owned by the video interface for refused serialized selections. */
@@ -67,15 +68,15 @@ export function createVideoReferenceSource(
     candidates: () => Promise.resolve([]),
     onPick: () => undefined,
     openReference: (session, { ref }) => {
-      const navigation = parseVideoWorkspaceAddress(ref)
-      if (navigation?.target === undefined || navigation.sessionId !== session.sessionId) return false
+      const navigation = parseVideoReference(ref)
+      if (navigation === null || navigation.sessionId !== session.sessionId) return false
       return open(ref)
     },
     codec: {
       clipboardText: ref => ref,
       serialize: async (ref, signal) => {
-        const navigation = parseVideoWorkspaceAddress(ref)
-        if (navigation?.target === undefined) throw new Error(copy.invalid())
+        const navigation = parseVideoReference(ref)
+        if (navigation === null) throw new Error(copy.invalid())
         const result = await list(navigation.sessionId, signal)
         if (!result.ok) throw result.error
         signal.throwIfAborted()

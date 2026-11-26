@@ -145,6 +145,7 @@ describe('Chat apply wiring', () => {
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
       .toEqual(['transcript-view', 'link-opening', 'composer-enter', 'performance-usage'])
     expect(b.runtime.slots.spec('conversation.chat.markdown.fence')).toMatchObject({ kind: 'hoc', scope: 'session' })
+    expect(b.runtime.slots.spec('conversation.chat.markdown.resource-link')).toMatchObject({ kind: 'hoc', scope: 'session', inline: true })
     expect(b.runtime.slots.entries('conversation.chat.markdown.fence').map(row => [row.options.key, row.options.id]))
       .toEqual([
         ['math', '@deepseek-ai/dsh-client-ui-chat/fence/math'],
@@ -305,6 +306,7 @@ describe('Chat apply wiring', () => {
     const b = await bench()
     await b.chat.dispose()
     expect(b.runtime.slots.spec('conversation.chat.markdown.fence')).toBeUndefined()
+    expect(b.runtime.slots.spec('conversation.chat.markdown.resource-link')).toBeUndefined()
     expect(b.runtime.slots.entries('conversation.chat.markdown.fence')).toHaveLength(0)
     expect(b.runtime.slots.entries('conversation.view')).toHaveLength(0)
     expect(b.runtime.slots.spec('conversation.chat.node')).toBeUndefined()

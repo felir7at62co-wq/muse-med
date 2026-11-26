@@ -7,13 +7,14 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFailed, onTestFinished, vi } from 'vitest'
-import { createMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createMessage, createToolResultMessage, createUserMessage, ToolCallId, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-tool-present'
 import type {} from '@deepseek-ai/dsh-session-query'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { JobId } from '@deepseek-ai/dsh-jobs'
+import { toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import {
   captureStableAria, compareOrRefreshGolden, launchWebScaffold, seedSession,
   watchConsole, webSnapshotMode, type WebScaffold,
@@ -33,6 +34,9 @@ const PROVIDER_URL = 'https://101.aigc.jubianai.net/synthetic-jubian-three-shots
 const TAIL = 'SESSION_VIDEO_TRANSCRIPT_END'
 const WORKSPACE = '[data-muse-video-workspace]'
 const PLAYER = '[data-muse-shelf-video]'
+const COMPOSER_SCOPE = '[data-muse-composer-scope]:visible'
+const PREVIEW_SCOPE = '[data-muse-preview-scope]'
+const REVIEW_REQUEST = 'Review the selected footage against the script and delivery requirements, and suggest specific fixes for any issues.'
 
 function fixture(firstPath: string, secondPath: string): string {
   const session = Session.create(SessionId('session-video-fixture-source'))
@@ -121,8 +125,18 @@ describe('web e2e: conversation video review', () => {
     await page.screenshot({ path: name === undefined ? requested : join(dirname(requested), name) })
   }
   const submitDraft = async (submit: () => Promise<void> = () => editor().press('Enter'),
-    reply = 'The selected source coordinates have been retained.'): Promise<string> => {
-    const dispose = scaffold.ctx.on('llm/stream', async function* () {
+    reply = 'The selected source coordinates have been retained.', tool?: {
+      name: 'muse_video' | 'present'
+      call: Record<string, unknown>
+      evidence?: (content: readonly ContentBlock[]) => void
+    }): Promise<string> => {
+    const callId = ToolCallId(`agent-shot-${tool?.name ?? 'response'}`)
+    const dispose = scaffold.ctx.on('llm/stream', async function* (request) {
+      if (tool !== undefined) {
+        const observed = request.messages.find(message => message.role === 'tool' && message.toolCallId === callId)
+        if (observed === undefined) { yield* toolCallResponse(callId, tool.name, tool.call); return }
+        tool.evidence?.(observed.content)
+      }
       const text = reply
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text }
@@ -271,8 +285,7 @@ describe('web e2e: conversation video review', () => {
     await expect.poll(() => editor().locator('[data-composer-chip="muse-video"]').count()).toBe(1)
     const before = await eventCounts()
     const submitted = await submitDraft(() => workspace().getByRole('button', { name: 'Review selected videos', exact: true }).click())
-    expect(submitted).toContain('read-only review')
-    expect(submitted).toContain('Wait for my changes before editing or generating')
+    expect(submitted).toContain(REVIEW_REQUEST)
     expect(submitted).toContain('<!-- muse-video-review:')
     expect(serializedSelections(submitted)).toHaveLength(1)
     expect((await eventCounts()).messages).toBe(before.messages + 1)
@@ -298,7 +311,7 @@ describe('web e2e: conversation video review', () => {
     expect(selections).toEqual([expect.objectContaining({ label: VIDEO, path: join(scaffold.workspaceCwd, VIDEO) })])
     expect(selections[0]).not.toHaveProperty('shot_id')
     expect(selections[0]).not.toHaveProperty('start_seconds')
-    expect(submitted).toContain('read-only review')
+    expect(submitted).toContain(REVIEW_REQUEST)
     expect(submitted).toContain('<!-- muse-video-review:')
     expect((await eventCounts()).messages).toBe(before.messages + 1)
     await expect.poll(() => editor().locator('[data-composer-chip="muse-video"]').count()).toBe(0)
@@ -334,9 +347,9 @@ describe('web e2e: conversation video review', () => {
     await expect.poll(() => editor().locator('[data-composer-chip="muse-video"]').count()).toBe(1)
     await workspace().getByRole('button', { name: 'Review selected videos', exact: true }).click()
     expect(await editor().locator('[data-composer-chip="muse-video-review"]').count()).toBe(1)
-    expect(await workspace().getByText('1 selected', { exact: true }).count()).toBe(1)
+    expect(await workspace().getByText('1 selected in chat', { exact: true }).count()).toBe(1)
     expect((await editor().innerText()).startsWith(draft)).toBe(true)
-    expect(await editor().innerText()).toContain('read-only review')
+    expect((await editor().innerText()).split(REVIEW_REQUEST)).toHaveLength(2)
     expect(await editor().innerText()).not.toContain('<!-- muse-video-review:')
     expect(await editor().innerText()).not.toContain('muse_video')
     await editor().press('ControlOrMeta+A')
@@ -689,7 +702,7 @@ describe('web e2e: conversation video review', () => {
     }
     expect(consoleWatch.pageErrors).toEqual([])
   })
-  it('binds a local episode, selects an observed authored shot and bounds real review images', async () => {
+  it('reviews a bound episode shot, drafts the suggested edit and compares a returned version', async () => {
     onTestFailed(() => saveFailureShot(page, 'session-video-authored-shot'))
     await editor().fill('Prepare this conversation for an existing-video review.')
     await submitDraft()
@@ -701,6 +714,14 @@ describe('web e2e: conversation video review', () => {
     if (source?.version === null || source === undefined || source.path === null) throw Error('Recorded local video is unavailable')
     const evidence = join(scaffold.workspaceCwd, 'video-production-evidence.json')
     await writeFile(evidence, JSON.stringify({ scriptId: 4660, episodeNumber: 46, shotNumbers: [10, 11, 12] }))
+    const scriptPath = join(scaffold.workspaceCwd, 'episode-46.md')
+    const screenplay = '场次 46-1：暗室内景\n【镜头12】\n画面：暗室保持低照度。\n对白：林岚「别开灯。」\n'
+    await writeFile(scriptPath, screenplay)
+    appendToolResult(agent.session, 2, 'review-script-source', 'muse_production', { method: 'preview' }, {
+      method: 'preview', script_id: 4660, episode: 46, source_path: scriptPath,
+      source_sha256: createHash('sha256').update(screenplay).digest('hex'),
+      plan_path: join(scaffold.workspaceCwd, '.muse', 'production', `${'a'.repeat(64)}.json`), fingerprint: 'a'.repeat(64),
+    })
     const args = { method: 'bind', source_id: source.id, source_version: source.version,
       sha256: createHash('sha256').update(readFileSync(source.path)).digest('hex'), evidence_paths: [evidence],
       production: { scriptId: 4660, episodeNumber: 46, packageIndex: 3, shotNumbers: [10, 11, 12],
@@ -709,28 +730,181 @@ describe('web e2e: conversation video review', () => {
     expect(result.isError, JSON.stringify(result.content)).toBe(false)
     if (typeof result.value !== 'string') throw Error('Binding produced no result')
     appendToolResult(agent.session, 2, 'bound-observed-shot', 'muse_video', args, JSON.parse(result.value) as Record<string, unknown>)
+    const episode = workspace().getByRole('combobox', { name: 'Choose episode', exact: true })
+    await expect.poll(() => episode.getByRole('option', { name: 'Episode 46', exact: true }).count()).toBe(1)
+    await episode.selectOption('46')
     await workspace().getByRole('button', { name: 'Video selection', exact: true }).click()
     const picker = workspace().locator('[data-muse-video-picker]')
-    await expect.poll(() => picker.getByRole('option', { name: 'Episode 46', exact: true }).count()).toBe(1)
-    await picker.locator('select').selectOption('46')
     await picker.getByRole('button', { name: `Switch video: ${VIDEO}`, exact: true }).click()
     await workspace().getByRole('button', { name: 'Shot 12', exact: true }).click()
     expect(await workspace().getByRole('button', { name: 'Shot 10', exact: true }).isDisabled()).toBe(true)
     await expect.poll(() => workspace().locator(PLAYER).evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1, 1)
-    await compareOrRefreshGolden(golden('authored-shot'), await captureStableAria(page, WORKSPACE, scaffold.workspaceCwd), MODE)
+    const scope = page.locator(COMPOSER_SCOPE)
+    const currentRange = 'Episode 46 · Shot 12 · 00:01–00:02'
+    await expect.poll(() => scope.innerText()).toContain(currentRange)
+    expect(await workspace().locator(PREVIEW_SCOPE).innerText()).toContain(currentRange)
+    expect(await editor().innerText()).toBe('')
+    const authoredWorkspace = await captureStableAria(page, WORKSPACE, scaffold.workspaceCwd)
+    const authoredComposer = await captureStableAria(page, COMPOSER_SCOPE, scaffold.workspaceCwd)
+    const problem = 'The sampled frame is too bright for the dark room.'
+    const basis = 'Screenplay, shot 12: keep the room dim.'
+    const suggestion = 'Lower the exposure for the dark room and retain the original framing.'
+    const advice = new URL(`dsh-resource://session-video/session/${encodeURIComponent(SESSION)}`)
+    for (const [name, value] of Object.entries({ source: source.id, version: source.version,
+      shot: `authored:${source.id}:${source.version}:12:1:2`, start: '1', end: '2' })) advice.searchParams.set(name, value)
+    const reviewLink = advice.href
+    for (const [name, value] of Object.entries({ at: '1.25', problem, basis, suggestion })) advice.searchParams.set(name, value)
+    const review = { method: 'review', source_id: source.id, source_version: source.version, start_seconds: 1, end_seconds: 2 }
+    const reviewerEvidence = vi.fn<(content: readonly ContentBlock[]) => void>()
     await editor().fill('')
-    const submitted = await submitDraft(() => workspace().getByRole('button', { name: 'Review selected videos', exact: true }).click())
+    const submitted = await submitDraft(() => workspace().getByRole('button', { name: 'Review selected videos', exact: true }).click(),
+      `[Review finding](${advice.href})\n\nDialogue is unverified.`,
+      { name: 'muse_video', call: review, evidence: reviewerEvidence })
     expect(serializedSelections(submitted)).toEqual([expect.objectContaining({ authored_shot_number: 12, start_seconds: 1, end_seconds: 2, review_tool: 'muse_video' })])
     expect(submitted).toContain('<!-- muse-video-review:')
     expect(await page.locator('body').innerText()).not.toContain('<!-- muse-video-review:')
-    const review = { method: 'review', source_id: source.id, source_version: source.version, start_seconds: 1, end_seconds: 2 }
+    expect(reviewerEvidence).toHaveBeenCalledOnce()
+    const modelContent = reviewerEvidence.mock.calls[0]?.[0]
+    expect(modelContent).toContainEqual(expect.objectContaining({ type: 'image' }))
+    const evidenceText = modelContent?.find(block => block.type === 'text')?.text
+    const reviewPayload: unknown = JSON.parse(evidenceText ?? 'null')
+    expect(reviewPayload).toMatchObject({ review_link: reviewLink, production: { episodeNumber: 46, shotNumbers: [12] },
+      media: { width: 64, height: 64 }, references: { screenplay: { status: 'available', authored_shots: [12], text: screenplay.trimEnd() } },
+      dialogue: { status: 'no_audio_track' } })
+    expect(reviewPayload).toHaveProperty('frames', expect.arrayContaining([expect.objectContaining({ requested_seconds: 1.25 })]))
     const outside = await executeToolFixture(scaffold.ctx, { agent, signal, callId: ToolCallId('outside-shot'), name: 'muse_video', arguments: { ...review, start_seconds: 0 } })
     expect(outside.isError).toBe(true)
-    const observed = await executeToolFixture(scaffold.ctx, { agent, signal, callId: ToolCallId('inside-shot'), name: 'muse_video', arguments: review })
-    expect(observed.isError, JSON.stringify(observed.content)).toBe(false)
-    const images = observed.content.filter(block => block.type === 'image')
-    expect(images.length).toBeGreaterThan(0)
-    expect(images.length).toBeLessThanOrEqual(6)
+
+    const userDraft = 'Keep the dialogue.'
+    await editor().fill(userDraft)
+    const beforeAdvice = await eventCounts()
+    const adviceCard = page.locator('[data-muse-suggestion-card]')
+    await adviceCard.waitFor()
+    const adviceText = await adviceCard.innerText()
+    expect(adviceText).toContain(problem)
+    expect(adviceText).toContain(basis)
+    expect(adviceText).toContain(suggestion)
+    const issueTime = adviceCard.getByRole('link', { name: '00:01.25', exact: true })
+    await issueTime.click()
+    await expect.poll(() => workspace().locator(PLAYER).evaluate(element => (element as HTMLVideoElement).currentTime))
+      .toBeCloseTo(1.25, 2)
+    expect(await workspace().locator(PREVIEW_SCOPE).innerText()).toContain(currentRange)
+    expect(await editor().innerText()).toBe(userDraft)
+    expect(await editor().locator('[data-composer-chip="muse-video"]').count()).toBe(0)
+    expect(await eventCounts()).toEqual(beforeAdvice)
+    const adviceSnapshot = await captureStableAria(page, '[data-muse-suggestion-card]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(golden('authored-shot-advice'),
+      adviceSnapshot.replaceAll(encodeURIComponent(source.version), '{{videoVersion}}'), MODE)
+    await adviceCard.getByRole('link', { name: 'Use this suggestion in chat', exact: true }).click()
+    await expect.poll(() => editor().innerText()).toContain(suggestion)
+    expect((await editor().innerText()).startsWith(userDraft)).toBe(true)
+    const rangeChip = editor().locator('[data-composer-chip="muse-video"]')
+    expect(await rangeChip.count()).toBe(1)
+    expect(await rangeChip.innerText()).toContain('Episode 46 · Shot 12 · 1.00–2.00 s')
+    expect(await eventCounts()).toEqual(beforeAdvice)
+    const revisedName = 'shot-12-revised.mp4'
+    const revisedPath = join(scaffold.workspaceCwd, revisedName)
+    await copyFile(join(scaffold.workspaceCwd, 'portrait.mp4'), revisedPath)
+    const modification = await submitDraft(undefined, 'Here is the revised shot.', {
+      name: 'present', call: { files: [{ path: revisedName }] },
+    })
+    expect(serializedSelections(modification)).toEqual([expect.objectContaining({ source_id: source.id,
+      source_version: source.version, authored_shot_number: 12, start_seconds: 1, end_seconds: 2 })])
+    expect(modification).toContain(suggestion)
+    expect(modification).not.toContain('<!-- muse-video-review:')
+
+    const returned = await scaffold.ctx.sessionVideo.list(agent.id, signal)
+    const revised = returned.sources.find(item => item.path === revisedPath)
+    if (revised?.version == null) throw Error('Returned video has no playable version')
+    const bindRevised = { ...args, source_id: revised.id, source_version: revised.version,
+      sha256: createHash('sha256').update(readFileSync(revisedPath)).digest('hex'),
+      production: { ...args.production, shotRanges: [{ shotNumber: 12, startSeconds: 0.5, endSeconds: 2.5 }] } }
+    const bound = await executeToolFixture(scaffold.ctx, { agent, signal, callId: ToolCallId('bind-revised-shot'),
+      name: 'muse_video', arguments: bindRevised })
+    expect(bound.isError, JSON.stringify(bound.content)).toBe(false)
+    if (typeof bound.value !== 'string') throw Error('Returned video binding produced no result')
+    appendToolResult(agent.session, 2, 'bound-revised-shot', 'muse_video', bindRevised, JSON.parse(bound.value) as Record<string, unknown>)
+
+    const preview = workspace().locator(PLAYER)
+    const compare = workspace().getByRole('region', { name: 'Shot versions', exact: true })
+    const originalVersion = compare.getByRole('button', { name: 'Original V1', exact: true })
+    const revisedVersion = compare.getByRole('button', { name: 'New V2', exact: true })
+    const revisedScope = 'Episode 46 · Shot 12 · 00:00.50–00:02.50 · V2'
+    const returnedCard = '[data-muse-revised-video]'
+    const sameShotCompare = page.locator(returnedCard).getByRole('button', { name: 'Compare with original', exact: true })
+    await expect.poll(() => scope.innerText()).toContain(`${currentRange} · V1`)
+    await sameShotCompare.waitFor()
+    const delivery = await captureStableAria(page, returnedCard, scaffold.workspaceCwd)
+    const followUp = 'Keep this follow-up while I compare the versions.'
+    await editor().fill(followUp)
+    const beforeCompare = await eventCounts()
+    const workspaceTabs = await page.locator(WORKSPACE).count()
+    await page.getByRole('button', { name: 'Collapse right sidebar', exact: true }).click()
+    await workspace().waitFor({ state: 'hidden' })
+    expect(await scope.innerText()).toContain(`${currentRange} · V1`)
+    await expect.poll(async () => {
+      const pin = await scope.boundingBox(), composer = await page.locator('[data-composer-card]:visible').boundingBox()
+      return pin !== null && composer !== null ? Math.abs(pin.x - composer.x) : Infinity
+    }).toBeLessThanOrEqual(1)
+    await sameShotCompare.click()
+    await expect.poll(() => preview.getAttribute('aria-label')).toBe(revisedName)
+    expect(await page.locator(WORKSPACE).count()).toBe(workspaceTabs)
+    expect(await revisedVersion.getAttribute('aria-pressed')).toBe('true')
+    expect(await originalVersion.getAttribute('aria-pressed')).toBe('false')
+    await expect.poll(() => preview.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1, 1)
+    await expect.poll(() => scope.innerText()).toContain(revisedScope)
+    expect(await workspace().locator(PREVIEW_SCOPE).innerText()).toContain(revisedScope)
+    expect(await editor().innerText()).toBe(followUp)
+    expect(await editor().locator('[data-composer-chip="muse-video"]').count()).toBe(0)
+    const comparison = await captureStableAria(page, `${WORKSPACE}:visible [aria-label="Shot versions"]`, scaffold.workspaceCwd)
+    await compareOrRefreshGolden(golden('authored-shot'), [authoredWorkspace, '## Current shot in chat', authoredComposer,
+      '## Returned revision', delivery, '## Same-shot comparison', comparison].join('\n\n'), MODE)
+
+    await originalVersion.click()
+    await expect.poll(() => preview.getAttribute('aria-label')).toBe(VIDEO)
+    await expect.poll(() => scope.innerText()).toContain(`${currentRange} · V1`)
+    const settledPreviewTime = () => preview.evaluate((element) => {
+      const video = element as HTMLVideoElement
+      return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && !video.seeking ? video.currentTime : -1
+    })
+    const playhead = workspace().getByRole('slider', { name: 'Playback position', exact: true })
+    // A source label can change before metadata and the initial seek have settled.
+    await expect.poll(settledPreviewTime).toBeCloseTo(1.25, 2)
+    await playhead.press('ArrowRight')
+    await expect.poll(settledPreviewTime).toBeGreaterThan(1.25)
+    const originalTime = await settledPreviewTime()
+    expect(originalTime).toBeLessThan(2)
+    await revisedVersion.click()
+    await expect.poll(() => preview.getAttribute('aria-label')).toBe(revisedName)
+    await expect.poll(settledPreviewTime).toBeCloseTo(0.5 + (originalTime - 1) * 2, 2)
+    await workspace().getByRole('button', { name: 'Adopt new version', exact: true }).click()
+    expect(await workspace().getByRole('button', { name: 'Adopted', exact: true }).isDisabled()).toBe(true)
+    await workspace().getByRole('button', { name: 'Shot 12', exact: true }).locator('img').waitFor()
+    await screenshot('session-video-shot-versions.png')
+    const desktopViewport = page.viewportSize()
+    if (desktopViewport === null) throw Error('Version comparison requires a desktop viewport')
+    try {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.emulateMedia({ colorScheme: 'dark' })
+      const small = workspace()
+      await expect.poll(() => small.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
+      expect(await small.getByRole('combobox', { name: 'Choose episode', exact: true }).isVisible()).toBe(true)
+      expect(await small.locator(PREVIEW_SCOPE).innerText()).toContain(revisedScope)
+      expect(await small.getByRole('button', { name: 'Adopted', exact: true }).isVisible()).toBe(true)
+      await screenshot('session-video-shot-versions-narrow.png', 'dark')
+    } finally {
+      await page.setViewportSize(desktopViewport)
+      await page.emulateMedia({ colorScheme: 'light' })
+    }
+    await originalVersion.click()
+    await expect.poll(() => preview.getAttribute('aria-label')).toBe(VIDEO)
+    await workspace().getByRole('button', { name: 'Shot 12', exact: true }).click()
+    await expect.poll(() => preview.getAttribute('aria-label')).toBe(revisedName)
+    await workspace().getByRole('button', { name: 'Whole video', exact: true }).click()
+    await scope.waitFor({ state: 'hidden' })
+    expect(await editor().innerText()).toBe(followUp)
+    expect(await eventCounts()).toEqual(beforeCompare)
+    expect(createHash('sha256').update(readFileSync(source.path)).digest('hex')).toBe(args.sha256)
     expect(consoleWatch.pageErrors).toEqual([])
   })
 
@@ -772,8 +946,10 @@ describe('web e2e: conversation video review', () => {
         }
         await page.setViewportSize({ width: 1680, height: 1000 })
         await preview.getByRole('button', { name: /^Float/u }).click()
-        const floating = page.locator('[data-dockkit-float]').filter({ has: preview })
+        const floating = page.locator('[data-dockkit-float]').filter({ has: page.locator(WORKSPACE) })
         await expect.poll(() => floating.count()).toBe(1)
+        const floatingPreview = floating.locator(WORKSPACE)
+        const floatingVideo = floatingPreview.locator(PLAYER)
         const handle = floating.locator('[data-dockkit-float-resize]')
         await expect.poll(() => handle.evaluate((element) => {
           const box = element.getBoundingClientRect()
@@ -787,15 +963,17 @@ describe('web e2e: conversation video review', () => {
           grip.y + grip.height / 2 + 340 - pane.height, { steps: 12 })
         await page.mouse.up()
         await expect.poll(async () => (await floating.boundingBox())?.height).toBeCloseTo(340, 0)
-        await expect.poll(() => preview.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0)
-        expect((await video.boundingBox())?.height).toBeGreaterThanOrEqual(140)
-        await preview.getByRole('button', { name: 'Review selected videos', exact: true }).scrollIntoViewIfNeeded()
-        const action = await preview.getByRole('button', { name: 'Review selected videos', exact: true }).boundingBox()
+        await expect.poll(() => floatingPreview.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0)
+        expect((await floatingVideo.boundingBox())?.height).toBeGreaterThanOrEqual(140)
+        const review = floatingPreview.getByRole('button', { name: 'Review selected videos', exact: true })
+        await review.scrollIntoViewIfNeeded()
+        const action = await review.boundingBox()
         const panel = await floating.boundingBox()
         if (action === null || panel === null) throw Error('Review control is not rendered')
         expect(action.y + action.height).toBeLessThanOrEqual(panel.y + panel.height)
         await screenshot(`session-video-${name}-short-float.png`)
-        await preview.getByRole('button', { name: /^(?:Dock|Send back)/u }).click()
+        await floatingPreview.getByRole('button', { name: /^(?:Dock|Send back)/u }).click()
+        await floating.waitFor({ state: 'hidden' })
         expect(await video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(time, 2)
         expect(await editor().innerText()).toBe(draft)
       } finally { await mounted.dispose() }

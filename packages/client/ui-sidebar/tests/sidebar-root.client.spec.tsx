@@ -31,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   delete document.documentElement.dataset.platform
+  delete document.documentElement.dataset.dshProduct
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -156,6 +157,26 @@ function mountShell({
 }
 
 describe('SidebarRoot shell', () => {
+  it('prioritizes production sessions while keeping global panels reachable in Muse', () => {
+    document.documentElement.dataset.dshProduct = 'muse'
+    const shell = mountShell({
+      panels: [{ id: 'notes' as SidebarPanelMetadata['id'], label: 'Notes', order: 1 }],
+      workspaceEntries: true,
+    })
+    const create = screen.getByRole('button', { name: 'New production session' })
+    const viewport = document.querySelector('[data-sidebar-scrollport]')
+    expect(viewport?.contains(create)).toBe(false)
+    expect(viewport?.contains(screen.getByRole('button', { name: 'Muse main' }))).toBe(false)
+    expect(viewport?.contains(screen.getByText('Production sessions'))).toBe(true)
+    expect(shell.regionOwner().showSectionLabel).toBe(false)
+    fireEvent.click(create)
+    expect(shell.startSession).toHaveBeenCalledOnce()
+    const disclosure = screen.getByText('Global panels', { selector: 'summary' }).closest('details')
+    expect(disclosure?.open).toBe(false)
+    expect(disclosure?.querySelector('button')?.getAttribute('aria-label')).toBe('Notes')
+    expect(viewport?.contains(disclosure ?? null)).toBe(false)
+  })
+
   it('puts navigation and workspaces in one viewport without scrolling primary controls or the footer', () => {
     mountShell({ panels: [{ id: 'notes' as SidebarPanelMetadata['id'], order: 1, label: 'Notes' }] })
     const viewport = document.querySelector('[data-sidebar-scrollport]')!
@@ -331,66 +352,69 @@ describe('SidebarRoot shell', () => {
     expect(screen.getByText(expected)).toBeTruthy()
   })
 
-  it.each([false, true])('copies the local-build version from the fallback mark and name (darwin=%s)', async (darwin) => {
-    if (darwin) document.documentElement.dataset.platform = 'darwin'
-    vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'abcdef0')
-    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
-    const writeText = vi.fn<(text: string) => Promise<void>>()
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('denied'))
-      .mockResolvedValueOnce(undefined)
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-    const startSession = vi.fn()
-    const trackEntryClick = vi.fn<SidebarRootComponentProps['trackEntryClick']>()
-    render(<SidebarRoot
-      collapsed={false} width={300} drawer={false}
-      useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
-      usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
-      useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(false)} setPinned={vi.fn()}
-      useShortcuts={selector => selector([])}
-      useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
-      {...allowAllAccess}
-      startSession={startSession} toggleSidebar={vi.fn()} trackEntryClick={trackEntryClick} t={t}
-      renderFactorySlot={() => null}
-      renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
-        options?.fallback ?? null) as SidebarRootComponentProps['renderSlot']}
-    />)
-    vi.useFakeTimers()
+  it.each([[false, false], [true, false], [false, true]])(
+    'copies the local-build version from the fallback mark and name (darwin=%s, studio=%s)', async (darwin, studio) => {
+      if (darwin) document.documentElement.dataset.platform = 'darwin'
+      if (studio) document.documentElement.dataset.dshProduct = 'muse'
+      const title = studio ? 'Muse' : 'Muse-Med'
+      vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'abcdef0')
+      vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
+      const writeText = vi.fn<(text: string) => Promise<void>>()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('denied'))
+        .mockResolvedValueOnce(undefined)
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+      const startSession = vi.fn()
+      const trackEntryClick = vi.fn<SidebarRootComponentProps['trackEntryClick']>()
+      render(<SidebarRoot
+        collapsed={false} width={300} drawer={false}
+        useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
+        usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
+        useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(false)} setPinned={vi.fn()}
+        useShortcuts={selector => selector([])}
+        useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
+        {...allowAllAccess}
+        startSession={startSession} toggleSidebar={vi.fn()} trackEntryClick={trackEntryClick} t={t}
+        renderFactorySlot={() => null}
+        renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
+          options?.fallback ?? null) as SidebarRootComponentProps['renderSlot']}
+      />)
+      vi.useFakeTimers()
 
-    const copiedToasts = () => screen.queryAllByRole('alert').map(toast => toast.textContent)
-    await act(async () => { fireEvent.click(screen.getByText('Muse-Med')) })
-    expect(writeText).toHaveBeenLastCalledWith('1.2.3-abcdef0')
-    expect(copiedToasts()).toEqual(['Version copied'])
-    // The brand itself keeps its title and version.
-    expect(screen.getByText('Muse-Med')).toBeTruthy()
-    expect(screen.getByText('1.2.3-abcdef0')).toBeTruthy()
-    act(() => { vi.advanceTimersByTime(4000) })
-    expect(copiedToasts()).toEqual([])
+      const copiedToasts = () => screen.queryAllByRole('alert').map(toast => toast.textContent)
+      await act(async () => { fireEvent.click(screen.getByText(title)) })
+      expect(writeText).toHaveBeenLastCalledWith('1.2.3-abcdef0')
+      expect(copiedToasts()).toEqual(['Version copied'])
+      // The brand itself keeps its title and version.
+      expect(screen.getByText(title)).toBeTruthy()
+      expect(screen.getByText('1.2.3-abcdef0')).toBeTruthy()
+      act(() => { vi.advanceTimersByTime(4000) })
+      expect(copiedToasts()).toEqual([])
 
-    // A refused write claims no success.
-    await act(async () => { fireEvent.click(screen.getByText('1.2.3-abcdef0')) })
-    expect(copiedToasts()).toEqual([])
+      // A refused write claims no success.
+      await act(async () => { fireEvent.click(screen.getByText('1.2.3-abcdef0')) })
+      expect(copiedToasts()).toEqual([])
 
-    // The fallback mark copies too, and its click still reaches document.
-    const documentClick = vi.fn()
-    document.addEventListener('click', documentClick)
-    const mark = screen.getByText('Muse-Med').closest('[aria-hidden]')!.querySelector('svg')!
-    await act(async () => { fireEvent.click(mark) })
-    document.removeEventListener('click', documentClick)
-    expect(documentClick).toHaveBeenCalledOnce()
-    expect(writeText).toHaveBeenCalledTimes(3)
-    expect(copiedToasts()).toEqual(['Version copied'])
-    expect(startSession).not.toHaveBeenCalled()
-    // Copying the version is not a New Session click.
-    expect(trackEntryClick).not.toHaveBeenCalled()
+      // The fallback mark copies too, and its click still reaches document.
+      const documentClick = vi.fn()
+      document.addEventListener('click', documentClick)
+      const mark = screen.getByText(title).closest('[aria-hidden]')!.querySelector('svg')!
+      await act(async () => { fireEvent.click(mark) })
+      document.removeEventListener('click', documentClick)
+      expect(documentClick).toHaveBeenCalledOnce()
+      expect(writeText).toHaveBeenCalledTimes(3)
+      expect(copiedToasts()).toEqual(['Version copied'])
+      expect(startSession).not.toHaveBeenCalled()
+      // Copying the version is not a New Session click.
+      expect(trackEntryClick).not.toHaveBeenCalled()
 
-    // The rest of the brand button still starts and reports a session.
-    if (!darwin) {
-      fireEvent.click(screen.getAllByRole('button', { name: 'New session' })[0]!)
-      expect(startSession).toHaveBeenCalledOnce()
-      expect(trackEntryClick).toHaveBeenCalledExactlyOnceWith({ menu_name: 'new_session', position: 'sidebar' })
-    }
-  })
+      // The rest of the brand button still starts and reports a session.
+      if (!darwin) {
+        fireEvent.click(screen.getAllByRole('button', { name: 'New session' })[0]!)
+        expect(startSession).toHaveBeenCalledOnce()
+        expect(trackEntryClick).toHaveBeenCalledExactlyOnceWith({ menu_name: 'new_session', position: 'sidebar' })
+      }
+    })
 
   it('retains the local-build fallback without complete build metadata', () => {
     render(<SidebarRoot

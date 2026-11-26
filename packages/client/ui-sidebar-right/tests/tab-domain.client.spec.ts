@@ -15,7 +15,7 @@ import type { SidebarRightNavigator } from '../src/client/tab-domain.ts'
 
 // The params map is empty in this package; a test-only scheme lets specs hand
 // parameters through the typed `open`/`navigate` faces.
-declare module '../src/client/contract/params.ts' {
+declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
   interface SidebarRightResourceParamsMap {
     test: { line?: number; x?: number }
   }

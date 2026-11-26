@@ -205,6 +205,8 @@ export interface SessionInput extends InputTarget {
   removeAttachment(id: DraftAttachmentId): boolean
   /** Drop ids whose browser-owned objects no longer exist. */
   pruneAttachments(ids: readonly DraftAttachmentId[]): void
+  /** Open the mounted composer's file picker. @returns whether the picker opened. */
+  pickFiles(): boolean
   /**
    * THE complexity sink: enter adjudication, submit transaction, and the default sink live inside.
    * @param mode - delivery intent retained through asynchronous adjudication and serialization.

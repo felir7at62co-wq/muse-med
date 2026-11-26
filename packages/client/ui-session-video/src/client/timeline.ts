@@ -4,11 +4,20 @@ import type { SessionVideoShotId } from '@deepseek-ai/dsh-session-video/types'
 import { brandString } from '@deepseek-ai/dsh-brand'
 
 /** Concatenated timeline coordinates retain the original source-local range. */
-interface LocatedShot extends SessionVideoShot {
+export interface LocatedShot extends SessionVideoShot {
   readonly authoredNumber?: number
   readonly source: SessionVideoSource
   readonly localStart: number
   readonly localEnd: number
+}
+
+/** Format a source-local playback position in whole minutes and seconds.
+ * @param seconds - Nonnegative playback position.
+ * @returns The visible clock value shared by the player and filmstrip.
+ */
+export function videoClock(seconds: number): string {
+  const whole = Math.floor(seconds)
+  return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`
 }
 
 /** Locate authored shots only from observed, version-bound production intervals.

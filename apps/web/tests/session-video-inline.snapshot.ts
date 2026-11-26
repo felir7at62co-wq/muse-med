@@ -1,4 +1,4 @@
-/** Open a recorded video in its workspace and preserve an unfinished review draft. */
+/** Replay recorded video entries, review drafts and Agent suggestions. */
 import { copyFile, mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,18 +9,23 @@ import { captureStableAria, compareOrRefreshGolden, launchWebScaffold, seedSessi
 import { newEnglishPage } from './support.ts'
 
 const DIR = fileURLToPath(new URL('../../../snapshots/web/session-video-inline', import.meta.url))
+const SUGGESTION_DIR = fileURLToPath(new URL('../../../snapshots/web/session-video-suggestion', import.meta.url))
 const OWNER = fileURLToPath(new URL('../../../snapshots/session/muse-media-import-safe-filename', import.meta.url))
 const VIDEO = 'source/media/company/91000000-0000-4000-8000-000000000001-video (1).mp4'
 const SESSION = 'session-video-inline-recorded'
 const MODE = webSnapshotMode()
 
-it('replays a compact video entry with workspace segment selection and an unsent review draft', async () => {
-  const scaffold = await launchWebScaffold({ extraOverlayPath: [fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
+function launchVideoScaffold() {
+  return launchWebScaffold({ extraOverlayPath: [fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
     fileURLToPath(new URL('./session-video.overlay.yml', import.meta.url))], profile: { hmr: false, packages: [
     { dir: fileURLToPath(new URL('../../../packages/drama/session-video', import.meta.url)) },
     { dir: fileURLToPath(new URL('../../../packages/client/ui-session-video', import.meta.url)) },
     { dir: fileURLToPath(new URL('../../../packages/bundle/muse-video-ui', import.meta.url)), enabled: true },
   ] } })
+}
+
+it('replays a compact video entry with workspace segment selection and an unsent review draft', async () => {
+  const scaffold = await launchVideoScaffold()
   let browser: Browser | undefined
   try {
     const videoPath = join(scaffold.workspaceCwd, VIDEO)
@@ -54,10 +59,17 @@ it('replays a compact video entry with workspace segment selection and an unsent
     await shot.focus()
     await page.keyboard.press('Enter')
     expect(await shot.getAttribute('aria-pressed')).toBe('true')
+    const currentRange = 'Video segment 1 · 00:00–00:01'
+    const composerScope = page.locator('[data-muse-composer-scope]:visible')
+    const previewScope = workspace.locator('[data-muse-preview-scope]')
+    await expect.poll(() => composerScope.innerText()).toContain(currentRange)
+    expect(await previewScope.innerText()).toContain(currentRange)
+    expect(await editor.innerText()).toBe(draft)
+    const currentShot = await captureStableAria(page, '[data-muse-composer-scope]:visible', scaffold.workspaceCwd)
     const review = workspace.getByRole('button', { name: 'Review selected videos', exact: true })
     expect(await review.isEnabled()).toBe(true)
     await review.click()
-    await expect.poll(() => editor.innerText()).toContain('Perform a read-only review of only these selected videos or intervals.')
+    await expect.poll(() => editor.innerText()).toContain('Review the selected footage against the script and delivery requirements, and suggest specific fixes for any issues.')
     expect((await editor.innerText()).startsWith(draft)).toBe(true)
     expect(await editor.locator('[data-composer-chip="muse-video"]').count()).toBe(1)
     const reviewMode = editor.locator('[data-composer-chip="muse-video-review"]')
@@ -81,10 +93,11 @@ it('replays a compact video entry with workspace segment selection and an unsent
     const preview = await captureStableAria(page, '[data-muse-video-workspace]:visible', scaffold.workspaceCwd)
     const composer = await captureStableAria(page, '[data-composer-input][contenteditable="true"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(join(DIR, 'ui.expected.md'),
-      `## Delivered video\n\n${delivered}\n\n## Video workspace\n\n${preview}\n\n## Unsent review draft\n\n${composer}`, MODE)
+      `## Delivered video\n\n${delivered}\n\n## Video workspace\n\n${preview}\n\n## Current shot in chat\n\n${currentShot}\n\n## Unsent review draft\n\n${composer}`, MODE)
     const preservedDraft = await editor.innerText()
     await page.getByRole('button', { name: 'Collapse right sidebar', exact: true }).click()
     await expect.poll(() => workspace.count()).toBe(0)
+    expect(await composerScope.innerText()).toContain(currentRange)
     expect(await editor.innerText()).toBe(preservedDraft)
     expect(await editor.locator('[data-composer-chip="muse-video"]').count()).toBe(1)
     expect(await reviewMode.count()).toBe(1)
@@ -95,6 +108,66 @@ it('replays a compact video entry with workspace segment selection and an unsent
     expect(await reviewMode.count()).toBe(1)
     expect((await scaffold.ctx.sessionQuery.readSession(SessionId(SESSION))).events.filter(event => event.type === 'user/message'))
       .toHaveLength(userCount)
+    expect(tripwire.pageErrors).toEqual([])
+  } finally {
+    try { await browser?.close() } finally { await scaffold.close() }
+  }
+}, 180000)
+
+it('replays structured Agent advice after its recorded video is unavailable', async () => {
+  const scaffold = await launchVideoScaffold()
+  let browser: Browser | undefined
+  try {
+    const sessionId = await seedSession(scaffold, await readFile(join(SUGGESTION_DIR, 'session.v4.jsonl'), 'utf8'),
+      'session-video-suggestion-recorded')
+    const inventory = await scaffold.ctx.sessionVideo.list(sessionId, new AbortController().signal)
+    expect(inventory.sources).toMatchObject([{ label: 'historical-review.mp4', status: 'missing' }])
+    const before = await scaffold.ctx.sessionQuery.readSession(sessionId)
+    const userCount = before.events.filter(event => event.type === 'user/message').length
+    browser = await chromium.launch()
+    const page = await newEnglishPage(browser)
+    const tripwire = watchConsole(page)
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await page.getByRole('treeitem').first().click()
+    await page.getByRole('treeitem').nth(1).click()
+    const card = page.locator('[data-muse-suggestion-card]')
+    await card.waitFor()
+    const earlierSuggestion = page.locator('[data-muse-suggestion]:not([data-muse-suggestion-card])')
+    await earlierSuggestion.getByRole('link', { name: '00:00–00:10', exact: true }).waitFor()
+    const rendered = await captureStableAria(page, '[data-muse-suggestion-card]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(join(SUGGESTION_DIR, 'ui.expected.md'), rendered, MODE)
+
+    const issueTime = card.getByRole('link', { name: '00:08.50', exact: true })
+    const address = await issueTime.getAttribute('href')
+    if (address === null) throw Error('Recorded advice has no source link')
+    expect(new URL(address).searchParams.get('source')).toBe(inventory.sources[0]?.id)
+    const viewport = page.viewportSize()
+    if (viewport === null) throw Error('Shot advice review requires a desktop viewport')
+    try {
+      const narrowWidth = 390
+      await page.setViewportSize({ width: narrowWidth, height: 844 })
+      await page.emulateMedia({ colorScheme: 'dark' })
+      await card.scrollIntoViewIfNeeded()
+      const cardBox = await card.boundingBox()
+      expect(cardBox !== null && cardBox.x >= 0 && cardBox.x + cardBox.width <= narrowWidth).toBe(true)
+      await expect.poll(() => card.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
+      expect(await issueTime.isVisible()).toBe(true)
+      expect(await card.getByRole('link', { name: 'Use this suggestion in chat', exact: true }).isVisible()).toBe(true)
+    } finally {
+      await page.setViewportSize(viewport)
+      await page.emulateMedia({ colorScheme: 'light' })
+    }
+
+    const editor = page.locator('[data-composer-input][contenteditable="true"]').last()
+    const draft = 'Keep this follow-up.'
+    await editor.fill(draft)
+    await issueTime.click()
+    const workspace = page.locator('[data-muse-video-workspace]:visible')
+    await workspace.getByRole('status').filter({ hasText: 'This video or segment changed. Please select it again.' }).waitFor()
+    expect(await workspace.locator('[data-muse-shelf-video]').count()).toBe(0)
+    expect(await editor.innerText()).toBe(draft)
+    const after = await scaffold.ctx.sessionQuery.readSession(sessionId)
+    expect(after.events.filter(event => event.type === 'user/message')).toHaveLength(userCount)
     expect(tripwire.pageErrors).toEqual([])
   } finally {
     try { await browser?.close() } finally { await scaffold.close() }

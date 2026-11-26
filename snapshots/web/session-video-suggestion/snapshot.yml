@@ -1,0 +1,7 @@
+version: 1
+scenario: session-video-suggestion
+profile: web
+composition: web-default
+recording: authored
+header:
+  class: web-default

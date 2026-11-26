@@ -20,7 +20,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo, IconAppsAddOutlineRegular, IconNewChatOutlineMedium, IconNewChatOutlineRegular,
+  FishLogo, IconAppsAddOutlineRegular, IconNewChatOutlineMedium, IconNewChatOutlineRegular, IconPlusOutlineRegular,
   IconPanelLeftOutlineRegular, IconPinFillRegular, focusWithoutRing, isBehindModal, isDarwinDesktop, Menu, ShortcutKeys, Toast,
   Tooltip, useModalLayer, writeClipboard,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -187,6 +187,7 @@ export function SidebarRoot({
   }, [collapsed, drawer, reducedMotion])
   const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
   const wide = drawer || (windowsTitlebar || reducedMotion ? !collapsed : !collapsed || !settled)
+  const studioNavigation = wide && document.documentElement.dataset.dshProduct === 'muse'
   const [scrollHandoff] = useState(createScrollHandoff)
   const sectionHookContext = useMemo<SidebarSectionHookContext>(
     () => ({ useSectionScroller: scrollHandoff.useSectionScroller }), [scrollHandoff],
@@ -305,20 +306,21 @@ export function SidebarRoot({
     </Tooltip>
   )
 
+  const newSessionLabel = t(studioNavigation ? 'session.studio' : 'session.new.label')
   const newSessionControl = canStartSession ? (
-    <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
+    <Tooltip label={newSessionLabel} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
       <button
         type="button"
         className={css.newSession}
-        aria-label={t('session.new.label')}
+        aria-label={newSessionLabel}
         aria-keyshortcuts={newShortcut?.aria}
         onClick={openNewSession}
       >
         <span className={css.newSessionLabelMask}><span className={css.newSessionContent}>
-          {wide
-            ? <IconNewChatOutlineMedium size={14} />
-            : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+          {studioNavigation ? <IconPlusOutlineRegular size={18} />
+            : wide ? <IconNewChatOutlineMedium size={14} />
+              : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
+          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t(studioNavigation ? 'session.studio' : 'session.new')}</span>}
         </span></span>
         {wide && newShortcut !== undefined && newShortcut.keys.length > 0 && <span className={css.newSessionShortcut} aria-hidden="true">
           <ShortcutKeys keys={newShortcut.keys} />
@@ -326,6 +328,45 @@ export function SidebarRoot({
       </button>
     </Tooltip>
   ) : null
+
+  const panelEntries = panels.filter(({ id }) => id === FIXED_PANEL_ID || !hasEntryActions || !unpinned.includes(id))
+  const panelNavigation = panels.length > 0 && (
+    <nav className={clsx(css.panelList, studioNavigation && css.studioPanelList)} aria-label={t('panels.label')}>
+      {panelEntries.map(({ id, label }) => (
+        <PanelRow
+          key={id}
+          id={id}
+          label={label}
+          wide={wide}
+          unpinLabel={t('panels.unpin', { name: label })}
+          unpinTooltip={t('panels.unpinTooltip')}
+          canUnpin={hasEntryActions && id !== FIXED_PANEL_ID}
+          setPinned={setPinned}
+          usePanelInfo={usePanelInfo}
+          selectPanel={selectPanel}
+          trackEntryClick={trackEntryClick}
+          renderFactorySlot={renderFactorySlot}
+        />
+      ))}
+      {hasEntryActions && (
+        <PanelMoreMenu
+          wide={wide}
+          label={t('panels.more')}
+          entries={panels.filter(({ id }) => id !== FIXED_PANEL_ID)
+            .map(({ id, label }) => ({ id, label, pinned: !unpinned.includes(id), active: id === activePanelId }))}
+          onOpen={(id) => {
+            const entry = officialEntry(id)
+            if (entry !== undefined) trackEntryClick({ menu_name: entry, position: 'sidebar_more' })
+            const panel = panels.find(candidate => candidate.id === id)
+            if (panel !== undefined) selectPanel(panel.id)
+          }}
+          onPinnedChange={setPinned}
+          trackEntryClick={trackEntryClick}
+          renderSlot={renderSlot}
+        />
+      )}
+    </nav>
+  )
 
   return (
     <div
@@ -352,6 +393,7 @@ export function SidebarRoot({
       className={clsx(
         css.root, !wide && css.collapsed, !wide && animateRail.current && css.railIn,
         !drawer && collapsed && wide && css.fading, !pointerInside && css.quietBars,
+        studioNavigation && css.studio,
       )}
       style={wide ? {
         '--dsh-sidebar-expanded-width': `${lastWideWidth.current}px`,
@@ -377,7 +419,7 @@ export function SidebarRoot({
           const identity = (
             <span className={css.brandIdentity} aria-hidden="true">
               <span className={css.brandMark}>
-                {renderSlot('sidebar.brand.mark', { size: 24 }, {
+                {renderSlot('sidebar.brand.mark', { size: studioNavigation ? 34 : 24 }, {
                   fallback: buildVersion === undefined
                     ? <FishLogo size={24} />
                     : <span className={css.copyVersion} data-copy-version onClick={copyVersion(buildVersion)}><FishLogo size={24} /></span>,
@@ -386,10 +428,10 @@ export function SidebarRoot({
               <span className={css.brandName}>
                 {renderSlot('sidebar.brand.name', {}, {
                   fallback: buildVersion === undefined
-                    ? <span className={css.fallbackBrandName}>{t('brand.name')}</span>
+                    ? <span className={css.fallbackBrandName}>{t(studioNavigation ? 'brand.studio' : 'brand.name')}</span>
                     : (
                       <span className={clsx(css.localBuildBrand, css.copyVersion)} data-copy-version onClick={copyVersion(buildVersion)}>
-                        <span className={css.localBuildTitle}>{t('brand.name')}</span>
+                        <span className={css.localBuildTitle}>{t(studioNavigation ? 'brand.studio' : 'brand.name')}</span>
                         <span className={css.buildVersion}>{buildVersion}</span>
                       </span>
                     ),
@@ -417,9 +459,18 @@ export function SidebarRoot({
         {(!darwinDesktop || desktopRail) && toggle}
       </div>
 
-      {canStartSession && renderSlot('sidebar.session.entry', { wide })}
-
-      {!hasWorkspaceEntries && newSessionControl}
+      {studioNavigation ? (
+        <div className={css.studioActions}>
+          {newSessionControl}
+          {canStartSession && renderSlot('sidebar.session.entry', { wide })}
+          {hasWorkspaceEntries && canStartSession && renderSlot('sidebar.workspaces.entry', { wide })}
+        </div>
+      ) : (
+        <>
+          {canStartSession && renderSlot('sidebar.session.entry', { wide })}
+          {!hasWorkspaceEntries && newSessionControl}
+        </>
+      )}
 
       <div className={css.scrollRegion}>
         <div
@@ -427,49 +478,14 @@ export function SidebarRoot({
           className={css.scrollArea}
           data-sidebar-scrollport={wide ? '' : undefined}
         >
-          {panels.length > 0 && (
-            <nav className={css.panelList} aria-label={t('panels.label')}>
-              {panels.filter(({ id }) => id === FIXED_PANEL_ID || !hasEntryActions || !unpinned.includes(id)).map(({ id, label }) => (
-                <PanelRow
-                  key={id}
-                  id={id}
-                  label={label}
-                  wide={wide}
-                  unpinLabel={t('panels.unpin', { name: label })}
-                  unpinTooltip={t('panels.unpinTooltip')}
-                  canUnpin={hasEntryActions && id !== FIXED_PANEL_ID}
-                  setPinned={setPinned}
-                  usePanelInfo={usePanelInfo}
-                  selectPanel={selectPanel}
-                  trackEntryClick={trackEntryClick}
-                  renderFactorySlot={renderFactorySlot}
-                />
-              ))}
-              {hasEntryActions && (
-                <PanelMoreMenu
-                  wide={wide}
-                  label={t('panels.more')}
-                  entries={panels.filter(({ id }) => id !== FIXED_PANEL_ID)
-                    .map(({ id, label }) => ({ id, label, pinned: !unpinned.includes(id), active: id === activePanelId }))}
-                  onOpen={(id) => {
-                    const entry = officialEntry(id)
-                    if (entry !== undefined) trackEntryClick({ menu_name: entry, position: 'sidebar_more' })
-                    const panel = panels.find(candidate => candidate.id === id)
-                    if (panel !== undefined) selectPanel(panel.id)
-                  }}
-                  onPinnedChange={setPinned}
-                  trackEntryClick={trackEntryClick}
-                  renderSlot={renderSlot}
-                />
-              )}
-            </nav>
-          )}
+          {!studioNavigation && panelNavigation}
           <div className={clsx(css.regionArea, !collapsed && everCollapsed.current && css.wideIn)}>
-            {hasWorkspaceEntries && newSessionControl}
-            {hasWorkspaceEntries && canStartSession && renderSlot('sidebar.workspaces.entry', { wide })}
+            {studioNavigation && <div className={css.studioSessionsLabel}>{t('sessions.studio')}</div>}
+            {!studioNavigation && hasWorkspaceEntries && newSessionControl}
+            {!studioNavigation && hasWorkspaceEntries && canStartSession && renderSlot('sidebar.workspaces.entry', { wide })}
             {renderSlot('sidebar.workspaces', {
               wide,
-              showSectionLabel: !hasWorkspaceEntries,
+              showSectionLabel: !studioNavigation && !hasWorkspaceEntries,
               expandSidebar: () => { if (collapsed) toggleSidebar() },
             }, { hookContext: sectionHookContext })}
           </div>
@@ -483,6 +499,12 @@ export function SidebarRoot({
 
       {/* Footer actions stack above Settings in both sidebar widths. */}
       <div className={css.footArea}>
+        {studioNavigation && panels.length > 0 && (
+          <details className={css.studioPanels}>
+            <summary>{t('panels.label')}</summary>
+            {panelNavigation}
+          </details>
+        )}
         <div className={css.footerActions}>
           {renderSlot('sidebar.footer.action', { wide })}
         </div>

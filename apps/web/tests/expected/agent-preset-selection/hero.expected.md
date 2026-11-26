@@ -1,2 +1,4 @@
 - button "Choose workspace": workspace
+- button "Choose folder"
 - button "Standard mode"
+- button "Add files"

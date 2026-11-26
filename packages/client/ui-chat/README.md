@@ -34,6 +34,8 @@ File-mention providers receive the viewed Session ID with the closing-turn owner
 <a id="message-bubbles"></a>
 ## Message bubbles
 
+An empty conversation's **Add files** action opens the mounted composer's existing file picker. It preserves unfinished text and attachments and sends no message. Choose a Workspace first when no Session exists. A busy or removed Session disables the action; other file-intake restrictions retain the composer's localized notice.
+
 User content keeps the native right-aligned bubble. Optional presentation plugins own any additional bubble color or corner treatment. Assistant replies use open, full-width narration without bubble fill or insets. Reasoning and Tool process rows retain their own presentation. Native images, actions, streaming node identity, code scrolling and wide-table breakout remain available.
 
 The session-scoped `conversation.chat.pinned` list renders above the clipped transcript, inside the Chat frame. Contributions receive the native Session, Chat and input seats. The shared list and `data-chat-frame` / `data-chat-scroll` DOM anchors carry no feature-specific behavior.
@@ -46,6 +48,8 @@ Image drag actions arrive through the image entry’s inject face from [ui-file-
 Sent generic-file attachments retain the draft's [file-card radius](../../../docs/ui-radius.md#radius-scale).
 
 `ChatView` supplies file, HTTP(S) and application-resource navigation through `MarkdownDelegateProvider`, passing `requestOpenFile`, `openExternalLink`, `openResourceLink` and `fileImages`. Ordinary `dsh-resource:` clicks open through the right Sidebar's resource resolver. Resource-open failures appear as a localized composer notice; check that the relevant feature is enabled and click the original link to retry. Its file opener retains Chat's failure feedback and retry handling. Assistant Markdown file links open in the right Sidebar after the message settles, including references to unmodified files. Relative paths resolve in the viewed Session's workspace; absolute paths retain the same Session's filesystem access. [Supported Markdown line references](../ui-primitives/README.md#rendering-agent-output) navigate to the first specified line and reuse an existing file tab. Missing files show the preview's error state.
+
+Settled application-resource links can use the inline `conversation.chat.markdown.resource-link` hoc Slot. A layer registers the URL host as its key and receives the safe address with the ordinary anchor as `children`. Unclaimed links and streaming replies retain the ordinary anchor.
 
 `ChatView` also passes `renderCode`, so each Markdown fence in the Chat flow that has a language and content renders through the session-scoped `conversation.chat.markdown.fence` hoc slot. Its `entryKey` is the lowercased fence language, and its owner props carry that `lang`, the fence `code`, the `streaming` state, and `meta`, the rest of the info string when present. The slot content is a plain code block without unified-diff rows, so a language without a layer renders as code. Chat registers layers for `math`, which shows the source while the message streams and display TeX after it settles, and for `diff` and `patch`, which render unified-diff rows in place of the content. Other plugins add a language by registering a layer whose `key` is the lowercased language: a layer that omits `children` replaces the code block, a layer that renders `children` decorates it, and either may parse its own parameters from `meta`.
 

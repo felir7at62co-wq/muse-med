@@ -19,9 +19,11 @@ import { SESSION_VIDEO_CONFIG_GLOBAL, SETTINGS_ENTRY } from '../src/config.ts'
 import type { VideoInjected } from '../src/client/face.ts'
 import type { PresentationSettingFace } from '../src/client/PresentationSetting.tsx'
 import type { VideoSelectionTextInjected } from '../src/client/VideoSelectionText.tsx'
+import type { VideoSuggestionLinkInjected } from '../src/client/VideoSuggestionLink.tsx'
 import { SessionInputShell } from '../../ui-conversation/src/client/input/facade.ts'
 import { NS } from '../src/client/locales.ts'
 import { inventory, source, analysis } from './video-fixture.tsx'
+import { sessionId as shotSessionId, shot } from './selection-fixture.client.ts'
 import { videoWorkspaceAddress, VIDEO_REVIEW_REQUEST } from '../src/client/target-selection.ts'
 import { VIDEO_REFERENCE_SOURCE, VIDEO_REVIEW_REFERENCE_SOURCE, VIDEO_REVIEW_REFERENCE } from '../src/client/references.ts'
 
@@ -81,14 +83,16 @@ async function fixture(enabled = false) {
   ctx.slots.register({ name: 'root', children: {
     'settings.general.item': { kind: 'list', scope: 'root' },
     'conversation.chat.pinned': { kind: 'list', scope: 'session' },
+    'conversation.input.dock': { kind: 'list', scope: 'session' },
+    'conversation.chat.markdown.resource-link': { kind: 'hoc', scope: 'session', inline: true },
     'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
     'deliverables.video': { kind: 'chain', scope: 'session' },
     'conversation.chat.turnTail': { kind: 'list', scope: 'session' },
     'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session', inject: { hooks: { tabInfo } } },
     'sidebar.right.pane.tab.title': { kind: 'keyed', scope: 'session', inject: { hooks: { tabInfo } } },
     'conversation.user.text.node': { kind: 'keyed', scope: 'session' },
-  } }, ({ renderSlot }: PropsRenderSlots<'settings.general.item' | 'conversation.chat.pinned'
-    | 'conversation.session.header.utilities' | 'deliverables.video' | 'conversation.chat.turnTail'
+  } }, ({ renderSlot }: PropsRenderSlots<'settings.general.item' | 'conversation.chat.pinned' | 'conversation.input.dock'
+    | 'conversation.chat.markdown.resource-link' | 'conversation.session.header.utilities' | 'deliverables.video' | 'conversation.chat.turnTail'
     | 'sidebar.right.pane.tab' | 'sidebar.right.pane.tab.title' | 'conversation.user.text.node'>) => renderSlot('settings.general.item', {}))
   const remote = new VideoRemote(ctx)
   return { ctx, locale, sessions, form, remote, references, referenceReleased, registerSource, openResource,
@@ -141,6 +145,7 @@ it('keeps settings mounted while disabling and remounting every optional contrib
   expect(ctx.uiConversation.headerPresentations.getSnapshot()).toBeUndefined()
   expect(ctx.uiConversation.userText.entries().map(value => value.id)).toEqual(['muse-video-selection', 'muse-video-review'])
   expect(ctx.slots.entries('conversation.user.text.node')).toHaveLength(2)
+  expect(ctx.slots.entries('conversation.chat.markdown.resource-link').map(entry => entry.options.key)).toEqual(['session-video'])
   const overlay = ctx.slots.entries('conversation.session.header.utilities')[0]
   if (!overlay?.inject) throw Error('Enabled shelf has no Host operations')
   const id = inventory([]).sessionId
@@ -168,7 +173,8 @@ it('keeps settings mounted while disabling and remounting every optional contrib
   await expect(settings.setEnabled(false)).rejects.toThrow('Session video setting was refused')
   expect(ctx.slots.entries('conversation.session.header.utilities')).toHaveLength(1)
   await settings.setEnabled(false)
-  for (const slot of ['conversation.session.header.utilities', 'conversation.chat.pinned', 'deliverables.video', 'conversation.chat.turnTail'] as const) {
+  for (const slot of ['conversation.session.header.utilities', 'conversation.chat.pinned', 'conversation.input.dock', 'deliverables.video',
+    'conversation.chat.turnTail', 'conversation.chat.markdown.resource-link'] as const) {
     expect(ctx.slots.entries(slot)).toHaveLength(0)
   }
   expect(ctx.uiConversation.headerPresentations.getSnapshot()).toBeUndefined()
@@ -238,10 +244,27 @@ it('routes native workspace titles, valid advice links and local menu actions th
   const actions = Reflect.apply(header.inject, undefined, [sessionId]) as VideoInjected
   actions.openWorkspace()
   actions.openWorkspace('float')
-  expect(openResource.mock.calls.slice(-2)).toEqual([
+  const currentShot = shot(item)
+  actions.openWorkspace('sidebar', currentShot, 'compare')
+  actions.openWorkspace('sidebar', undefined, 'compare')
+  expect(openResource.mock.calls.slice(-4)).toEqual([
     [videoWorkspaceAddress(sessionId), { kind: 'session-video', destination: 'sidebar' }],
     [videoWorkspaceAddress(sessionId), { kind: 'session-video', destination: 'float' }],
+    [videoWorkspaceAddress(sessionId), { kind: 'session-video', destination: 'sidebar',
+      params: { sessionId, target: currentShot, compareVersions: true } }],
+    [videoWorkspaceAddress(sessionId), { kind: 'session-video', destination: 'sidebar' }],
   ])
+  expect(ctx.slots.entries('conversation.input.dock').map(entry => entry.options.id)).toEqual(['muse-video-scope'])
+  const adviceEntry = ctx.slots.entries('conversation.chat.markdown.resource-link')[0]
+  if (adviceEntry?.inject === undefined) throw Error('Video advice actions are unavailable')
+  const advice = Reflect.apply(adviceEntry.inject, undefined, [sessionId]) as VideoSuggestionLinkInjected
+  openResource.mockClear()
+  advice.openAdvice({ sessionId: inventory([]).sessionId, target: currentShot, seekSeconds: 5 })
+  expect(openResource).toHaveBeenCalledExactlyOnceWith(videoWorkspaceAddress(sessionId), {
+    kind: 'session-video', destination: 'sidebar', params: { sessionId, target: currentShot, seekSeconds: 5 },
+  })
+  advice.openAdvice({ sessionId: shotSessionId, target: currentShot, seekSeconds: 5 })
+  expect(openResource).toHaveBeenCalledOnce()
   const entries = ctx.slots.entries('conversation.user.text.node')
   const selection = entries.find(entry => entry.options.key === 'muse-video-selection')
   const review = entries.find(entry => entry.options.key === 'muse-video-review')
@@ -266,6 +289,7 @@ it('adds source references to the retained composer once and refuses missing or 
   const actions = Reflect.apply(header.inject, undefined, [sessionId]) as VideoInjected
   const target = { kind: 'source' as const, sourceId: item.id, sourceVersion: 'v1' }
   expect(actions.addTargetReference(target, item.label, { start: 0, end: 0, draftRev: 0 })).toBe(false)
+  expect(actions.addVideoAttachment()).toBe(false)
   await sessions.add({ id: sessionId })
   const held = sessions.retain(sessionId)
   onTestFinished(() => { held.release() })
@@ -275,6 +299,13 @@ it('adds source references to the retained composer once and refuses missing or 
   onTestFinished(() => { shell.dispose() })
   const input = vi.spyOn(ctx.conversation.input, 'for').mockReturnValue(shell)
   shell.setDraft('Change this. ')
+  const openFile = vi.fn()
+  const unbind = shell.bindFilePicker({ available: () => true, open: openFile })
+  expect(actions.addVideoAttachment()).toBe(true)
+  expect(openFile).toHaveBeenCalledOnce()
+  expect(shell.snapshot.draft).toBe('Change this. ')
+  unbind()
+  expect(actions.addVideoAttachment()).toBe(false)
   const end = shell.snapshot.draft.length
   expect(actions.addTargetReference(target, item.label, { start: end, end, draftRev: shell.snapshot.draftRev })).toBe(true)
   const occurrence = shell.snapshot.occurrences[0]

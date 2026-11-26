@@ -3,6 +3,74 @@
 .controls { position: relative; display: flex; height: 38px; align-items: center; justify-content: center; }
 .controls .play { box-sizing: border-box; flex: 0 0 22px; width: 22px; min-width: 22px; height: 22px; min-height: 22px; padding: 0; border-radius: 50%; corner-shape: round; box-shadow: var(--dsw-elevation-panel); }
 .controls .play > svg { width: 20px; height: 20px; flex-shrink: 0; }
+.studioPicture { background: transparent; }
+.studioPicture > video {
+  width: auto;
+  max-width: 100%;
+  margin-inline: auto;
+  border-radius: var(--dsw-radius-lg);
+}
+.studioControls { display: flex; align-items: center; gap: 8px; min-height: 40px; min-width: 0; }
+.studioControls .play, .studioControls .toggleFloating {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+.studioControls > span:last-child { display: flex; flex: none; }
+.studioControls svg { width: 17px; height: 17px; }
+.clock { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-secondary); }
+.scrubber {
+  --video-progress-fill: color-mix(in srgb, var(--dsw-alias-market-accent-fill) 65%, var(--dsw-alias-video-shelf-label));
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  margin: 0;
+  cursor: ew-resize;
+  appearance: none;
+  background: transparent;
+}
+.scrubber::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  corner-shape: round;
+  background: linear-gradient(to right, var(--video-progress-fill) var(--video-playback-progress),
+    var(--dsw-alias-video-shelf-stroke) var(--video-playback-progress));
+}
+.scrubber::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-label-primary);
+}
+.scrubber::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-video-shelf-stroke);
+}
+.scrubber::-moz-range-progress { height: 4px; background: var(--video-progress-fill); }
+.scrubber::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-label-primary);
+}
+.scrubber:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 0;
+}
+.detailedTimeline { font-size: 11px; color: var(--dsw-alias-label-secondary); }
+.detailedTimeline > summary { margin-inline: 4px; cursor: pointer; }
+.detailControls { position: relative; height: 28px; }
 .zoom { position: absolute; inset-inline-end: 0; inset-block: 0; display: flex; align-items: center; gap: 4px; max-width: calc(50% - 20px); }
 .zoom > span { display: flex; }
 .zoom button { width: 22px; height: 22px; min-height: 22px; padding: 0; color: var(--dsw-alias-label-secondary); background: transparent; }

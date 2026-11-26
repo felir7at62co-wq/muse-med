@@ -9,7 +9,7 @@ import { createSidebarRightStore } from '../src/client/stores.ts'
 import { guideDefinition } from '../src/client/tabs/guide/definition.ts'
 
 // A test-only scheme supplies typed parameters without depending on a resource plugin.
-declare module '../src/client/contract/params.ts' {
+declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
   interface SidebarRightResourceParamsMap {
     test: { line?: number; x?: number }
   }

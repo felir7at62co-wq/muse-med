@@ -33,6 +33,7 @@ import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
 import { sessionFilePath } from './file-path.ts'
 import { ChatView } from './chat/ChatView.tsx'
+import { ChatStartFiles, type ChatStartFilesActions } from './chat/ChatStartFiles.tsx'
 import { ChatFlow } from './chat/ChatFlow.tsx'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
 import { UserContent } from './chat/UserContent.tsx'
@@ -209,6 +210,15 @@ export function apply(ctx: Context): void {
   }, TranscriptViewRow))
 
   const connectionState = (ctx.get('connection') as ConnectionHandle).state
+  ctx.slots.inject('conversation.hero.options', () => ctx.slots.register({
+    name: 'conversation.hero.options', id: 'chat-add-files', locale: NS,
+    inject: (sessionId: SessionId): ChatStartFilesActions => {
+      const binding = ctx.sessions.binding(sessionId)
+      if (binding === undefined) throw new Error(`ui-chat: unknown session "${sessionId}"`)
+      const input = ctx.conversation.input.for(binding.ctx)
+      return { addFiles: () => { if (!input.pickFiles()) input.notify('info', t('chat.addFilesUnavailable')) } }
+    },
+  }, ChatStartFiles))
   const nodeSources = (binding: SessionBinding): Pick<ChatViewInjected, 'keyedHooks'> => {
     const chat = chatSource(binding)
     const conversation = ctx.uiConversation.binding(binding)
@@ -246,6 +256,7 @@ export function apply(ctx: Context): void {
         'conversation.chat.text-interaction': { kind: 'keyed', scope: 'session' },
         'conversation.chat.pinned': { kind: 'list', scope: 'session' },
         'conversation.chat.markdown.fence': { kind: 'hoc', scope: 'session' },
+        'conversation.chat.markdown.resource-link': { kind: 'hoc', scope: 'session', inline: true },
       },
       store: chatStore,
       inject: (sessionId: SessionId): ChatViewInjected => {

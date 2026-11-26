@@ -28,6 +28,7 @@ import { en, ja, es, fr, de, ru, pt, zh } from './locales.ts'
 import { NavigatorToggle } from './NavigatorToggle.tsx'
 import { createSearchPreferenceBook, SEARCH_PREFERENCES_KEY } from './search-preferences.ts'
 import { createFilesStore } from './store.ts'
+import { StudioMaterials, type StudioMaterialsActions } from './StudioMaterials.tsx'
 
 export type { SidebarFilesKey } from './locales.ts'
 export type { DirLevel, FilesPaneState, FilesSearchResult, FilesSearchState, FilesState, FilesTreeState, LevelState } from './store.ts'
@@ -174,6 +175,15 @@ export function apply(ctx: ClientContext): void {
   })
   ctx.effect(() => ctx.sidebarRightTabs.register(filesDefinition(t)), 'ui-sidebar-files: files type')
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-sidebar-files: dictionaries')
+
+  if (typeof document !== 'undefined' && document.documentElement.dataset.dshProduct === 'muse') {
+    ctx.effect(() => ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+      name: 'conversation.session.header.utilities', id: 'studio-materials', locale: NS, order: 5,
+      inject: (sessionId): StudioMaterialsActions => ({
+        openMaterials: () => { if (ctx.sidebarRight.mounted.getSnapshot() === sessionId) ctx.sidebarRight.openTab(FILES_KIND) },
+      }),
+    }, StudioMaterials)), 'ui-sidebar-files: Muse materials shortcut')
+  }
 
   ctx.effect(() => ctx.slots.registerFactory({
     name: 'sidebar.files.tree', scope: 'root', locale: NS, slots: { accessory: { scope: 'root' } },

@@ -34,6 +34,8 @@ kind: "package-reference"
 <a id="message-bubbles"></a>
 ## 消息气泡
 
+空白会话的**添加文件**操作打开已挂载输入框原有的文件选择器，保留未完成文本与附件，不发送消息。尚无会话时先选择工作区。会话忙碌或已移除时禁用此操作，其他文件接收限制通过输入框的本地化提示说明。
+
 用户内容保留原生右对齐气泡。可选界面插件拥有额外的气泡颜色或圆角样式。Assistant 回复采用敞开的全宽正文，不添加气泡底色或内边距。推理与工具过程行保留各自的展示。原生图片、操作、流式节点身份、代码滚动及宽表扩展保持可用。
 
 会话作用域的 `conversation.chat.pinned` 列表在 Chat 框架内、裁剪的聊天记录区域上方渲染。贡献接收原生会话、Chat 与输入数据。共用列表以及 `data-chat-frame` / `data-chat-scroll` DOM 锚点不承载特定功能逻辑。
@@ -46,6 +48,8 @@ kind: "package-reference"
 已发送的普通文件附件保留草稿中的[文件卡片圆角](../../../docs/ui-radius.zh.md#radius-scale)。
 
 `ChatView` 通过 `MarkdownDelegateProvider` 提供文件、HTTP(S) 和应用内资源导航，传入 `requestOpenFile`、`openExternalLink`、`openResourceLink` 和 `fileImages`。普通点击 `dsh-resource:` 链接通过右侧栏的资源解析器打开。资源打开失败时，输入框显示本地化提示；确认对应功能已启用后，再次点击原链接重试。文件打开动作保留 Chat 的失败反馈与重试处理。Assistant Markdown 文件链接在消息落定后可于右侧栏打开，包括未修改文件的引用。相对路径基于当前查看的 Session 工作区解析；绝对路径仍使用同一 Session 的文件系统访问。[支持的 Markdown 行号引用](../ui-primitives/README.zh.md#rendering-agent-output)定位到指定起始行，并复用现有文件标签。文件缺失时显示预览错误状态。
+
+落定后的应用内资源链接可通过行内 `conversation.chat.markdown.resource-link` hoc Slot 展示。注册层使用 URL 主机名作为键，接收安全地址以及 `children` 中的普通链接。流式回复和没有注册层的链接保留普通链接。
 
 `ChatView` 还传入 `renderCode`，因此 Chat 消息流中带语言且有内容的每个 Markdown 围栏都经由 session 作用域的 `conversation.chat.markdown.fence` hoc slot 渲染。其 `entryKey` 为小写的围栏语言，owner props 携带该 `lang`、围栏 `code`、`streaming` 状态，以及存在时为 info string 其余部分的 `meta`。slot 内容是不带统一 diff 行的普通代码块，因此没有对应层的语言按代码渲染。Chat 自带 `math` 层，消息流式输出时显示源码，落定后显示行间 TeX；还自带 `diff` 与 `patch` 层，以统一 diff 行代替内容渲染。其他插件注册 `key` 为小写语言的层即可接入该语言：不渲染 `children` 的层替换代码块，渲染 `children` 的层装饰代码块，两者都可以自行从 `meta` 解析参数。
 

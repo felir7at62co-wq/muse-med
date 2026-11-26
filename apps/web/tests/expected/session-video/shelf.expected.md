@@ -1,7 +1,13 @@
 - region "Conversation videos":
-  - button "Video selection": Unassigned · three-shots.mp4
+  - heading "Conversation videos" [level=2]
+  - combobox "Choose episode":
+    - option "All episodes" [selected]
+    - option "Episode 31"
+    - option "Episode 33"
+    - option "Unassigned"
+  - button "Video selection": three-shots.mp4
   - button "Float video preview"
-  - text: Muse three-shots.mp4
+  - text: Video segment 2 · {{clock}}–{{clock}} Muse three-shots.mp4
   - button "Play"
   - group "Timeline zoom":
     - button "Zoom out timeline"
@@ -12,7 +18,6 @@
     - button "Video segment 2 · 1.00–2.00" [pressed]
     - button "Video segment 3 · 2.00–3.00"
     - slider "Playback position"
-  - text: Video segment 2 · 1.00–2.00
   - button "Whole video"
   - button "Add selected segment": Add to chat
   - button "Review selected videos"

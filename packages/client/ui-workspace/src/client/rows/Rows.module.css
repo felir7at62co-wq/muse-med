@@ -25,6 +25,15 @@
   background-color: var(--dsw-alias-interactive-bg-hover);
 }
 
+:global(html[data-dsh-product='muse']) .sessionRow.selected,
+:global(html[data-dsh-product='muse']) .searchResultRow.selected {
+  background-color: color-mix(in srgb, var(--dsw-alias-market-accent-fill) 17%, var(--dsw-alias-market-surface));
+}
+
+:global(html[data-dsh-product='muse']) .sessionRow.selected .title {
+  font-weight: 500;
+}
+
 .dragPreview {
   background: var(--dsw-specific-sidebar-fill);
 }

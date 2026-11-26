@@ -82,7 +82,7 @@ it.each([null, {}, { streams: null }, { streams: [null, { codec_type: 'audio' }]
 
 it('keeps only separated interior cuts and rejects detector timestamps outside the source', () => {
   expect(facts(Buffer.from('{"format":{"duration":"3.5"},"streams":[{"codec_type":"video","width":64,"height":48}]}')))
-    .toEqual({ durationSeconds: 3.5, width: 64, height: 48 })
+    .toEqual({ durationSeconds: 3.5, width: 64, height: 48, hasAudio: false, averageFps: null, videoBitrateBps: null })
   const id = brandString<SessionVideoSourceId>('source'), bytes = (text: string) => Buffer.from(text)
   const ranges = shotRanges(bytes('pts_time:0\npts_time:0.02\npts_time:1\npts_time:1\npts_time:2.99'), 3, id, 'v', 0.08, 10)
   expect(ranges.map(shot => [shot.startSeconds, shot.endSeconds])).toEqual([[0, 1], [1, 3]])

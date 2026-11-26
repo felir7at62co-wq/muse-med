@@ -184,9 +184,14 @@ it('returns only selected-interval images and rejects a wider review or a comple
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
   expect(result.content.filter(block => block.type === 'image')).toHaveLength(2)
   if (typeof result.value !== 'string') throw Error('Missing review result')
-  const description = JSON.parse(result.value) as { interval: unknown; frames: { requested_seconds: number }[] }
-  expect(description.interval).toEqual({ start_seconds: 1, end_seconds: 2 })
-  expect(description.frames.map(frame => frame.requested_seconds)).toEqual([1.25, 1.75])
+  expect(JSON.parse(result.value)).toMatchObject({
+    interval: { start_seconds: 1, end_seconds: 2 },
+    frames: [{ requested_seconds: 1.25 }, { requested_seconds: 1.75 }],
+    production: null,
+    references: { screenplay: { status: 'unavailable' }, character_bindings: { status: 'unavailable' } },
+    dialogue: { status: 'no_audio_track' },
+    media: { width: 64, height: 64, average_fps: 10 },
+  })
   f.ctx.tools.register({ name: 'video_inspect', description: 'Forbidden scan fixture', parameters: {},
     output: { schema: { type: 'string' }, render: () => [] }, execute: async () => { throw Error('scan reached its body') } })
   const scan = await run('video_inspect', {})
@@ -194,11 +199,62 @@ it('returns only selected-interval images and rejects a wider review or a comple
   f.ctx.tools.register({ name: 'pwsh', description: 'Forbidden script fixture', parameters: {},
     output: { schema: { type: 'string' }, render: () => [] }, execute: async () => { throw Error('script reached its body') } })
   expectToolFailure(await run('pwsh', {}), 'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'Use muse_video review')
+  f.tool('muse_video', { method: 'bind' }, { binding: { key: `${source.eventSeq}:0`, sourceVersion: source.version,
+    production: { scriptId: 4660, episodeId: 460, storyboardId: 51 } } })
+  f.ctx.tools.register({ name: 'jubian_storyboard', description: 'Storyboard read fixture', parameters: {},
+    output: { schema: { type: 'string' }, render: () => [] }, execute: async () => 'saved card' })
+  expectToolFailure(await run('jubian_storyboard', { method: 'get', storyboard_id: 52 }),
+    'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'Use muse_video review')
+  expectToolFailure(await run('jubian_storyboard', { method: 'save', storyboard_id: 51 }),
+    'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'Use muse_video review')
+  for (const target of [
+    { source_id: 'other-video', source_version: source.version },
+    { source_id: source.id, source_version: 'previous-version' },
+  ]) {
+    f.user(`<muse-video-selection>${JSON.stringify([{ ...target, start_seconds: 1, end_seconds: 2 }])}</muse-video-selection>\n<!-- muse-video-review: use the bounded review -->`)
+    expectToolFailure(await run('jubian_storyboard', { method: 'get', storyboard_id: 51 }),
+      'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'Use muse_video review')
+  }
+  f.user(`<muse-video-selection>${JSON.stringify([{ source_id: source.id, source_version: source.version,
+    start_seconds: 1, end_seconds: 2 }])}</muse-video-selection>\n<!-- muse-video-review: use the bounded review -->`)
+  expect(await run('jubian_storyboard', { method: 'get', storyboard_id: 51 })).toMatchObject({ isError: false, value: 'saved card' })
+  f.user('<!-- muse-video-review: missing selection -->')
+  expectToolFailure(await run('muse_video', args), 'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'requires a current user selection')
+  expectToolFailure(await run('pwsh', {}), 'SessionVideoError', 'SESSION_VIDEO_REVIEW_SCOPE_DENIED', 'Use muse_video review')
   f.user('Now make the requested local edit.')
   expect(JSON.stringify((await run('pwsh', {})).content)).toContain('script reached its body')
   const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
   await fiber?.dispose()
   expect(f.ctx.tools.get('muse_video')).toBeUndefined()
+})
+
+it('returns only overlapping authored shots and distinguishes an audio track from transcript evidence', async () => {
+  const f = await fixture({ reviewFrames: 2 })
+  const audio = join(f.root, 'with-audio.mp4')
+  execFileSync('ffmpeg', ['-v', 'error', '-nostdin', '-i', f.file, '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=16000:duration=3',
+    '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-threads', '1', audio])
+  f.tool('jubian_media', { method: 'download', media_kind: 'video', task_id: 17, subtask_id: 170 }, { path: audio })
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const shotRanges = [{ shotNumber: 10, startSeconds: 0, endSeconds: 1 }, { shotNumber: 11, startSeconds: 1, endSeconds: 2 }]
+  const production = { scriptId: 4660, episodeId: 460, storyboardId: 51, shotNumbers: [10, 11] }
+  const bind = (value: typeof production & { shotRanges?: typeof shotRanges }) => {
+    f.tool('muse_video', { method: 'bind' }, { binding: { key: `${source.eventSeq}:0`, sourceVersion: source.version, production: value } })
+  }
+  bind({ ...production, shotRanges })
+  const review = async (args: Record<string, number>) => {
+    const result = await executeToolFixture(f.ctx, { callId: ToolCallId('review-authored-ranges'), name: 'muse_video',
+      arguments: { method: 'review', source_id: source.id, source_version: source.version, ...args }, signal: f.signal,
+      agent: { id: f.session.id, session: f.session } as never })
+    expect(result.isError, JSON.stringify(result.content)).toBe(false)
+    if (typeof result.value !== 'string') throw Error('Missing review result')
+    const reviewed: unknown = JSON.parse(result.value)
+    return reviewed
+  }
+  expect(await review({ start_seconds: 1, end_seconds: 2 })).toMatchObject({
+    production: { ...production, shotNumbers: [11], shotRanges: [shotRanges[1]] }, dialogue: { status: 'unavailable' },
+  })
+  bind(production)
+  expect(await review({ start_seconds: 0, end_seconds: 3 })).toMatchObject({ production: { ...production, shotRanges: [] } })
 })
 
 it('classifies inventory as parallel and reports missing ownership, arguments, evidence and source versions', async () => {
@@ -352,20 +408,28 @@ it('keeps an independent process-cleanup failure routable after the caller cance
   expectToolFailure(await pending, 'SessionVideoError', 'SESSION_VIDEO_OPERATION_FAILED', cleanup.message)
 })
 
-it('reviews a whole selected video with exact advice links and reports empty trailing observations', async () => {
+it('gives a sampled issue time and exact whole-video scope for advice cards', async () => {
   const f = await fixture({ reviewFrames: 2 })
   f.session.append('deliverables/presented', { turn: 1, callId: ToolCallId('presented-review'), files: [{ path: f.file }] })
   const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  if (source.version === null) throw Error('Presented review video has no version')
   const owner = { id: f.session.id, session: f.session } as never
   const run = (args: Record<string, unknown>) => executeToolFixture(f.ctx, { callId: ToolCallId('whole-review'),
     name: 'muse_video', arguments: { method: 'review', source_id: source.id, source_version: source.version, ...args }, signal: f.signal, agent: owner })
-  expect((await run({})).isError).toBe(false)
+  const reviewLink = `dsh-resource://session-video/session/${encodeURIComponent(f.session.id)}?${new URLSearchParams({
+    source: source.id, version: source.version,
+  })}`
   f.user(`<muse-video-selection>${JSON.stringify([{ source_id: source.id, source_version: source.version,
-    review_link: 'dsh-resource://session-video/selected' }])}</muse-video-selection>`)
+    review_link: reviewLink }])}</muse-video-selection>`)
   const whole = await run({})
   expect(whole.isError).toBe(false)
   if (typeof whole.value !== 'string') throw Error('Missing whole-video review result')
-  expect(whole.value).toContain('[画面定位](dsh-resource://session-video/selected)')
+  const wholeReview: unknown = JSON.parse(whole.value)
+  expect(wholeReview).toMatchObject({ review_link: reviewLink, frames: [{ requested_seconds: 0.75 }, { requested_seconds: 2.25 }] })
+  expect(wholeReview).toHaveProperty('notice',
+    expect.stringContaining(`[Shot advice](<${reviewLink}&at=SECONDS&problem=TEXT&basis=TEXT&suggestion=TEXT>)`))
+  expect(whole.value).toContain('Set at to the relevant sampled requested_seconds.')
+  expect(whole.value).toContain('This review is read-only. Wait for a separate user edit or generation request.')
   const trailing = await run({ start_seconds: 2.8, end_seconds: 3 })
   expect(trailing.isError).toBe(false)
   expect(trailing.content.filter(item => item.type === 'image')).toHaveLength(1)
