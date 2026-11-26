@@ -863,16 +863,20 @@ describe('web e2e: conversation video review', () => {
     await originalVersion.click()
     await expect.poll(() => preview.getAttribute('aria-label')).toBe(VIDEO)
     await expect.poll(() => scope.innerText()).toContain(`${currentRange} · V1`)
-    await preview.evaluate(async (element) => {
+    const settledPreviewTime = () => preview.evaluate((element) => {
       const video = element as HTMLVideoElement
-      await new Promise<void>((resolve) => {
-        video.addEventListener('timeupdate', () => { resolve() }, { once: true })
-        video.currentTime = 1.4
-      })
+      return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && !video.seeking ? video.currentTime : -1
     })
+    const playhead = workspace().getByRole('slider', { name: 'Playback position', exact: true })
+    // A source label can change before metadata and the initial seek have settled.
+    await expect.poll(settledPreviewTime).toBeCloseTo(1.25, 2)
+    await playhead.press('ArrowRight')
+    await expect.poll(settledPreviewTime).toBeGreaterThan(1.25)
+    const originalTime = await settledPreviewTime()
+    expect(originalTime).toBeLessThan(2)
     await revisedVersion.click()
     await expect.poll(() => preview.getAttribute('aria-label')).toBe(revisedName)
-    await expect.poll(() => preview.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1.3, 1)
+    await expect.poll(settledPreviewTime).toBeCloseTo(0.5 + (originalTime - 1) * 2, 2)
     await workspace().getByRole('button', { name: 'Adopt new version', exact: true }).click()
     expect(await workspace().getByRole('button', { name: 'Adopted', exact: true }).isDisabled()).toBe(true)
     await workspace().getByRole('button', { name: 'Shot 12', exact: true }).locator('img').waitFor()
