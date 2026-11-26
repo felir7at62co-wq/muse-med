@@ -64,14 +64,14 @@ export class JubianError extends Error {
 /**
  * Translate an HTTP status into the stable code for it.
  *
- * Both 401 and 403 mean "this token cannot be used": the product had two
- * historical behaviours here and this package settles on the stricter one, so a
- * caller never has to tell an expired token from a forbidden one.
+ * A 401 rejects authentication. A 403 only establishes access denial; it does
+ * not prove that the credential is expired or that signing in again will help.
  * @param status - Response status.
  * @returns The stable code for a non-2xx response.
  */
 export function codeForHttpStatus(status: number): JubianErrorCode {
-  if (status === 401 || status === 403) return 'AUTHENTICATION_REQUIRED'
+  if (status === 401) return 'AUTHENTICATION_REQUIRED'
+  if (status === 403) return 'PERMISSION_DENIED'
   if (status === 429) return 'RATE_LIMITED'
   return 'NETWORK_ERROR'
 }
@@ -79,9 +79,8 @@ export function codeForHttpStatus(status: number): JubianErrorCode {
 /**
  * Translate an application envelope `code` into a failure, or null when it is a success code.
  *
- * `PERMISSION_DENIED` exists only here, behind an HTTP 2xx: an application-level
- * refusal is a different fact from a transport-level one, and the transport
- * layer above already claims every HTTP 403.
+ * Application refusals retain the same authentication/access distinction as
+ * HTTP failures, including servers that carry those codes behind HTTP 2xx.
  * @param code - Numeric `code` field of a parsed envelope.
  * @returns The stable code, or null for the two success codes.
  */

@@ -504,10 +504,10 @@ interface ToolArgsMap {
     /** Update only: exact revision returned by read. Stale writes do not change the authorization. */
     expected_revision?: string;
   } & Record<string, JsonValue>;
-  /** 剧变（Jubian）目录与项目只读查询：账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。 */
+  /** 剧变（Jubian）目录与项目只读查询：当前登录连通性、账户视频/生图/去字幕/转高清模型目录与报价、剧本、分集。全部只读，不产生费用。登录后先用 auth 验证 Muse 实际使用的凭据；网页登录不自动更新 Muse 中保存的 Token。401 表示认证被拒，403 仅说明无权访问，网络或响应格式错误均不证明登录过期；不要反复要求重登或自动重试生成。 */
   jubian_catalog: {
-    /** models=账户模型目录；rate=单个计价标准；script=剧本身份；episodes=分集列表。 */
-    method: "models" | "rate" | "script" | "episodes";
+    /** auth=免费单次读取本人项目列表并丢弃内容，只核对当前 Muse 凭据可读，不验证指定项目权限或付费生成；models=账户模型目录；rate=单个计价标准；script=剧本身份；episodes=分集列表。 */
+    method: "auth" | "models" | "rate" | "script" | "episodes";
     /** models 必填：1=视频，2=图片，10=去字幕，20=转高清。 */
     task_type?: number;
     /** rate 必填：models 返回的模型计价行 id/standardId，不是 videoStandards 中的 videoStandardId。 */

@@ -201,6 +201,8 @@ The inherited process environment wins, so `JUBIANAI_ADMIN_TOKEN=… dsh` overri
 
 When the credential store resolves to nothing, the row falls back — only then — to the pipeline's own secret file, `.agents/secrets/pipeline.env`, searched upward from the launch directory. The [shared workspace resolver](../jubian/README.md) uses a nonempty `JUBIANAI_ADMIN_TOKEN` before the legacy `JUBIANAI_TOKEN`. The file is read on every call, so an edit is picked up without a restart, and the value is never echoed. Set `workspaceSecrets: false` to make the credential store the only source.
 
+`jubian_catalog` with `method: auth` uses the credential currently resolved by Muse for one free GET of the first own-project list row, then discards the project data. It does not mutate remote state, submit generation, write a spending ledger or retry. Success confirms access to that list, not project-specific permission or paid generation. Failures retain authentication, permission, rate-limit, network and response categories; missing, malformed and unreadable local credentials have distinct details. Update the token in Muse settings before checking again; signing in on the Jubian website does not update Muse automatically. The Settings configured state only confirms local presence, not remote acceptance.
+
 ### The token Settings page
 
 The same credential has a page under **Settings → Jubian**. That page belongs to this package rather than to a generic configuration surface: the generic surface writes any reference a page names, while this one writes only `JUBIANAI_ADMIN_TOKEN`.
@@ -224,7 +226,7 @@ The registered tools are the whole model-facing surface. This package publishes 
 | Tool | Methods | Billing and effect |
 |---|---|---|
 | `jubian_budget` | `read`, `update` | Free; reads actual accounting or saves a verified user-approved project ceiling |
-| `jubian_catalog` | `models`, `rate`, `script`, `episodes` | Read-only, no charge |
+| `jubian_catalog` | `auth`, `models`, `rate`, `script`, `episodes` | Read-only, no charge |
 | `jubian_find` | `scope` (`mine`, `pool`), `mine` filters `production_type` / `share_target_type` | Read-only, no charge |
 | `jubian_claim` | `inspect`, `claim` | Inspect is read-only; claim requires explicit user authorization, `canClaim=1`, and an idempotency key |
 | `jubian_snatch` | `ids`, `new_claimable` | Bounded background claim job within an explicitly authorized UTC window |

@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.2/jubian-auth-diagnostics/guide.md
+/:
+  en: 385ab92cb4c166b9
+  zh: 82dabe4f933f413d
+/distinguish-jubian-access-and-login-failures:
+  en: 538e501f923b7230
+  zh: cf22f2ceecfeeed4
+/distinguish-jubian-access-and-login-failures/change:
+  en: 3991cb427589a2e3
+  zh: 666e9d0302340c35
+/distinguish-jubian-access-and-login-failures/migration:
+  en: 1c906e4840132b98
+  zh: 9a4b83f41d760268

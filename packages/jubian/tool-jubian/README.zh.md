@@ -201,6 +201,8 @@ inherited process environment (read-only, highest)
 
 当凭证库解析不出任何值时，这一行才会回落到流水线自己的密钥文件 `.agents/secrets/pipeline.env`，从启动目录逐级向上查找；[共享工作间解析函数](../jubian/README.zh.md)优先使用非空的 `JUBIANAI_ADMIN_TOKEN`，再使用遗留的 `JUBIANAI_TOKEN`。该文件每次调用都重新读取，所以改动无需重启即可生效，值也永远不会被回显。把 `workspaceSecrets` 设为 `false` 可以让凭证库成为唯一来源。
 
+`jubian_catalog` 的 `auth` 方法使用 Muse 当前凭据，只发一次免费 GET 读取本人项目列表首条并丢弃项目内容；它不写远端、不提交生成、不记费用账本、不重试。成功只确认该目录可读，不确认指定项目权限或付费能力。失败保留认证被拒、权限不足、限流、网络或响应格式分类；本地未配置、格式错误和凭据源读取失败各有说明。先在 Muse 设置更新令牌，再重新调用；只在剧变网页重登不会自动更新 Muse。令牌设置的「已配置」表示本地值存在，不代表远端仍接受。
+
 ### 令牌设置页
 
 同一个凭据在**设置 → 剧变**里有一页。这一页属于本包，而不属于通用的配置面：通用面能写页面点名的任意引用，这一页只写 `JUBIANAI_ADMIN_TOKEN`。
@@ -226,7 +228,7 @@ inherited process environment (read-only, highest)
 | 工具 | 方法 | 计费与副作用 |
 |---|---|---|
 | `jubian_budget` | `read`、`update` | 免费；读取真实账务，或核实用户授权后保存项目总额度 |
-| `jubian_catalog` | `models`、`rate`、`script`、`episodes` | 只读，不产生费用 |
+| `jubian_catalog` | `auth`、`models`、`rate`、`script`、`episodes` | 只读，不产生费用 |
 | `jubian_find` | `scope`（`mine`、`pool`）、`mine` 的 `production_type`／`share_target_type` 过滤 | 只读，不产生费用 |
 | `jubian_claim` | `inspect`、`claim` | inspect 只读；claim 需要用户明确授权、`canClaim=1` 与幂等键 |
 | `jubian_snatch` | `ids`、`new_claimable` | 在明确授权的 UTC 时间窗口内后台有限认领 |

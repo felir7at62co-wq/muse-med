@@ -436,7 +436,7 @@ describe('tool-jubian registration', () => {
       ['method', 'page_num', 'page_size', 'script_id', 'standard_id', 'task_type'])
     expect(catalog.required).toEqual(['method'])
     expect((catalog.properties as Record<string, { enum?: string[] }>).method!.enum)
-      .toEqual(['models', 'rate', 'script', 'episodes'])
+      .toEqual(['auth', 'models', 'rate', 'script', 'episodes'])
 
     const video = byName.get('jubian_video')!
     expect((video.properties as Record<string, { enum?: string[] }>).method!.enum)
