@@ -80,7 +80,7 @@ jobs:
           console.log(JSON.stringify({ stage: 'muse-tos-route-check', status, elapsedMs: Date.now() - started }));
           if (status !== 200 && status !== 403) process.exitCode = 1;
           } catch { console.error('Muse TOS route check failed before packaging'); process.exitCode = 1; } }"
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Check draft build ownership and saved source ranges
