@@ -227,6 +227,8 @@ Muse 建议型 Word 导出固定本次实际 Markdown 输入，通过内置 Pyth
 
 `jianying_draft` 通过受管子进程调用内置生成器，输入为有大小限制的单集 JSON 请求和已有剪映草稿根目录。Windows 请求指定 `audio_mode: "embedded"` 时选择随包 aa剪映适配器，保留视频原声，BGM 独立；仅 `9:16` 添加片尾，`16:9` 在正文结束。未声明模式或显式使用 `"independent"` 时沿用 pyJianYingDraft，Mac 的 embedded 请求明确报错。Windows 适配器探测已安装 CLI，不用 FFmpeg 渲染替代原生草稿创建。可选 `windowsPowerShellPath`、`windowsCliPath`、`windowsHostPath`、`ffmpegPath` 和 `ffprobePath` 配置已有部署可执行文件。`windowsLandscapeSubtitleSize` 和 `windowsLandscapeSubtitleY` 可覆盖 Windows 16:9 默认字号 7 与剪映界面 Y -879。完成、失败和取消均等待进程退出。启动失败未返回 JSON 时保留受限长度的进程诊断。字幕、配乐和轨道质量疑点通过 `warnings` 与逐稿 `review_path` 返回；技术失败仍拒绝。保存回读不代表原生编辑器打开、播放或声音已验收。
 
+Windows 保存位置如果与剪映专业版明确配置的 `currentCustomDraftPath` 不同，工具会返回 `draft_library.status: different_root`、两处根目录和提醒，保留候选与剪映设置。要另存到草稿箱，使用 `drama_draft_dir` 保存已确认的根目录，再用唯一新名称生成。必需字体未验证时仍禁止交付，工具按字体证据返回对应的恢复步骤。Windows 内嵌原声请求只有在已有本集已核准的未混配乐完整原声时，才能改用独立音轨流程另存。
+
 原生草稿配置 `maxBgmGain` 默认 8（接受 0–8），Muse office 组合选择 1，通过托管子进程设置 `DSH_BGM_MAX_GAIN` 对项目/时间线的实际 BGM 增益封顶。原生草稿的 `ffmpegPath`、`ffprobePath` 将解析后的媒体工具路径传入托管 Python 环境。原声增益独立。独立 Python 生成器在缺少该设置时保留旧上限 8。增益上限 1 只能保留音乐床已有的源曲衰减，不能认证任意导入音频。 创作预设的 BGM 合成与成片渲染直接绑定 Host 已解析的 `DSH_FFMPEG_PATH`、`DSH_FFPROBE_PATH`，自带媒体工具无需加入系统 PATH。
 
 `fontsDir` 与 `subtitleFontFamily` 将产品内置字体资源和所选字族传给草稿后端。强制产品输出要求保存后的字体证据；文件保存成功而缺少该证据，不算草稿生成成功。请求字体缺失或后端不支持时保留待修候选的路径与审查详情，不静默交付系统字体替代品。使用内置字体无需用户在操作系统中安装该字体，但编辑器版本兼容性仍须原生验证。

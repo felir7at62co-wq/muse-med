@@ -332,6 +332,9 @@ Get-CliSha256 $env:MUSE_HASH_INPUT
         self.assertEqual(review['subtitle_font']['status'], 'backendUnsupported')
         self.assertFalse(review['subtitle_font']['binding_verified'])
         self.assertFalse(review['subtitle_font']['delivery_ready'])
+        self.assertIn('audio_mode=independent', review['next'])
+        self.assertIn('本集未混配乐完整原声', review['next'])
+        self.assertIn(review['next'], result['error'])
 
     def test_product_punctuation_only_cues_leave_no_fake_overlay_and_warn(self):
         source = '1\n00:00:00,123 --> 00:00:00,789\n？！\n'
