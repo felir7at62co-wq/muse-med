@@ -147,9 +147,9 @@ async function main(): Promise<void> {
   if (primaryRuntime !== undefined) process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR = primaryRuntime
   const runtimeRoot = resolve(developmentRuntimeDirectory(), '..')
   const bytevc2Lock = validateBytevc2RuntimeLock(JSON.parse(readFileSync(new URL('./bytevc2-runtime.lock.json', import.meta.url), 'utf8')))
-  await prepareBytevc2Runtime({ target: resolveDesktopBuildTarget(), output: join(runtimeRoot, 'bytevc2'),
+  process.env.DSH_DESKTOP_BYTEVC2_RUNTIME_DIR = await prepareBytevc2Runtime({ target: resolveDesktopBuildTarget(),
+    output: join(runtimeRoot, '..', 'bytevc2', `v${bytevc2Lock.release}`),
     cache: join(APP_ROOT, '.desktop-build', 'downloads', 'bytevc2'), lock: bytevc2Lock })
-  process.env.DSH_DESKTOP_BYTEVC2_RUNTIME_DIR = join(runtimeRoot, 'bytevc2')
   await launchElectron(registerProtocol)
 }
 

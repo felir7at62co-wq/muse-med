@@ -26,7 +26,8 @@ async function fixture(target: Bytevc2Target = 'mac-arm64', omit?: string, wrong
   const root = await mkdtemp(join(tmpdir(), 'bytevc2-runtime-'))
   roots.push(root)
   const cache = join(root, 'cache'), output = join(root, 'payload')
-  await mkdir(cache)
+  const releaseCache = join(cache, `v${lock.release}`)
+  await mkdir(releaseCache, { recursive: true })
   const binary = Buffer.alloc(512)
   if (target === 'win-x64') {
     binary.write('MZ'); binary.writeUInt32LE(128, 60); binary.write('PE\0\0', 128); binary.writeUInt16LE(0x8664, 132)
@@ -55,14 +56,15 @@ async function fixture(target: Bytevc2Target = 'mac-arm64', omit?: string, wrong
     source: { ...lock.targets[target].source, bytes: source.length, sha256: digest(source) },
     helper: { filename: bytevc2RuntimeFilename(target), bytes: binary.length, sha256: digest(binary) } }
   const fixtureLock = { ...lock, targets: { ...lock.targets, [target]: targetInputs } }
-  await writeFile(join(cache, targetInputs.archive.filename), archive)
-  await writeFile(join(cache, targetInputs.source.filename), source)
-  return { root, cache, output, target, lock: fixtureLock }
+  await writeFile(join(releaseCache, targetInputs.archive.filename), archive)
+  await writeFile(join(releaseCache, targetInputs.source.filename), source)
+  return { cache, releaseCache, output, target, lock: fixtureLock }
 }
 
 it('pins one release and its matching Librempeg source for every Desktop target', () => {
+  expect(lock.release).toBe('8.5')
   expect(lock.helperRevision).toBe('cb1f8f3eef84999e61b27e2d44664858179bc240')
-  expect(lock.targets['mac-arm64'].archive.sha256).toBe('2c7ff459b18e55ec24e580349892bc1785f26a7ad659ef4f57deec2691034a09')
+  expect(lock.targets['mac-arm64'].archive.sha256).toBe('df90b0632fd147505cd7120b50f1ed4760d4b6dc630d1af8988be6c98bfd3958')
   expect(lock.targets['mac-x64'].source.sha256).toBe(lock.targets['mac-arm64'].source.sha256)
   for (const bad of [{ ...lock, release: 'latest' }, { ...lock, targets: {} },
     { ...lock, targets: { ...lock.targets, 'win-x64': { ...lock.targets['win-x64'],
@@ -76,7 +78,7 @@ it.each(['mac-arm64', 'mac-x64', 'win-x64'] as const)('prepares only the %s help
   await expect(prepareBytevc2Runtime(options)).resolves.toBe(options.output)
   await verifyPreparedBytevc2Runtime(options.output, target, options.lock)
   const source = options.lock.targets[target].source
-  expect(await readFile(join(options.output, source.filename))).toEqual(await readFile(join(options.cache, source.filename)))
+  expect(await readFile(join(options.output, source.filename))).toEqual(await readFile(join(options.releaseCache, source.filename)))
   await expect(prepareBytevc2Runtime(options)).resolves.toBe(options.output)
 })
 
@@ -105,9 +107,19 @@ it('rejects a changed helper even when its local inventory record is rewritten t
 
 it('rejects a changed cached source without publishing an output', async () => {
   const options = await fixture()
-  await writeFile(join(options.cache, options.lock.targets[options.target].source.filename), 'wrong source')
+  await writeFile(join(options.releaseCache, options.lock.targets[options.target].source.filename), 'wrong source')
   await expect(prepareBytevc2Runtime(options)).rejects.toThrow('media size mismatch')
   await expect(readFile(join(options.output, 'bytevc2-runtime.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('uses the pinned release cache even if an older source archive has the same name', async () => {
+  const options = await fixture()
+  const { filename } = options.lock.targets[options.target].source
+  const oldSource = join(options.cache, filename)
+  await writeFile(oldSource, 'Older source archive')
+  await prepareBytevc2Runtime(options)
+  expect(await readFile(join(options.output, filename))).toEqual(await readFile(join(options.releaseCache, filename)))
+  expect(await readFile(oldSource, 'utf8')).toBe('Older source archive')
 })
 
 it('rejects a release missing a required license instead of publishing a decoder alone', async () => {
