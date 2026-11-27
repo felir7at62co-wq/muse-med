@@ -188,7 +188,9 @@ async function downloadVideo(row: VideoSubtask) {
 
 原生素材按 `materialKey` 和数字父资产 ID 关联，不依赖数组位置。缺失、多余或重复 key，以及身份、URL、类型或组内顺序冲突均拒绝。主体选源回读比较各 key 对应的字段；仅改变数组物理顺序不会要求再次保存选择。
 
-`assertImageReferenceConsistency()` 在准备流程规范任何来源前，比较 `modelConfig.materialList` 与 `storyboardMaterialList` 中已保存的图片。key、主体身份、父资产 ID 或 URL 冲突时报告 `IMAGE_REFERENCE_CONFLICT`；诊断标明两份来源，并对 URL 作哈希，不暴露查询参数。历史配置列表缺失或为空不能证明此前图片版本。明确选源会同步两份列表，其无需写入判定和回读检查都要求两份一致。更换选定图片时，已有 `assetName` 和 `materialName` 名称字段也按正式记录同步，避免残留上一次引用的名称。这些检查保留引用身份，不判断视觉相似度。
+`assertImageReferenceConsistency()` 在准备流程规范任何来源前，比较 `modelConfig.materialList` 与 `storyboardMaterialList` 中已保存的图片。key、主体身份、父资产 ID、URL 或渠道 ID 冲突时报告 `IMAGE_REFERENCE_CONFLICT`；诊断标明两份来源，并对 URL 作哈希，不暴露查询参数。历史配置列表缺失或为空不能证明此前图片版本。明确选源会同步两份列表，其无需写入判定和回读检查都要求两份一致。更换选定图片时，已有 `assetName` 和 `materialName` 名称字段也按正式记录同步，避免残留上一次引用的名称。这些检查保留引用身份，不判断视觉相似度。
+
+`extAssetId` 和 `extGroupId` 成对标识图片的渠道版本。选源使用核实有效的材质或其匹配父资产返回的完整 ID 对。遇到缺少其中一个 ID 或实时记录的 ID 对互相冲突时，选源会拒绝保存。如果两份实时记录都未提供这对 ID，同一图片身份可继续使用已保存且一致的 ID 对。更换已保存渠道 ID 的图片，或修正保存列表间的渠道 ID 分歧，都须在保存前从实时记录核实完整 ID 对。保存记录和实时数据均未包含渠道 ID 的图片仍沿用普通图片身份。原生生成需要实时资产确认保存的 ID 对，并把核实后的 ID 对写入请求和指纹。如果历史任务缺少实际使用的渠道图片证据，保留原 key 对账。
 
 原生主体视频准备至少需要一张已选定的图片主体。`buildNativeVideoPreview()` 对空主体或仅有音频的选择返回 `INVALID_ARGUMENT`，不生成 prepared 预览。`validateNativeVideoPreview()` 对历史空主体预览返回明确的本地参数错误；本次提交调用尚未进入账本，也尚未发出远端付费请求。现有身份校验和提交指纹规则仍然适用。
 

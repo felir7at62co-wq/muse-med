@@ -2911,6 +2911,40 @@ it.each([false, true])('does not charge a formatted prompt again after a compact
   expect(await ledger.records()).toHaveLength(1)
 })
 
+it('blocks a channel-aware submission when the same pre-channel payload already reserved a charge', async () => {
+  const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+  const client = clientFor(provider)
+  const directory = await project()
+  const preparation = { storyboard_id: 916953, project_dir: directory }
+  const original = await prepareVideoMethod(client, ledger, preparation)
+  const originalPreviewPath = String(original.preview_path)
+  const originalPreview = JSON.parse(await readFile(originalPreviewPath, 'utf8')) as NativeVideoPreview
+  await ledger.begin({ idempotencyKey: originalPreview.idempotencyKey, method: 'storyboard_native_submit', scriptId: 2708,
+    requestSha256: bodyHash(originalPreview.payload), beforeTaskIds: [], videoPreviewPath: originalPreviewPath,
+    quotedAmount: '1.00', quoteUnit: 'CNY' })
+  const recorded = await ledger.records()
+
+  const channel = { extAssetId: 'asset-lead-channel', extGroupId: 'group-lead-channel' }
+  provider.subjectPage = () => ({ total: SUBJECT_ROWS.length,
+    rows: SUBJECT_ROWS.map(row => row.assetId === 81285 ? { ...row, ...channel } : row) })
+  const fresh = await prepareVideoMethod(client, ledger, preparation)
+  const previewPath = String(fresh.preview_path)
+  const preview = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+  expect(preview.idempotencyKey).not.toBe(originalPreview.idempotencyKey)
+  expect(preview.payload.storyboardMaterialList).toMatchObject([
+    { materialKey: 'lead', ...channel }, { materialKey: 'guest' },
+  ])
+
+  const item = { preview_path: previewPath, idempotency_key: preview.idempotencyKey }
+  expect(await submitVideoMethod(client, ledger, item)).toMatchObject({
+    status: 'reconcile_conflict', outcome: 'unknown', put_sent: false, task_id: null,
+    original_idempotency_key: originalPreview.idempotencyKey,
+  })
+  await expect(submitVideoBatchMethod(client, ledger, { items: [item] })).rejects.toThrow(originalPreview.idempotencyKey)
+  expect(putCalls(provider)).toEqual([])
+  expect(await ledger.records()).toEqual(recorded)
+})
+
 it.each((['intent', 'unknown', 'accepted'] as const).flatMap(outcome =>
   [false, true].map(grouped => ({ outcome, grouped }))))
 ('blocks both submit paths for a trimmed legacy $outcome, grouped=$grouped, with a missing original preview', async ({ outcome, grouped }) => {

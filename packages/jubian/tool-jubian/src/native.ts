@@ -34,7 +34,7 @@ import {
   classifyNewNativeCandidates, isExplicitUnusedSubject, isRelatedTaskCandidate, matchesNativeEpisode, nativeEpisodeScope, nativeResultUrls,
   responseRecords, stableJson, stableSha256, submissionSemantics, storyboardMaterials, taskIdOf, taskSemanticFields, taskStatusOf,
   validateNativeVideoPreview, verifySubjectSelection, wireText,
-  referenceAudioUrls, normalizedPrompt,
+  referenceAudioUrls, normalizedPrompt, resolveMaterialChannelIds, subjectIdentitySignature,
 } from '@deepseek-ai/dsh-jubian-api'
 import type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeVideoPreview,
   SubjectIdentityItem, SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
@@ -443,6 +443,7 @@ Promise<{ storyboard: Record<string, unknown>; assets: Record<string, unknown>[]
     asset.hsAssetStatus = row.hsAssetStatus
     asset.isUsed = row.isUsed
     asset.assetUrl = rowUrl
+    Object.assign(asset, resolveMaterialChannelIds(row, asset))
   }
   return { storyboard: resolved ? { ...storyboard, storyboardMaterialList: orderedMaterials } : storyboard,
     assets: [...byId.values()] }
@@ -560,8 +561,7 @@ async function hydrateRelated(client: JubianClient, records: Record<string, unkn
 
 /** Read the ordered trusted identity a preview claims. */
 function expectedIdentity(preview: NativeVideoPreview): SubjectIdentityItem[] {
-  return preview.assetSummary.orderedAssets.map(asset => ({ assetId: asset.assetId,
-    materialName: asset.materialName, imageUrl: asset.imageUrl }))
+  return subjectIdentitySignature(preview.assetSummary.orderedAssets)
 }
 
 /** Read the validated preview's serialized model selectors and required prompt. */
@@ -1040,7 +1040,7 @@ Record<string, unknown>[] {
     })
 }
 
-/** Recorded trimmed/compacted prompts or images-then-audio requests prevent another charge after re-preparing. */
+/** Earlier payload formats can reserve a charge even when a fresh preview has a different key. */
 async function recordedLegacyKey(ledger: JubianLedger, preview: NativeVideoPreview):
 Promise<{ key: string; outcome: string } | null> {
   const { materials } = storyboardMaterials(preview.payload)
@@ -1048,7 +1048,12 @@ Promise<{ key: string; outcome: string } | null> {
     ...materials.filter(row => row.materialType === 'audio')]
   const config = object(JSON.parse(String(preview.payload.modelConfig)))
   const seen = new Set([preview.idempotencyKey])
-  for (const order of [materials, grouped]) {
+  const orderings = [materials, grouped]
+  if (materials.some(row => row.extAssetId !== undefined)) {
+    const withoutChannel = ({ extAssetId: _assetId, extGroupId: _groupId, ...row }: Record<string, unknown>) => row
+    orderings.push(materials.map(withoutChannel), grouped.map(withoutChannel))
+  }
+  for (const order of orderings) {
     for (const prompt of [config.prompt, String(config.prompt).trim(), normalizedPrompt(config.prompt)]) {
       const payload = { ...preview.payload, storyboardMaterialList: order,
         modelConfig: JSON.stringify({ ...config, prompt, materialList: order }) }

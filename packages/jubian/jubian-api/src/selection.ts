@@ -19,6 +19,7 @@ import { wireInteger as integer, wireHttpsUrl as httpUrl } from './wire.ts'
 import { readPayload } from './reading.ts'
 import { referenceAudioUrls } from './audio.ts'
 import { normalizedPrompt, stableJson, stableSha256, wireText } from './native.ts'
+import { materialChannelValues, readMaterialChannelIds, resolveMaterialChannelIds } from './material-channel.ts'
 
 function invalid(): never { throw new JubianError('CONTRACT_CHANGED') }
 
@@ -141,6 +142,7 @@ export function selectionState(materials: Record<string, unknown>[], prompt: str
     materialUrl: material.materialUrl ?? material.imageUrl ?? null,
     materialType: material.materialType ?? null,
     sortOrder: material.sortOrder === undefined || material.sortOrder === null ? null : Number(material.sortOrder),
+    ...(material.materialType !== 'audio' ? materialChannelValues(material) : undefined),
   }))
   return {
     orderedMaterials: canonical.map(material => ({ assetId: material.assetId, materialKey: material.materialKey,
@@ -188,6 +190,10 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   if (!Array.isArray(materialsField.value)) invalid()
   const materials = materialsField.value.map(object)
   const config = object(configField.value)
+  const configValue = config.materialList === undefined || config.materialList === null
+    ? [] : parseField(config.materialList).value
+  if (!Array.isArray(configValue)) invalid()
+  const configMaterials = configValue.map(object)
   if (typeof config.prompt !== 'string') invalid()
   const prompt = normalizedPrompt(config.prompt)
   const markers = promptMarkers(prompt)
@@ -268,9 +274,29 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
     if (httpUrl(asset.url ?? asset.assetUrl) !== officialUrl) invalid()
     const existing = existingByKey.get(key) ?? []
     if (existing.length > 1) invalid()
-    // Preserve unrelated provider fields while refreshing the selected identity and name aliases.
-    const material: Record<string, unknown> = { ...(existing[0] ?? {}) }
+    const previous = existing[0] ?? {}
+    let channelIds = resolveMaterialChannelIds(row, asset)
+    if (channelIds === undefined) {
+      const previousIds = readMaterialChannelIds(previous)
+      const configRows = configMaterials.filter(material => wireText(material.materialKey) === key)
+      const [configRow] = configRows
+      const configIds = configRows.map(readMaterialChannelIds)
+      if (previousIds !== undefined || configIds.some(ids => ids !== undefined)) {
+        const matchesSubject = (reference: Record<string, unknown>) => wireText(reference.assetId) === wireText(trusted)
+          && wireText(reference.materialAssetId) === parentKey
+          && httpUrl(reference.materialUrl ?? reference.imageUrl) === officialUrl
+        const savedPairAgrees = configRows.length === 0
+          || (configRows.length === 1 && configRow !== undefined && matchesSubject(configRow)
+            && stableJson(previousIds ?? null) === stableJson(configIds[0] ?? null))
+        if (!matchesSubject(previous) || !savedPairAgrees) {
+          throw new JubianError('CONTRACT_CHANGED', 'Replacement subject has no confirmed material channel IDs')
+        }
+        channelIds = previousIds
+      }
+    }
+    const material: Record<string, unknown> = { ...previous, ...channelIds }
     material.assetId = trusted
+    if ('hsAssetId' in material) material.hsAssetId = trusted
     material.materialAssetId = row.assetId
     material.fileName = row.assetName
     for (const field of ['assetName', 'materialName']) {
@@ -297,11 +323,9 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
   payload.modelConfig = configField.serialized ? JSON.stringify(selectedConfig) : selectedConfig
   // `is_generate` is not part of this test: the provider stores 1 on every storyboard, so requiring 0
   // would make `already_applied` unreachable and turn every call into a PUT.
-  const configMaterials = config.materialList === undefined || config.materialList === null
-    ? null : parseField(config.materialList).value
-  if (configMaterials !== null && !Array.isArray(configMaterials)) invalid()
-  const alreadyApplied = stableJson(before) === stableJson(after) && Array.isArray(configMaterials)
-    && stableJson(selectionState(configMaterials.map(object), prompt)) === stableJson(after)
+  const alreadyApplied = stableJson(before) === stableJson(after)
+    && config.materialList !== undefined && config.materialList !== null
+    && stableJson(selectionState(configMaterials, prompt)) === stableJson(after)
   return {
     operation: 'select_storyboard_assets',
     status: alreadyApplied ? 'already_applied' : 'ready',

@@ -15,6 +15,7 @@ export type { BindableManuscript, BindableManuscriptQuery, ManuscriptDetail, Man
   ManuscriptOwner, ManuscriptTag, ManuscriptTagCategory, ManuscriptTagOptions,
   ManuscriptUploadFile, ManuscriptUploadInput } from './manuscript.ts'
 export { readAssetList, readAssetPage, readGeneratedImage, readImageGeneration, readMaterialList } from './asset.ts'
+export { resolveMaterialChannelIds } from './material-channel.ts'
 export type { ImageGeneration } from './asset.ts'
 export type { AssetDetail, AssetRow, MaterialRow } from './asset.ts'
 export { findFolder, findFolderById, readFolderTree } from './folder.ts'
