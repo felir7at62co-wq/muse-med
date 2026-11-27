@@ -4,6 +4,7 @@ import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import { Context } from '@deepseek-ai/cordis'
 import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import Llm, { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -20,6 +21,13 @@ import * as Jubian from '../src/index.ts'
 
 const mediaKit = { modelId: 'AI MediaKit', platformId: 'AI_MEDIA_KIT', standardId: 27, videoStandardId: 165 }
 const generativeMediaKit = { ...mediaKit, modelId: 'enhance-video-generative', standardId: 105, videoStandardId: 514 }
+
+it('rejects a string MediaKit pilot switch at activation', async () => {
+  const ctx = new Context()
+  onTestFinished(() => ctx.fiber.dispose())
+  await expect(Reflect.apply(Jubian.apply, undefined, [ctx, { mediaKitPostprocess: 'false' }]))
+    .rejects.toThrow('mediaKitPostprocess must be a boolean')
+})
 
 it.each([
   { scenario: 'a live MediaKit per-minute price', model: mediaKit, quote: { amount: '1.50', cents: 150 } },

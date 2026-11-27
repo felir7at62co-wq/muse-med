@@ -91,15 +91,20 @@ async function fixture(options: {
 
 const pilotJobKey = brandString<MuseMediaPostprocessJobKey>('c'.repeat(64))
 
-function mediaKit(accepted: MuseMediaPostprocessSubmission, queried: MuseMediaPostprocessStatus) {
+function mediaKit(accepted: MuseMediaPostprocessSubmission, queried: MuseMediaPostprocessStatus,
+  resolution: '720p' | '1080p' = '1080p') {
   const jobKey = pilotJobKey
   let submissions = 0, queries = 0, claims = 0
   const client: MediaPostprocessClient = {
     previewMediaPostprocess: async (input) => {
-      expect(input).toMatchObject({ operation: 'upscale', scriptId: 2708, taskId: 42, resolution: '1080p' })
+      expect(input).toMatchObject({ operation: 'upscale', scriptId: 2708, taskId: 42, resolution })
       return { state: 'ready', jobKey, amount: '1.00', unit: 'CNY' }
     },
-    submitMediaPostprocess: async (input) => { expect(input.jobKey).toBe(jobKey); submissions++; return accepted },
+    submitMediaPostprocess: async (input) => {
+      expect(input).toMatchObject({ jobKey, resolution })
+      submissions++
+      return accepted
+    },
     statusMediaPostprocess: async (key) => { expect(key).toBe(jobKey); queries++; return queried },
     claimMediaPostprocessFallback: async (key) => {
       expect(key).toBe(jobKey)
@@ -110,14 +115,15 @@ function mediaKit(accepted: MuseMediaPostprocessSubmission, queried: MuseMediaPo
 }
 
 describe('approved MediaKit upscale pilot', () => {
-  it('reserves project spending for MediaKit and queries its original job on replay', async () => {
+  it.each(['720p', '1080p'] as const)('reserves project spending for MediaKit %s and queries its original job on replay', async (resolution) => {
     const { client, ledger, calls, paidCalls } = await fixture()
-    const gateway = mediaKit({ state: 'accepted' }, { state: 'pending' })
+    const gateway = mediaKit({ state: 'accepted' }, { state: 'pending' }, resolution)
     const deps = { postprocess: gateway.client }
-    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({
+    const args = { ...ARGS, resolution }
+    expect(await videoMethod(client, ledger, args, deps)).toMatchObject({
       provider: 'volcengine-mediakit', processing_job_key: pilotJobKey, status: 'accepted',
     })
-    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({ status: 'pending', replayed: true })
+    expect(await videoMethod(client, ledger, args, deps)).toMatchObject({ status: 'pending', replayed: true })
     expect(gateway.attempts()).toEqual({ submissions: 1, queries: 1, claims: 0 })
     expect(calls).toHaveLength(2)
     expect(paidCalls()).toEqual([])

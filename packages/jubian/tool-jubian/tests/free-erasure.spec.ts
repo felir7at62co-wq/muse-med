@@ -113,7 +113,8 @@ it.each([false, true])('routes an approved automatic erasure from Jubian with Me
     claimMediaPostprocessFallback: async (key) => { expect(key).toBe(jobKey); return ++claims === 1 },
   }
   const args = { method: 'erase_subtitle', task_id: 42,
-    video_width: 480, video_height: 854, idempotency_key: 'pilot-erase' }
+    video_width: 480, video_height: 854, idempotency_key: 'pilot-erase',
+    ...(rejected ? {} : { platform_id: 'AI_MEDIA_KIT' }) }
   const result = await storyboardMethod(client, ledger, args, { postprocess })
   if (rejected) {
     expect(result).toMatchObject({ provider: 'jubian', fallback_from: 'volcengine-mediakit', accepted_task_id: '429001' })
