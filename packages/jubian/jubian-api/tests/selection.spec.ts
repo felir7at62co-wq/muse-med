@@ -424,7 +424,7 @@ describe('replacement image channel identity', () => {
 
   function replacement(subjectChannel: Record<string, unknown> = {}, parentChannel: Record<string, unknown> = {}) {
     const input = oneSubject()
-    const previous = { materialKey: 'lead', assetId: 'asset-old', materialAssetId: 9, fileName: '旧图',
+    const previous = { materialKey: 'lead', assetId: 'asset-old', hsAssetId: 'asset-old', materialAssetId: 9, fileName: '旧图',
       materialType: 'image', materialUrl: 'https://example.test/old.jpg', sortOrder: 1, ...oldChannel }
     return { ...input, storyboard: { ...input.storyboard, storyboardMaterialList: [previous],
       modelConfig: JSON.stringify({ ...input.storyboard.modelConfig, materialList: [previous] }) },
@@ -442,7 +442,8 @@ describe('replacement image channel identity', () => {
     expect(plan.status).toBe('ready')
     expect(plan.payload.isGenerate).toBe(0)
     expect(plan.payload.storyboardMaterialList).toMatchObject([
-      { materialKey: 'lead', assetId: 'asset-lead', materialAssetId: 81285, materialUrl: URL_LEAD, ...newChannel },
+      { materialKey: 'lead', assetId: 'asset-lead', hsAssetId: 'asset-lead', materialAssetId: 81285,
+        materialUrl: URL_LEAD, ...newChannel },
     ])
     const storedConfig = JSON.parse(String(plan.payload.modelConfig)) as Record<string, unknown>
     expect(storedConfig.materialList).toEqual(plan.payload.storyboardMaterialList)
@@ -479,6 +480,11 @@ describe('replacement image channel identity', () => {
       .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
   })
 
+  it('rejects a channel registration with a nontext ID', () => {
+    const input = replacement({ ...newChannel, extAssetId: 123 }, newChannel)
+    expect(() => buildSubjectSelection(input)).toThrow('Invalid material channel ID')
+  })
+
   it('keeps an unchanged subject only when its saved sources agree without live channel information', () => {
     const saved = buildSubjectSelection(replacement(newChannel)).payload
     const [row] = saved.storyboardMaterialList as Record<string, unknown>[]
@@ -488,6 +494,16 @@ describe('replacement image channel identity', () => {
     expect(() => buildSubjectSelection({ ...oneSubject(), storyboard: conflict })).toThrow('no confirmed material channel IDs')
     const differentSubject = { ...saved, modelConfig: { ...config, materialList: [{ ...row, assetId: 'old-subject' }] } }
     expect(() => buildSubjectSelection({ ...oneSubject(), storyboard: differentSubject })).toThrow('no confirmed material channel IDs')
+  })
+
+  it('recovers the saved pair for the same subject with a historical imageUrl field', () => {
+    const saved = buildSubjectSelection(replacement(newChannel)).payload
+    const [row] = saved.storyboardMaterialList as Record<string, unknown>[]
+    const { materialUrl, ...otherFields } = row!
+    const legacy = { ...saved, storyboardMaterialList: [{ ...otherFields, imageUrl: materialUrl }] }
+    const plan = buildSubjectSelection({ ...oneSubject(), storyboard: legacy })
+    expect(plan.payload.storyboardMaterialList).toMatchObject([{ ...newChannel, materialUrl: URL_LEAD }])
+    expect(verifySubjectSelection(plan.payload, plan.after).matches).toBe(true)
   })
 
   it('repairs an incomplete saved pair when the official subject supplies both channel IDs', () => {
@@ -500,7 +516,8 @@ describe('replacement image channel identity', () => {
 
   it('keeps the legacy save and readback when the selected image carries no pair', () => {
     const input = oneSubject()
-    const plan = buildSubjectSelection(input)
+    const subjectRows = [{ ...input.subjectRows[0], extAssetId: '  ', extGroupId: '\t' }]
+    const plan = buildSubjectSelection({ ...input, subjectRows })
     const [saved] = plan.payload.storyboardMaterialList as Record<string, unknown>[]
     expect(saved).not.toHaveProperty('extAssetId')
     expect(saved).not.toHaveProperty('extGroupId')

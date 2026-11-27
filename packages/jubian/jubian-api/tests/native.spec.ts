@@ -123,6 +123,16 @@ describe('video replacement channel identity', () => {
     const incomplete = [{ ...MATERIALS[0], extAssetId: oldChannel.extAssetId }, MATERIALS[1]!]
     expect(classifyExistingNativeMatches([task(incomplete)], EXPECTATION).status).toBe('matched')
   })
+
+  it.each([
+    { taskStatus: 'running', status: 'none' },
+    { taskStatus: 'succeeded', status: 'subject_identity_lost' },
+  ])('reconciles a $taskStatus submission without a confirmed child channel pair', ({ taskStatus, status }) => {
+    const expectation = { ...EXPECTATION, expectedIdentity: subjectIdentitySignature(materials(newChannel)) }
+    const task = { taskId: '335343', task: { id: 335343, scriptId: 2708, storyboardId: 916953 },
+      children: [{ ...CHILD, taskStatus, imageMaterials: MATERIALS }] }
+    expect(classifyNewNativeCandidates([task], expectation).status).toBe(status)
+  })
 })
 
 describe('saved image reference consistency', () => {
