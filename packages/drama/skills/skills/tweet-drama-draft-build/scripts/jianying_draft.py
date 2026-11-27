@@ -8,6 +8,7 @@ import subprocess
 import hashlib
 import math
 import importlib.util
+from bisect import bisect_right
 from uuid import uuid4
 from fractions import Fraction
 from pathlib import Path
@@ -299,7 +300,7 @@ def decoded_frame_hashes(source: Path, duration_us: int | None = None) -> list[s
 
 
 def selected_project_frames(source: Path, selected_us: int, fps: int) -> dict:
-    """Verify actual selected PTS cadence before treating source frames as project frames."""
+    """Verify actual selected PTS against the source cadence before mapping to a project grid."""
     executable = (os.environ.get('DSH_FFPROBE_PATH') or os.environ.get('FFPROBE_PATH')
                   or os.environ.get('FFPROBE_BINARY') or shutil.which('ffprobe') or 'ffprobe')
     try:
@@ -316,15 +317,17 @@ def selected_project_frames(source: Path, selected_us: int, fps: int) -> dict:
         payload = json.loads(result.stdout)
         stream = payload['streams'][0]
         tick = Fraction(stream['time_base'])
-        if tick <= 0 or tick > Fraction(1, fps) or Fraction(stream['avg_frame_rate']) != fps:
-            return {'status': 'unsupported', 'reason': '源帧率与项目 fps 不同或不可确认'}
+        source_fps = Fraction(stream['avg_frame_rate'])
+        if source_fps <= 0 or tick <= 0 or tick > 1 / source_fps:
+            return {'status': 'unsupported', 'reason': '源帧率或时间基不可确认'}
         times = [int(frame['best_effort_timestamp']) * tick for frame in payload['frames']]
         times = [time for time in times if time < Fraction(selected_us, 1_000_000)]
         if len(times) < 2 or times[0] != 0 or any(right <= left for left, right in zip(times, times[1:])) or any(
-                time / tick not in {math.floor(Fraction(index, fps) / tick), math.ceil(Fraction(index, fps) / tick)}
+                time / tick not in {math.floor(index / source_fps / tick), math.ceil(index / source_fps / tick)}
                 for index, time in enumerate(times)):
-            return {'status': 'unsupported', 'reason': '实际 PTS 未证实从零开始的同 fps CFR（可能为 VFR）'}
-        return {'status': 'verified_same_fps_cfr', 'times': times}
+            return {'status': 'unsupported', 'reason': '实际 PTS 未证实从零开始的 CFR（可能为 VFR）'}
+        status = 'verified_same_fps_cfr' if source_fps == fps else 'verified_cross_fps_cfr'
+        return {'status': status, 'fps': source_fps, 'times': times, 'covered_until': times[-1] + 1 / source_fps}
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, IndexError, TypeError, ZeroDivisionError) as error:
         return {'status': 'unsupported', 'reason': f'实际 PTS 不可确认（{type(error).__name__}）'}
 
@@ -336,6 +339,8 @@ def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_exten
     materials = {}
     if clock['status'] == 'unsupported':
         return materials, clock
+    status = 'verified_same_fps_cfr'
+    source_rates = set()
     for source in media_files:
         shot = _media_shot_number(source)
         clip = plan['body_clips'].get(shot)
@@ -355,9 +360,29 @@ def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_exten
         if clip['duration_us'] - selected_us > TIMELINE_TOLERANCE_US:
             return materials, {'status': 'unsupported', 'reason': f'镜头 {shot} 的原始正文缺口超过容差'}
         probe = selected_project_frames(source, selected_us, clock['fps'])
-        if probe['status'] != 'verified_same_fps_cfr':
+        if probe['status'] == 'unsupported':
             return materials, {'status': 'unsupported', 'reason': f"镜头 {shot}：{probe['reason']}"}
+        source_rates.add(probe['fps'])
         available = len(probe['times'])
+        if probe['status'] == 'verified_cross_fps_cfr':
+            # A verified source interval must cover the authored cut and the last target-frame instant.
+            # Larger differences still take the existing review path, without adding a frozen tail.
+            last_target_time = Fraction(wanted - 1, clock['fps'])
+            if (clip['duration_us'] > round(probe['covered_until'] * 1_000_000) + 1
+                    or last_target_time >= Fraction(selected_us, 1_000_000)
+                    or abs(row['duration_us'] - selected_us) > math.ceil(1_000_000 / clock['fps'])):
+                return materials, {'status': 'unsupported', 'reason': f'镜头 {shot} 的实测源窗不能覆盖项目 fps 切点'}
+            source_window_us = min(selected_us, row['duration_us'])
+            # The ending freeze samples the last displayed target frame, before the next source PTS.
+            next_frame = bisect_right(probe['times'], last_target_time)
+            ending_source_us = source_window_us if next_frame == available else min(
+                source_window_us, math.floor(probe['times'][next_frame] * 1_000_000))
+            row.update(original_source_window_us=selected_us, source_window_us=source_window_us,
+                       ending_source_us=ending_source_us,
+                       source_frame_count=available, video_frames=wanted, video_duration_us=row['duration_us'],
+                       hold_frames=0, retimed=False)
+            status = 'verified_mixed_fps_cfr'
+            continue
         used = min(wanted, available)
         row['original_source_window_us'] = selected_us
         if used < available:
@@ -375,7 +400,9 @@ def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_exten
         row.update(source_window_us=selected_us, source_frame_count=available, video_frames=used,
                    video_duration_us=row['duration_us'] if retimed else video_end_us - row['start_us'],
                    hold_frames=0, retimed=retimed)
-    clock['status'] = 'verified_same_fps_cfr'
+    if status == 'verified_mixed_fps_cfr' and len(source_rates) < 2:
+        return materials, {'status': 'unsupported', 'reason': '统一源帧率与项目 fps 不同'}
+    clock['status'] = status
     return materials, clock
 
 
@@ -1824,10 +1851,10 @@ def main_with_args(args, results=None):
                 last_duration = None
 
                 project_materials, project_clock = prepare_project_frame_clock(ending_plan, media_files, video_extensions)
-                if (project_clock['status'] == 'verified_same_fps_cfr' and audio_duration is not None
+                if (project_clock['status'] != 'unsupported' and audio_duration is not None
                         and audio_duration > project_clock['duration_us']):
                     project_clock = {'status': 'unsupported', 'reason': '原主音轨超出量化后的项目终点'}
-                if project_clock['status'] == 'verified_same_fps_cfr':
+                if project_clock['status'] != 'unsupported':
                     ending_plan['frame_clock'] = project_clock
                     ending_plan['body_end_us'] = project_clock['body_end_us']
                     ending_plan['duration_us'] = project_clock['duration_us']
@@ -1893,7 +1920,8 @@ def main_with_args(args, results=None):
                         media_added_count += 1
 
                         if shot == ending_plan["last_shot"]:
-                            last_source, last_duration = media_file, duration
+                            last_source = media_file
+                            last_duration = frame_clip.get('ending_source_us', duration) if frame_clip else duration
                         if bounded_retime:
                             logger.info(f"镜头 {shot} 的 {gap / 1e6:.6f} 秒尾差均匀微调速，未添加定格帧")
                         elif frame_clip is None and gap > 0:
