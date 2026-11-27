@@ -130,14 +130,17 @@ describe('approved MediaKit upscale pilot', () => {
     expect(await ledger.records()).toMatchObject([{ method: 'video_upscale', quoted_amount: '1.00', outcome: 'accepted' }])
   })
 
-  it('falls back to the budgeted Jubian route once for an explicit rejection', async () => {
+  it.each(['MEDIAKIT_CAPACITY_LIMIT', undefined] as const)('falls back to the budgeted Jubian route once for rejection with code %s', async (code) => {
     const { client, ledger, paidCalls } = await fixture()
-    const rejection = { state: 'rejected', code: 'MEDIAKIT_CAPACITY_LIMIT' } as const
+    const rejection = { state: 'rejected', ...(code === undefined ? {} : { code }) } as const
     const gateway = mediaKit(rejection, rejection)
     const deps = { postprocess: gateway.client }
-    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({
-      provider: 'jubian', fallback_from: 'volcengine-mediakit', fallback_reason: 'MEDIAKIT_CAPACITY_LIMIT', accepted_task_id: '429001',
+    const result = await videoMethod(client, ledger, ARGS, deps)
+    expect(result).toMatchObject({
+      provider: 'jubian', fallback_from: 'volcengine-mediakit', accepted_task_id: '429001',
     })
+    if (code === undefined) expect(result).not.toHaveProperty('fallback_reason')
+    else expect(result).toHaveProperty('fallback_reason', code)
     expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({ provider: 'jubian', replayed: true })
     expect(gateway.attempts()).toEqual({ submissions: 1, queries: 1, claims: 1 })
     expect(paidCalls()).toHaveLength(1)

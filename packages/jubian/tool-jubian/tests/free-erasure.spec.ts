@@ -68,7 +68,12 @@ it('records a verified free erasure without an allowance, replays its key, and r
   await expect(access(join(root, 'authorization.json'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
-it.each(['accepted', 'rejected', 'ineligible'] as const)('routes automatic erasure when MediaKit reports %s', async (state) => {
+it.each([
+  { state: 'accepted', code: undefined },
+  { state: 'rejected', code: 'MEDIAKIT_RATE_LIMITED' },
+  { state: 'rejected', code: undefined },
+  { state: 'ineligible', code: undefined },
+] as const)('routes automatic erasure when MediaKit reports $state with code $code', async ({ state, code }) => {
   const root = await mkdtemp(join(tmpdir(), 'jubian-erase-pilot-'))
   onTestFinished(() => rm(root, { recursive: true, force: true }))
   const ledger = new JubianLedger({ root, defaultLimitCents: () => 500 })
@@ -104,7 +109,7 @@ it.each(['accepted', 'rejected', 'ineligible'] as const)('routes automatic erasu
       throw new Error(`Unexpected erasure fixture request: ${path}`)
     } })
   let submissions = 0, claims = 0
-  const rejection = { state: 'rejected', code: 'MEDIAKIT_RATE_LIMITED' } as const
+  const rejection = { state: 'rejected', ...(code === undefined ? {} : { code }) } as const
   const postprocess: MediaPostprocessClient = {
     previewMediaPostprocess: async (request) => {
       expect(request).toEqual({ operation: 'erase_subtitle', scriptId: 2708, taskId: 42, videoUrl: sourceUrl })
@@ -120,6 +125,8 @@ it.each(['accepted', 'rejected', 'ineligible'] as const)('routes automatic erasu
   const result = await storyboardMethod(client, ledger, args, { postprocess })
   if (state === 'rejected') {
     expect(result).toMatchObject({ provider: 'jubian', fallback_from: 'volcengine-mediakit', accepted_task_id: '429001' })
+    if (code === undefined) expect(result).not.toHaveProperty('fallback_reason')
+    else expect(result).toHaveProperty('fallback_reason', code)
     expect(await storyboardMethod(client, ledger, args, { postprocess })).toMatchObject({ provider: 'jubian', replayed: true })
   } else if (state === 'ineligible') {
     expect(result).toMatchObject({ accepted_task_id: '429001' })
