@@ -32,7 +32,7 @@ const releaseBase = 'https://github.com/jackotom/hongguo-drama/releases/download
 export function validateBytevc2RuntimeLock(value: unknown): Bytevc2RuntimeLock {
   if (typeof value !== 'object' || value === null) throw new Error('ByteVC2 runtime: invalid lock')
   const lock = value as Bytevc2RuntimeLock
-  if (lock.version !== 1 || lock.release !== '7.1'
+  if (lock.version !== 1 || lock.release !== '8.5'
     || lock.helperRevision !== 'cb1f8f3eef84999e61b27e2d44664858179bc240'
     || typeof lock.targets !== 'object' || lock.targets === null
     || Object.keys(lock.targets).length !== targets.length) throw new Error('ByteVC2 runtime: invalid release')
@@ -159,11 +159,12 @@ export async function prepareBytevc2Runtime(options: {
     smokeBytevc2Runtime(output, options.target)
     return output
   }
-  await mkdir(options.cache, { recursive: true })
+  const cache = join(options.cache, `v${lock.release}`)
+  await mkdir(cache, { recursive: true })
   await mkdir(dirname(output), { recursive: true })
   const entry = lock.targets[options.target]
-  const archive = await obtain(entry.archive, options.cache)
-  const source = await obtain(entry.source, options.cache)
+  const archive = await obtain(entry.archive, cache)
+  const source = await obtain(entry.source, cache)
   const stage = await shortStage(output)
   try {
     const require = createRequire(import.meta.url)

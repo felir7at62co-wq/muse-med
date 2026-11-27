@@ -1,63 +1,63 @@
 {
   "version": 1,
-  "release": "7.1",
+  "release": "8.5",
   "helperRevision": "cb1f8f3eef84999e61b27e2d44664858179bc240",
   "targets": {
     "mac-arm64": {
       "archive": {
-        "filename": "hongguo-downloader-7.1-mac-arm64.zip",
-        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v7.1/hongguo-downloader-7.1-mac-arm64.zip",
-        "bytes": 161223451,
-        "sha256": "2c7ff459b18e55ec24e580349892bc1785f26a7ad659ef4f57deec2691034a09"
+        "filename": "hongguo-downloader-8.5-mac-arm64.zip",
+        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v8.5/hongguo-downloader-8.5-mac-arm64.zip",
+        "bytes": 188169843,
+        "sha256": "df90b0632fd147505cd7120b50f1ed4760d4b6dc630d1af8988be6c98bfd3958"
       },
       "source": {
         "filename": "librempeg-cb1f8f3-x264-b35605a-arm64-corresponding-source.tar.gz",
-        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v7.1/librempeg-cb1f8f3-x264-b35605a-arm64-corresponding-source.tar.gz",
-        "bytes": 19877572,
-        "sha256": "d26f61f26fc320ff53081345cc23b64916e4b5564463dcc3857a49f1acfa4570"
+        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v8.5/librempeg-cb1f8f3-x264-b35605a-arm64-corresponding-source.tar.gz",
+        "bytes": 19877578,
+        "sha256": "f137ddc4f13213e25f8a2fa17e5c27857e6dd7decc903049e07f62cc52fc0d3c"
       },
       "helper": {
         "filename": "librempeg",
-        "bytes": 6711216,
-        "sha256": "93481f4983879b3c3fae9af76c58cc7db7d739c8012bec7edfff2be29ac8be64"
+        "bytes": 6710736,
+        "sha256": "fb2c6891abc25821764ab8e7175947bb2f9c7c393515ac056ead6b7a4e777747"
       }
     },
     "mac-x64": {
       "archive": {
-        "filename": "hongguo-downloader-7.1-mac-x64.zip",
-        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v7.1/hongguo-downloader-7.1-mac-x64.zip",
-        "bytes": 169536868,
-        "sha256": "4a09ca2b228c74e49908b03668d7066846177486822d525ab7294967b00901c6"
+        "filename": "hongguo-downloader-8.5-mac-x64.zip",
+        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v8.5/hongguo-downloader-8.5-mac-x64.zip",
+        "bytes": 199774597,
+        "sha256": "96400c8f56b7b5971dab3552d05b64372a47630d173194c16845e84d3b87d9d3"
       },
       "source": {
         "filename": "librempeg-cb1f8f3-x264-b35605a-x64-corresponding-source.tar.gz",
-        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v7.1/librempeg-cb1f8f3-x264-b35605a-x64-corresponding-source.tar.gz",
-        "bytes": 19877572,
-        "sha256": "d26f61f26fc320ff53081345cc23b64916e4b5564463dcc3857a49f1acfa4570"
+        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v8.5/librempeg-cb1f8f3-x264-b35605a-x64-corresponding-source.tar.gz",
+        "bytes": 19877578,
+        "sha256": "f137ddc4f13213e25f8a2fa17e5c27857e6dd7decc903049e07f62cc52fc0d3c"
       },
       "helper": {
         "filename": "librempeg",
-        "bytes": 6877808,
-        "sha256": "841cde10329aba73f9379088acc631904d25463c2f6bb4ee59fc4a12687a4173"
+        "bytes": 6877328,
+        "sha256": "b1f6c6c8980bfa14619c20e9d7cc299d690b2feff55fb376b209d3df7887dc8a"
       }
     },
     "win-x64": {
       "archive": {
-        "filename": "hongguo-downloader-7.1-win-x64-setup.exe",
-        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v7.1/hongguo-downloader-7.1-win-x64-setup.exe",
-        "bytes": 137879841,
-        "sha256": "daf8141a89cbcbbd2071b5d5f3afdf1187c616e891eb98b928f2c239c49a2489"
+        "filename": "hongguo-downloader-8.5-win-x64-setup.exe",
+        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v8.5/hongguo-downloader-8.5-win-x64-setup.exe",
+        "bytes": 169728031,
+        "sha256": "f72bd66b5837297db80e8f43a133f01f459177ac5102753934fba3d43ede2e78"
       },
       "source": {
         "filename": "librempeg-cb1f8f3-x264-b35605a-win-x64-corresponding-source.tar.gz",
-        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v7.1/librempeg-cb1f8f3-x264-b35605a-win-x64-corresponding-source.tar.gz",
-        "bytes": 19959114,
-        "sha256": "dc348745552f73e6413c78c496fbecef0f99d0d992c5cc372a1a801686e04730"
+        "url": "https://github.com/jackotom/hongguo-drama/releases/download/v8.5/librempeg-cb1f8f3-x264-b35605a-win-x64-corresponding-source.tar.gz",
+        "bytes": 20049852,
+        "sha256": "17911db016f346df87f7e90a4300cd9ff96f99400f9e1fbeafe8ffec346af1f1"
       },
       "helper": {
         "filename": "librempeg.exe",
-        "bytes": 7835136,
-        "sha256": "d4c5b90cffa9ae2cb2022e04e777247f0e3acbe6789eb432b9affc23df2a9663"
+        "bytes": 7889920,
+        "sha256": "cab744fc47950b959491380f70e3f2d25e7ea94158b059b003651978aee9f2d3"
       }
     }
   }
