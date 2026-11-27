@@ -6,6 +6,7 @@ import type { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { MuseAccountService, MuseMediaPostprocessInput, MuseMediaPostprocessJobKey,
   MuseMediaPostprocessSubmission, MuseMediaPostprocessStatus } from '@deepseek-ai/dsh-muse-account'
 import { z } from 'zod'
@@ -17,7 +18,8 @@ export type MediaPostprocessClient = Pick<MuseAccountService,
   'previewMediaPostprocess' | 'submitMediaPostprocess' | 'statusMediaPostprocess' | 'claimMediaPostprocessFallback'>
 
 type PostprocessStage = MuseMediaPostprocessInput['operation']
-type Decision = { route: 'jubian' } | { route: 'backup'; ledgerKey: string; beforeReserve: () => Promise<void> }
+type Decision = { route: 'jubian' }
+  | { route: 'backup'; ledgerKey: string; reason: string | undefined; beforeReserve: () => Promise<void> }
   | { route: 'mediakit'; result: Record<string, unknown> }
 const bindingSchema = z.object({ stage: z.enum(['upscale', 'erase_subtitle']), taskId: z.number().int().positive(),
   requestDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
@@ -46,7 +48,7 @@ function mediaKitResult(jobKey: MuseMediaPostprocessJobKey,
   budget: ReturnType<typeof recordedWriteBudget>, replayed: boolean, gateway: MediaPostprocessClient,
   signal?: AbortSignal): Decision {
   if (reported.state === 'rejected') return {
-    route: 'backup', ledgerKey: 'muse-mediakit-backup-' + jobKey,
+    route: 'backup', ledgerKey: 'muse-mediakit-backup-' + jobKey, reason: reported.code,
     beforeReserve: async () => {
       const claimed = await gateway.claimMediaPostprocessFallback(jobKey, signal)
       if (!claimed) throw new JubianError('CONTRACT_CHANGED',
@@ -70,11 +72,12 @@ function mediaKitResult(jobKey: MuseMediaPostprocessJobKey,
  * @param gateway - Current optional account gateway.
  * @param readInput - Read the exact Jubian media used by the corresponding legacy operation.
  * @param signal - Cancellation of foreground work.
+ * @param readJubianCredential - Host-only credential resolver for official provider requests.
  * @returns The persisted primary result, or permission to enter the existing separately budgeted backup.
  */
 export async function routeMediaPostprocess(ledger: JubianLedger, key: string, stage: PostprocessStage, taskId: number,
   gateway: MediaPostprocessClient | undefined, readInput: () => Promise<MuseMediaPostprocessInput>,
-  signal?: AbortSignal): Promise<Decision> {
+  signal?: AbortSignal, readJubianCredential?: () => Promise<string | undefined>): Promise<Decision> {
   const primaryKey = 'muse-mediakit-' + createHash('sha256').update(key).digest('hex')
   if (await ledger.find(key)) return { route: 'jubian' }
   const prior = await ledger.find(primaryKey)
@@ -98,9 +101,22 @@ export async function routeMediaPostprocess(ledger: JubianLedger, key: string, s
   if (gateway === undefined) return { route: 'jubian' }
   const input = await readInput()
   let preview
-  try { preview = await gateway.previewMediaPostprocess(input, signal) }
-  catch (_error) {
+  let jubianToken: string | undefined
+  try {
+    jubianToken = await readJubianCredential?.()
     signal?.throwIfAborted()
+    preview = await gateway.previewMediaPostprocess(input, signal, jubianToken)
+  } catch (error) {
+    signal?.throwIfAborted()
+    if (error instanceof HarnessError) {
+      if (error.code === 'MEDIAKIT_ACCOUNT_CHANGED') throw error
+      if (error.code === 'MEDIAKIT_SOURCE_UNVERIFIED') {
+        throw new HarnessError('火山预检未能验证剧变源视频，请核对当前账号及原任务。', error.code)
+      }
+      if (error.code === 'MEDIAKIT_EXISTING_PROCESSING') {
+        throw new HarnessError('此源视频已有一笔火山处理，请使用原任务编号查询。', error.code)
+      }
+    }
     throw new JubianError('NETWORK_ERROR', '火山接入预检不可用，继续前请确认原处理状态。')
   }
   if (preview.state !== 'ready') return { route: 'jubian' }
@@ -111,7 +127,8 @@ export async function routeMediaPostprocess(ledger: JubianLedger, key: string, s
     () => request, async () => {
       await writeFileAtomic(bindingPath(ledger, key),
         JSON.stringify({ stage, taskId, jobKey: preview.jobKey, requestDigest: bodyHash({ ...input }) }) + '\n', { mode: 0o600 })
-      submitted = await gateway.submitMediaPostprocess(request, signal)
+      submitted = await gateway.submitMediaPostprocess(preview.defaultRouting === true
+        ? { ...request, quoteAmount: preview.amount } : request, signal, jubianToken)
       return {
         transport: { http_status: 200, application_code: submitted.state === 'accepted' ? 200 : null },
         response_sha256: null, data: null,

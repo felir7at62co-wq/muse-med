@@ -132,11 +132,11 @@ describe('approved MediaKit upscale pilot', () => {
 
   it('falls back to the budgeted Jubian route once for an explicit rejection', async () => {
     const { client, ledger, paidCalls } = await fixture()
-    const rejection = { state: 'rejected', code: 'MEDIAKIT_RATE_LIMITED' } as const
+    const rejection = { state: 'rejected', code: 'MEDIAKIT_CAPACITY_LIMIT' } as const
     const gateway = mediaKit(rejection, rejection)
     const deps = { postprocess: gateway.client }
     expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({
-      provider: 'jubian', fallback_from: 'volcengine-mediakit', accepted_task_id: '429001',
+      provider: 'jubian', fallback_from: 'volcengine-mediakit', fallback_reason: 'MEDIAKIT_CAPACITY_LIMIT', accepted_task_id: '429001',
     })
     expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({ provider: 'jubian', replayed: true })
     expect(gateway.attempts()).toEqual({ submissions: 1, queries: 1, claims: 1 })

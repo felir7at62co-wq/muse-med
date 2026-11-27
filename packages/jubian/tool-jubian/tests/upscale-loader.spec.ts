@@ -8,6 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import Llm, { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { MuseMediaPostprocessInput } from '@deepseek-ai/dsh-muse-account'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -34,7 +35,9 @@ it.each([
   { scenario: 'a missing live MediaKit price', model: mediaKit, quote: null },
   { scenario: 'a live generative MediaKit standard price', model: generativeMediaKit, quote: { amount: '20.00', cents: 2000 } },
   { scenario: 'an approved direct MediaKit pilot', model: mediaKit, quote: { amount: '1.00', cents: 100 }, pilot: true },
-])('records upscale results with $scenario under the default budget and no manual estimates', async ({ model, quote, pilot }) => {
+  { scenario: 'default MediaKit routing for official Jubian', model: mediaKit, quote: { amount: '1.00', cents: 100 },
+    pilot: true, official: true },
+])('records upscale results with $scenario under the default budget and no manual estimates', async ({ model, quote, pilot, official }) => {
   const priced = quote !== null
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
     { id: 'tool-executor-native', name: 'cordis:native-executor' },
@@ -49,9 +52,19 @@ it.each([
   const downloadedPath = join(home, 'pilot.mp4')
   const mp4Header = Buffer.from('000000186674797069736f6d0000000069736f6d61766331', 'hex')
   let directSubmits = 0
+  const token = official ? 'offline-upscale-token' : undefined
   if (pilot) ctx.provide('museAccount', {
-    previewMediaPostprocess: () => ({ state: 'ready', jobKey, amount: '1.00', unit: 'CNY' }),
-    submitMediaPostprocess: () => { directSubmits++; return { state: 'accepted' } },
+    previewMediaPostprocess: (_input: MuseMediaPostprocessInput, _signal?: AbortSignal, credential?: string) => {
+      expect(credential).toBe(token)
+      return { state: 'ready', jobKey, amount: '1.00', unit: 'CNY', ...(official ? { defaultRouting: true } : {}) }
+    },
+    submitMediaPostprocess: (input: MuseMediaPostprocessInput & { quoteAmount?: string }, _signal?: AbortSignal, credential?: string) => {
+      expect(credential).toBe(token)
+      if (official) expect(input.quoteAmount).toBe('1.00')
+      else expect(input).not.toHaveProperty('quoteAmount')
+      directSubmits++
+      return { state: 'accepted' }
+    },
     statusMediaPostprocess: () => ({ state: 'completed',
       videoUrl: 'https://result.example.test/clip.mp4?signature=private', downloadOrigin: 'https://result.example.test' }),
     claimMediaPostprocessFallback: () => { throw Error('Accepted MediaKit work cannot claim the backup') },
@@ -65,7 +78,8 @@ it.each([
       expect(url.pathname).toBe('/clip.mp4')
       return new Response(Uint8Array.from(mp4Header))
     }
-    expect(url.origin, 'the fixture refuses external provider traffic').toBe('https://upscale-loader.invalid')
+    expect(url.origin, 'the fixture refuses unexpected provider traffic')
+      .toBe(official ? 'https://web.jubianai.net' : 'https://upscale-loader.invalid')
     const method = init?.method ?? 'GET', path = url.pathname.replace('/prod-api', '')
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
     calls.push({ method, path })
@@ -103,7 +117,7 @@ it.each([
   onTestFinished(() => { fetch.mockRestore() })
   try {
     await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot,
-      workspaceSecrets: false, baseUrl: 'https://upscale-loader.invalid/prod-api',
+      workspaceSecrets: false, ...(official ? {} : { baseUrl: 'https://upscale-loader.invalid/prod-api' }),
       ...(pilot ? { mediaKitPostprocess: true } : {}) } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
@@ -138,6 +152,7 @@ it.each([
     if (first?.type !== 'text') throw new Error('Missing recorded upscale result')
     if (pilot) {
       expect(JSON.parse(first.text)).toMatchObject({ processing_job_key: jobKey, status: 'accepted' })
+      expect(first.text).not.toContain('offline-upscale-token')
       for (const index of [1, 2]) {
         const reported = results[index]?.content[0]
         if (reported?.type !== 'text') throw new Error('Missing recorded MediaKit result')

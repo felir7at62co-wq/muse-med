@@ -1,11 +1,11 @@
-/** Account-authenticated, explicitly approved MediaKit pilot jobs. */
+/** Account-authenticated MediaKit jobs with server-verified source and pricing. */
 import {createHash} from 'node:crypto';
 import {constants} from 'node:fs';
 import {open} from 'node:fs/promises';
-import {isIP} from 'node:net';
 import {validId} from './store.mjs';
 import {createMediaKitProvider} from './mediakit-provider.mjs';
 import {openMediaKitJobs} from './mediakit-jobs.mjs';
+import {canonicalMediaUrl, createMediaKitSourceVerifier} from './mediakit-source.mjs';
 
 const prefix = '/api/media-postprocess';
 const jobPath = /^\/api\/media-postprocess\/jobs\/([a-f0-9]{64})(\/fallback)?$/u;
@@ -19,21 +19,13 @@ const object = value => value !== null && typeof value === 'object' && !Array.is
 const positiveId = value => Number.isSafeInteger(value) && value > 0;
 const approvalKey = (accountId, scriptId, taskId, operation) => JSON.stringify([accountId, scriptId, taskId, operation]);
 
-function canonicalMediaUrl(value) {
-  if (typeof value !== 'string' || value.length > 4096) return undefined;
-  const url = URL.parse(value);
-  if (!url || url.href !== value || url.protocol !== 'https:' || url.port || url.username || url.password ||
-    url.hash || !url.hostname.includes('.') || isIP(url.hostname) || url.hostname.endsWith('.localhost')) return undefined;
-  return url;
-}
-
 function exactOrigin(value) {
   if (typeof value !== 'string') return false;
   return canonicalMediaUrl(value + '/')?.origin === value;
 }
 
 function configError() {
-  return Error('Invalid MediaKit pilot configuration');
+  return Error('Invalid MediaKit configuration');
 }
 
 function compileApprovals(entries) {
@@ -70,13 +62,27 @@ function compileApprovals(entries) {
   return {byClip, byJobKey, sourceOrigins};
 }
 
+function compileDefaultRouting(value) {
+  if (value === undefined) return undefined;
+  if (!object(value) || !Array.isArray(value.sourceOrigins) || value.sourceOrigins.length === 0 ||
+    !value.sourceOrigins.every(exactOrigin) || !positiveId(value.maxDailyJobs) || value.maxDailyJobs > 10000 ||
+    !positiveId(value.maxSourceSeconds) || value.maxSourceSeconds > 86400 || !object(value.centsPerMinute)) {
+    throw configError();
+  }
+  for (const operation of ['upscale720p', 'upscale1080p', 'eraseSubtitle']) {
+    const rate = value.centsPerMinute[operation];
+    if (!positiveId(rate) || Math.ceil(rate * value.maxSourceSeconds / 60) > 9999999) throw configError();
+  }
+  return {...value, sourceOrigins: new Set(value.sourceOrigins)};
+}
+
 /**
- * Open the MediaKit pilot using the gateway's private configuration and durable job directory.
- * @param {string|undefined} file Configuration path. An absent path disables the pilot.
- * @param {object} [options] Optional test-only HTTP transport override. The default uses the provider's live endpoint.
- * @returns {Promise<object|undefined>} Allowlisted preview, submission and lookup operations, or undefined when disabled.
+ * Open MediaKit using the gateway's private configuration and durable job directory.
+ * @param {string|undefined} file Configuration path. An absent path disables MediaKit.
+ * @param {object} [options] Optional test-only MediaKit and source-verification HTTP transports.
+ * @returns {Promise<object|undefined>} Preview, submission and lookup operations, or undefined when disabled.
  */
-export async function loadMediaKitPilot(file, {fetchImpl} = {}) {
+export async function loadMediaKitPilot(file, {fetchImpl, sourceFetch} = {}) {
   if (!file) return undefined;
   const flags = constants.O_RDONLY | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW | constants.O_NONBLOCK);
   const handle = await open(file, flags);
@@ -96,6 +102,9 @@ export async function loadMediaKitPilot(file, {fetchImpl} = {}) {
   const requestRatePerMinute = config.requestRatePerMinute ?? 60;
   if (!Number.isSafeInteger(requestRatePerMinute) || requestRatePerMinute <= 0) throw configError();
   const {byClip, byJobKey, sourceOrigins} = compileApprovals(config.approvals);
+  const defaultRouting = compileDefaultRouting(config.defaultRouting);
+  const verifySource = createMediaKitSourceVerifier({fetcher: sourceFetch});
+  for (const origin of defaultRouting?.sourceOrigins ?? []) sourceOrigins.add(origin);
   const provider = createMediaKitProvider({
     apiKey: config.apiKey, queueId: config.queueId, timeoutMs: config.timeoutMs, fetchImpl,
   });
@@ -103,22 +112,36 @@ export async function loadMediaKitPilot(file, {fetchImpl} = {}) {
   const resultOrigins = new Set(config.resultOrigins);
   return {
     requestRatePerMinute,
-    async preview(accountId, input) {
+    async preview(accountId, input, jubianToken, {submitting = false} = {}) {
       const key = approvalKey(accountId, input.scriptId, input.taskId, input.operation);
       const entry = byClip.get(key);
       const url = canonicalMediaUrl(input.videoUrl);
-      const existing = await jobs.submissionMatch(accountId, sha256(key), input);
-      if (!entry || input.resolution !== entry.resolution || !url || entry.sourceOrigin !== url.origin ||
-        entry.sourcePath !== url.pathname || sha256(input.videoUrl) !== entry.sourceSha256) {
-        return {state: existing === 'absent' ? 'ineligible' : 'blocked'};
+      const jobKey = sha256(key);
+      const existing = await jobs.submissionMatch(accountId, jobKey, input);
+      const unavailable = {state: existing === 'absent' ? 'ineligible' : 'blocked'};
+      if (existing === 'different' || !url) return unavailable;
+      if (entry) {
+        if (input.resolution !== entry.resolution || entry.sourceOrigin !== url.origin ||
+          entry.sourcePath !== url.pathname || sha256(input.videoUrl) !== entry.sourceSha256) return unavailable;
+        return {state: 'ready', jobKey, amount: entry.priceCny, unit: 'CNY'};
       }
-      if (existing === 'different') return {state: 'blocked'};
-      return {state: 'ready', jobKey: entry.jobKey, amount: entry.priceCny, unit: 'CNY'};
+      if (!defaultRouting?.sourceOrigins.has(url.origin) || jubianToken === undefined) return unavailable;
+      if (!submitting && existing === 'absent' && !await jobs.defaultCapacityAvailable(defaultRouting.maxDailyJobs)) return unavailable;
+      const duration = await verifySource(jubianToken, input);
+      if (duration === undefined) return {state: 'unverified'};
+      if (duration > defaultRouting.maxSourceSeconds) return unavailable;
+      const rate = defaultRouting.centsPerMinute[input.operation === 'upscale' ? 'upscale' + input.resolution : 'eraseSubtitle'];
+      const amount = (Math.ceil(rate * Math.ceil(duration) / 60) / 100).toFixed(2);
+      return {state: 'ready', jobKey, amount, unit: 'CNY', defaultRouting: true};
     },
-    submit: jobs.submit,
+    async submit(accountId, entry, input, options) {
+      return await jobs.submit(accountId, entry.jobKey, input, {
+        ...options, ...(entry.defaultRouting ? {defaultDailyLimit: defaultRouting.maxDailyJobs} : {}),
+      });
+    },
     async claimFallback(accountId, jobKey, options) {
       const entry = byJobKey.get(jobKey);
-      if (entry?.accountId !== accountId) return false;
+      if (entry && entry.accountId !== accountId) return false;
       return await jobs.claimFallback(accountId, jobKey, entry, options);
     },
     async inspect(accountId, jobKey) {
@@ -136,7 +159,8 @@ function validRequest(value, submit) {
     !(value.operation === 'upscale' && resolutions.has(value.resolution) ||
     value.operation === 'erase_subtitle' && value.resolution === undefined)) return false;
   if (submit ? typeof value.jobKey !== 'string' || !hexDigest.test(value.jobKey) : value.jobKey !== undefined) return false;
-  return Object.keys(value).every(key => ['scriptId', 'taskId', 'videoUrl', 'operation', 'resolution', 'jobKey'].includes(key));
+  if (value.quoteAmount !== undefined && (!submit || typeof value.quoteAmount !== 'string' || !price.test(value.quoteAmount))) return false;
+  return Object.keys(value).every(key => ['scriptId', 'taskId', 'videoUrl', 'operation', 'resolution', 'jobKey', 'quoteAmount'].includes(key));
 }
 
 async function body(req) {
@@ -153,7 +177,7 @@ async function body(req) {
 }
 
 /**
- * Serve the private pilot without passing source addresses or provider response data into gateway errors.
+ * Serve processing without passing source addresses or provider response data into gateway errors.
  * @param {object} options Gateway-provided request, route and authenticated session operations.
  * @returns {Promise<boolean>} Whether the MediaKit namespace handled this request.
  */
@@ -193,14 +217,19 @@ export async function mediaKitRoute({req, res, path, mediaKit, currentSession, o
     if (parsed.status) return answer(parsed.status, {code: 'invalid_request'});
     if (!validRequest(parsed.value, submit)) return answer(400, {code: 'invalid_request'});
     if (!stillSignedIn()) return answer(401, {code: 'account_session_expired'});
-    const entry = await mediaKit.preview(s.id, parsed.value);
+    const entry = await mediaKit.preview(s.id, parsed.value, req.headers['x-jubian-token'], {submitting: submit});
     if (!stillSignedIn()) return answer(401, {code: 'account_session_expired'});
-    if (preview) return entry.state === 'blocked' ? answer(409, {code: 'existing_media_processing'}) : answer(200, entry);
-    if (entry.state !== 'ready' || entry.jobKey !== parsed.value.jobKey) {
+    if (preview) {
+      if (entry.state === 'blocked') return answer(409, {code: 'existing_media_processing'});
+      if (entry.state === 'unverified') return answer(409, {code: 'media_source_unverified'});
+      return answer(200, entry);
+    }
+    if (entry.state !== 'ready' || entry.jobKey !== parsed.value.jobKey ||
+      (entry.defaultRouting ? parsed.value.quoteAmount !== entry.amount : parsed.value.quoteAmount !== undefined)) {
       return answer(200, {state: 'conflict', code: 'preview_mismatch'});
     }
     if (!accepting()) return answer(503, {code: 'server_draining'});
-    const result = await mediaKit.submit(s.id, entry.jobKey, parsed.value, {
+    const result = await mediaKit.submit(s.id, entry, parsed.value, {
       isAuthorized: () => stillSignedIn() && accepting(),
     });
     if (!stillSignedIn()) return answer(401, {code: 'account_session_expired'});

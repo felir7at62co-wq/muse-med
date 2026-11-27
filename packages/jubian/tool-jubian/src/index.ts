@@ -33,7 +33,8 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_DEFAULT_BASE_URL, JUBIAN_TOKEN_REF, configuredJubianClient, isUsableBearerToken, JubianLedger,
+  readProjectBudget, trimBearerToken, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { assertNewNativeDispatchAllowed, reconcileRecordedVideo, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
@@ -148,7 +149,7 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   projectShareMaxResultChars?: number
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
-  /** Enable the MediaKit pilot for jobs the Muse gateway has individually approved. */
+  /** Ask the Muse gateway to route eligible video post-processing jobs to MediaKit. */
   mediaKitPostprocess?: boolean
   /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
   watchPollIntervalMs?: number
@@ -627,6 +628,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     throw new TypeError('mediaKitPostprocess must be a boolean')
   }
   const mediaKit = () => config.mediaKitPostprocess === true ? ctx.get('museAccount') : undefined
+  const officialJubianBase = config.baseUrl === undefined || config.baseUrl === JUBIAN_DEFAULT_BASE_URL
   const generationBindings = new WeakMap<object, GenerationPresentation>()
   const generationSessionBindings = new GenerationSessionBindings(ctx)
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
@@ -807,10 +809,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       }
     })
   })
-  const voiceCoordinator = museVoiceCoordinator(ctx, async () => {
+  const readPipelineCredential = async () => {
     const stored = await storedCredential()
     return stored.trim() || config.workspaceSecrets === false ? stored : await workspacePipelineToken(process.cwd())
-  })
+  }
+  const readJubianCredential = officialJubianBase ? async () => {
+    const token = trimBearerToken(await readPipelineCredential())
+    return isUsableBearerToken(token) ? token : undefined
+  } : undefined
+  const voiceCoordinator = museVoiceCoordinator(ctx, readPipelineCredential)
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
   ctx.plugin(JubianImageRoutes, { client,
@@ -1234,11 +1241,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；'
       + 'storyboard PUT 创建的 335343 保留了全部七项身份。'
       + (config.mediaKitPostprocess === true
-        ? '名单内的自动擦除可先走火山；仅在确认未受理后按剧变报价回退。火山结果用 jubian_media 查询。' : '')
-      + '**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：'
-      + '源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，'
-      + '不需要也不应该由调用方画框。model_id 没有默认值，'
-      + '省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。'
+        ? '**erase_subtitle 必填 task_id 与画面尺寸**（script_id 从任务行读取）：普通自动擦除可省略 model_id，符合网关条件时优先使用火山。'
+          + '区域擦除、要求免费或传入人工估价时须指定 model_id。只有确认未受理才按剧变报价回退。火山结果用 jubian_media 查询。'
+          + '源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，不需要也不应该由调用方画框。'
+        : '**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：'
+          + '源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，'
+          + '不需要也不应该由调用方画框。model_id 没有默认值，'
+          + '省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。')
       + '实时目录唯一匹配火山 ark-erase-video-subtitle-pro / AI_MEDIA_KIT / 67 / 0 元/条时，按 0.00 CNY 记账且不占项目额度，仍按原 key 防重；其他零价不推断为免费。'
       + '只允许免费时须传 only_if_verified_free=true，省略估算字段；本次核价不通过就不提交。'
       + '它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。' + WRITE_NOTE,
@@ -1258,7 +1267,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
       page_num: ARGS.page_num, page_size: ARGS.page_size,
       task_id: ARGS.task_id, script_id: ARGS.script_id,
-      model_id: ARGS.model_id, task_name: ARGS.task_name,
+      model_id: config.mediaKitPostprocess === true ? { ...ARGS.model_id,
+        description: 'erase_subtitle 普通自动擦除可省略。区域擦除、要求免费或传入人工估价时，填写实时目录精确 modelId。' }
+        : ARGS.model_id, task_name: ARGS.task_name,
       platform_id: { type: 'string', description: '去字幕可选：task_type=10 目录的精确 platformId。' },
       erase_mode: { type: 'string', enum: ['automatic', 'region'], description: '新列出的去字幕模型须显式选自动或区域擦除；已知模型省略时沿用原路由。' },
       only_if_verified_free: { type: 'boolean', description: '仅用于去字幕。为 true 时禁止估算，提交前必须核实本次实时目录精确匹配已知免费路线；无证明时不发送，即使项目仍有预算。' },
@@ -1335,7 +1346,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const dispatch = async (beforeVideoSend?: (key: string) => Promise<void>) => {
           const result = await storyboardMethod(client, ledger, input, {
             naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal, creationWorkspaceDir,
-            postprocess: mediaKit(),
+            postprocess: mediaKit(), readJubianCredential,
             projectInventoryLimits: projectShare,
             ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
             ...(promptRiskReview ? { promptRiskReview } : {}),
@@ -1447,7 +1458,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。'
       + '**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。'
       + (config.mediaKitPostprocess === true
-        ? '名单内的高清请求优先试火山。只有明确未受理才重新走剧变报价。火山结果用 jubian_media 查询。' : '')
+        ? '符合网关条件的高清请求优先试火山。只有明确未受理才重新走剧变报价。火山结果用 jubian_media 查询。' : '')
       + '仿真人剧默认使用原片，不自动转高清。'
       + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
       + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'
@@ -1498,7 +1509,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             characterReferenceGenerationRequest(input), exec.signal)
         })()
       return await videoMethod(client, ledger, input, { image: image(), imageBatch, imageReferenceScan, videoSources,
-        signal: exec.signal, naming, postprocess: mediaKit(),
+        signal: exec.signal, naming, postprocess: mediaKit(), readJubianCredential,
         ...(characterReferenceGeneration === undefined ? {} : { characterReferenceGeneration }) })
     })(args),
   }))

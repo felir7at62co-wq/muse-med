@@ -54,6 +54,35 @@ it('previews, submits and queries one job via fixed gateway routes without follo
   })
 })
 
+it('carries Jubian credentials only in the request header and sends a default-routing quote amount', async () => {
+  const token = 'offline-provider-token'
+  const fetcher = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ ...ready, defaultRouting: true }))
+    .mockResolvedValueOnce(Response.json({ state: 'rejected', code: 'MEDIAKIT_CAPACITY_LIMIT' }))
+    .mockResolvedValueOnce(Response.json({ ...ready, echoed: token }))
+  const { client } = await fixture(fetcher)
+  const quote = await client.preview(input, undefined, token)
+  expect(quote).toEqual({ ...ready, defaultRouting: true })
+  await expect(client.submit({ ...input, jobKey, quoteAmount: ready.amount }, undefined, token))
+    .resolves.toEqual({ state: 'rejected', code: 'MEDIAKIT_CAPACITY_LIMIT' })
+  await expect(client.preview(input, undefined, token)).rejects.toMatchObject({ code: 'MEDIAKIT_INVALID_RESPONSE' })
+  expect(fetcher.mock.calls.map(([, request]) => new Headers(request?.headers).get('X-Jubian-Token')))
+    .toEqual([token, token, token])
+  expect(fetcher.mock.calls[0]?.[1]?.body).toBe(JSON.stringify(input))
+  expect(fetcher.mock.calls[1]?.[1]?.body).toBe(JSON.stringify({ ...input, jobKey, quoteAmount: ready.amount }))
+})
+
+it.each([
+  ['media_source_unverified', 'MEDIAKIT_SOURCE_UNVERIFIED'],
+  ['existing_media_processing', 'MEDIAKIT_EXISTING_PROCESSING'],
+  ['unsupported_conflict', 'MEDIAKIT_UNAVAILABLE'],
+])('reports preview conflict %s as a stable code without provider details', async (responseCode, code) => {
+  const { client } = await fixture(vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({
+    code: responseCode, message: 'private-provider-detail',
+  }, { status: 409 })))
+  await expect(client.preview(input)).rejects.toMatchObject({ code, message: `Muse video processing: ${code}` })
+})
+
 it('treats a 404 only on a preview as ineligible and an explicit none as not found', async () => {
   const fetcher = vi.fn<typeof fetch>()
     .mockResolvedValueOnce(new Response('internal routing detail', { status: 404 }))
@@ -88,13 +117,27 @@ it('returns only explicit gateway decisions for the one-time fallback claim', as
   }
 })
 
-it('requires sign-in before the first gateway request and does not read malformed session content into errors', async () => {
+it('allows the existing route only for a new preview when there is no local Muse session', async () => {
+  const fetcher = vi.fn<typeof fetch>()
+  const { client } = await fixture(fetcher, false)
+  await expect(client.preview(input)).resolves.toEqual({ state: 'ineligible' })
+  await expect(client.submit({ ...input, jobKey })).resolves.toEqual({ state: 'unknown', code: 'MEDIAKIT_SIGN_IN_REQUIRED' })
+  await expect(client.status(jobKey)).resolves.toEqual({ state: 'unknown', code: 'MEDIAKIT_SIGN_IN_REQUIRED' })
+  await expect(client.claimFallback(jobKey)).rejects.toMatchObject({ code: 'MEDIAKIT_SIGN_IN_REQUIRED' })
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it('reports a damaged local session without sending a request or disclosing session file content', async () => {
   const fetcher = vi.fn<typeof fetch>()
   const { client, sessionFile } = await fixture(fetcher, false)
-  await expect(client.preview(input)).rejects.toMatchObject({ code: 'MEDIAKIT_SIGN_IN_REQUIRED' })
   await writeFile(sessionFile, 'unreadable private-session')
   await expect(client.preview(input)).rejects.toMatchObject({ message: 'Muse video processing: MEDIAKIT_UNAVAILABLE' })
   expect(fetcher).not.toHaveBeenCalled()
+})
+
+it.each([303, 401])('requires sign-in when the gateway rejects a preview with HTTP %s', async (http) => {
+  const { client } = await fixture(async () => new Response(null, { status: http }))
+  await expect(client.preview(input)).rejects.toMatchObject({ code: 'MEDIAKIT_SIGN_IN_REQUIRED' })
 })
 
 it.each([303, 401, 403, 409, 429, 503])('preserves uncertainty for non-200 submission HTTP %s without retries or raw text', async (http) => {

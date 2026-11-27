@@ -21,11 +21,13 @@ const jobKey = z.string().regex(/^[a-f0-9]{64}$/u).transform(value => brandStrin
 const preview = z.discriminatedUnion('state', [
   z.object({ state: z.literal('ineligible') }),
   z.object({ state: z.literal('ready'), jobKey, unit: z.literal('CNY'),
-    amount: z.string().regex(/^(?:0|[1-9]\d{0,12})(?:\.\d{1,2})?$/u).refine(value => Number(value) > 0) }),
+    amount: z.string().regex(/^(?:0|[1-9]\d{0,12})(?:\.\d{1,2})?$/u).refine(value => Number(value) > 0),
+    defaultRouting: z.boolean().optional() }),
 ])
+const previewConflict = z.object({ code: z.enum(['media_source_unverified', 'existing_media_processing']) })
 const gatewayCodes = new Set([
   'MEDIAKIT_INVALID_ARGUMENT', 'MEDIAKIT_AUTHENTICATION_REQUIRED', 'MEDIAKIT_PERMISSION_DENIED',
-  'MEDIAKIT_RATE_LIMITED', 'MEDIAKIT_TRANSPORT', 'MEDIAKIT_INVALID_RESPONSE',
+  'MEDIAKIT_RATE_LIMITED', 'MEDIAKIT_CAPACITY_LIMIT', 'MEDIAKIT_TRANSPORT', 'MEDIAKIT_INVALID_RESPONSE',
   'MEDIAKIT_TASK_CANCELED', 'MEDIAKIT_TASK_FAILED', 'MEDIAKIT_RESULT_ORIGIN_UNAPPROVED',
   'idempotency_conflict', 'submission_unconfirmed', 'query_unconfirmed', 'preview_mismatch',
 ])
@@ -60,7 +62,8 @@ export interface MuseMediaPostprocessOptions {
 /** Host request failure without provider text, request data or credentials. */
 export class MuseMediaPostprocessError extends HarnessError {
   /** @param code - Stable category safe for caller diagnostics. */
-  constructor(code: 'MEDIAKIT_SIGN_IN_REQUIRED' | 'MEDIAKIT_ACCOUNT_CHANGED' | 'MEDIAKIT_UNAVAILABLE' | 'MEDIAKIT_INVALID_RESPONSE') {
+  constructor(code: 'MEDIAKIT_SIGN_IN_REQUIRED' | 'MEDIAKIT_ACCOUNT_CHANGED' | 'MEDIAKIT_UNAVAILABLE'
+    | 'MEDIAKIT_INVALID_RESPONSE' | 'MEDIAKIT_SOURCE_UNVERIFIED' | 'MEDIAKIT_EXISTING_PROCESSING') {
     super(`Muse video processing: ${code}`, code)
   }
 }
@@ -69,7 +72,7 @@ export class MuseMediaPostprocessError extends HarnessError {
 const MAX_REPLY_BYTES = 16 * 1024
 const MEDIA_POSTPROCESS_PATH = '/api/media-postprocess'
 
-async function readReply(response: Response, signal: AbortSignal, cookie: string): Promise<unknown> {
+async function readReply(response: Response, signal: AbortSignal, cookie: string, jubianToken?: string): Promise<unknown> {
   const reader = response.body?.getReader()
   if (reader === undefined) throw new MuseMediaPostprocessError('MEDIAKIT_INVALID_RESPONSE')
   const chunks: Uint8Array[] = []
@@ -92,7 +95,9 @@ async function readReply(response: Response, signal: AbortSignal, cookie: string
       chunks.push(chunk.value)
     }
     const text = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, bytes))
-    if (text.includes(cookie.slice('__Host-muse='.length))) throw new MuseMediaPostprocessError('MEDIAKIT_INVALID_RESPONSE')
+    if (text.includes(cookie.slice('__Host-muse='.length)) || (jubianToken && text.includes(jubianToken))) {
+      throw new MuseMediaPostprocessError('MEDIAKIT_INVALID_RESPONSE')
+    }
     const value: unknown = JSON.parse(text)
     return value
   } catch (_error) {
@@ -122,26 +127,29 @@ export class MuseMediaPostprocessClient {
   }
 
   /**
-   * Obtain a free preview for one eligible input. A missing preview endpoint is ineligible.
+   * Obtain a free preview for one eligible input. An absent local session or preview endpoint is ineligible.
    * @param input - Original source identities and desired processing.
    * @param signal - Caller cancellation.
+   * @param jubianToken - Private provider credential for project authorization.
    * @returns Eligibility and quote from the current account's gateway.
    */
-  async preview(input: MuseMediaPostprocessInput, signal?: AbortSignal): Promise<MuseMediaPostprocessPreview> {
+  async preview(input: MuseMediaPostprocessInput, signal?: AbortSignal, jubianToken?: string): Promise<MuseMediaPostprocessPreview> {
     return await this.request(preview, `${MEDIA_POSTPROCESS_PATH}/preview`, requestFields(input), signal,
-      { absent: { state: 'ineligible' } })
+      { absent: { state: 'ineligible' }, jubianToken })
   }
 
   /**
    * Send one approved submission. A transport or protocol failure leaves acceptance unknown.
-   * @param input - Previewed source and its gateway job key.
+   * @param input - Previewed source, job key and optional default-routing quote amount.
    * @param signal - Cancels this request only.
+   * @param jubianToken - Private provider credential for project authorization.
    * @returns The gateway acknowledgement or a fixed unknown outcome for original-key recovery.
    */
-  async submit(input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey },
-    signal?: AbortSignal): Promise<MuseMediaPostprocessSubmission> {
-    return await this.request(submission, `${MEDIA_POSTPROCESS_PATH}/jobs`, { ...requestFields(input), jobKey: input.jobKey }, signal,
-      { failure: unconfirmed })
+  async submit(input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey; readonly quoteAmount?: string },
+    signal?: AbortSignal, jubianToken?: string): Promise<MuseMediaPostprocessSubmission> {
+    return await this.request(submission, `${MEDIA_POSTPROCESS_PATH}/jobs`,
+      { ...requestFields(input), jobKey: input.jobKey, quoteAmount: input.quoteAmount }, signal,
+      { failure: unconfirmed, jubianToken })
   }
 
   /**
@@ -169,6 +177,7 @@ export class MuseMediaPostprocessClient {
     signal: AbortSignal | undefined, nonSuccess: {
       readonly absent?: z.output<Schema>
       readonly failure?: (error: MuseMediaPostprocessError) => z.output<Schema>
+      readonly jubianToken?: string | undefined
     }): Promise<z.output<Schema>> {
     const timeout = AbortSignal.timeout(this.options.requestTimeoutMs)
     const requestSignal = signal === undefined ? timeout : AbortSignal.any([timeout, signal])
@@ -177,19 +186,30 @@ export class MuseMediaPostprocessClient {
       requestSignal.throwIfAborted()
       const session = await readMuseSession(this.options.sessionFile, this.origin)
       requestSignal.throwIfAborted()
-      if (session === null) throw new MuseMediaPostprocessError('MEDIAKIT_SIGN_IN_REQUIRED')
+      if (session === null) {
+        if (nonSuccess.absent !== undefined) return nonSuccess.absent
+        throw new MuseMediaPostprocessError('MEDIAKIT_SIGN_IN_REQUIRED')
+      }
       response = await (this.options.fetcher ?? fetch)(new URL(endpoint, this.origin), {
         method: input === undefined ? 'GET' : 'POST', redirect: 'manual', signal: requestSignal,
         headers: { cookie: session.cookie, origin: this.origin, accept: 'application/json',
+          ...(nonSuccess.jubianToken === undefined ? {} : { 'x-jubian-token': nonSuccess.jubianToken }),
           ...(input === undefined ? {} : { 'content-type': 'application/json' }) },
         ...(input === undefined ? {} : { body: JSON.stringify(input) }),
       })
-      const value = response.status === 200 ? await readReply(response, requestSignal, session.cookie) : undefined
+      const conflict = response.status === 409 && nonSuccess.absent !== undefined
+      const value = response.status === 200 || conflict
+        ? await readReply(response, requestSignal, session.cookie, nonSuccess.jubianToken) : undefined
       const current = await readMuseSession(this.options.sessionFile, this.origin)
       requestSignal.throwIfAborted()
       if (current?.revision !== session.revision) throw new MuseMediaPostprocessError('MEDIAKIT_ACCOUNT_CHANGED')
       if (response.status === 404 && nonSuccess.absent !== undefined) return nonSuccess.absent
       if (response.status === 401 || response.status === 303) throw new MuseMediaPostprocessError('MEDIAKIT_SIGN_IN_REQUIRED')
+      if (conflict) {
+        const parsed = previewConflict.safeParse(value)
+        if (parsed.success) throw new MuseMediaPostprocessError(parsed.data.code === 'media_source_unverified'
+          ? 'MEDIAKIT_SOURCE_UNVERIFIED' : 'MEDIAKIT_EXISTING_PROCESSING')
+      }
       if (response.status !== 200) throw new MuseMediaPostprocessError('MEDIAKIT_UNAVAILABLE')
       const result = schema.safeParse(value)
       if (!result.success) throw new MuseMediaPostprocessError('MEDIAKIT_INVALID_RESPONSE')

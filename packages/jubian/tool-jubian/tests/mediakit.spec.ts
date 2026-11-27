@@ -1,10 +1,11 @@
 /** Original-key recovery and fail-closed reads for the MediaKit pilot. */
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm, unlink } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { MuseMediaPostprocessInput, MuseMediaPostprocessJobKey } from '@deepseek-ai/dsh-muse-account'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { readMediaPostprocess, routeMediaPostprocess, withMediaPostprocessLock, type MediaPostprocessClient } from '../src/mediakit.ts'
@@ -32,9 +33,10 @@ function gatewayFixture() {
   }
 }
 
-function route(ledger: JubianLedger, gateway: MediaPostprocessClient, source: MuseMediaPostprocessInput = input, signal?: AbortSignal) {
+function route(ledger: JubianLedger, gateway: MediaPostprocessClient, source: MuseMediaPostprocessInput = input,
+  signal?: AbortSignal, readJubianCredential?: () => Promise<string | undefined>) {
   return withMediaPostprocessLock(ledger, key, () => routeMediaPostprocess(
-    ledger, key, source.operation, source.taskId, gateway, async () => source, signal,
+    ledger, key, source.operation, source.taskId, gateway, async () => source, signal, readJubianCredential,
   ), signal)
 }
 
@@ -55,6 +57,51 @@ it('fails closed on an unavailable quote and preserves caller cancellation', asy
   expect(gateway.submitMediaPostprocess).not.toHaveBeenCalled()
   expect(await ledger.records()).toEqual([])
 })
+
+it('preserves a changed Muse account during preview without spending or falling back', async () => {
+  const ledger = await ledgerFixture(), gateway = gatewayFixture()
+  gateway.previewMediaPostprocess.mockRejectedValueOnce(new HarnessError('Account changed', 'MEDIAKIT_ACCOUNT_CHANGED'))
+  await expect(route(ledger, gateway)).rejects.toMatchObject({ code: 'MEDIAKIT_ACCOUNT_CHANGED' })
+  expect(gateway.submitMediaPostprocess).not.toHaveBeenCalled()
+  expect(gateway.claimMediaPostprocessFallback).not.toHaveBeenCalled()
+  expect(await ledger.records()).toEqual([])
+})
+
+it.each([
+  ['MEDIAKIT_SOURCE_UNVERIFIED', '火山预检未能验证剧变源视频，请核对当前账号及原任务。'],
+  ['MEDIAKIT_EXISTING_PROCESSING', '此源视频已有一笔火山处理，请使用原任务编号查询。'],
+  ['MEDIAKIT_UNAVAILABLE', '火山接入预检不可用，继续前请确认原处理状态。'],
+])('reports preview failure %s without submitting or reserving', async (code, message) => {
+  const ledger = await ledgerFixture(), gateway = gatewayFixture()
+  gateway.previewMediaPostprocess.mockRejectedValueOnce(new HarnessError('synthetic detail', code))
+  if (code === 'MEDIAKIT_UNAVAILABLE') {
+    await expect(route(ledger, gateway)).rejects.toMatchObject({ code: 'NETWORK_ERROR', message: expect.stringContaining(message) })
+  } else {
+    await expect(route(ledger, gateway)).rejects.toMatchObject({ code, message })
+  }
+  expect(gateway.submitMediaPostprocess).not.toHaveBeenCalled()
+  expect(gateway.claimMediaPostprocessFallback).not.toHaveBeenCalled()
+  expect(await ledger.records()).toEqual([])
+})
+
+it.each([ready, { ...ready, defaultRouting: false }, { ...ready, defaultRouting: true }])(
+  'uses one private credential and records only the request digest for preview $defaultRouting', async (quote) => {
+    const ledger = await ledgerFixture(), gateway = gatewayFixture()
+    const token = 'offline-jubian-auth', readJubianCredential = vi.fn(async () => token)
+    gateway.previewMediaPostprocess.mockResolvedValueOnce(quote)
+    const result = await route(ledger, gateway, input, undefined, readJubianCredential)
+    expect(gateway.previewMediaPostprocess).toHaveBeenCalledExactlyOnceWith(input, undefined, token)
+    expect(gateway.submitMediaPostprocess).toHaveBeenCalledExactlyOnceWith({ ...input, jobKey,
+      ...('defaultRouting' in quote && quote.defaultRouting === true ? { quoteAmount: ready.amount } : {}) }, undefined, token)
+    expect(await ledger.find('muse-mediakit-' + digest)).toMatchObject({
+      request_sha256: bodyHash({ ...input, jobKey }), quoted_amount: ready.amount })
+    expect(JSON.parse(await readFile(join(ledger.root, 'media-postprocess', digest + '.json'), 'utf8'))).toEqual({
+      stage: input.operation, taskId: input.taskId, jobKey, requestDigest: bodyHash({ ...input }) })
+    expect(JSON.stringify(result)).not.toContain(token)
+    await route(ledger, gateway, input, undefined, readJubianCredential)
+    expect(readJubianCredential).toHaveBeenCalledTimes(1)
+  },
+)
 
 it('reports the original job if another ledger writer records it during preview', async () => {
   const ledger = await ledgerFixture(), gateway = gatewayFixture()

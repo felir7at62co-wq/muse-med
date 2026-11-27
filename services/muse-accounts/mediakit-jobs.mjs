@@ -26,6 +26,7 @@ async function readReceipt(path) {
   const receipt = JSON.parse(content);
   if (receipt.version !== 1 || !shaPattern.test(receipt.request) ||
     receipt.approval !== undefined && !shaPattern.test(receipt.approval) ||
+    receipt.defaultRouting !== undefined && receipt.defaultRouting !== true ||
     !['unknown', 'accepted', 'rejected'].includes(receipt.state) ||
     receipt.state === 'accepted' && (typeof receipt.taskId !== 'string' || receipt.taskId.length === 0) ||
     receipt.state === 'rejected' && (typeof receipt.code !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/u.test(receipt.code))) {
@@ -81,14 +82,33 @@ export async function openMediaKitJobs({directory, provider, allowedSourceOrigin
     return {clientToken, reservation, path: join(reservation, 'receipt.json')};
   }
 
+  function dailyDirectory() {
+    return join(directory, 'default-daily', new Date().toISOString().slice(0, 10));
+  }
+
+  async function reserveDailySlot(limit) {
+    const day = dailyDirectory();
+    await mkdir(day, {recursive: true, mode: 0o700});
+    // Exclusive slots share the same limit across gateway restarts and concurrent processes.
+    for (let slot = 1; slot <= limit; slot += 1) {
+      try { await mkdir(join(day, String(slot)), {mode: 0o700}); return true; }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+    }
+    return false;
+  }
+
   return {
+    async defaultCapacityAvailable(limit) {
+      // A slot can be taken only after every lower slot has been taken.
+      return !await hasReservation(join(dailyDirectory(), String(limit)));
+    },
     async submissionMatch(owner, key, input) {
       const {path, reservation} = locate(owner, key);
       const prior = await readReceipt(path);
       if (prior) return prior.request === requestDigest(input) ? 'same' : 'different';
       return await hasReservation(reservation) ? 'different' : 'absent';
     },
-    async submit(owner, key, {operation, videoUrl, resolution}, {isAuthorized = () => true} = {}) {
+    async submit(owner, key, {operation, videoUrl, resolution}, {isAuthorized = () => true, defaultDailyLimit} = {}) {
       if (!isAuthorized()) return {state: 'not_authorized'};
       if (!operations.has(operation) || operation === 'upscale' && !['720p', '1080p'].includes(resolution) ||
         operation === 'erase_subtitle' && resolution !== undefined) {
@@ -109,27 +129,35 @@ export async function openMediaKitJobs({directory, provider, allowedSourceOrigin
         if (prior.state === 'rejected') return {state: prior.state, code: prior.code};
         return prior.state === 'accepted' ? {state: 'accepted'} : unknown();
       }
-      await saveReceipt(path, {state: 'unknown', request, approval});
+      const binding = {request, approval, ...(defaultDailyLimit === undefined ? {} : {defaultRouting: true})};
+      await saveReceipt(path, {state: 'unknown', ...binding});
+      if (!isAuthorized()) return {state: 'not_authorized'};
+      if (defaultDailyLimit !== undefined && !await reserveDailySlot(defaultDailyLimit)) {
+        const rejected = {state: 'rejected', code: 'MEDIAKIT_CAPACITY_LIMIT'};
+        await saveReceipt(path, {...binding, ...rejected});
+        return rejected;
+      }
       if (!isAuthorized()) return {state: 'not_authorized'};
       let result;
       try { result = await provider.submit({operation, videoUrl, resolution, clientToken}); }
       catch (_error) { return unknown(); }
       if (result.state === 'rejected') {
-        await saveReceipt(path, {state: 'rejected', request, approval, code: result.code});
+        await saveReceipt(path, {...binding, state: 'rejected', code: result.code});
         return {state: 'rejected', code: result.code};
       }
       if (result.state === 'accepted') {
-        await saveReceipt(path, {state: 'accepted', request, approval, taskId: result.taskId});
+        await saveReceipt(path, {...binding, state: 'accepted', taskId: result.taskId});
         return {state: 'accepted'};
       }
       return unknown();
     },
-    async claimFallback(owner, key, {operation, sourceSha256, resolution}, {isAuthorized = () => true} = {}) {
+    async claimFallback(owner, key, approval, {isAuthorized = () => true} = {}) {
       if (!isAuthorized()) return false;
       const {path, reservation} = locate(owner, key);
       const prior = await readReceipt(path);
-      if (prior?.state !== 'rejected' || prior.approval !== approvalDigest(operation, sourceSha256, resolution)
-        || !isAuthorized()) return false;
+      if (prior?.state !== 'rejected' || !isAuthorized()) return false;
+      if (prior.defaultRouting !== true && (approval === undefined ||
+        prior.approval !== approvalDigest(approval.operation, approval.sourceSha256, approval.resolution))) return false;
       try { await mkdir(join(reservation, 'fallback-claimed'), {mode: 0o700}); }
       catch (error) { if (error.code === 'EEXIST') return false; throw error; }
       // A lost acknowledgement or revoked session leaves the grant consumed.

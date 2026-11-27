@@ -84,25 +84,30 @@ export class MuseAccountService extends TypertRemoteService {
    * Read eligibility and a quote for the current account without submitting a job.
    * @param input - Source identifiers and requested operation.
    * @param signal - Caller cancellation.
+   * @param jubianToken - Private provider credential for project authorization.
    * @returns The preview, or ineligible when this Host lacks the capability.
    */
-  async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal): Promise<MuseMediaPostprocessPreview> {
+  async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal,
+    jubianToken?: string): Promise<MuseMediaPostprocessPreview> {
     signal?.throwIfAborted()
     if (!this.mediaPostprocess) return { state: 'ineligible' }
-    return await this.mediaPostprocess.preview(input, signal)
+    return await this.mediaPostprocess.preview(input, signal, jubianToken)
   }
 
   /**
    * Submit one previously quoted video processing job through the signed-in account.
-   * @param input - Source identifiers, operation and original quote key.
+   * @param input - Source identifiers, operation, original quote key and optional default-routing quote amount.
    * @param signal - Cancels only the Host request.
+   * @param jubianToken - Private provider credential for project authorization.
    * @returns The gateway acknowledgement or unknown when acceptance cannot be established.
    */
-  async submitMediaPostprocess(input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey },
-    signal?: AbortSignal): Promise<MuseMediaPostprocessSubmission> {
+  async submitMediaPostprocess(
+    input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey; readonly quoteAmount?: string },
+    signal?: AbortSignal, jubianToken?: string,
+  ): Promise<MuseMediaPostprocessSubmission> {
     signal?.throwIfAborted()
     if (!this.mediaPostprocess) throw new MuseMediaPostprocessError('MEDIAKIT_UNAVAILABLE')
-    return await this.mediaPostprocess.submit(input, signal)
+    return await this.mediaPostprocess.submit(input, signal, jubianToken)
   }
 
   /**

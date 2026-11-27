@@ -38,9 +38,9 @@
 /muse-accounts-gateway/release-inputs/desktop-browser-sign-in:
   en: fc1654f0ee713f42
   zh: 5e58dbb2ae81e16b
-/muse-accounts-gateway/release-inputs/mediakit-post-processing-pilot:
-  en: 71db9cbfd2b75c3d
-  zh: 31a5b83226c155b6
+/muse-accounts-gateway/release-inputs/mediakit-post-processing:
+  en: a16a2f7f5cb2276e
+  zh: 213861194584a5f0
 /muse-accounts-gateway/release-inputs/account-sessions:
   en: 80bfeb3c4f738f88
   zh: 6fdafbe8dcfdad00

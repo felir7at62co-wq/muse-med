@@ -202,17 +202,19 @@ async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Prom
  * Read eligibility and a quote for the current account without submitting a job.
  * @param input - Source identifiers and requested operation.
  * @param signal - Caller cancellation.
+ * @param jubianToken - Private provider credential for project authorization.
  * @returns The preview, or ineligible when this Host lacks the capability.
  */
-async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal): Promise<MuseMediaPostprocessPreview>
+async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal, jubianToken?: string): Promise<MuseMediaPostprocessPreview>
 
 /**
  * Submit one previously quoted video processing job through the signed-in account.
- * @param input - Source identifiers, operation and original quote key.
+ * @param input - Source identifiers, operation, original quote key and optional default-routing quote amount.
  * @param signal - Cancels only the Host request.
+ * @param jubianToken - Private provider credential for project authorization.
  * @returns The gateway acknowledgement or unknown when acceptance cannot be established.
  */
-async submitMediaPostprocess(input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey }, signal?: AbortSignal): Promise<MuseMediaPostprocessSubmission>
+async submitMediaPostprocess( input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey; readonly quoteAmount?: string }, signal?: AbortSignal, jubianToken?: string, ): Promise<MuseMediaPostprocessSubmission>
 
 /**
  * Read an original video processing receipt for Host-only use.

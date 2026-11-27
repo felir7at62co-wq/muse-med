@@ -473,8 +473,9 @@ it('exposes video processing only to the Host and preserves capability absence',
   await next.plugin(MuseAccountService, { controller, mediaPostprocess: calls })
   const { signal } = new AbortController()
   const approved = { ...input, jobKey }
-  expect(await next.museAccount.previewMediaPostprocess(input, signal)).toMatchObject({ state: 'ready', jobKey })
-  expect(await next.museAccount.submitMediaPostprocess(approved, signal)).toEqual({ state: 'accepted' })
+  const jubianToken = 'synthetic-provider-token'
+  expect(await next.museAccount.previewMediaPostprocess(input, signal, jubianToken)).toMatchObject({ state: 'ready', jobKey })
+  expect(await next.museAccount.submitMediaPostprocess(approved, signal, jubianToken)).toEqual({ state: 'accepted' })
   expect(await next.museAccount.statusMediaPostprocess(jobKey, signal)).toEqual({ state: 'pending' })
   expect(await next.museAccount.claimMediaPostprocessFallback(jobKey, signal)).toBe(true)
   expect(await next.museAccount.claimMediaPostprocessFallback(jobKey)).toBe(false)
@@ -483,8 +484,8 @@ it('exposes video processing only to the Host and preserves capability absence',
   await expect(next.museAccount.submitMediaPostprocess(approved, stopped)).rejects.toMatchObject({ name: 'AbortError' })
   await expect(next.museAccount.statusMediaPostprocess(jobKey, stopped)).rejects.toMatchObject({ name: 'AbortError' })
   await expect(next.museAccount.claimMediaPostprocessFallback(jobKey, stopped)).rejects.toMatchObject({ name: 'AbortError' })
-  expect(calls.preview).toHaveBeenCalledWith(input, signal)
-  expect(calls.submit).toHaveBeenCalledWith(approved, signal)
+  expect(calls.preview).toHaveBeenCalledWith(input, signal, jubianToken)
+  expect(calls.submit).toHaveBeenCalledWith(approved, signal, jubianToken)
   expect(calls.status).toHaveBeenCalledWith(jobKey, signal)
   expect(calls.claimFallback).toHaveBeenNthCalledWith(1, jobKey, signal)
   expect(calls.claimFallback).toHaveBeenNthCalledWith(2, jobKey, undefined)

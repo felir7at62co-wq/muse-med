@@ -19,6 +19,27 @@ const path = '/api/media-postprocess';
 const request = {operation: 'upscale', scriptId: 7, taskId: 19, videoUrl: source, resolution: '1080p'};
 const eraseRequest = {operation: 'erase_subtitle', scriptId: 7, taskId: 19, videoUrl: source};
 const taskId = 'amk-tool-test-02a';
+const sourceHeaders = {'x-jubian-token': 'synthetic-jubian-token'};
+
+function defaultConfig(value) {
+  value.approvals = [];
+  value.defaultRouting = {
+    sourceOrigins: ['https://clips.example.com'], maxDailyJobs: 2, maxSourceSeconds: 60,
+    centsPerMinute: {upscale720p: 250, upscale1080p: 500, eraseSubtitle: 100},
+  };
+}
+
+function verifiedSource(url, init) {
+  assert.equal(init.headers.get?.('authorization') ?? init.headers.authorization ?? init.headers.Authorization,
+    'Bearer ' + sourceHeaders['x-jubian-token']);
+  const endpoint = new URL(url);
+  const id = Number(endpoint.pathname.split('/').at(-1));
+  if (endpoint.pathname.includes('/aigc/script/')) return Response.json({code: 200, data: {id}});
+  if (init.method === 'GET') return Response.json({code: 200, data: {id, scriptId: request.scriptId}});
+  const {aigcVideoTaskId} = JSON.parse(init.body);
+  return Response.json({code: 200, data: {total: 1, rows: [{id: 133, aigcVideoTaskId, taskStatus: 'succeeded',
+    duration: 20.06, resultList: [{tosVideoUrl: source}]}]}});
+}
 
 /** Build the same private file an enabled test gateway reads in deployment. */
 function config(root, accountId) {
@@ -47,6 +68,7 @@ async function fixture(t, {
   configure = () => {},
   submit = () => Response.json({success: true, task_id: taskId}),
   query = () => Response.json({success: true, task_id: taskId, status: 'completed', result: {video_url: videoUrl}}),
+  sourceFetch,
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'muse-mediakit-http-'));
   let server;
@@ -63,6 +85,7 @@ async function fixture(t, {
   await writeFile(configFile, JSON.stringify(settings), {mode: 0o600});
   const calls = [];
   const reload = async () => await loadMediaKitPilot(enabled ? configFile : undefined, {
+    sourceFetch,
     fetchImpl: async (url, init) => {
       calls.push({url, init});
       return init.method === 'POST' ? submit() : query();
@@ -333,10 +356,71 @@ test('private pilot config needs explicit valid source, result origins and paid 
     const input = config(root, 'a'.repeat(16));
     mutate(input);
     await writeFile(file, JSON.stringify(input), {mode: 0o600});
-    await assert.rejects(loadMediaKitPilot(file), {message: 'Invalid MediaKit pilot configuration'});
+    await assert.rejects(loadMediaKitPilot(file), {message: 'Invalid MediaKit configuration'});
   }
   if (process.platform !== 'win32') {
     await chmod(file, 0o644);
     await assert.rejects(loadMediaKitPilot(file), {message: 'MediaKit configuration requires a private 0600 regular file'});
   }
+});
+
+test('default routing quotes independent account access and source, and rechecks before the billed request', async t => {
+  const env = await fixture(t, {configure: defaultConfig, sourceFetch: verifiedSource});
+  for (const input of [{...request, videoUrl: 'http://clips.example.com/shots/test.mp4'}, {...request, videoUrl}]) {
+    assert.deepEqual(await (await env.call('/preview', {input, headers: sourceHeaders})).json(), {state: 'ineligible'});
+  }
+  for (const input of [{...request, scriptId: 8}, {...request, videoUrl: source + '&change=1'}]) {
+    const response = await env.call('/preview', {input, headers: sourceHeaders});
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), {code: 'media_source_unverified'});
+  }
+  assert.deepEqual(await (await env.call('/preview', {input: request})).json(), {state: 'ineligible'});
+  const quote = await (await env.call('/preview', {input: request, headers: sourceHeaders})).json();
+  assert.deepEqual(quote, {state: 'ready', jobKey: quote.jobKey, amount: '1.75', unit: 'CNY', defaultRouting: true});
+  assert.match(quote.jobKey, /^[a-f0-9]{64}$/u);
+  const input = {...request, jobKey: quote.jobKey, quoteAmount: quote.amount};
+  for (const [requestBody, headers] of [[input, {}], [{...input, quoteAmount: '0.01'}, sourceHeaders],
+    [{...input, quoteAmount: undefined}, sourceHeaders], [{...input, videoUrl: source + '&change=1'}, sourceHeaders]]) {
+    assert.deepEqual(await (await env.call('/jobs', {input: requestBody, headers})).json(),
+      {state: 'conflict', code: 'preview_mismatch'});
+  }
+  assert.equal(env.calls.length, 0);
+  assert.deepEqual(await (await env.call('/jobs', {input, headers: sourceHeaders})).json(), {state: 'accepted'});
+  assert.deepEqual(await (await env.call('/jobs', {input, headers: sourceHeaders})).json(), {state: 'accepted'});
+  assert.equal(env.calls.length, 1);
+  assert.equal('x-jubian-token' in env.calls[0].init.headers, false);
+  assert.equal(env.calls[0].init.body.includes(sourceHeaders['x-jubian-token']), false);
+  const recovered = await env.reload();
+  assert.equal((await recovered.inspect(env.alice.id, quote.jobKey)).state, 'completed');
+});
+
+test('daily default routing limit reserves once per task and only the rejected owner can claim backup', async t => {
+  const env = await fixture(t, {
+    configure: value => { defaultConfig(value); value.defaultRouting.maxDailyJobs = 1; },
+    sourceFetch: verifiedSource,
+  });
+  const operations = [[request, 'alice'], [eraseRequest, 'bob']];
+  const quoted = await Promise.all(operations.map(async ([input, username]) => {
+    const {amount, jobKey} = await (await env.call('/preview', {input, username, headers: sourceHeaders})).json();
+    assert.match(jobKey, /^[a-f0-9]{64}$/u);
+    return {input: {...input, quoteAmount: amount, jobKey}, username, headers: sourceHeaders};
+  }));
+  assert.equal(quoted[1].input.quoteAmount, '0.35');
+  const results = await Promise.all(quoted.map(async options => (await env.call('/jobs', options)).json()));
+  assert.deepEqual(results.map(result => result.state).sort(), ['accepted', 'rejected']);
+  assert.equal(env.calls.length, 1);
+  const rejected = results.findIndex(result => result.state === 'rejected');
+  assert.deepEqual(results[rejected], {state: 'rejected', code: 'MEDIAKIT_CAPACITY_LIMIT'});
+  const {input, username} = quoted[rejected];
+  assert.deepEqual(await (await env.call('/jobs', quoted[rejected])).json(), results[rejected]);
+  const fallback = '/jobs/' + input.jobKey + '/fallback';
+  const claim = {username, method: 'POST', headers: {origin}};
+  assert.deepEqual(await (await env.call(fallback, {...claim, username: quoted[1 - rejected].username})).json(), {claimed: false});
+  assert.deepEqual(await (await env.call(fallback, claim)).json(), {claimed: true});
+  assert.deepEqual(await (await env.call(fallback, claim)).json(), {claimed: false});
+  const reopened = await env.reload();
+  const newInput = {...request, taskId: 20};
+  const newQuote = await reopened.preview(env.alice.id, newInput, sourceHeaders['x-jubian-token']);
+  assert.deepEqual(newQuote, {state: 'ineligible'});
+  assert.equal(env.calls.length, 1);
 });

@@ -45,6 +45,8 @@ Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../pac
 
 桌面账号组合将账号网关请求的 `requestTimeoutMs` 设置为 60,000 毫秒。个人覆盖文件可修改这一经过验证的账号配置；底层插件默认值仍为 15,000 毫秒。超时仍报告服务不可用，不能据此判断远程写入是否完成。
 
+桌面端为符合条件的剧变视频转高清和字幕擦除启用 [MediaKit 后处理](../../packages/jubian/tool-jubian/README.zh.md)。登录后，桌面端优先通过 Muse 账号网关报价和提交，火山引擎凭据由网关统一保管。网关版本较旧或本机尚未登录 Muse 时，新任务仍可使用现有的剧变链路。
+
 <a id="compaction-defaults"></a>
 短剧交付按项目明确类型和已准备画布执行；选择方式与旧项目行为见[项目圣经](../../packages/drama/drama-settings/README.zh.md)。
 

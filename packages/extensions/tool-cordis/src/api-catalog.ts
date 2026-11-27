@@ -2720,15 +2720,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Wire response validated by the Jubian registration consumer.',
       },
       {
-        signature: 'async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal): Promise<MuseMediaPostprocessPreview>',
+        signature: 'async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal, jubianToken?: string): Promise<MuseMediaPostprocessPreview>',
         description: 'Read eligibility and a quote for the current account without submitting a job.',
-        parameters: [{ name: 'input', description: 'Source identifiers and requested operation.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        parameters: [{ name: 'input', description: 'Source identifiers and requested operation.' }, { name: 'signal', description: 'Caller cancellation.' }, { name: 'jubianToken', description: 'Private provider credential for project authorization.' }],
         returns: 'The preview, or ineligible when this Host lacks the capability.',
       },
       {
-        signature: 'async submitMediaPostprocess(input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey }, signal?: AbortSignal): Promise<MuseMediaPostprocessSubmission>',
+        signature: 'async submitMediaPostprocess( input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey; readonly quoteAmount?: string }, signal?: AbortSignal, jubianToken?: string, ): Promise<MuseMediaPostprocessSubmission>',
         description: 'Submit one previously quoted video processing job through the signed-in account.',
-        parameters: [{ name: 'input', description: 'Source identifiers, operation and original quote key.' }, { name: 'signal', description: 'Cancels only the Host request.' }],
+        parameters: [{ name: 'input', description: 'Source identifiers, operation, original quote key and optional default-routing quote amount.' }, { name: 'signal', description: 'Cancels only the Host request.' }, { name: 'jubianToken', description: 'Private provider credential for project authorization.' }],
         returns: 'The gateway acknowledgement or unknown when acceptance cannot be established.',
       },
       {

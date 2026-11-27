@@ -180,6 +180,7 @@
     - id: tool-jubian
       name: '@deepseek-ai/dsh-tool-jubian'
       config:
+        mediaKitPostprocess: true
         videoRecoverySettings: true
         imagePlatformId: KU_AI
         imageAllowedStandardIds: [76, 66, 86]

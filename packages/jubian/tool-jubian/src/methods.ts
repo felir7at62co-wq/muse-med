@@ -327,8 +327,10 @@ export interface MethodDeps {
   beforeVideoSend?: (key: string) => Promise<void>
   /** Current Muse account's exclusive shared voice-registration provider. */
   voiceCoordinator?: VoiceCoordinator
-  /** Private account gateway for the opt-in post-processing pilot. */
+  /** Private account gateway for video post-processing. */
   postprocess?: MediaPostprocessClient | undefined
+  /** Private Jubian credential resolver for the official post-processing account gateway. */
+  readJubianCredential?: (() => Promise<string | undefined>) | undefined
   /** Resolved complete-reference inspection limits before deleting audio assets. */
   audioReferenceScan?: AudioReferenceScanOptions
   /** Resolved complete inventory limits for uploaded image registration. */
@@ -1384,7 +1386,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           const { media } = await readSource()
           return { operation: 'upscale', scriptId: media.scriptId, taskId, videoUrl: media.videoUrl,
             resolution: resolution === '720p' ? '720p' : '1080p' }
-        }, deps.signal)
+        }, deps.signal, deps.readJubianCredential)
         if (route.route === 'mediakit') return route.result
         let projectId: number | undefined
         let quote: ReturnType<typeof readUpscaleQuote> & { standardId: number; observedAt: string } | undefined
@@ -1417,7 +1419,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         // Upscaling is asynchronous and was measured taking minutes, so this
         // returns the submission rather than waiting for the result.
         return { ...result, accepted_task_id: readUpscaleTaskId({ data: result.data }),
-          ...(route.route === 'backup' ? { fallback_from: 'volcengine-mediakit', provider: 'jubian' } : {}),
+          ...(route.route === 'backup' ? { fallback_from: 'volcengine-mediakit', provider: 'jubian',
+            ...(route.reason === undefined ? {} : { fallback_reason: route.reason }) } : {}),
           next: '转高清是异步任务，会持续数分钟到十几分钟。不要在这里等待——先做别的，'
           + '之后再用 subtasks 回读该任务的 hd_count / last_task_type / resolution 判断是否转好。'
           + '目标档位不承诺精确像素；交付报告区分目标与文件实际宽高，不因尺寸非精确 1080×1920 就将成功任务记为失败。' }
@@ -1711,24 +1714,26 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         requireKey(args.idempotency_key), deps.signal) ?? { status: 'reconcile_required', task_id: null }
     case 'erase_subtitle': {
       const key = requireKey(args.idempotency_key)
+      const taskId = need(args.task_id)
+      const onlyIfVerifiedFree = args.only_if_verified_free === true
+      const hasCallerEstimate = args.estimated_cost_cny !== undefined || args.estimate_basis !== undefined
+      if (onlyIfVerifiedFree && hasCallerEstimate) {
+        throw new JubianError('INVALID_ARGUMENT', 'only_if_verified_free requires omitting estimated_cost_cny and estimate_basis')
+      }
+      const gateway = !onlyIfVerifiedFree && !hasCallerEstimate
+        && (args.model_id === undefined || args.model_id === AUTOMATIC_ERASE_MODEL)
+        && (args.platform_id === undefined || args.platform_id === 'AI_MEDIA_KIT')
+        && args.erase_mode !== 'region' && args.subtitle_box === undefined
+        ? deps.postprocess : undefined
+      const modelId = need(args.model_id ?? (gateway === undefined ? undefined : AUTOMATIC_ERASE_MODEL),
+        'jubian_storyboard erase_subtitle requires model_id')
       return await withMediaPostprocessLock(ledger, key, async () => {
-        const taskId = need(args.task_id)
-        const onlyIfVerifiedFree = args.only_if_verified_free === true
-        const hasCallerEstimate = args.estimated_cost_cny !== undefined || args.estimate_basis !== undefined
-        if (onlyIfVerifiedFree && hasCallerEstimate) {
-          throw new JubianError('INVALID_ARGUMENT', 'only_if_verified_free requires omitting estimated_cost_cny and estimate_basis')
-        }
         let source: ReturnType<typeof taskMediaRequest> | undefined
         const readSource = () => source ??= taskMediaRequest(client, taskId, args.script_id, 'original')
-        const gateway = !onlyIfVerifiedFree && !hasCallerEstimate
-          && (args.model_id === undefined || args.model_id === AUTOMATIC_ERASE_MODEL)
-          && (args.platform_id === undefined || args.platform_id === 'AI_MEDIA_KIT')
-          && args.erase_mode !== 'region' && args.subtitle_box === undefined
-          ? deps.postprocess : undefined
         const route = await routeMediaPostprocess(ledger, key, 'erase_subtitle', taskId, gateway, async () => {
           const { media } = await readSource()
           return { operation: 'erase_subtitle', scriptId: media.scriptId, taskId, videoUrl: media.videoUrl }
-        }, deps.signal)
+        }, deps.signal, deps.readJubianCredential)
         if (route.route === 'mediakit') return route.result
         const freePriceRequired = 'only_if_verified_free requires a unique live 0.00 CNY erasure quote on the verified route; no erasure was submitted'
         // Read from the task row by the body below; the quote thunk passes it to the
@@ -1744,7 +1749,6 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           // coordinates in a way no caller can reproduce.
             const { task, media } = await readSource()
             projectId = media.scriptId
-            const modelId = need(args.model_id ?? (route.route === 'backup' ? AUTOMATIC_ERASE_MODEL : undefined), 'model_id')
             const knownModel = SUBTITLE_ERASE_MODELS.some(id => id === modelId)
             const needsCatalogue = !knownModel || args.platform_id !== undefined || !hasCallerEstimate
             let selected: ReturnType<typeof resolvePostProcessModel> | undefined
@@ -1803,7 +1807,8 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           }
         }
         return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
-          ...(route.route === 'backup' ? { fallback_from: 'volcengine-mediakit', provider: 'jubian' } : {}),
+          ...(route.route === 'backup' ? { fallback_from: 'volcengine-mediakit', provider: 'jubian',
+            ...(route.reason === undefined ? {} : { fallback_reason: route.reason }) } : {}),
           ...(onlyIfVerifiedFree ? { verified_free: true } : {}),
           next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'
           + (!result.replayed && estimate !== undefined
