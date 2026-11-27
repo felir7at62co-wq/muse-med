@@ -1,15 +1,16 @@
 import { join } from 'node:path'
 import { appendFile, copyFile, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
 import { createSourceQaStagedAccess } from '../src/source-qa.ts'
-import { fileSha256 } from '../src/cache.ts'
+import * as Cache from '../src/cache.ts'
 import { episodePaths } from '../src/paths.ts'
 import { cleanup, tempProject, writePlaceholder } from './harness.ts'
 import { sourceQaFixture, verifiedSourceQaFixture } from './source-qa-fixture.ts'
 
 const projects: string[] = []
+const fileSha256 = Cache.fileSha256
 afterEach(async () => { await Promise.all(projects.splice(0).map(cleanup)) })
 
 it('rechecks complete package and original evidence through supplied staged file facts', async () => {
@@ -67,11 +68,6 @@ it('rechecks complete package and original evidence through supplied staged file
   await expect(verifySelectedSourceReviews(paths, [row], true, true, verifiedSourceQaFixture, access)).rejects.toThrow('stage file changed')
 })
 
-// Real entry: `verifySelectedSourceReviews` in strict delivery. The review lists one approved
-// frame once per captured angle, so the content-evidence pass binds that exact file identity
-// twice. The Host keeps appending to the frame while the pass hashes it, so the second binding
-// of the same path disagrees with the first and the per-shot capture map refuses the review
-// before any OCR proof is asked for.
 it('refuses one review frame bound with two digests during content verification', async () => {
   const project = await realpath(await tempProject()); projects.push(project)
   const paths = episodePaths(project, '24'), video = join(project, 'picture.mp4')
@@ -79,7 +75,7 @@ it('refuses one review frame bound with two digests during content verification'
   const reviewPath = join(project, 'reviews', 'ep24-p01.json')
   const frame = join(project, 'review-frame.png'), receipt = join(project, 'download.json')
   await Promise.all([writePlaceholder(video, 'approved picture'),
-    writeFile(frame, Buffer.alloc(4 * 1024 * 1024, 0x41)),
+    writePlaceholder(frame, 'reviewed frame'),
     writePlaceholder(packagePath, JSON.stringify({ episode: '24', video_tasks: [{ shots: [1] }] }))])
   const videoSha256 = await fileSha256(video), qa = await sourceQaFixture(project, video)
   await writePlaceholder(receipt, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4', path: video,
@@ -89,19 +85,23 @@ it('refuses one review frame bound with two digests during content verification'
   await writePlaceholder(reviewPath, JSON.stringify({ episode: '24', package: 1, status: 'approved', subtitle_cleanup: 'not_required',
     package_sha256: await fileSha256(packagePath), video_path: video, video_sha256: videoSha256, audio_path: video,
     audio_sha256: videoSha256, content_review: { ...checks, embedded_subtitles: 'absent' },
-    review_frames: Array.from({ length: 6 }, () => frame),
+    review_frames: [frame, frame],
     original_download_receipt_path: receipt, source_qa: { version: 1, selected: qa.declaration } }))
-  let growing = true
-  const growth = (async () => {
-    for (let appended = 0; growing && appended < 24; appended += 1) {
-      await appendFile(frame, Buffer.alloc(64 * 1024, 0x42)).catch(() => {})
-      await new Promise<void>(resolve => setTimeout(resolve, 1))
+  // Change the actual file after the first digest so the next binding observes different bytes.
+  let frameReads = 0
+  const hash = vi.spyOn(Cache, 'fileSha256').mockImplementation(async (path) => {
+    const sha256 = await fileSha256(path)
+    if (path === frame) {
+      frameReads += 1
+      if (frameReads === 1) await appendFile(frame, ' changed')
     }
-  })()
+    return sha256
+  })
   try {
     await expect(verifySelectedSourceReviews(paths, [{ shot: 1, package: 1, video, audio: video }], true, true, verifiedSourceQaFixture))
       .rejects.toThrow('审核证据在核验期间已变化')
-  } finally { growing = false; await growth }
+    expect(frameReads).toBe(2)
+  } finally { hash.mockRestore() }
 })
 
 it('rejects an unrelated independent audio file when the selected picture was not cleaned', async () => {
