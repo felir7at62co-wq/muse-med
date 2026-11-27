@@ -12,6 +12,9 @@ import { MuseFeedbackError, type MuseFeedbackClient } from './feedback.ts'
 import type { MuseFeedbackRequest, MuseFeedbackReceipt } from './types.ts'
 import type { MuseDesktopRemote } from './desktop-remote.ts'
 import { MuseVoiceSlotError, type MuseVoiceSlotRequest, type MuseVoiceSlotsClient } from './voice-slots.ts'
+import { MuseMediaPostprocessError, type MuseMediaPostprocessClient, type MuseMediaPostprocessInput,
+  type MuseMediaPostprocessJobKey, type MuseMediaPostprocessPreview, type MuseMediaPostprocessStatus,
+  type MuseMediaPostprocessSubmission } from './mediakit.ts'
 import type { MuseAccountDetails, MuseAccountDetailsRequest, MuseAccountLoginRequest, MuseAccountLoginResult, MuseAccountStatus, MuseAccountStatusRequest } from './types.ts'
 
 /** Account operations implemented by the product-home controller. */
@@ -19,7 +22,7 @@ type AccountOperations = Pick<MuseAccountController, 'status' | 'login' | 'logou
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** Private account service; voice coordination is Host-only. */
+    /** Private account service; voice coordination and video processing are Host-only. */
     museAccount: MuseAccountService
   }
 }
@@ -33,6 +36,7 @@ export interface MuseAccountServiceOptions {
   readonly feedback?: Pick<MuseFeedbackClient, 'submit'>
   readonly remote?: Pick<MuseDesktopRemote, 'refresh' | 'pause'>
   readonly voiceSlots?: Pick<MuseVoiceSlotsClient, 'request'>
+  readonly mediaPostprocess?: Pick<MuseMediaPostprocessClient, 'preview' | 'submit' | 'status' | 'claimFallback'>
 }
 
 /** MUSE account Remote namespace. The Connection carrier authenticates every call. */
@@ -45,6 +49,7 @@ export class MuseAccountService extends TypertRemoteService {
   private readonly feedbackClient: Pick<MuseFeedbackClient, 'submit'> | undefined
   private readonly remote: Pick<MuseDesktopRemote, 'refresh' | 'pause'> | undefined
   private readonly voiceSlots: Pick<MuseVoiceSlotsClient, 'request'> | undefined
+  private readonly mediaPostprocess: MuseAccountServiceOptions['mediaPostprocess']
 
   /**
    * @param ctx - Host context owning the service.
@@ -60,6 +65,7 @@ export class MuseAccountService extends TypertRemoteService {
     this.feedbackClient = options.feedback
     this.remote = options.remote
     this.voiceSlots = options.voiceSlots
+    this.mediaPostprocess = options.mediaPostprocess
   }
 
   /**
@@ -72,6 +78,60 @@ export class MuseAccountService extends TypertRemoteService {
   async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown> {
     if (!this.voiceSlots) throw new MuseVoiceSlotError('not-configured')
     return await this.voiceSlots.request(request, jubianToken)
+  }
+
+  /**
+   * Read eligibility and a quote for the current account without submitting a job.
+   * @param input - Source identifiers and requested operation.
+   * @param signal - Caller cancellation.
+   * @param jubianToken - Private provider credential for project authorization.
+   * @returns The preview, or ineligible when this Host lacks the capability.
+   */
+  async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal,
+    jubianToken?: string): Promise<MuseMediaPostprocessPreview> {
+    signal?.throwIfAborted()
+    if (!this.mediaPostprocess) return { state: 'ineligible' }
+    return await this.mediaPostprocess.preview(input, signal, jubianToken)
+  }
+
+  /**
+   * Submit one previously quoted video processing job through the signed-in account.
+   * @param input - Source identifiers, operation, original quote key and optional default-routing quote amount.
+   * @param signal - Cancels only the Host request.
+   * @param jubianToken - Private provider credential for project authorization.
+   * @returns The gateway acknowledgement or unknown when acceptance cannot be established.
+   */
+  async submitMediaPostprocess(
+    input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey; readonly quoteAmount?: string },
+    signal?: AbortSignal, jubianToken?: string,
+  ): Promise<MuseMediaPostprocessSubmission> {
+    signal?.throwIfAborted()
+    if (!this.mediaPostprocess) throw new MuseMediaPostprocessError('MEDIAKIT_UNAVAILABLE')
+    return await this.mediaPostprocess.submit(input, signal, jubianToken)
+  }
+
+  /**
+   * Read an original video processing receipt for Host-only use.
+   * @param key - Gateway quote key for the original submission.
+   * @param signal - Caller cancellation.
+   * @returns State and, on completion, the operator-approved private download location.
+   */
+  async statusMediaPostprocess(key: MuseMediaPostprocessJobKey, signal?: AbortSignal): Promise<MuseMediaPostprocessStatus> {
+    signal?.throwIfAborted()
+    if (!this.mediaPostprocess) throw new MuseMediaPostprocessError('MEDIAKIT_UNAVAILABLE')
+    return await this.mediaPostprocess.status(key, signal)
+  }
+
+  /**
+   * Obtain the gateway's one-time backup permission after a confirmed rejection.
+   * @param key - Gateway key for the original submission.
+   * @param signal - Caller cancellation.
+   * @returns Whether this Host received permission for the backup submission.
+   */
+  async claimMediaPostprocessFallback(key: MuseMediaPostprocessJobKey, signal?: AbortSignal): Promise<boolean> {
+    signal?.throwIfAborted()
+    if (!this.mediaPostprocess) throw new MuseMediaPostprocessError('MEDIAKIT_UNAVAILABLE')
+    return await this.mediaPostprocess.claimFallback(key, signal)
   }
 
   /**

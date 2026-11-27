@@ -10,6 +10,7 @@ import { MuseAccountController } from './account.ts'
 import { MuseBrowserLogin } from './browser-login.ts'
 import { MuseAsrClient } from './asr.ts'
 import { MuseVoiceSlotsClient } from './voice-slots.ts'
+import { MuseMediaPostprocessClient } from './mediakit.ts'
 import { MuseModels } from './models.ts'
 import { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 import { MuseAccountService } from './service.ts'
@@ -32,6 +33,9 @@ export { MuseAccountController } from './account.ts'
 export { MuseAsrClient, MuseAsrError, parseMuseAsrMetadata } from './asr.ts'
 export { MuseVoiceSlotsClient, MuseVoiceSlotError } from './voice-slots.ts'
 export type { MuseVoiceLeaseId, MuseVoiceSlotRequest, MuseVoiceSlotsOptions } from './voice-slots.ts'
+export { MuseMediaPostprocessError } from './mediakit.ts'
+export type { MuseMediaPostprocessInput, MuseMediaPostprocessJobKey, MuseMediaPostprocessPreview,
+  MuseMediaPostprocessStatus, MuseMediaPostprocessSubmission } from './mediakit.ts'
 export type { MuseAsrJob, MuseAsrSegment, MuseAsrPurpose, MuseAsrMetadata } from './asr.ts'
 export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 /** Host-only origin-bound credential reader; callers own the configured origin and private session-file path. */
@@ -325,9 +329,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.feedbackTools) mountMuseFeedbackTools(ctx, feedback)
   const voiceSlots = new MuseVoiceSlotsClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
     requestTimeoutMs: config.requestTimeoutMs })
+  const mediaPostprocess = new MuseMediaPostprocessClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
+    requestTimeoutMs: config.requestTimeoutMs })
   const browserLogin = new MuseBrowserLogin({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs })
   ctx.effect(() => () => browserLogin.dispose(), 'muse-account: browser login')
-  const service = ctx.plugin(MuseAccountService, { controller, browserLogin, asr, models, feedback, voiceSlots,
+  const service = ctx.plugin(MuseAccountService, { controller, browserLogin, asr, models, feedback, voiceSlots, mediaPostprocess,
     ...(remote === undefined ? {} : { remote }) })
   await service.await()
 }

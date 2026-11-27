@@ -129,6 +129,18 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 
 请求仅存在内存中，十分钟后到期，每进程最多1,000个；告知桌面端的轮询间隔为两秒。工厂参数 `desktopLoginOptions` 可配置 `ttlMs`、`maxAttempts` 与 `pollIntervalMs`。网关重启会清除待完成授权，单次兑换的结果丢失时需要重新登录。兑换后沿用既有的持久化会话策略。网关与桌面改动须配套部署；不需要注册操作系统 URL 协议或启动本地回调监听器。
 
+### MediaKit 后处理
+
+<a id="mediakit-post-processing-pilot"></a>
+
+在账号网关服务中设置 `MUSE_MEDIAKIT_CONFIG`，指向发布目录外的私有 JSON 文件。Linux 上使用权限为 0600 的普通文件。不设置该变量时，网关接口关闭。[Muse 桌面 Host 配置](../../apps/desktop-host/config/desktop.cordis.patch.yml)已启用 MediaKit。用户登录 Muse 后沿用已有剧变连接，只有服务端需要配置火山密钥。隔离验收使用 `MUSE_BASE_URL` 和独立配置，见[桌面开发说明](../../apps/desktop/README.zh.md#develop)。
+
+JSON 包含 `apiKey`、私有回执目录绝对路径 `receiptDirectory`、`timeoutMs`、精确的 HTTPS 产物来源 `resultOrigins` 和 `approvals`（无逐片授权时填 `[]`）。可选 `queueId` 选择 MediaKit 队列。要默认优先使用火山，添加 `defaultRouting`，包含精确的 HTTPS 源视频来源 `sourceOrigins`、部署共享的 `maxDailyJobs`（按 UTC 日计算，1–10000）、`maxSourceSeconds`（1–86400）和 `centsPerMinute`。在 `centsPerMinute` 下分别为 `upscale720p`、`upscale1080p` 和 `eraseSubtitle` 填写每分钟的正整数分价。根据实际费率、输出帧率和擦除模式设置。网关将已核实的源片时长向上取整到秒，估算金额向上取整到分。火山按实际输出和擦除时长计费。多实例共用同一私有回执目录和日额度。
+
+网关在报价和提交前向剧变官方 API 核验用户的项目访问权限、任务、片段地址和时长。反向代理应保留 `X-Jubian-Token` 请求头，并从日志中排除该请求头及请求正文。每个账号、任务和操作共用一个持久提交身份。预检时无可用火山路由或日额度已耗尽，新任务可走剧变。报价后若火山明确拒绝受理，或日额度被并发提交用完，最多发放一次剧变备用提交许可。项目预算保留火山原预留，且须覆盖备用报价。许可跨重启保留，响应丢失时仍视为已领取。火山已受理或提交状态不明确时，凭处理编号查询原任务。
+
+旧版逐片授权继续生效，同一片段优先取该条目。授权绑定 `accountId`、`scriptId`、`taskId`、`sourceOrigin`、`sourcePath` 及 `sourceSha256`（完整 URL 含查询参数的 SHA-256）。`operations` 包含带 `resolution` 和两位小数正数 `priceCny` 的 `upscale`，带 `priceCny` 的 `erase_subtitle`，或两项。要停止接受新的火山任务，移除 `defaultRouting` 并将 `approvals` 设为 `[]`。保留原有私有回执目录、火山密钥和产物来源，以便用户查询已有任务和领取默认路由下未使用的备用许可。移除 `MUSE_MEDIAKIT_CONFIG` 会关闭全部 MediaKit 接口。
+
 ### 账号会话
 
 网关会把 `MUSE_ACCOUNTS_FILE` 解析为绝对路径，并默认将登录会话写入同目录的 `sessions.json`；也可用 `MUSE_SESSIONS_FILE` 指定另一个绝对路径。两个文件都应位于不可变发布目录之外、不会暴露给用户的同一私有持久化目录。会话写入复用账号存储的仅所有者可访问目录和 0600 原子文件机制。文件只包含 token 的 SHA-256 摘要、账号 ID、账号 revision 与到期时间，不包含 bearer token 或 cookie 明文。一个会话文件只能由一个网关进程使用。

@@ -2967,7 +2967,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:50`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:54`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -5433,7 +5433,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:100`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:101`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -5487,6 +5487,8 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   projectShareMaxResultChars?: number
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
+  /** Ask the Muse gateway to route eligible video post-processing jobs to MediaKit. */
+  mediaKitPostprocess?: boolean
   /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
   watchPollIntervalMs?: number
   /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */

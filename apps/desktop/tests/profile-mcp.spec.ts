@@ -141,6 +141,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-tool-jubian')).toEqual([
       { id: 'tool-jubian', name: '@deepseek-ai/dsh-tool-jubian', config: {
+        mediaKitPostprocess: true,
         imagePlatformId: 'KU_AI', imageAllowedStandardIds: [76, 66, 86],
         promptRiskReview: {
           terms: ['国旗', '国徽', '党旗', '党徽', '军旗', '军徽', '政治标语', '领袖画像', '共产主义红色象征', '露骨色情', '血腥伤害', '极端主义标识'],

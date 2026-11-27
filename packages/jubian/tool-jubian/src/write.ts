@@ -246,7 +246,7 @@ export const REQUIRED_ARGUMENTS: Record<string, readonly string[]> = {
   'jubian_storyboard.prepare_video': ['storyboard_id', 'project_dir'],
   'jubian_storyboard.submit_video_batch': ['video_previews'],
   'jubian_storyboard.reconcile_video': ['project_dir', 'idempotency_key'],
-  'jubian_storyboard.erase_subtitle': ['task_id', 'model_id', 'video_width', 'video_height'],
+  'jubian_storyboard.erase_subtitle': ['task_id', 'video_width', 'video_height'],
   'jubian_media.download': ['media_url', 'media_kind', 'output_path'],
   'jubian_organize.index': ['script_id', 'project_dir'],
   'jubian_model.preview': ['script_id', 'project_dir', 'scope', 'changes'],

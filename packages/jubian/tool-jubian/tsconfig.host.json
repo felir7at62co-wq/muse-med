@@ -23,6 +23,7 @@
     "src/image-continuity.ts",
     "src/methods.ts",
     "src/media-download.ts",
+    "src/mediakit.ts",
     "src/upscale-price.ts",
     "src/subtitle-price.ts",
     "src/model-settings.ts",

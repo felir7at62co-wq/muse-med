@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished } from 'vitest'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { MuseMediaPostprocessJobKey } from '@deepseek-ai/dsh-muse-account'
+import type { MediaPostprocessClient } from '../src/mediakit.ts'
 import { storyboardMethod } from '../src/methods.ts'
 
 it('records a verified free erasure without an allowance, replays its key, and rechecks new positive prices', async () => {
@@ -63,4 +66,75 @@ it('records a verified free erasure without an allowance, replays its key, and r
   expect(await ledger.records()).toHaveLength(1)
   expect(await ledger.find('positive-price')).toBeUndefined()
   await expect(access(join(root, 'authorization.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it.each([
+  { state: 'accepted', code: undefined },
+  { state: 'rejected', code: 'MEDIAKIT_RATE_LIMITED' },
+  { state: 'rejected', code: undefined },
+  { state: 'ineligible', code: undefined },
+] as const)('routes automatic erasure when MediaKit reports $state with code $code', async ({ state, code }) => {
+  const root = await mkdtemp(join(tmpdir(), 'jubian-erase-pilot-'))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const ledger = new JubianLedger({ root, defaultLimitCents: () => 500 })
+  const sourceUrl = 'https://media.example.test/with-captions.mp4'
+  const jobKey = brandString<MuseMediaPostprocessJobKey>('c'.repeat(64))
+  const usesJubian = state !== 'accepted'
+  const paths: string[] = []
+  const client = new JubianClient({ baseUrl: 'https://erase-pilot.invalid/prod-api',
+    credential: async () => 'offline-erase',
+    fetch: async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString())
+      expect(url.origin).toBe('https://erase-pilot.invalid')
+      const path = url.pathname
+      paths.push(path)
+      if (path.endsWith('/task/42')) return Response.json({ code: 200, data: { id: 42, scriptId: 2708, episodeId: 46744 } })
+      if (path.endsWith('/sub/list')) return Response.json({ code: 200, data: { total: 1, rows: [
+        { id: 990, aigcVideoTaskId: 42, taskStatus: 'succeeded', duration: 13.5, firstResultId: 123,
+          resultList: [{ taskType: 1, tosVideoUrl: sourceUrl }] },
+      ] } })
+      if (usesJubian && path.endsWith('/model/charge/getSelectList')) {
+        expect(url.search).toBe('?taskType=10')
+        return Response.json({ code: 200, data: [{ id: 67, modelId: 'ark-erase-video-subtitle-pro',
+          platformId: 'AI_MEDIA_KIT', unitPrice: 0.5, unit: '元/条', videoStandards: [] }] })
+      }
+      if (usesJubian && path.endsWith('/aigc/storyboard/subtitleEraser')) {
+        expect(claims).toBe(state === 'rejected' ? 1 : 0)
+        const key = state === 'rejected' ? `muse-mediakit-backup-${jobKey}` : 'pilot-erase'
+        expect(await ledger.find(key)).toMatchObject({ method: 'erase_subtitle', quoted_amount: '0.50' })
+        if (typeof init?.body !== 'string') throw Error('Expected a JSON string request body')
+        expect(JSON.parse(init.body)).toMatchObject({ modelId: 'ark-erase-video-subtitle-pro', standardId: 67 })
+        return Response.json({ code: 200, data: { taskId: 429001 } })
+      }
+      throw new Error(`Unexpected erasure fixture request: ${path}`)
+    } })
+  let submissions = 0, claims = 0
+  const rejection = { state: 'rejected', ...(code === undefined ? {} : { code }) } as const
+  const postprocess: MediaPostprocessClient = {
+    previewMediaPostprocess: async (request) => {
+      expect(request).toEqual({ operation: 'erase_subtitle', scriptId: 2708, taskId: 42, videoUrl: sourceUrl })
+      return state === 'ineligible' ? { state } : { state: 'ready', jobKey, amount: '1.00', unit: 'CNY' }
+    },
+    submitMediaPostprocess: async () => { submissions++; return state === 'rejected' ? rejection : { state: 'accepted' } },
+    statusMediaPostprocess: async () => state === 'rejected' ? rejection : { state: 'pending' },
+    claimMediaPostprocessFallback: async (key) => { expect(key).toBe(jobKey); return ++claims === 1 },
+  }
+  const args = { method: 'erase_subtitle', task_id: 42,
+    video_width: 480, video_height: 854, idempotency_key: 'pilot-erase',
+    ...(state === 'accepted' ? { platform_id: 'AI_MEDIA_KIT' } : {}) }
+  const result = await storyboardMethod(client, ledger, args, { postprocess })
+  if (state === 'rejected') {
+    expect(result).toMatchObject({ provider: 'jubian', fallback_from: 'volcengine-mediakit', accepted_task_id: '429001' })
+    if (code === undefined) expect(result).not.toHaveProperty('fallback_reason')
+    else expect(result).toHaveProperty('fallback_reason', code)
+    expect(await storyboardMethod(client, ledger, args, { postprocess })).toMatchObject({ provider: 'jubian', replayed: true })
+  } else if (state === 'ineligible') {
+    expect(result).toMatchObject({ accepted_task_id: '429001' })
+    expect(result).not.toHaveProperty('fallback_from')
+  } else {
+    expect(result).toMatchObject({ provider: 'volcengine-mediakit', processing_job_key: jobKey, status: 'accepted' })
+  }
+  expect(paths).toHaveLength(usesJubian ? 4 : 2)
+  expect(submissions).toBe(state === 'ineligible' ? 0 : 1)
+  expect(claims).toBe(state === 'rejected' ? 1 : 0)
 })

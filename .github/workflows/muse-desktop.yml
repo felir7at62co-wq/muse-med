@@ -109,6 +109,8 @@ jobs:
         run: node --test services/muse-accounts/account-details.test.mjs services/muse-accounts/account-profile.test.mjs services/muse-accounts/account-pages.test.mjs services/muse-accounts/feishu-login.test.mjs services/muse-accounts/feishu-organization.test.mjs services/muse-accounts/deployment/profile-overlay.test.mjs services/muse-accounts/deployment/profile-candidate.test.mjs
       - name: Check shared voice reservation and replacement
         run: node --test services/muse-accounts/voice-slots.test.mjs
+      - name: Check MediaKit source verification, routing and recovery
+        run: node --test services/muse-accounts/mediakit-source.test.mjs services/muse-accounts/mediakit-http.test.mjs services/muse-accounts/mediakit-jobs.test.mjs services/muse-accounts/mediakit-provider.test.mjs
       - name: Build Host peers for plugin packaging
         run: pnpm run build:lib:host
       - name: Check built-in Bot memory, shutdown and packaging policy

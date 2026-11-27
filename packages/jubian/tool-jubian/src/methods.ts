@@ -62,6 +62,7 @@ import type { VideoSourceOptions } from './video-sources.ts'
 import { createImageReferenceResolver, resolveImageReferenceScanOptions, unknownIdentityReference } from './image-continuity.ts'
 import type { ImageReferenceResolution, ImageReferenceScanOptions } from './image-continuity.ts'
 import type { CharacterReferenceQaGenerationPreparation } from './character-reference-qa-bridge.ts'
+import { routeMediaPostprocess, withMediaPostprocessLock, type MediaPostprocessClient } from './mediakit.ts'
 
 export { bodyHash, writeUnderLedger } from './write.ts'
 export type { WriteOutcome } from './write.ts'
@@ -154,6 +155,8 @@ export interface MethodArgs {
   /** `create`: UTF-8 JSON file containing the complete frozen request body. */
   body_path?: string
   media_url?: string
+  /** Account-scoped task key returned by the approved MediaKit pilot. */
+  processing_job_key?: string
   media_kind?: MediaKind
   output_path?: string
   /** Reuse a SHA-verified local download of the exact same URL. */
@@ -324,6 +327,10 @@ export interface MethodDeps {
   beforeVideoSend?: (key: string) => Promise<void>
   /** Current Muse account's exclusive shared voice-registration provider. */
   voiceCoordinator?: VoiceCoordinator
+  /** Private account gateway for video post-processing. */
+  postprocess?: MediaPostprocessClient | undefined
+  /** Private Jubian credential resolver for the official post-processing account gateway. */
+  readJubianCredential?: (() => Promise<string | undefined>) | undefined
   /** Resolved complete-reference inspection limits before deleting audio assets. */
   audioReferenceScan?: AudioReferenceScanOptions
   /** Resolved complete inventory limits for uploaded image registration. */
@@ -1365,41 +1372,59 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             managedReference.authorizationEnvironment, args.parent_asset_id) }
     }
     case 'upscale': {
-      requireKey(args.idempotency_key)
-      const taskId = need(args.task_id)
-      let projectId: number | undefined
-      let quote: ReturnType<typeof readUpscaleQuote> & { standardId: number; observedAt: string } | undefined
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'video_upscale',
-        async () => {
+      const key = requireKey(args.idempotency_key)
+      return await withMediaPostprocessLock(ledger, key, async () => {
+        const taskId = need(args.task_id)
+        let source: ReturnType<typeof taskMediaRequest> | undefined
+        const readSource = () => source ??= taskMediaRequest(client, taskId, args.script_id, 'current')
+        const resolution = args.resolution ?? '1080p'
+        const gateway = (resolution === '720p' || resolution === '1080p')
+          && (args.model_id === undefined || args.model_id === MEDIAKIT_UPSCALE_MODEL.modelId)
+          && (args.platform_id === undefined || args.platform_id === MEDIAKIT_UPSCALE_MODEL.platformId)
+          ? deps.postprocess : undefined
+        const route = await routeMediaPostprocess(ledger, key, 'upscale', taskId, gateway, async () => {
+          const { media } = await readSource()
+          return { operation: 'upscale', scriptId: media.scriptId, taskId, videoUrl: media.videoUrl,
+            resolution: resolution === '720p' ? '720p' : '1080p' }
+        }, deps.signal, deps.readJubianCredential)
+        if (route.route === 'mediakit') return route.result
+        let projectId: number | undefined
+        let quote: ReturnType<typeof readUpscaleQuote> & { standardId: number; observedAt: string } | undefined
+        const result = await writeUnderLedger(ledger, route.route === 'backup' ? route.ledgerKey : key, 'video_upscale',
+          async () => {
           // The upscale body needs identities the provider splits across two
           // reads: the parent task carries the episode, the child result carries
           // the source identities and duration.
-          const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'current')
-          projectId = media.scriptId
-          const catalogue = (await client.request({ method: 'GET',
-            path: '/model/charge/getSelectList?taskType=20' })).data
-          const platformId = args.platform_id ?? (args.model_id === undefined ? MEDIAKIT_UPSCALE_MODEL.platformId : undefined)
-          const selected = resolvePostProcessModel(catalogue, {
-            modelId: args.model_id ?? MEDIAKIT_UPSCALE_MODEL.modelId,
-            ...(platformId === undefined ? {} : { platformId }),
-            resolution: args.resolution ?? '1080p',
-          })
-          quote = { ...readUpscaleQuote(catalogue, selected, media.duration), standardId: selected.standardId,
-            observedAt: new Date().toISOString() }
-          return buildVideoUpscaleRequest({
-            ...media,
-            taskName: args.task_name
+            const { task, media } = await readSource()
+            projectId = media.scriptId
+            const catalogue = (await client.request({ method: 'GET',
+              path: '/model/charge/getSelectList?taskType=20' })).data
+            const platformId = args.platform_id ?? (args.model_id === undefined ? MEDIAKIT_UPSCALE_MODEL.platformId : undefined)
+            const selected = resolvePostProcessModel(catalogue, {
+              modelId: args.model_id ?? MEDIAKIT_UPSCALE_MODEL.modelId,
+              ...(platformId === undefined ? {} : { platformId }),
+              resolution: args.resolution ?? '1080p',
+            })
+            quote = { ...readUpscaleQuote(catalogue, selected, media.duration), standardId: selected.standardId,
+              observedAt: new Date().toISOString() }
+            return buildVideoUpscaleRequest({
+              ...media,
+              taskName: args.task_name
               ?? `${stagePrefix(args, deps.naming)}${task.task_name ?? `task-${taskId}`}-高清转换`,
-          }, selected)
-        },
-        sent => client.request({ method: 'POST', path: '/aigc/storyboard/hdConversion', body: need(sent) }),
-        () => ({ ...quote, scriptId: projectId as number }))
-      // Upscaling is asynchronous and was measured taking minutes, so this
-      // returns the submission rather than waiting for the result.
-      return { ...result, accepted_task_id: readUpscaleTaskId({ data: result.data }),
-        next: '转高清是异步任务，会持续数分钟到十几分钟。不要在这里等待——先做别的，'
+            }, selected)
+          },
+          sent => client.request({ method: 'POST', path: '/aigc/storyboard/hdConversion', body: need(sent) }),
+          () => ({ ...quote, scriptId: projectId as number }),
+          route.route === 'backup' ? { beforeReserve: route.beforeReserve } : undefined)
+        // Upscaling is asynchronous and was measured taking minutes, so this
+        // returns the submission rather than waiting for the result.
+        return { ...result, accepted_task_id: readUpscaleTaskId({ data: result.data }),
+          ...(route.route === 'backup' ? { fallback_from: 'volcengine-mediakit', provider: 'jubian',
+            ...(route.reason === undefined ? {} : { fallback_reason: route.reason }) } : {}),
+          next: '转高清是异步任务，会持续数分钟到十几分钟。不要在这里等待——先做别的，'
           + '之后再用 subtasks 回读该任务的 hd_count / last_task_type / resolution 判断是否转好。'
           + '目标档位不承诺精确像素；交付报告区分目标与文件实际宽高，不因尺寸非精确 1080×1920 就将成功任务记为失败。' }
+      }, deps.signal)
     }
     case 'retry': {
       requireKey(args.idempotency_key)
@@ -1695,85 +1720,102 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       if (onlyIfVerifiedFree && hasCallerEstimate) {
         throw new JubianError('INVALID_ARGUMENT', 'only_if_verified_free requires omitting estimated_cost_cny and estimate_basis')
       }
-      const freePriceRequired = 'only_if_verified_free requires a unique live 0.00 CNY erasure quote on the verified route; no erasure was submitted'
-      // Read from the task row by the body below; the quote thunk passes it to the
-      // budget gate, which cannot ask for a project the caller never states.
-      let projectId: number | undefined
-      let estimate: ReturnType<typeof estimatedCostReservation>
-      let catalogueQuote: ReturnType<typeof readSubtitleEraseQuote> | undefined
-      const result = await writeUnderLedger(ledger, key, 'erase_subtitle',
-        async () => {
+      const gateway = !onlyIfVerifiedFree && !hasCallerEstimate
+        && (args.model_id === undefined || args.model_id === AUTOMATIC_ERASE_MODEL)
+        && (args.platform_id === undefined || args.platform_id === 'AI_MEDIA_KIT')
+        && args.erase_mode !== 'region' && args.subtitle_box === undefined
+        ? deps.postprocess : undefined
+      const modelId = need(args.model_id ?? (gateway === undefined ? undefined : AUTOMATIC_ERASE_MODEL),
+        'jubian_storyboard erase_subtitle requires model_id')
+      return await withMediaPostprocessLock(ledger, key, async () => {
+        let source: ReturnType<typeof taskMediaRequest> | undefined
+        const readSource = () => source ??= taskMediaRequest(client, taskId, args.script_id, 'original')
+        const route = await routeMediaPostprocess(ledger, key, 'erase_subtitle', taskId, gateway, async () => {
+          const { media } = await readSource()
+          return { operation: 'erase_subtitle', scriptId: media.scriptId, taskId, videoUrl: media.videoUrl }
+        }, deps.signal, deps.readJubianCredential)
+        if (route.route === 'mediakit') return route.result
+        const freePriceRequired = 'only_if_verified_free requires a unique live 0.00 CNY erasure quote on the verified route; no erasure was submitted'
+        // Read from the task row by the body below; the quote thunk passes it to the
+        // budget gate, which cannot ask for a project the caller never states.
+        let projectId: number | undefined
+        let estimate: ReturnType<typeof estimatedCostReservation>
+        let catalogueQuote: ReturnType<typeof readSubtitleEraseQuote> | undefined
+        const result = await writeUnderLedger(ledger, route.route === 'backup' ? route.ledgerKey : key, 'erase_subtitle',
+          async () => {
           // Identities come from the provider, split across two reads. The
           // rectangle is derived from the source frame rather than drawn by the
           // caller: the workbench scales its preview canvas into video
           // coordinates in a way no caller can reproduce.
-          const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'original')
-          projectId = media.scriptId
-          const modelId = need(args.model_id, 'model_id')
-          const knownModel = SUBTITLE_ERASE_MODELS.some(id => id === modelId)
-          const needsCatalogue = !knownModel || args.platform_id !== undefined || !hasCallerEstimate
-          let selected: ReturnType<typeof resolvePostProcessModel> | undefined
-          try {
-            let catalogue: unknown
-            if (needsCatalogue) {
-              try { catalogue = (await client.request({ method: 'GET',
-                path: '/model/charge/getSelectList?taskType=10' })).data }
-              catch (error) {
+            const { task, media } = await readSource()
+            projectId = media.scriptId
+            const knownModel = SUBTITLE_ERASE_MODELS.some(id => id === modelId)
+            const needsCatalogue = !knownModel || args.platform_id !== undefined || !hasCallerEstimate
+            let selected: ReturnType<typeof resolvePostProcessModel> | undefined
+            try {
+              let catalogue: unknown
+              if (needsCatalogue) {
+                try { catalogue = (await client.request({ method: 'GET',
+                  path: '/model/charge/getSelectList?taskType=10' })).data }
+                catch (error) {
                 // A known route can retain its older operator-approved estimate when
                 // catalogue access is denied. Unknown routes still need live selectors.
-                if (onlyIfVerifiedFree || !knownModel || args.platform_id !== undefined || !(error instanceof JubianError)
+                  if (onlyIfVerifiedFree || !knownModel || args.platform_id !== undefined || !(error instanceof JubianError)
                   || (error.code !== 'PERMISSION_DENIED' && error.code !== 'AUTHENTICATION_REQUIRED')) throw error
+                }
               }
+              if (catalogue !== undefined) {
+                selected = resolvePostProcessModel(catalogue, { modelId,
+                  ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
+                })
+                if (!hasCallerEstimate && knownModel) catalogueQuote = readSubtitleEraseQuote(catalogue, selected, media.duration)
+              }
+            } catch (error) {
+              if (onlyIfVerifiedFree && error instanceof JubianError) {
+                const code = error.code === 'CONTRACT_CHANGED' ? 'BUDGET_EXCEEDED' : error.code
+                throw new JubianError(code, freePriceRequired, error.responseEvidence)
+              }
+              throw error
             }
-            if (catalogue !== undefined) {
-              selected = resolvePostProcessModel(catalogue, { modelId,
-                ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
-              })
-              if (!hasCallerEstimate && knownModel) catalogueQuote = readSubtitleEraseQuote(catalogue, selected, media.duration)
+            if (onlyIfVerifiedFree && catalogueQuote?.verifiedFreeSubtitleErase !== true) {
+              throw new JubianError('BUDGET_EXCEEDED', freePriceRequired)
             }
-          } catch (error) {
-            if (onlyIfVerifiedFree && error instanceof JubianError) {
-              const code = error.code === 'CONTRACT_CHANGED' ? 'BUDGET_EXCEEDED' : error.code
-              throw new JubianError(code, freePriceRequired, error.responseEvidence)
-            }
-            throw error
-          }
-          if (onlyIfVerifiedFree && catalogueQuote?.verifiedFreeSubtitleErase !== true) {
-            throw new JubianError('BUDGET_EXCEEDED', freePriceRequired)
-          }
-          return buildSubtitleEraseRequest(modelId, {
-            ...media,
-            taskName: args.task_name
+            return buildSubtitleEraseRequest(modelId, {
+              ...media,
+              taskName: args.task_name
               ?? `${stagePrefix(args, deps.naming)}${task.task_name ?? `task-${taskId}`}-去字幕`,
-            videoWidth: need(args.video_width),
-            videoHeight: need(args.video_height),
-            ...(args.subtitle_box === undefined ? {} : { subtitleBox: args.subtitle_box }),
-          }, selected, args.erase_mode)
-        },
-        sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
-        () => {
-          estimate = estimatedCostReservation(args)
-          return { ...(catalogueQuote ?? estimate), scriptId: projectId as number,
-            ...catalogueQuote?.verifiedFreeSubtitleErase === true
-              ? { standardId: 67, observedAt: new Date().toISOString() } : {} }
-        })
-      if (onlyIfVerifiedFree && result.replayed) {
-        const prior = await ledger.find(key)
-        if (prior?.quoted_amount !== '0.00' || prior.quote_unit !== 'CNY'
+              videoWidth: need(args.video_width),
+              videoHeight: need(args.video_height),
+              ...(args.subtitle_box === undefined ? {} : { subtitleBox: args.subtitle_box }),
+            }, selected, args.erase_mode)
+          },
+          sent => client.request({ method: 'POST', path: '/aigc/storyboard/subtitleEraser', body: need(sent) }),
+          () => {
+            estimate = estimatedCostReservation(args)
+            return { ...(catalogueQuote ?? estimate), scriptId: projectId as number,
+              ...catalogueQuote?.verifiedFreeSubtitleErase === true
+                ? { standardId: 67, observedAt: new Date().toISOString() } : {} }
+          }, route.route === 'backup' ? { beforeReserve: route.beforeReserve } : undefined)
+        if (onlyIfVerifiedFree && result.replayed) {
+          const prior = await ledger.find(key)
+          if (prior?.quoted_amount !== '0.00' || prior.quote_unit !== 'CNY'
           || prior.quote_standard_id !== 67 || !prior.quote_observed_at
           || args.model_id !== AUTOMATIC_ERASE_MODEL
           || (args.platform_id !== undefined && args.platform_id !== 'AI_MEDIA_KIT')
           || (args.script_id !== undefined && prior.script_id !== args.script_id)) {
-          throw new JubianError('CONTRACT_CHANGED', 'The recorded erasure key has no matching verified free quote; reconcile the original attempt')
+            throw new JubianError('CONTRACT_CHANGED', 'The recorded erasure key has no matching verified free quote; reconcile the original attempt')
+          }
         }
-      }
-      return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
-        ...(onlyIfVerifiedFree ? { verified_free: true } : {}),
-        next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'
+        return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
+          ...(route.route === 'backup' ? { fallback_from: 'volcengine-mediakit', provider: 'jubian',
+            ...(route.reason === undefined ? {} : { fallback_reason: route.reason }) } : {}),
+          ...(onlyIfVerifiedFree ? { verified_free: true } : {}),
+          next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'
           + (!result.replayed && estimate !== undefined
             ? ` 本次按调用方声明的估算 ${estimate.amount} CNY 预留，不是供应商报价或实际结算金额；依据为本次 estimate_basis，实际费用仍待供应商结算。` : '')
           + (!result.replayed && catalogueQuote !== undefined
             ? ` 本次按 ${catalogueQuote.basis} 预留 ${catalogueQuote.amount} CNY。` : '') }
+      }, deps.signal)
     }
     default:
       throw new JubianError('CONTRACT_CHANGED')

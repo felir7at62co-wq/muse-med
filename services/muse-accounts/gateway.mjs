@@ -30,6 +30,7 @@ import {desktopRoute,desktopPrefix} from './desktop-route.mjs';
 import {desktopPicker} from './desktop-picker.mjs';
 import {createVoiceSlots,createJubianVoiceVerifier,resolveVoiceSlotOptions} from './voice-slots.mjs';
 import {loadMarket,marketRoute} from './market.mjs';
+import {loadMediaKitPilot,mediaKitRoute} from './mediakit-http.mjs';
 
 /** Load account Wiki storage and administrator grants without opening legacy vector files.
  * @param {object} environment Gateway environment containing the KB directory and credential-file paths.
@@ -62,7 +63,7 @@ function loginPage(register=false,desktopLogin,feishuEnabled=false,feishuAppType
  * @param {import('node:http').Server} [options.httpServer] Unhandled carrier, optionally already listening; the factory installs gateway handlers and owns their close cleanup.
  * @returns {import('node:http').Server} The supplied carrier or a new HTTP server.
  */
-export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,usageRequestRatePerMinute=600,usageLedger,voiceSlots,market,httpServer,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,usageRequestRatePerMinute=600,usageLedger,voiceSlots,market,mediaKit,httpServer,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  usageLedger??=createMemoryUsageLedger({now});
  if(httpServer&&(httpServer.listenerCount('request')!==0||httpServer.listenerCount('upgrade')!==0))throw Error('Account HTTP carrier must have no request or upgrade handlers');
  if(!Number.isSafeInteger(activityRequestRatePerMinute)||activityRequestRatePerMinute<1||activityRequestRatePerMinute>10000)throw Error('Invalid activity request rate');
@@ -85,7 +86,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  function revokeSoon(token){void revoke(token).catch(sessionWriteFailed);}
  function touchAccount(id){try{Promise.resolve(runtime.touch?.(id)).catch(()=>{});}catch{}}
  const changed=id=>{for(const [token,accountId] of activeTokens)if(accountId===id)disconnect(token);cookies.delete(id);const pending=sessionStore.revokeAccount(id);pending.catch(sessionWriteFailed);accountRevocations.set(id,pending);};store.on('change',changed);
- function session(req){const token=((req.url?.startsWith('/api/desktop-models/')||req.url?.startsWith('/api/jubian/voice-slots'))?req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]+)$/)?.[1]:undefined)??req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1);const s=sessionStore.get(token),a=s&&store.get(s.id);if(s&&a&&!a.disabled&&a.revision===s.revision&&(!devOnlyAdmin||a.admin)){activeTokens.set(token,s.id);return {token,...s,account:a};}if(token)revokeSoon(token);return null;}
+ function session(req){const token=((req.url?.startsWith('/api/desktop-models/')||req.url?.startsWith('/api/jubian/voice-slots')||req.url?.startsWith('/api/media-postprocess/'))?req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]+)$/)?.[1]:undefined)??req.headers.cookie?.split(';').map(x=>x.trim()).find(x=>x.startsWith(cookieName+'='))?.slice(cookieName.length+1);const s=sessionStore.get(token),a=s&&store.get(s.id);if(s&&a&&!a.disabled&&a.revision===s.revision&&(!devOnlyAdmin||a.admin)){activeTokens.set(token,s.id);return {token,...s,account:a};}if(token)revokeSoon(token);return null;}
  function originOK(req,required=false){return req.headers.origin?req.headers.origin===publicOrigin:!required&&req.headers['sec-fetch-site']!=='cross-site';}
  desktopRelay=createDesktopRelay({...desktopRelayOptions,store,publicOrigin,now,validSession:s=>{const current=sessionStore.get(s.token),account=store.get(s.id);return !!current&&current.id===s.id&&!!account&&!account.disabled&&account.revision===current.revision;}});
  function reply(res,status,text='',extra={}){res.writeHead(status,{'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer',...extra});res.end(text);}
@@ -121,6 +122,10 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   if(await desktopLogin.handle(req,res,path))return;
   if(asrStorage&&await asrStorage.handle(req,res))return;
   if(!mount&&await marketRoute(req,res,{market,path,currentSession:()=>session(req),originOK:required=>originOK(req,required),rate:limit=>rate(req,'market',limit),store,reply,admissionStopped}))return;
+  if(!mount&&await mediaKitRoute({
+   req,res,path,mediaKit,reply,currentSession:()=>session(req),originOK:required=>originOK(req,required),
+   rate:(id,limit)=>rate(req,'mediakit:'+id,limit),accepting:()=>!admissionStopped,
+  }))return;
   if(path==='/register'&&devOnlyAdmin){reply(res,403,'开发环境仅供管理员使用');return;}
   if(['/login','/register'].includes(path)&&req.method==='GET'){const requested=new URL(req.url,publicOrigin).searchParams.get('desktop_login'),continuation=desktopLogin.returnPath(requested)==='/'?undefined:requested;let content=devOnlyAdmin?renderLoginPage(false,continuation).replace('<a href="/register">免费注册个人工作间</a>','开发验证环境 · 管理员登录'):renderLoginPage(path==='/register',continuation);if(environment==='development')content=content.replace('<h1>MUSE</h1>','<h1>MUSE</h1><div class="eyebrow">开发验证环境</div>');html(res,200,content);return;}
   if(['/spider.png','/favicon.ico'].includes(path)&&req.method==='GET'){if(logoPath)reply(res,200,await readFile(logoPath),{'content-type':'image/png'});else reply(res,204);return;}
@@ -430,6 +435,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};
  const kb=await loadKnowledgeBase();
  const market=await loadMarket();
+ const mediaKit=await loadMediaKitPilot(process.env.MUSE_MEDIAKIT_CONFIG);
  const voiceSlotOptions=resolveVoiceSlotOptions();
  const voiceSlots=voiceSlotOptions?createVoiceSlots({...voiceSlotOptions,...createJubianVoiceVerifier({timeoutMs:voiceSlotOptions.timeoutMs})}):undefined;
  if(voiceSlots)await voiceSlots.ready();
@@ -457,7 +463,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;asrRequestRatePerMinute=config.requestRatePerMinute;
  }
- const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,usageRequestRatePerMinute,usageLedger,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,usageRequestRatePerMinute,usageLedger,voiceSlots,market,mediaKit,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
  if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,secret:modelSecret,accounts:store,usageLedger,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
  let sweepInterval;
  installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,usageLedger,stopSweep:()=>clearInterval(sweepInterval)});
