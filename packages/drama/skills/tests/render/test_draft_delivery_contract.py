@@ -780,6 +780,67 @@ class DraftDeliveryContractTests(unittest.TestCase):
         review = json.loads((draft_dir / 'muse-review.json').read_text(encoding='utf-8'))
         self.assertTrue(any('未应用剪映项目帧级适配' in item for item in review['warnings']))
 
+    def test_mixed_cfr_sources_keep_the_project_picture_clock_and_original_audio(self):
+        clips = [{'shot': 1, 'start_us': 0, 'duration_us': 2_074_074},
+                 {'shot': 2, 'start_us': 2_074_074, 'duration_us': 2_041_667},
+                 {'shot': 3, 'start_us': 4_115_741, 'duration_us': 2_041_666}]
+        for fps, cuts in ((30, (0, 2_100_000, 4_133_333, 6_166_667)),
+                          (60, (0, 2_083_333, 4_116_667, 6_166_667))):
+            with self.subTest(fps=fps):
+                timeline = {'clips': clips, 'body_end': 6.157407,
+                            'delivery': {'visual_medium': 'photorealistic', 'width': 480, 'height': 854, 'fps': fps}}
+                root = self.build_root(timeline=timeline, srt='1\n00:00:00,000 --> 00:00:01,000\n原声时钟\n')
+                for shot, source_fps, frames in ((1, 27, 56), (2, 24, 49), (3, 24, 49)):
+                    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                                    f'testsrc=size=48x64:rate={source_fps}', '-frames:v', str(frames),
+                                    '-pix_fmt', 'yuv420p', str(root / f'02_media/25/p{shot}.mp4')],
+                                   check=True, timeout=30, creationflags=NO_WINDOW)
+                subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                                'sine=duration=6.157407', '-ar', '48000', str(root / '01_audio/25.wav')],
+                               check=True, timeout=30, creationflags=NO_WINDOW)
+                draft_dir = self.generate(root)
+                content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+                evidence = json.loads((draft_dir / 'body-tail-evidence.json').read_text(encoding='utf-8'))
+                clock = evidence['frame_clock']
+                self.assertEqual(clock['status'], 'verified_mixed_fps_cfr')
+                self.assertEqual(clock['delta_us'], 9_260)
+                self.assertEqual(evidence['holds'], [])
+                self.assertEqual(content['duration'], 8_166_667)
+                body, ending = self.segments(content, 'video')[:-1], self.segments(content, 'video')[-1]
+                self.assertEqual([row['target_timerange'] for row in body], [
+                    {'start': start, 'duration': end - start} for start, end in zip(cuts, cuts[1:])])
+                self.assertTrue(all(row['speed'] == 1 for row in body))
+                self.assertEqual(ending['target_timerange'], {'start': cuts[-1], 'duration': 2_000_000})
+                audio = self.segments(content, 'audio')[0]['target_timerange']
+                self.assertEqual(audio['start'], 0)
+                self.assertLess(abs(audio['duration'] - 6_157_407), 1_000)
+                self.assertEqual(self.segments(content, 'text')[0]['target_timerange'],
+                                 {'start': 0, 'duration': 1_000_000})
+
+    def test_mixed_cfr_ending_uses_the_last_visible_frame_of_a_shortened_shot(self):
+        timeline = {'clips': [{'shot': 1, 'start_us': 0, 'duration_us': 1_010_000},
+                              {'shot': 2, 'start_us': 1_010_000, 'duration_us': 990_000}], 'body_end': 2,
+                    'delivery': {'visual_medium': 'photorealistic', 'width': 480, 'height': 854, 'fps': 30}}
+        root = self.build_root(timeline=timeline, srt='1\n00:00:00,000 --> 00:00:01,000\n原声时钟\n')
+        for shot, fps in ((1, 30), (2, 60)):
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                            f'testsrc=size=48x64:rate={fps}:duration=1.1', '-pix_fmt', 'yuv420p',
+                            str(root / f'02_media/25/p{shot}.mp4')],
+                           check=True, timeout=30, creationflags=NO_WINDOW)
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                        'sine=duration=2', '-ar', '48000', str(root / '01_audio/25.wav')],
+                       check=True, timeout=30, creationflags=NO_WINDOW)
+        draft_dir = self.generate(root)
+        content = json.loads((draft_dir / 'draft_content.json').read_text(encoding='utf-8'))
+        last, ending = self.segments(content, 'video')[-2:]
+        self.assertEqual(last['target_timerange'], {'start': 1_033_333, 'duration': 966_667})
+        self.assertEqual(last['source_timerange'], {'start': 0, 'duration': 966_667})
+        self.assertEqual(ending['target_timerange'], {'start': 2_000_000, 'duration': 2_000_000})
+        source = root / '02_media/25/p2.mp4'
+        expected = self.module.decoded_frame_hashes(source, 950_000)[-1:]
+        self.assertNotEqual(expected, self.module.decoded_frame_hashes(source, 966_667)[-1:])
+        self.assertEqual(self.module.decoded_frame_hashes(draft_dir / 'Resources/last_video_tail_frame.png'), expected)
+
     def test_project_frame_clock_preserves_legal_source_windows_at_24_25_30_60_fps(self):
         for fps in (24, 25, 30, 60):
             with self.subTest(fps=fps):
