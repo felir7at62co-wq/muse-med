@@ -21,6 +21,8 @@ import { createHash } from 'node:crypto'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { wireInteger as integer, wireHttpsUrl as httpUrl } from './wire.ts'
 import { childAudioUrls, referenceAudioUrls, validateAudioMaterial } from './audio.ts'
+import { readMaterialChannelIds } from './material-channel.ts'
+import type { MaterialChannelIds } from './material-channel.ts'
 
 function invalid(detail?: string): never { throw new JubianError('CONTRACT_CHANGED', detail) }
 
@@ -56,7 +58,7 @@ export function seedanceVideoVersion(modelId: string): '2.0' | '2.5' | null {
 }
 
 /** One ordered trusted subject identity, as the provider records it on a child. */
-export interface SubjectIdentityItem {
+export interface SubjectIdentityItem extends Partial<MaterialChannelIds> {
   /** The trusted multimedia-library identity (`hsAssetId`), not the numeric parent. */
   assetId: string
   /** The material name the provider persisted, and therefore the one it can re-read. */
@@ -313,6 +315,10 @@ export function isRelatedTaskCandidate(record: Record<string, unknown>, scriptId
  * @throws {JubianError} `CONTRACT_CHANGED` when any item is missing a field or the list is empty.
  */
 export function subjectIdentitySignature(materials: unknown): SubjectIdentityItem[] {
+  return readSubjectIdentities(materials)
+}
+
+function readSubjectIdentities(materials: unknown, expectedChannelAssets?: ReadonlySet<string>): SubjectIdentityItem[] {
   const list = storyboardObject(materials)
   if (!Array.isArray(list) || list.length === 0) invalid()
   const images = list.map(object).filter(material => material.materialType !== 'audio')
@@ -324,7 +330,9 @@ export function subjectIdentitySignature(materials: unknown): SubjectIdentityIte
     if (assetId === null || !assetId.trim()) invalid()
     if (name === null || !name.trim()) invalid()
     if (imageUrl === null) invalid()
-    return { assetId, materialName: name, imageUrl }
+    const channel = expectedChannelAssets === undefined || expectedChannelAssets.has(assetId)
+      ? readMaterialChannelIds(material) : undefined
+    return { assetId, materialName: name, imageUrl, ...channel }
   })
 }
 
@@ -490,11 +498,14 @@ export function assertImageReferenceConsistency(storyboard: Record<string, unkno
     for (const material of materials) {
       const key = wireText(material.materialKey)
       if (key === null || !key.trim() || result.has(key)) invalid('Saved image references have missing or duplicate materialKey')
+      const channel = readMaterialChannelIds(material)
       result.set(key, {
         materialAssetId: material.materialAssetId === undefined || material.materialAssetId === null
           ? null : String(integer(material.materialAssetId)),
         assetId: wireText(material.assetId),
         materialUrl: httpUrl(material.materialUrl ?? material.imageUrl),
+        extAssetId: channel?.extAssetId ?? null,
+        extGroupId: channel?.extGroupId ?? null,
       })
     }
     return result
@@ -503,7 +514,7 @@ export function assertImageReferenceConsistency(storyboard: Record<string, unkno
   const differences = [...new Set([...modelReferences.keys(), ...storyboardReferences.keys()])].sort().flatMap((key) => {
     const model = modelReferences.get(key), saved = storyboardReferences.get(key)
     const changedFields = model === undefined || saved === undefined ? ['materialKey']
-      : ['materialAssetId', 'assetId', 'materialUrl'].filter((field) => {
+      : ['materialAssetId', 'assetId', 'materialUrl', 'extAssetId', 'extGroupId'].filter((field) => {
         // Older provider rows sometimes omit only the numeric parent. The trusted
         // identity and URL still have to agree; live parent validation remains required.
         if (field === 'materialAssetId' && (model[field] === null || saved[field] === null)) return false
@@ -610,7 +621,11 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
     if (officialUrl === null) invalid()
     if (material.materialUrl !== officialUrl) invalid()
     if (Number(material.sortOrder) !== index + 1) invalid('Image material sortOrder conflicts with prompt group order')
-    const verified: Record<string, unknown> = {}
+    const savedChannel = readMaterialChannelIds(material), currentChannel = readMaterialChannelIds(asset)
+    if (savedChannel !== undefined && stableJson(savedChannel) !== stableJson(currentChannel ?? null)) {
+      invalid('Saved image channel IDs are not confirmed by the active asset. Verify the replacement, then prepare again.')
+    }
+    const verified: Record<string, unknown> = { ...currentChannel }
     for (const field of ['assetId', 'materialAssetId', 'assetName', 'fileName', 'materialKey',
       'materialType', 'materialUrl', 'sortOrder']) {
       if (field in material) verified[field] = material[field]
@@ -696,7 +711,7 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
     if (assetId === null || !assetId.trim()) invalid()
     if (materialName === null || !materialName.trim()) invalid()
     return { assetId, materialAssetId: integer(materialAssetId),
-      materialKey: String(material.materialKey), materialName, imageUrl }
+      materialKey: String(material.materialKey), materialName, imageUrl, ...readMaterialChannelIds(material) }
   })
   return {
     version: 1,
@@ -771,7 +786,7 @@ export function validateNativeVideoPreview(value: unknown): NativeVideoPreview {
   const ordered = Array.isArray(summary.orderedAssets) ? summary.orderedAssets.map((item) => {
     const asset = object(item)
     return { assetId: text(asset.assetId), materialName: text(asset.materialName), imageUrl: text(asset.imageUrl),
-      materialAssetId: integer(asset.materialAssetId), materialKey: text(asset.materialKey) }
+      materialAssetId: integer(asset.materialAssetId), materialKey: text(asset.materialKey), ...readMaterialChannelIds(asset) }
   }) : invalid()
   requireVideoSubjects(ordered.length)
   const expected = subjectIdentitySignature(ordered)
@@ -930,9 +945,19 @@ function contradictsExpectation(child: Record<string, unknown>, expectation: Nat
   return false
 }
 
-function childIdentity(child: Record<string, unknown>): SubjectIdentityItem[] | null {
+function baseSubjectIdentity({ assetId, materialName, imageUrl }: SubjectIdentityItem): SubjectIdentityItem {
+  return { assetId, materialName, imageUrl }
+}
+
+function missingChildChannelIds(actual: SubjectIdentityItem[], expected: SubjectIdentityItem[]): boolean {
+  return actual.some(item => item.extAssetId === undefined
+    && expected.some(reference => reference.assetId === item.assetId && reference.extAssetId !== undefined))
+}
+
+function childIdentity(child: Record<string, unknown>, expected: SubjectIdentityItem[]): SubjectIdentityItem[] | null {
   const materials = child.imageMaterials ?? child.storyboardMaterialList
-  try { return subjectIdentitySignature(materials) } catch { return null }
+  const channelAssets = new Set(expected.filter(item => item.extAssetId !== undefined).map(item => item.assetId))
+  try { return readSubjectIdentities(materials, channelAssets) } catch { return null }
 }
 
 function childModel(child: Record<string, unknown>): [string, string][] | null {
@@ -987,8 +1012,13 @@ export function classifyNewNativeCandidates(candidates: HydratedTask[],
     if (candidate.children.length === 0) { pending.push(candidate); continue }
     if (candidate.children.length !== 1) { mismatched.push(candidate); continue }
     const child = candidate.children[0] as Record<string, unknown>
-    const identity = childIdentity(child)
+    const identity = childIdentity(child, expectation.expectedIdentity)
     if (identity === null) { identityLost.push(candidate); continue }
+    if (missingChildChannelIds(identity, expectation.expectedIdentity)) {
+      if (terminalOutcome(taskStatusOf(candidate.task, child)) === 'pending') pending.push(candidate)
+      else identityLost.push(candidate)
+      continue
+    }
     if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) {
       // A settled task that carries a different identity is as much a conflict as
       // an unsettled one; only the unresolved case may still converge by itself.
@@ -1046,7 +1076,7 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
     if (!candidateBelongsTo(candidate, expectation)) continue
     if (candidate.children.length !== 1) { unsafe = true; continue }
     const child = candidate.children[0] as Record<string, unknown>
-    const identity = childIdentity(child)
+    const identity = childIdentity(child, expectation.expectedIdentity)
     if (identity === null) {
       // A processed child keeps only the provider's own fields. When those contradict the
       // submission they prove it is a different one and the candidate is dropped; when they
@@ -1056,7 +1086,9 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
       continue
     }
     if (stableJson(identity) !== stableJson(expectation.expectedIdentity)) {
-      if (sameUnorderedValues(identity, expectation.expectedIdentity)) {
+      if (sameUnorderedValues(identity, expectation.expectedIdentity)
+        || (missingChildChannelIds(identity, expectation.expectedIdentity)
+          && sameUnorderedValues(identity.map(baseSubjectIdentity), expectation.expectedIdentity.map(baseSubjectIdentity)))) {
         const model = childModel(child), prompt = childPrompt(child)
         if (model !== null && stableJson(model) !== stableJson(expectation.expectedModel)) continue
         if (prompt !== null && prompt !== expectation.expectedPrompt) continue
@@ -1088,7 +1120,7 @@ export function classifyExistingNativeMatches(candidates: HydratedTask[],
  */
 export function readBackIdentity(child: Record<string, unknown>, expected: SubjectIdentityItem[]):
 { status: 'ok' } | { status: 'subject_identity_lost'; reason: string } {
-  const identity = childIdentity(child)
+  const identity = childIdentity(child, expected)
   if (identity === null) {
     return { status: 'subject_identity_lost', reason: '子项缺少 assetId/materialName/imageUrl 中的至少一项' }
   }

@@ -54,6 +54,87 @@ const EXPECTATION = { scriptId: 2708, storyboardId: 916953, episodeId: 46737,
   expectedModel: nativeModelSignature(JSON.stringify(MODEL_CONFIG)),
   expectedPrompt: normalizedPrompt(PROMPT), beforeTaskIds: [] as string[] }
 
+describe('video replacement channel identity', () => {
+  const oldChannel = { extAssetId: 'channel-old-asset', extGroupId: 'channel-old-group' }
+  const newChannel = { extAssetId: 'channel-new-asset', extGroupId: 'channel-new-group' }
+  const materials = (channel: typeof newChannel) => [{ ...MATERIALS[0]!, ...channel }, MATERIALS[1]!]
+  const assets = (channel: typeof newChannel) => [{ ...ASSETS[0]!, ...channel }, ASSETS[1]!]
+  const storyboard = (channel: typeof newChannel) => ({ ...STORYBOARD,
+    storyboardMaterialList: materials(channel),
+    modelConfig: JSON.stringify({ ...MODEL_CONFIG, materialList: materials(channel) }) })
+  const prepare = (channel: typeof newChannel) => buildNativeVideoPreview({
+    storyboard: storyboard(channel), assets: assets(channel), models: CATALOGUE, createdAt: 'now',
+  })
+
+  it('keeps the selected picture channel pair in both generation PUT material lists and changes the preview key', () => {
+    const previous = prepare(oldChannel)
+    const replacement = prepare(newChannel)
+
+    expect(replacement.payload.isGenerate).toBe(1)
+    expect(replacement.payload.storyboardMaterialList).toMatchObject([{ materialKey: 'lead', ...newChannel },
+      { materialKey: 'guest' }])
+    const config = JSON.parse(String(replacement.payload.modelConfig)) as Record<string, unknown>
+    expect(config.materialList).toEqual(replacement.payload.storyboardMaterialList)
+    expect(replacement.idempotencyKey).not.toBe(previous.idempotencyKey)
+    expect(validateNativeVideoPreview(replacement)).toEqual(replacement)
+  })
+
+  it('rejects conflicting channel pairs across the two saved reference lists', () => {
+    expect(() => buildNativeVideoPreview({
+      storyboard: { ...storyboard(newChannel),
+        modelConfig: JSON.stringify({ ...MODEL_CONFIG, materialList: materials(oldChannel) }) },
+      assets: assets(newChannel), models: CATALOGUE, createdAt: 'now',
+    })).toThrow()
+  })
+
+  it('rejects a saved pair that disagrees with the live asset channel registration', () => {
+    expect(() => buildNativeVideoPreview({
+      storyboard: storyboard(oldChannel), assets: assets(newChannel), models: CATALOGUE, createdAt: 'now',
+    })).toThrow()
+  })
+
+  it('does not use a saved channel pair when the live asset cannot confirm it', () => {
+    expect(() => buildNativeVideoPreview({
+      storyboard: storyboard(oldChannel), assets: ASSETS, models: CATALOGUE, createdAt: 'now',
+    })).toThrow('not confirmed by the active asset')
+  })
+
+  it('keeps legacy generation valid when neither channel identifier is present', () => {
+    const preview = buildNativeVideoPreview({
+      storyboard: STORYBOARD, assets: ASSETS, models: CATALOGUE, createdAt: 'now',
+    })
+    const saved = preview.payload.storyboardMaterialList as Record<string, unknown>[]
+    expect(saved[0]).not.toHaveProperty('extAssetId')
+    expect(saved[0]).not.toHaveProperty('extGroupId')
+    const config = JSON.parse(String(preview.payload.modelConfig)) as Record<string, unknown>
+    expect(config.materialList).toEqual(saved)
+    expect(validateNativeVideoPreview(preview)).toEqual(preview)
+  })
+
+  it('does not reuse an existing task for an older channel identity with the same generic asset and image URL', () => {
+    const expectation = { ...EXPECTATION, expectedIdentity: subjectIdentitySignature(materials(newChannel)) }
+    const task = (imageMaterials: Record<string, unknown>[]) => ({
+      taskId: '335343', task: { id: 335343, scriptId: 2708, storyboardId: 916953 },
+      children: [{ ...CHILD, imageMaterials }],
+    })
+    expect(classifyExistingNativeMatches([task(materials(newChannel))], expectation).status).toBe('matched')
+    expect(classifyExistingNativeMatches([task(materials(oldChannel))], expectation).status).not.toBe('matched')
+    expect(classifyExistingNativeMatches([task(MATERIALS)], expectation).status).toBe('reconcile_conflict')
+    const incomplete = [{ ...MATERIALS[0], extAssetId: oldChannel.extAssetId }, MATERIALS[1]!]
+    expect(classifyExistingNativeMatches([task(incomplete)], EXPECTATION).status).toBe('matched')
+  })
+
+  it.each([
+    { taskStatus: 'running', status: 'none' },
+    { taskStatus: 'succeeded', status: 'subject_identity_lost' },
+  ])('reconciles a $taskStatus submission without a confirmed child channel pair', ({ taskStatus, status }) => {
+    const expectation = { ...EXPECTATION, expectedIdentity: subjectIdentitySignature(materials(newChannel)) }
+    const task = { taskId: '335343', task: { id: 335343, scriptId: 2708, storyboardId: 916953 },
+      children: [{ ...CHILD, taskStatus, imageMaterials: MATERIALS }] }
+    expect(classifyNewNativeCandidates([task], expectation).status).toBe(status)
+  })
+})
+
 describe('saved image reference consistency', () => {
   it.each([undefined, null, {}, { materialList: undefined }, { materialList: null }, { materialList: [] },
     { materialList: [{ materialType: 'audio', materialKey: 'voice' }] }])

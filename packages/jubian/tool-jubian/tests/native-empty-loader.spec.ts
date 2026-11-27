@@ -135,6 +135,86 @@ it('reports cross-page task duplication before a selection PUT through the Loade
   }
 })
 
+it('saves the replacement image channel pair and freezes it for generation through the Loader', async () => {
+  const baseUrl = 'https://replacement.invalid/prod-api'
+  const assetUrl = 'https://media.example/replacement.jpg'
+  const latestChannel = { extAssetId: 'external-new-asset', extGroupId: 'external-new-group' }
+  const oldMaterial = { materialKey: 'lead', materialAssetId: 81284, assetId: 'previous-image',
+    materialType: 'image', sortOrder: 1, materialUrl: 'https://media.example/previous.jpg', fileName: 'Previous Lead',
+    extAssetId: 'external-old-asset', extGroupId: 'external-old-group' }
+  const replacement = { materialKey: 'lead', materialAssetId: 81285, assetId: 'replacement-image',
+    materialType: 'image', sortOrder: 1, materialUrl: assetUrl, fileName: 'Replacement Lead', ...latestChannel }
+  const config = { modelId: 'doubao-seedance-2-0-260128', platformId: 'YU_DIAN', standardId: 11,
+    genType: 3, modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, genNum: 1,
+    ratio: '9:16', resolution: '720p', prompt: '@[Lead](lead)', backupModelList: [] }
+  let storyboard: Record<string, unknown> = { id: 1, scriptId: 2708, isGenerate: 0,
+    storyboardMaterialList: [oldMaterial], modelConfig: JSON.stringify({ ...config, materialList: [oldMaterial] }) }
+  const writes: Record<string, unknown>[] = []
+  const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const address = new URL(input instanceof Request ? input.url : input.toString())
+    if (address.origin !== new URL(baseUrl).origin) throw new Error('Unexpected network origin')
+    const answer = (data: unknown) => Response.json({ code: 200, data })
+    if (init?.method === 'PUT' && address.pathname.endsWith('/aigc/storyboard')) {
+      if (typeof init.body !== 'string') throw new Error('Expected a JSON selection request')
+      const body = JSON.parse(init.body) as Record<string, unknown>
+      if (body.isGenerate !== 0) throw new Error('Only a selection save may write')
+      writes.push(body)
+      storyboard = body
+      return answer(storyboard)
+    }
+    if (init?.method !== 'GET') throw new Error('Unexpected provider write')
+    if (address.pathname.endsWith('/aigc/storyboard/1')) return answer(storyboard)
+    if (address.pathname.endsWith('/aigc/asset/81285')) return answer({ id: 81285, scriptId: 2708, assetUrl })
+    if (address.pathname.endsWith('/aigc/material/list')) return answer({ total: 1, rows: [
+      { id: 22, assetId: 81285, scriptId: 2708, hsAssetId: 'replacement-image', assetUrl,
+        assetName: 'Replacement Lead', hsAssetStatus: 'Active', isUsed: 1, ...latestChannel },
+    ] })
+    if (address.pathname.endsWith('/admin/aigc/video/task/list')) return answer({ total: 0, rows: [] })
+    if (address.pathname.endsWith('/model/charge/getSelectList')) return answer([
+      { ...config, id: 11, genTypes: [{ id: 7, type: 3 }],
+        videoStandards: [{ id: 91, ratio: '9:16', resolution: '720p', genNum: 1 }] },
+    ])
+    throw new Error(`Unexpected replacement request ${address.pathname}`)
+  })
+  onTestFinished(() => { transport.mockRestore() })
+  const { ctx, home, ledgerRoot } = await mountedNativeTools({ baseUrl })
+  try {
+    await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
+    const adapter = new MockAdapter([
+      toolCallResponse('replace-image', 'jubian_storyboard', { method: 'select_assets',
+        storyboard_id: 1, idempotency_key: 'replace-image', selections: [{ material_key: 'lead', asset_id: 81285 }] }),
+      toolCallResponse('prepare-replacement', 'jubian_storyboard', { method: 'prepare_video', project_dir: home, storyboard_id: 1 }),
+      textResponse('Replacement saved and prepared for review.'),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const agent = await ctx.agentLoop.create(SessionId('replacement-channel-owner'),
+      { provider: 'mock', model: 'mock' }, { cwd: home })
+    agent.followup(createUserMessage({ source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Replace the lead image and prepare a review without submitting video.' }] }))
+    await agent.whenIdle()
+    const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
+    expect(results).toHaveLength(2)
+    for (const result of results) expect(result.data.message.isError, JSON.stringify(result.data)).toBe(false)
+    const preparedResult = results[1]?.data.message.content[0]
+    if (preparedResult?.type !== 'text') throw new Error('Expected prepared replacement result')
+    const { preview_path: previewPath } = JSON.parse(preparedResult.text) as { preview_path: string }
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as { payload: Record<string, unknown> }
+
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({ isGenerate: 0, storyboardMaterialList: [replacement] })
+    const selectedConfig = JSON.parse(String(writes[0]?.modelConfig)) as Record<string, unknown>
+    expect(selectedConfig.materialList).toMatchObject([replacement])
+    expect(payload).toMatchObject({ isGenerate: 1, storyboardMaterialList: [replacement] })
+    const preparedConfig = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
+    expect(preparedConfig.materialList).toMatchObject([replacement])
+    const records = await new JubianLedger({ root: ledgerRoot }).records()
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({ method: 'storyboard_select_assets', outcome: 'accepted', quoted_amount: null })
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 it.each([
   { label: 'prepares the authored multiline video prompt', brokenBinding: false },
   { label: 'reports malformed local project JSON', brokenBinding: true },

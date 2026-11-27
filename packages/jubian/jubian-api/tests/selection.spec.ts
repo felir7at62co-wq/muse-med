@@ -417,3 +417,111 @@ it('replaces stale material name aliases when an explicit asset selection change
     assetName: '陆沉舟｜西装', materialName: '陆沉舟｜西装', fileName: '陆沉舟｜西装',
   })
 })
+
+describe('replacement image channel identity', () => {
+  const oldChannel = { extAssetId: 'asset-old-channel', extGroupId: 'group-old-channel' }
+  const newChannel = { extAssetId: 'asset-new-channel', extGroupId: 'group-new-channel' }
+
+  function replacement(subjectChannel: Record<string, unknown> = {}, parentChannel: Record<string, unknown> = {}) {
+    const input = oneSubject()
+    const previous = { materialKey: 'lead', assetId: 'asset-old', hsAssetId: 'asset-old', materialAssetId: 9, fileName: '旧图',
+      materialType: 'image', materialUrl: 'https://example.test/old.jpg', sortOrder: 1, ...oldChannel }
+    return { ...input, storyboard: { ...input.storyboard, storyboardMaterialList: [previous],
+      modelConfig: JSON.stringify({ ...input.storyboard.modelConfig, materialList: [previous] }) },
+    subjectRows: [{ ...input.subjectRows[0], ...subjectChannel }],
+    parentAssets: [{ ...input.parentAssets[0], ...parentChannel }] }
+  }
+
+  it.each([
+    { source: 'active subject', subject: newChannel, parent: {} },
+    { source: 'parent asset', subject: {}, parent: newChannel },
+    { source: 'both sources', subject: newChannel, parent: newChannel },
+  ])('replaces the pair from $source in both lists under the same material key', ({ subject, parent }) => {
+    const input = replacement(subject, parent)
+    const plan = buildSubjectSelection(input)
+    expect(plan.status).toBe('ready')
+    expect(plan.payload.isGenerate).toBe(0)
+    expect(plan.payload.storyboardMaterialList).toMatchObject([
+      { materialKey: 'lead', assetId: 'asset-lead', hsAssetId: 'asset-lead', materialAssetId: 81285,
+        materialUrl: URL_LEAD, ...newChannel },
+    ])
+    const storedConfig = JSON.parse(String(plan.payload.modelConfig)) as Record<string, unknown>
+    expect(storedConfig.materialList).toEqual(plan.payload.storyboardMaterialList)
+    expect(verifySubjectSelection(plan.payload, plan.after).matches).toBe(true)
+    expect(buildSubjectSelection({ ...input, storyboard: plan.payload }).status).toBe('already_applied')
+  })
+
+  it.each(['extAssetId', 'extGroupId'] as const)('requires matching %s in both saved lists', (field) => {
+    const input = replacement(newChannel)
+    const plan = buildSubjectSelection(input)
+    const [saved] = plan.payload.storyboardMaterialList as Record<string, unknown>[]
+    const staleReference = { ...saved, [field]: oldChannel[field] }
+    const staleStoryboard = { ...plan.payload, storyboardMaterialList: [staleReference] }
+    const savedConfig = JSON.parse(String(plan.payload.modelConfig)) as Record<string, unknown>
+    const staleConfig = { ...plan.payload, modelConfig: JSON.stringify({ ...savedConfig, materialList: [staleReference] }) }
+    expect(verifySubjectSelection(staleStoryboard, plan.after).source_matches).toEqual({
+      storyboardMaterialList: false, 'modelConfig.materialList': true,
+    })
+    expect(verifySubjectSelection(staleConfig, plan.after).source_matches).toEqual({
+      storyboardMaterialList: true, 'modelConfig.materialList': false,
+    })
+    expect(buildSubjectSelection({ ...input, storyboard: staleStoryboard }).status).toBe('ready')
+    expect(buildSubjectSelection({ ...input, storyboard: staleConfig }).status).toBe('ready')
+  })
+
+  it.each([
+    { reason: 'only one field', subject: { extAssetId: newChannel.extAssetId }, parent: {} },
+    { reason: 'split fields', subject: { extAssetId: newChannel.extAssetId }, parent: { extGroupId: newChannel.extGroupId } },
+    { reason: 'partial subject and complete parent', subject: { extAssetId: newChannel.extAssetId }, parent: newChannel },
+    { reason: 'conflicting complete pairs', subject: newChannel, parent: oldChannel },
+    { reason: 'only the previous image has a pair', subject: {}, parent: {} },
+  ])('refuses replacement when the new pair is unverified ($reason)', ({ subject, parent }) => {
+    expect(() => buildSubjectSelection(replacement(subject, parent)))
+      .toThrow(expect.objectContaining({ code: 'CONTRACT_CHANGED' }))
+  })
+
+  it('rejects a channel registration with a nontext ID', () => {
+    const input = replacement({ ...newChannel, extAssetId: 123 }, newChannel)
+    expect(() => buildSubjectSelection(input)).toThrow('Invalid material channel ID')
+  })
+
+  it('keeps an unchanged subject only when its saved sources agree without live channel information', () => {
+    const saved = buildSubjectSelection(replacement(newChannel)).payload
+    const [row] = saved.storyboardMaterialList as Record<string, unknown>[]
+    const config = JSON.parse(String(saved.modelConfig)) as Record<string, unknown>
+    expect(buildSubjectSelection({ ...oneSubject(), storyboard: saved }).status).toBe('already_applied')
+    const conflict = { ...saved, modelConfig: { ...config, materialList: [{ ...row, ...oldChannel }] } }
+    expect(() => buildSubjectSelection({ ...oneSubject(), storyboard: conflict })).toThrow('no confirmed material channel IDs')
+    const differentSubject = { ...saved, modelConfig: { ...config, materialList: [{ ...row, assetId: 'old-subject' }] } }
+    expect(() => buildSubjectSelection({ ...oneSubject(), storyboard: differentSubject })).toThrow('no confirmed material channel IDs')
+  })
+
+  it('recovers the saved pair for the same subject with a historical imageUrl field', () => {
+    const saved = buildSubjectSelection(replacement(newChannel)).payload
+    const [row] = saved.storyboardMaterialList as Record<string, unknown>[]
+    const { materialUrl, ...otherFields } = row!
+    const legacy = { ...saved, storyboardMaterialList: [{ ...otherFields, imageUrl: materialUrl }] }
+    const plan = buildSubjectSelection({ ...oneSubject(), storyboard: legacy })
+    expect(plan.payload.storyboardMaterialList).toMatchObject([{ ...newChannel, materialUrl: URL_LEAD }])
+    expect(verifySubjectSelection(plan.payload, plan.after).matches).toBe(true)
+  })
+
+  it('repairs an incomplete saved pair when the official subject supplies both channel IDs', () => {
+    const input = replacement(newChannel)
+    const incomplete = { ...input.storyboard.storyboardMaterialList[0], extGroupId: null }
+    const plan = buildSubjectSelection({ ...input, storyboard: { ...input.storyboard, storyboardMaterialList: [incomplete] } })
+    expect(plan.payload.storyboardMaterialList).toMatchObject([newChannel])
+    expect(verifySubjectSelection(plan.payload, plan.after).matches).toBe(true)
+  })
+
+  it('keeps the legacy save and readback when the selected image carries no pair', () => {
+    const input = oneSubject()
+    const subjectRows = [{ ...input.subjectRows[0], extAssetId: '  ', extGroupId: '\t' }]
+    const plan = buildSubjectSelection({ ...input, subjectRows })
+    const [saved] = plan.payload.storyboardMaterialList as Record<string, unknown>[]
+    expect(saved).not.toHaveProperty('extAssetId')
+    expect(saved).not.toHaveProperty('extGroupId')
+    expect(verifySubjectSelection(plan.payload, plan.after).matches).toBe(true)
+    expect(buildSubjectSelection({ ...input, storyboard: plan.payload }).status).toBe('already_applied')
+  })
+})
