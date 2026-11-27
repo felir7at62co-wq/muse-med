@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { MuseMediaPostprocessInput, MuseMediaPostprocessJobKey } from '@deepseek-ai/dsh-muse-account'
 import { expect, it, onTestFinished, vi } from 'vitest'
@@ -67,6 +67,15 @@ it('preserves a changed Muse account during preview without spending or falling 
   expect(await ledger.records()).toEqual([])
 })
 
+it('preserves a lost Jubian credential before sending the preview', async () => {
+  const ledger = await ledgerFixture(), gateway = gatewayFixture()
+  const readCredential = vi.fn<() => Promise<string | undefined>>().mockRejectedValue(new JubianError('AUTHENTICATION_REQUIRED'))
+  await expect(route(ledger, gateway, input, undefined, readCredential)).rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' })
+  expect(gateway.previewMediaPostprocess).not.toHaveBeenCalled()
+  expect(gateway.submitMediaPostprocess).not.toHaveBeenCalled()
+  expect(await ledger.records()).toEqual([])
+})
+
 it.each([
   ['MEDIAKIT_SOURCE_UNVERIFIED', '火山预检未能验证剧变源视频，请核对当前账号及原任务。'],
   ['MEDIAKIT_EXISTING_PROCESSING', '此源视频已有一笔火山处理，请使用原任务编号查询。'],
@@ -74,11 +83,9 @@ it.each([
 ])('reports preview failure %s without submitting or reserving', async (code, message) => {
   const ledger = await ledgerFixture(), gateway = gatewayFixture()
   gateway.previewMediaPostprocess.mockRejectedValueOnce(new HarnessError('synthetic detail', code))
-  if (code === 'MEDIAKIT_UNAVAILABLE') {
-    await expect(route(ledger, gateway)).rejects.toMatchObject({ code: 'NETWORK_ERROR', message: expect.stringContaining(message) })
-  } else {
-    await expect(route(ledger, gateway)).rejects.toMatchObject({ code, message })
-  }
+  const preview = route(ledger, gateway)
+  await expect(preview).rejects.toMatchObject({ code: code === 'MEDIAKIT_UNAVAILABLE' ? 'NETWORK_ERROR' : code })
+  await expect(preview).rejects.toThrow(message)
   expect(gateway.submitMediaPostprocess).not.toHaveBeenCalled()
   expect(gateway.claimMediaPostprocessFallback).not.toHaveBeenCalled()
   expect(await ledger.records()).toEqual([])
@@ -92,7 +99,7 @@ it.each([ready, { ...ready, defaultRouting: false }, { ...ready, defaultRouting:
     const result = await route(ledger, gateway, input, undefined, readJubianCredential)
     expect(gateway.previewMediaPostprocess).toHaveBeenCalledExactlyOnceWith(input, undefined, token)
     expect(gateway.submitMediaPostprocess).toHaveBeenCalledExactlyOnceWith({ ...input, jobKey,
-      ...('defaultRouting' in quote && quote.defaultRouting === true ? { quoteAmount: ready.amount } : {}) }, undefined, token)
+      ...('defaultRouting' in quote && quote.defaultRouting ? { quoteAmount: ready.amount } : {}) }, undefined, token)
     expect(await ledger.find('muse-mediakit-' + digest)).toMatchObject({
       request_sha256: bodyHash({ ...input, jobKey }), quoted_amount: ready.amount })
     expect(JSON.parse(await readFile(join(ledger.root, 'media-postprocess', digest + '.json'), 'utf8'))).toEqual({

@@ -33,8 +33,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_DEFAULT_BASE_URL, JUBIAN_TOKEN_REF, configuredJubianClient, isUsableBearerToken, JubianLedger,
-  readProjectBudget, trimBearerToken, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { assertNewNativeDispatchAllowed, reconcileRecordedVideo, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
@@ -628,7 +627,6 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     throw new TypeError('mediaKitPostprocess must be a boolean')
   }
   const mediaKit = () => config.mediaKitPostprocess === true ? ctx.get('museAccount') : undefined
-  const officialJubianBase = config.baseUrl === undefined || config.baseUrl === JUBIAN_DEFAULT_BASE_URL
   const generationBindings = new WeakMap<object, GenerationPresentation>()
   const generationSessionBindings = new GenerationSessionBindings(ctx)
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
@@ -809,15 +807,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       }
     })
   })
-  const readPipelineCredential = async () => {
+  const readJubianCredential = () => client.readOfficialCredential()
+  const voiceCoordinator = museVoiceCoordinator(ctx, async () => {
     const stored = await storedCredential()
     return stored.trim() || config.workspaceSecrets === false ? stored : await workspacePipelineToken(process.cwd())
-  }
-  const readJubianCredential = officialJubianBase ? async () => {
-    const token = trimBearerToken(await readPipelineCredential())
-    return isUsableBearerToken(token) ? token : undefined
-  } : undefined
-  const voiceCoordinator = museVoiceCoordinator(ctx, readPipelineCredential)
+  })
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
   ctx.plugin(JubianImageRoutes, { client,

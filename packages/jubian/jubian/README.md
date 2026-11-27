@@ -58,6 +58,8 @@ try {
 
 `snapshotCredential()` resolves the current credential once and returns a client using that fixed value with the same origin, transport and limits. Use it for a multi-request account check and mutation that must not switch identities midway. The value remains private to the returned client; this does not renew expired credentials or verify account identity.
 
+`readOfficialCredential()` supplies the normalized token to the Host for authenticated Muse gateway verification against the official Jubian API. Other base URLs return no token. A missing or invalid official credential raises `AUTHENTICATION_REQUIRED`.
+
 ### Reading every envelope layout this provider sends
 
 Two layouts are documented, and the client hides the difference from you. A single-object endpoint nests its payload under `data`; the list endpoints carry `code`, `total` and `rows` at the top level and have no `data` at all. The client returns the nested `data` when that key exists, and otherwise the whole envelope minus its `msg` text — so `total` and `rows` arrive as one object, and a reader never has to know which layout the provider sent. Four further layouts are tolerated because a reader cannot recover a payload the transport rejected: a success envelope wrapped in a one-element array, a payload object wrapped in a one-element array, a bare top-level array, and a payload that is itself a success envelope. Every response names the layout it used in `envelope_layout`, and a tolerated layout that carries no envelope of its own reports `transport.application_code: null`, so no caller can mistake it for a verified success. A body that is valid JSON but none of these — a string, a number, `null`, or an object with no integer `code` — still fails as `CONTRACT_CHANGED`.

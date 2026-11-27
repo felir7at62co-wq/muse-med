@@ -100,11 +100,10 @@ export async function routeMediaPostprocess(ledger: JubianLedger, key: string, s
   }
   if (gateway === undefined) return { route: 'jubian' }
   const input = await readInput()
+  const jubianToken = await readJubianCredential?.()
+  signal?.throwIfAborted()
   let preview
-  let jubianToken: string | undefined
   try {
-    jubianToken = await readJubianCredential?.()
-    signal?.throwIfAborted()
     preview = await gateway.previewMediaPostprocess(input, signal, jubianToken)
   } catch (error) {
     signal?.throwIfAborted()

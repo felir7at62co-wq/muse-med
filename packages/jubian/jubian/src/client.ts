@@ -257,6 +257,15 @@ export class JubianClient {
   }
 
   /**
+   * Read the credential for an authenticated Muse gateway request that verifies access against the official Jubian API.
+   * @returns The normalized secret for the exact official base URL, or undefined for any other URL.
+   * @throws {JubianError} An unavailable or invalid credential for the official API.
+   */
+  async readOfficialCredential(): Promise<string | undefined> {
+    return this.baseUrl === JUBIAN_DEFAULT_BASE_URL ? await this.resolveToken() : undefined
+  }
+
+  /**
    * Send one request and return its envelope `data`.
    * @param request - Method, path, optional body and cancellation.
    * @returns Transport evidence, the response hash, the envelope layout and the envelope's data.

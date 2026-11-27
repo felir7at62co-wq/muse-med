@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { JubianClient } from '../src/client.ts'
+import { JUBIAN_DEFAULT_BASE_URL, JubianClient } from '../src/client.ts'
 
 describe('operation credential snapshots', () => {
   it('fixes one normalized credential in a private closure while preserving the configured transport and origin', async () => {
@@ -37,5 +37,28 @@ describe('operation credential snapshots', () => {
     await expect(new JubianClient({ credential: async () => '', fetch: fetcher }).snapshotCredential())
       .rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' })
     expect(fetcher).not.toHaveBeenCalled()
+  })
+})
+
+describe('official Jubian gateway credentials', () => {
+  it.each([{}, { baseUrl: JUBIAN_DEFAULT_BASE_URL }])('reads the normalized credential at the official base URL %j',
+    async (options) => {
+      const fetcher = vi.fn<typeof fetch>()
+      const client = new JubianClient({ ...options, credential: async () => " 'offline-fixture'; ", fetch: fetcher })
+      await expect(client.readOfficialCredential()).resolves.toBe('offline-fixture')
+      expect(fetcher).not.toHaveBeenCalled()
+    })
+
+  it.each(['https://custom.example.com/prod-api', JUBIAN_DEFAULT_BASE_URL + '/another-api'])(
+    'leaves credentials unread at the custom base URL %s', async (baseUrl) => {
+      const credential = vi.fn(async () => 'offline-fixture')
+      const client = new JubianClient({ baseUrl, credential })
+      await expect(client.readOfficialCredential()).resolves.toBeUndefined()
+      expect(credential).not.toHaveBeenCalled()
+    })
+
+  it.each(['', 'internal space'])('rejects unusable credentials before gateway verification', async (token) => {
+    const client = new JubianClient({ credential: async () => token })
+    await expect(client.readOfficialCredential()).rejects.toMatchObject({ code: 'AUTHENTICATION_REQUIRED' })
   })
 })
