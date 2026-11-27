@@ -27,6 +27,7 @@ import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { CharacterReferenceAuthority } from '@deepseek-ai/dsh-tool-character-reference'
 import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
+import { readMediaPostprocess } from './mediakit.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -147,6 +148,8 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   projectShareMaxResultChars?: number
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
+  /** Enable the MediaKit pilot for jobs the Muse gateway has individually approved. */
+  mediaKitPostprocess?: boolean
   /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
   watchPollIntervalMs?: number
   /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
@@ -620,6 +623,10 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
+  if (config.mediaKitPostprocess !== undefined && typeof config.mediaKitPostprocess !== 'boolean') {
+    throw new TypeError('mediaKitPostprocess must be a boolean')
+  }
+  const mediaKit = () => config.mediaKitPostprocess === true ? ctx.get('museAccount') : undefined
   const generationBindings = new WeakMap<object, GenerationPresentation>()
   const generationSessionBindings = new GenerationSessionBindings(ctx)
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
@@ -1226,6 +1233,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '全部通过后同轮有界并行提交不同分镜，按各项原 key 对账；未知结果不重投。'
       + '**禁止 direct POST /admin/aigc/video/task/create**（任务 335470 因此丢失主体身份）；'
       + 'storyboard PUT 创建的 335343 保留了全部七项身份。'
+      + (config.mediaKitPostprocess === true
+        ? '名单内的自动擦除可先走火山；仅在确认未受理后按剧变报价回退。火山结果用 jubian_media 查询。' : '')
       + '**erase_subtitle 必填 task_id、model_id 与画面尺寸**（script_id 从任务行读取）：'
       + '源身份从父任务与子结果读，擦除矩形按提供方的默认比例从画面尺寸推导，'
       + '不需要也不应该由调用方画框。model_id 没有默认值，'
@@ -1326,6 +1335,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const dispatch = async (beforeVideoSend?: (key: string) => Promise<void>) => {
           const result = await storyboardMethod(client, ledger, input, {
             naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal, creationWorkspaceDir,
+            postprocess: mediaKit(),
             projectInventoryLimits: projectShare,
             ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
             ...(promptRiskReview ? { promptRiskReview } : {}),
@@ -1436,6 +1446,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '（platformId、standardId、单价）。省略本次模型时沿用设置或部署配置；本次模型、通道和规格可显式提供。'
       + '按项目已有选择、用户任务和授权预算选择精确模型与通道；使用 image_model_id/image_platform_id 显式提交。只有无法确定用户偏好时再询问。'
       + '**upscale 会真实计费**：从 task_type=20 实时目录选择高清模型与输出规格，未指定模型时默认 MediaKit，SeedVR2 等其他模型用 model_id 显式指定；具体价格以当前目录为准。'
+      + (config.mediaKitPostprocess === true
+        ? '名单内的高清请求优先试火山。只有明确未受理才重新走剧变报价。火山结果用 jubian_media 查询。' : '')
       + '仿真人剧默认使用原片，不自动转高清。'
       + 'SD2.5 默认使用原片，不自动提交或等待高清；任何模型都不能仅因 needs_upscale=true 自动付费。'
       + '仅在用户明确要求或授权具体高清处理时调用 upscale（包括 SD2.5）。'
@@ -1486,7 +1498,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
             characterReferenceGenerationRequest(input), exec.signal)
         })()
       return await videoMethod(client, ledger, input, { image: image(), imageBatch, imageReferenceScan, videoSources,
-        signal: exec.signal, naming,
+        signal: exec.signal, naming, postprocess: mediaKit(),
         ...(characterReferenceGeneration === undefined ? {} : { characterReferenceGeneration }) })
     })(args),
   }))
@@ -1530,19 +1542,33 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     description: '把剧变（Jubian）CDN 上的媒体下载到本地文件，返回本地路径、字节数与 sha256。'
       + '不产生费用、不需要凭证（该 CDN 是公开的）。'
       + '下载后请用你自己的看图工具（如 read_image）或抽帧工具读取该路径——'
-      + '本工具不会把图片或视频内容放进返回值。',
+      + '本工具不会把图片或视频内容放进返回值。'
+      + (config.mediaKitPostprocess === true
+        ? '用 processing_job_key 查询火山处理状态或下载已完成成片，保留返回的本地下载回执。' : ''),
     parameters: {
-      method: { type: 'string', required: true, enum: ['download'],
-        description: 'download=从 media_url 下载到本地，按实际格式修正扩展名；读取返回的 path。' },
-      media_url: { ...ARGS.media_url, required: true },
-      media_kind: { ...ARGS.media_kind, required: true },
-      output_path: { ...ARGS.output_path, required: true },
+      method: { type: 'string', required: true,
+        enum: config.mediaKitPostprocess === true ? ['download', 'status', 'download_processed'] : ['download'],
+        description: config.mediaKitPostprocess === true
+          ? 'download=下载剧变 media_url（需 media_kind 和 output_path）；status=查火山任务；download_processed=下载已完成的火山成片（需 output_path）。'
+          : 'download=从 media_url 下载到本地，按实际格式修正扩展名；读取返回的 path。' },
+      media_url: { ...ARGS.media_url, ...(config.mediaKitPostprocess === true ? {} : { required: true }) },
+      media_kind: { ...ARGS.media_kind, ...(config.mediaKitPostprocess === true ? {} : { required: true }) },
+      output_path: { ...ARGS.output_path, ...(config.mediaKitPostprocess === true ? {} : { required: true }) },
+      ...(config.mediaKitPostprocess === true
+        ? { processing_job_key: { type: 'string', description: 'status 和 download_processed 所需的原火山任务查询编号。' } }
+        : {}),
       resume: { type: 'boolean', description: '续跑时设 true：同一 URL 的本地下载回执与字节通过核对后复用；旧文件缺证或已变化时另存候选。' },
     },
     output: { ...OUTPUT, schema: { type: 'object', additionalProperties: true, properties: {
       download_receipt_path: { type: 'string', description: '续跑下载回执的本地路径，包含精确源 URL 的 SHA-256 和保存文件的身份，不保存源 URL。' },
       source_sha256: { type: 'string', description: '续跑下载所用完整源 URL 的 SHA-256（64 位十六进制），供匹配回执。' },
     } } },
-    execute: (args, exec) => guarded('jubian_media', input => mediaMethod(input, exec.signal))(args),
+    execute: (args, exec) => guarded('jubian_media', (input) => {
+      if (config.mediaKitPostprocess === true && (input.method === 'status' || input.method === 'download_processed')) {
+        return readMediaPostprocess(mediaKit(), need(input.processing_job_key, 'processing_job_key'),
+          input.method === 'download_processed' ? need(input.output_path, 'output_path') : undefined, exec.signal)
+      }
+      return mediaMethod(input, exec.signal)
+    })(args),
   }))
 }

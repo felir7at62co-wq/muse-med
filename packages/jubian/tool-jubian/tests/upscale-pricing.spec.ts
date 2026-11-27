@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { MuseMediaPostprocessJobKey, MuseMediaPostprocessStatus, MuseMediaPostprocessSubmission } from '@deepseek-ai/dsh-muse-account'
 import { describe, expect, it, onTestFinished } from 'vitest'
+import type { MediaPostprocessClient } from '../src/mediakit.ts'
 import { videoMethod } from '../src/methods.ts'
 import { readUpscaleQuote } from '../src/upscale-price.ts'
 import { bodyHash } from '../src/write.ts'
@@ -48,6 +51,7 @@ async function fixture(options: {
   submitInterrupted?: boolean
   approvedEstimate?: string
   duration?: number
+  sourceUrl?: () => string
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'jubian-upscale-price-'))
   onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
@@ -74,7 +78,7 @@ async function fixture(options: {
       } else if (call.method === 'POST' && url.pathname === '/admin/aigc/video/task/sub/list') {
         data = { total: 1, rows: [{ id: 990, aigcVideoTaskId: 42, taskStatus: 'succeeded',
           duration: options.duration ?? 13.5, firstResultId: 123, parentResultId: 456,
-          resultList: [{ tosVideoUrl: 'https://media.example.test/source.mp4' }] }] }
+          resultList: [{ tosVideoUrl: options.sourceUrl?.() ?? 'https://media.example.test/source.mp4' }] }] }
       } else if (call.method === 'POST' && call.path === '/aigc/storyboard/hdConversion') {
         if (options.submitInterrupted) throw new Error('Simulated provider interruption')
         data = 429001
@@ -84,6 +88,133 @@ async function fixture(options: {
   return { root, ledger, client, calls,
     paidCalls: () => calls.filter(call => call.path === '/aigc/storyboard/hdConversion') }
 }
+
+const pilotJobKey = brandString<MuseMediaPostprocessJobKey>('c'.repeat(64))
+
+function mediaKit(accepted: MuseMediaPostprocessSubmission, queried: MuseMediaPostprocessStatus) {
+  const jobKey = pilotJobKey
+  let submissions = 0, queries = 0, claims = 0
+  const client: MediaPostprocessClient = {
+    previewMediaPostprocess: async (input) => {
+      expect(input).toMatchObject({ operation: 'upscale', scriptId: 2708, taskId: 42, resolution: '1080p' })
+      return { state: 'ready', jobKey, amount: '1.00', unit: 'CNY' }
+    },
+    submitMediaPostprocess: async (input) => { expect(input.jobKey).toBe(jobKey); submissions++; return accepted },
+    statusMediaPostprocess: async (key) => { expect(key).toBe(jobKey); queries++; return queried },
+    claimMediaPostprocessFallback: async (key) => {
+      expect(key).toBe(jobKey)
+      return ++claims === 1
+    },
+  }
+  return { client, attempts: () => ({ submissions, queries, claims }) }
+}
+
+describe('approved MediaKit upscale pilot', () => {
+  it('reserves project spending for MediaKit and queries its original job on replay', async () => {
+    const { client, ledger, calls, paidCalls } = await fixture()
+    const gateway = mediaKit({ state: 'accepted' }, { state: 'pending' })
+    const deps = { postprocess: gateway.client }
+    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({
+      provider: 'volcengine-mediakit', processing_job_key: pilotJobKey, status: 'accepted',
+    })
+    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({ status: 'pending', replayed: true })
+    expect(gateway.attempts()).toEqual({ submissions: 1, queries: 1, claims: 0 })
+    expect(calls).toHaveLength(2)
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toMatchObject([{ method: 'video_upscale', quoted_amount: '1.00', outcome: 'accepted' }])
+  })
+
+  it('falls back to the budgeted Jubian route once for an explicit rejection', async () => {
+    const { client, ledger, paidCalls } = await fixture()
+    const rejection = { state: 'rejected', code: 'MEDIAKIT_RATE_LIMITED' } as const
+    const gateway = mediaKit(rejection, rejection)
+    const deps = { postprocess: gateway.client }
+    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({
+      provider: 'jubian', fallback_from: 'volcengine-mediakit', accepted_task_id: '429001',
+    })
+    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({ provider: 'jubian', replayed: true })
+    expect(gateway.attempts()).toEqual({ submissions: 1, queries: 1, claims: 1 })
+    expect(paidCalls()).toHaveLength(1)
+  })
+
+  it('requires the shared gateway grant across independent local ledgers even for different caller keys', async () => {
+    const first = await fixture()
+    const second = await fixture()
+    const rejection = { state: 'rejected', code: 'MEDIAKIT_RATE_LIMITED' } as const
+    const gateway = mediaKit(rejection, rejection)
+    const deps = { postprocess: gateway.client }
+    const firstResult = await videoMethod(first.client, first.ledger, ARGS, deps)
+    expect(firstResult).toMatchObject({ provider: 'jubian', accepted_task_id: '429001' })
+    await expect(videoMethod(second.client, second.ledger, { ...ARGS, idempotency_key: 'pilot-retry-other-desktop' }, deps))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(first.paidCalls()).toHaveLength(1)
+    expect(second.paidCalls()).toHaveLength(0)
+    expect(await second.ledger.records()).toMatchObject([{ method: 'video_upscale', outcome: 'unknown' }])
+    expect(gateway.attempts()).toEqual({ submissions: 2, queries: 0, claims: 2 })
+  })
+
+  it('does not submit to Jubian after an uncertain or already accepted Fire job', async () => {
+    const { client, ledger, paidCalls } = await fixture()
+    const gateway = mediaKit({ state: 'unknown' }, { state: 'failed' })
+    const deps = { postprocess: gateway.client }
+    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({ status: 'unknown' })
+    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({ status: 'failed', replayed: true })
+    await expect(videoMethod(client, ledger, SEED_ARGS, deps)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(gateway.attempts()).toEqual({ submissions: 1, queries: 1, claims: 0 })
+    expect(paidCalls()).toEqual([])
+  })
+
+  it('checks the project cap before starting a paid MediaKit job', async () => {
+    const { client, ledger, paidCalls } = await fixture({ limitCents: 99 })
+    const gateway = mediaKit({ state: 'accepted' }, { state: 'pending' })
+    await expect(videoMethod(client, ledger, ARGS, { postprocess: gateway.client }))
+      .rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+    expect(gateway.attempts()).toEqual({ submissions: 0, queries: 0, claims: 0 })
+    expect(paidCalls()).toEqual([])
+  })
+
+  it('keeps the fallback behind the remaining project cap after confirmed rejection', async () => {
+    const { client, ledger, paidCalls } = await fixture({ limitCents: 150 })
+    const rejection = { state: 'rejected', code: 'MEDIAKIT_RATE_LIMITED' } as const
+    const gateway = mediaKit(rejection, rejection)
+    await expect(videoMethod(client, ledger, ARGS, { postprocess: gateway.client }))
+      .rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+    expect(gateway.attempts()).toEqual({ submissions: 1, queries: 0, claims: 0 })
+    expect(paidCalls()).toEqual([])
+  })
+
+  it('does not apply confirmed rejection to different source material on replay', async () => {
+    let sourceUrl = 'https://media.example.test/source.mp4'
+    const { client, ledger, paidCalls } = await fixture({ sourceUrl: () => sourceUrl })
+    const gateway = mediaKit({ state: 'unknown' }, { state: 'rejected', code: 'MEDIAKIT_RATE_LIMITED' })
+    const deps = { postprocess: gateway.client }
+    expect(await videoMethod(client, ledger, ARGS, deps)).toMatchObject({ status: 'unknown' })
+    sourceUrl = 'https://media.example.test/changed.mp4'
+    await expect(videoMethod(client, ledger, ARGS, deps)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(paidCalls()).toEqual([])
+  })
+
+  it('serializes a pending primary route against a simultaneous legacy selector using the same key', async () => {
+    const { client, ledger, paidCalls } = await fixture()
+    const initial = mediaKit({ state: 'unknown' }, { state: 'unknown' })
+    const started = Promise.withResolvers<undefined>()
+    const continuePreview = Promise.withResolvers<undefined>()
+    const gateway: MediaPostprocessClient = { ...initial.client, previewMediaPostprocess: async (input) => {
+      started.resolve(undefined)
+      await continuePreview.promise
+      return await initial.client.previewMediaPostprocess(input)
+    } }
+    const first = videoMethod(client, ledger, ARGS, { postprocess: gateway })
+    await started.promise
+    const concurrent = expect(videoMethod(client, ledger, SEED_ARGS, { postprocess: gateway }))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    continuePreview.resolve(undefined)
+    await expect(first).resolves.toMatchObject({ status: 'unknown' })
+    await concurrent
+    expect(initial.attempts()).toEqual({ submissions: 1, queries: 0, claims: 0 })
+    expect(paidCalls()).toEqual([])
+  })
+})
 
 describe('live upscale pricing without operator estimates', () => {
   it('prices default MediaKit 1080p from its live per-minute coefficient before reserving and submitting', async () => {

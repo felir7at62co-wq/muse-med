@@ -2720,6 +2720,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Wire response validated by the Jubian registration consumer.',
       },
       {
+        signature: 'async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal): Promise<MuseMediaPostprocessPreview>',
+        description: 'Read eligibility and a quote for the current account without submitting a job.',
+        parameters: [{ name: 'input', description: 'Source identifiers and requested operation.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'The preview, or ineligible when this Host lacks the capability.',
+      },
+      {
+        signature: 'async submitMediaPostprocess(input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey }, signal?: AbortSignal): Promise<MuseMediaPostprocessSubmission>',
+        description: 'Submit one previously quoted video processing job through the signed-in account.',
+        parameters: [{ name: 'input', description: 'Source identifiers, operation and original quote key.' }, { name: 'signal', description: 'Cancels only the Host request.' }],
+        returns: 'The gateway acknowledgement or unknown when acceptance cannot be established.',
+      },
+      {
+        signature: 'async statusMediaPostprocess(key: MuseMediaPostprocessJobKey, signal?: AbortSignal): Promise<MuseMediaPostprocessStatus>',
+        description: 'Read an original video processing receipt for Host-only use.',
+        parameters: [{ name: 'key', description: 'Gateway quote key for the original submission.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'State and, on completion, the operator-approved private download location.',
+      },
+      {
+        signature: 'async claimMediaPostprocessFallback(key: MuseMediaPostprocessJobKey, signal?: AbortSignal): Promise<boolean>',
+        description: 'Obtain the gateway\'s one-time backup permission after a confirmed rejection.',
+        parameters: [{ name: 'key', description: 'Gateway key for the original submission.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'Whether this Host received permission for the backup submission.',
+      },
+      {
         signature: '@Remote(\'feedback\') async feedback(request: MuseFeedbackRequest): Promise<MuseFeedbackReceipt>',
         description: 'Submit one explicitly authored remark to the signed-in Muse account\'s inbox.',
         parameters: [{ name: 'request', description: 'Target, category, note and optional related-excerpt choice.' }],
@@ -9296,6 +9320,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseMarketInstallation',
     declaration: 'export interface MuseMarketInstallation {\n    readonly release: MarketRelease;\n    readonly enabled: false;\n}',
+  },
+  {
+    name: 'MuseMediaPostprocessInput',
+    declaration: 'export interface MuseMediaPostprocessInput {\n    readonly operation: \'upscale\' | \'erase_subtitle\';\n    readonly scriptId: number;\n    readonly taskId: number;\n    readonly videoUrl: string;\n    readonly resolution?: \'720p\' | \'1080p\';\n}',
+  },
+  {
+    name: 'MuseMediaPostprocessJobKey',
+    declaration: 'export type MuseMediaPostprocessJobKey = Branded<\'MuseMediaPostprocessJobKey\'>;',
+  },
+  {
+    name: 'MuseMediaPostprocessPreview',
+    declaration: 'export type MuseMediaPostprocessPreview = z.output<typeof preview>;',
+  },
+  {
+    name: 'MuseMediaPostprocessStatus',
+    declaration: 'export type MuseMediaPostprocessStatus = z.output<typeof status>;',
+  },
+  {
+    name: 'MuseMediaPostprocessSubmission',
+    declaration: 'export type MuseMediaPostprocessSubmission = z.output<typeof submission>;',
   },
   {
     name: 'MuseVoiceLeaseId',

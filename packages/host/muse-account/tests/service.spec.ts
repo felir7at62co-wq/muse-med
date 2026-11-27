@@ -1,4 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -10,6 +11,7 @@ import { MuseAccountController, MuseAccountInputError } from '../src/account.ts'
 import { MuseFeedbackError } from '../src/feedback.ts'
 import { MuseAccountService } from '../src/service.ts'
 import { MuseAsrClient } from '../src/asr.ts'
+import type { MuseMediaPostprocessClient, MuseMediaPostprocessInput, MuseMediaPostprocessJobKey } from '../src/mediakit.ts'
 import { readMuseSession, writeMuseSession } from '../src/session.ts'
 import type { MuseAccountStatus } from '../src/types.ts'
 
@@ -442,4 +444,49 @@ it('keeps voice coordination Host-only and explicitly reports a missing provider
   } } })
   expect(await next.museAccount.requestVoiceSlot(request, 'private-provider')).toEqual({ state: 'available' })
   expect(calls).toEqual(['private-provider'])
+})
+
+it('exposes video processing only to the Host and preserves capability absence', async () => {
+  const context = new Context(); contexts.push(context)
+  const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' })
+  const controller = { status, logout: status, details: async () => { throw Error('Unused fixture details') },
+    login: async () => { throw Error('Unused fixture login') } }
+  await context.plugin(MuseAccountService, { controller })
+  const service = context.museAccount
+  const input: MuseMediaPostprocessInput = { operation: 'erase_subtitle', scriptId: 1, taskId: 2, videoUrl: 'https://source.example/test.mp4' }
+  const jobKey = brandString<MuseMediaPostprocessJobKey>('test-key')
+  expect(remoteMethods(service).map(row => row.method)).not.toContain('previewMediaPostprocess')
+  expect(remoteMethods(service).map(row => row.method)).not.toContain('submitMediaPostprocess')
+  expect(remoteMethods(service).map(row => row.method)).not.toContain('statusMediaPostprocess')
+  expect(remoteMethods(service).map(row => row.method)).not.toContain('claimMediaPostprocessFallback')
+  expect(await service.previewMediaPostprocess(input)).toEqual({ state: 'ineligible' })
+  await expect(service.submitMediaPostprocess({ ...input, jobKey })).rejects.toMatchObject({ code: 'MEDIAKIT_UNAVAILABLE' })
+  await expect(service.statusMediaPostprocess(jobKey)).rejects.toMatchObject({ code: 'MEDIAKIT_UNAVAILABLE' })
+  await expect(service.claimMediaPostprocessFallback(jobKey)).rejects.toMatchObject({ code: 'MEDIAKIT_UNAVAILABLE' })
+  const next = new Context(); contexts.push(next)
+  const calls = {
+    preview: vi.fn<MuseMediaPostprocessClient['preview']>().mockResolvedValue({ state: 'ready', unit: 'CNY', amount: '1.20', jobKey }),
+    submit: vi.fn<MuseMediaPostprocessClient['submit']>().mockResolvedValue({ state: 'accepted' }),
+    status: vi.fn<MuseMediaPostprocessClient['status']>().mockResolvedValue({ state: 'pending' }),
+    claimFallback: vi.fn<MuseMediaPostprocessClient['claimFallback']>().mockResolvedValueOnce(true).mockResolvedValueOnce(false),
+  }
+  await next.plugin(MuseAccountService, { controller, mediaPostprocess: calls })
+  const { signal } = new AbortController()
+  const approved = { ...input, jobKey }
+  expect(await next.museAccount.previewMediaPostprocess(input, signal)).toMatchObject({ state: 'ready', jobKey })
+  expect(await next.museAccount.submitMediaPostprocess(approved, signal)).toEqual({ state: 'accepted' })
+  expect(await next.museAccount.statusMediaPostprocess(jobKey, signal)).toEqual({ state: 'pending' })
+  expect(await next.museAccount.claimMediaPostprocessFallback(jobKey, signal)).toBe(true)
+  expect(await next.museAccount.claimMediaPostprocessFallback(jobKey)).toBe(false)
+  const stopped = AbortSignal.abort()
+  await expect(next.museAccount.previewMediaPostprocess(input, stopped)).rejects.toMatchObject({ name: 'AbortError' })
+  await expect(next.museAccount.submitMediaPostprocess(approved, stopped)).rejects.toMatchObject({ name: 'AbortError' })
+  await expect(next.museAccount.statusMediaPostprocess(jobKey, stopped)).rejects.toMatchObject({ name: 'AbortError' })
+  await expect(next.museAccount.claimMediaPostprocessFallback(jobKey, stopped)).rejects.toMatchObject({ name: 'AbortError' })
+  expect(calls.preview).toHaveBeenCalledWith(input, signal)
+  expect(calls.submit).toHaveBeenCalledWith(approved, signal)
+  expect(calls.status).toHaveBeenCalledWith(jobKey, signal)
+  expect(calls.claimFallback).toHaveBeenNthCalledWith(1, jobKey, signal)
+  expect(calls.claimFallback).toHaveBeenNthCalledWith(2, jobKey, undefined)
+  expect(calls.claimFallback).toHaveBeenCalledTimes(2)
 })

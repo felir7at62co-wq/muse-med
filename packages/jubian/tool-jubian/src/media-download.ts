@@ -78,10 +78,11 @@ function result(receipt: DownloadReceipt, receiptPath: string, reused: boolean):
  * @param kind - Media kind requested by the caller.
  * @param requested - Absolute target path of the original request.
  * @param signal - Caller cancellation.
+ * @param allowedOrigins - Explicit account gateway output origins for a MediaKit result.
  * @returns Verified local media receipt and whether a previous file was reused.
  */
 export async function resumeMediaDownload(source: string, kind: MediaKind, requested: string,
-  signal?: AbortSignal): Promise<Record<string, unknown>> {
+  signal?: AbortSignal, allowedOrigins?: readonly string[]): Promise<Record<string, unknown>> {
   signal?.throwIfAborted()
   const sourceDigest = createHash('sha256').update(source).digest('hex')
   const receiptPath = `${requested}.jubian-${kind}-${sourceDigest.slice(0, 16)}.json`
@@ -97,7 +98,8 @@ export async function resumeMediaDownload(source: string, kind: MediaKind, reque
         break
       }
     }
-    const downloaded = await downloadMedia(source, { kind, ...(signal ? { signal } : {}) })
+    const downloaded = await downloadMedia(source, { kind, ...(signal ? { signal } : {}),
+      ...(allowedOrigins === undefined ? {} : { allowedOrigins }) })
     const target = downloadedMediaPath(requested, downloaded.media_type)
     for (let attempt = 0; attempt < candidateLimit; attempt++) {
       signal?.throwIfAborted()

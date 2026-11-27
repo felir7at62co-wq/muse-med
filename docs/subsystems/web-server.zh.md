@@ -199,6 +199,38 @@ MUSE account Remote namespace. The Connection carrier authenticates every call.
 async requestVoiceSlot(request: MuseVoiceSlotRequest, jubianToken: string): Promise<unknown>
 
 /**
+ * Read eligibility and a quote for the current account without submitting a job.
+ * @param input - Source identifiers and requested operation.
+ * @param signal - Caller cancellation.
+ * @returns The preview, or ineligible when this Host lacks the capability.
+ */
+async previewMediaPostprocess(input: MuseMediaPostprocessInput, signal?: AbortSignal): Promise<MuseMediaPostprocessPreview>
+
+/**
+ * Submit one previously quoted video processing job through the signed-in account.
+ * @param input - Source identifiers, operation and original quote key.
+ * @param signal - Cancels only the Host request.
+ * @returns The gateway acknowledgement or unknown when acceptance cannot be established.
+ */
+async submitMediaPostprocess(input: MuseMediaPostprocessInput & { readonly jobKey: MuseMediaPostprocessJobKey }, signal?: AbortSignal): Promise<MuseMediaPostprocessSubmission>
+
+/**
+ * Read an original video processing receipt for Host-only use.
+ * @param key - Gateway quote key for the original submission.
+ * @param signal - Caller cancellation.
+ * @returns State and, on completion, the operator-approved private download location.
+ */
+async statusMediaPostprocess(key: MuseMediaPostprocessJobKey, signal?: AbortSignal): Promise<MuseMediaPostprocessStatus>
+
+/**
+ * Obtain the gateway's one-time backup permission after a confirmed rejection.
+ * @param key - Gateway key for the original submission.
+ * @param signal - Caller cancellation.
+ * @returns Whether this Host received permission for the backup submission.
+ */
+async claimMediaPostprocessFallback(key: MuseMediaPostprocessJobKey, signal?: AbortSignal): Promise<boolean>
+
+/**
  * Submit one explicitly authored remark to the signed-in Muse account's inbox.
  * @param request - Target, category, note and optional related-excerpt choice.
  * @returns A confirmed durable inbox receipt, without a cookie or transcript.

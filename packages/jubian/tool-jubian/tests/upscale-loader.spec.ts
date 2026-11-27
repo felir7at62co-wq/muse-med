@@ -1,6 +1,6 @@
 /** Live upscale prices reach the default budget through the real Loader and recorded tool pipeline. */
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
-import { access } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -25,7 +25,8 @@ it.each([
   { scenario: 'a live MediaKit per-minute price', model: mediaKit, quote: { amount: '1.50', cents: 150 } },
   { scenario: 'a missing live MediaKit price', model: mediaKit, quote: null },
   { scenario: 'a live generative MediaKit standard price', model: generativeMediaKit, quote: { amount: '20.00', cents: 2000 } },
-])('records upscale results with $scenario under the default budget and no manual estimates', async ({ model, quote }) => {
+  { scenario: 'an approved direct MediaKit pilot', model: mediaKit, quote: { amount: '1.00', cents: 100 }, pilot: true },
+])('records upscale results with $scenario under the default budget and no manual estimates', async ({ model, quote, pilot }) => {
   const priced = quote !== null
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
     { id: 'tool-executor-native', name: 'cordis:native-executor' },
@@ -36,9 +37,26 @@ it.each([
   ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials,
     drama: DramaSettings, jubian: Jubian } })
   const ledgerRoot = join(home, 'ledger'), ledger = new JubianLedger({ root: ledgerRoot })
+  const jobKey = 'b'.repeat(64)
+  const downloadedPath = join(home, 'pilot.mp4')
+  const mp4Header = Buffer.from('000000186674797069736f6d0000000069736f6d61766331', 'hex')
+  let directSubmits = 0
+  if (pilot) ctx.provide('museAccount', {
+    previewMediaPostprocess: () => ({ state: 'ready', jobKey, amount: '1.00', unit: 'CNY' }),
+    submitMediaPostprocess: () => { directSubmits++; return { state: 'accepted' } },
+    statusMediaPostprocess: () => ({ state: 'completed',
+      videoUrl: 'https://result.example.test/clip.mp4?signature=private', downloadOrigin: 'https://result.example.test' }),
+    claimMediaPostprocessFallback: () => { throw Error('Accepted MediaKit work cannot claim the backup') },
+  })
   const calls: { method: string; path: string }[] = []
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString())
+    if (pilot && url.origin === 'https://result.example.test') {
+      expect(init).toMatchObject({ method: 'GET', redirect: 'error', credentials: 'omit' })
+      expect(init?.headers).toBeUndefined()
+      expect(url.pathname).toBe('/clip.mp4')
+      return new Response(Uint8Array.from(mp4Header))
+    }
     expect(url.origin, 'the fixture refuses external provider traffic').toBe('https://upscale-loader.invalid')
     const method = init?.method ?? 'GET', path = url.pathname.replace('/prod-api', '')
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
@@ -77,7 +95,8 @@ it.each([
   onTestFinished(() => { fetch.mockRestore() })
   try {
     await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot,
-      workspaceSecrets: false, baseUrl: 'https://upscale-loader.invalid/prod-api' } })
+      workspaceSecrets: false, baseUrl: 'https://upscale-loader.invalid/prod-api',
+      ...(pilot ? { mediaKitPostprocess: true } : {}) } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     expect(seriesBudgetLimit(ctx)).toBe(400_000)
@@ -89,6 +108,10 @@ it.each([
     const adapter = new MockAdapter([
       toolCallResponse('upscale-submit', 'jubian_video', args),
       ...(priced ? [toolCallResponse('upscale-replay', 'jubian_video', args)] : []),
+      ...(pilot ? [toolCallResponse('upscale-status', 'jubian_media', { method: 'status', processing_job_key: jobKey })] : []),
+      ...(pilot ? [toolCallResponse('upscale-download', 'jubian_media', {
+        method: 'download_processed', processing_job_key: jobKey, output_path: downloadedPath,
+      })] : []),
       toolCallResponse('upscale-budget', 'jubian_budget', { action: 'read', script_id: 2708 }),
       textResponse(priced ? 'The offline upscale was submitted once and its cost is recorded.'
         : 'No upscale was submitted because its price is missing.'),
@@ -101,11 +124,27 @@ it.each([
     await agent.whenIdle()
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
       .map(event => event.data.message)
-    expect(results).toHaveLength(priced ? 3 : 2)
+    expect(results).toHaveLength(pilot ? 5 : priced ? 3 : 2)
     expect(results[0]).toMatchObject({ toolCallId: ToolCallId('upscale-submit'), isError: !priced })
     const first = results[0]?.content[0]
     if (first?.type !== 'text') throw new Error('Missing recorded upscale result')
-    if (priced) {
+    if (pilot) {
+      expect(JSON.parse(first.text)).toMatchObject({ processing_job_key: jobKey, status: 'accepted' })
+      for (const index of [1, 2]) {
+        const reported = results[index]?.content[0]
+        if (reported?.type !== 'text') throw new Error('Missing recorded MediaKit result')
+        expect(JSON.parse(reported.text)).toMatchObject({ processing_job_key: jobKey, status: 'completed' })
+        expect(reported.text).not.toContain('signature')
+      }
+      const downloaded = results[3]?.content[0]
+      if (downloaded?.type !== 'text') throw new Error('Missing saved MediaKit result')
+      expect(JSON.parse(downloaded.text)).toMatchObject({ status: 'completed', path: downloadedPath, bytes: mp4Header.length })
+      expect(downloaded.text).not.toContain('signature')
+      expect(await readFile(downloadedPath)).toEqual(mp4Header)
+      expect(directSubmits).toBe(1)
+      expect(await ledger.records()).toMatchObject([{ method: 'video_upscale', script_id: 2708,
+        quoted_amount: '1.00', outcome: 'accepted' }])
+    } else if (priced) {
       expect(JSON.parse(first.text)).toMatchObject({ replayed: false, outcome: 'accepted',
         accepted_task_id: '429001', budget: { status: 'authorized' } })
       const replay = results[1]?.content[0]
@@ -126,12 +165,12 @@ it.each([
     if (budget?.type !== 'text') throw new Error('Missing recorded project budget')
     expect(JSON.parse(budget.text)).toMatchObject({ script_id: 2708, source: 'default', limit_cents: 400_000,
       settled_cents: quote?.cents ?? 0, reserved_cents: 0, accounting_complete: true })
-    expect(adapter.requests).toHaveLength(priced ? 4 : 3)
+    expect(adapter.requests).toHaveLength(pilot ? 6 : priced ? 4 : 3)
     expect(adapter.requests.at(-1)?.messages.filter(message => message.role === 'tool')
       .map(message => message.content)).toEqual(results.map(message => message.content))
-    expect(calls.filter(call => call.path === '/model/charge/getSelectList')).toHaveLength(1)
-    expect(calls.filter(call => call.path === '/aigc/storyboard/hdConversion')).toHaveLength(priced ? 1 : 0)
-    expect(calls).toHaveLength(priced ? 4 : 3)
+    expect(calls.filter(call => call.path === '/model/charge/getSelectList')).toHaveLength(pilot ? 0 : 1)
+    expect(calls.filter(call => call.path === '/aigc/storyboard/hdConversion')).toHaveLength(priced && !pilot ? 1 : 0)
+    expect(calls).toHaveLength(pilot ? 2 : priced ? 4 : 3)
     const row = [...ctx.loader.entries()].find(entry => entry.options.name === 'cordis:jubian')
     await row?.fiber?.dispose()
     expect(ctx.tools.get('jubian_video')).toBeUndefined()

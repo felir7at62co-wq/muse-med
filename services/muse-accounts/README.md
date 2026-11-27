@@ -129,6 +129,18 @@ The gateway requires Node 22 or newer and the release-root DSH dependencies used
 
 Attempts are memory-only, expire after ten minutes and are bounded to 1,000 per process; the advertised polling interval is two seconds. The `desktopLoginOptions` factory argument can configure `ttlMs`, `maxAttempts` and `pollIntervalMs`. Gateway restart discards pending approvals, and an interrupted single-use redemption requires a fresh login. The existing durable session policy applies after redemption. Deploy gateway and Desktop changes together; no OS URL-scheme registration or local callback listener is required.
 
+### MediaKit post-processing pilot
+
+<a id="mediakit-post-processing-pilot"></a>
+
+Set `MUSE_MEDIAKIT_CONFIG` in the test account gateway service to the path of a private JSON file outside the release directory. On Linux, use an owner-only regular file with mode 0600. An unset variable leaves the gateway route disabled. In an isolated Desktop development build, set `mediaKitPostprocess: true` in the `tool-jubian` row of the [Desktop Host overlay](../../apps/desktop-host/config/desktop.cordis.patch.yml) and set `MUSE_BASE_URL` to the test gateway origin. The Desktop Host inserts this row after it loads the user profile patch. Keep development data separate from the installed app as described in [Desktop development](../../apps/desktop/README.md#develop).
+
+The JSON contains `apiKey`, the absolute private `receiptDirectory`, `timeoutMs`, an exact HTTPS `resultOrigins` list and `approvals`. Optional `queueId` selects a MediaKit queue. Each approval binds `accountId`, `scriptId`, `taskId`, `sourceOrigin`, `sourcePath` and `sourceSha256`, the SHA-256 of the full source URL including its query. Its `operations` object contains an `upscale` entry with `resolution` and `priceCny`, an `erase_subtitle` entry with `priceCny`, or both. `priceCny` is the approved positive estimate as a string with two decimal places. The provider bills the processed result under its tariff.
+
+Keep receipts outside the release when restarting the test gateway. Each approved account, clip and operation has one durable submission identity. After a confirmed rejection, the gateway grants at most one claim for a separately budgeted Jubian backup. That claim survives restart and remains consumed if the reply is lost. The original MediaKit reservation remains until the operator has billing evidence. A failed or unconfirmed MediaKit job does not permit a backup claim.
+
+To stop new MediaKit work, set `approvals` to `[]` and keep the same private receipt directory, provider key and result origins. The owner can still query and download a previously submitted job using its original processing key. The empty approval list also closes backup claims. Keep the recovery configuration until existing jobs are reconciled. Removing `MUSE_MEDIAKIT_CONFIG` closes the status and result routes along with submission.
+
 ### Account sessions
 
 The gateway resolves `MUSE_ACCOUNTS_FILE` to an absolute path and stores login sessions in `sessions.json` beside it. `MUSE_SESSIONS_FILE` can select another absolute path. Keep both files in the same private durable-data area outside immutable releases and backups exposed to users. Session writes use the account store's owner-only directory and atomic 0600-file pattern. The session file contains only SHA-256 token digests, account IDs, account revisions, and expiries; it never contains the bearer token or cookie value. Run only one gateway against a session file.

@@ -129,6 +129,18 @@ node services/muse-accounts/deployment/profile-overlay.mjs preflight --candidate
 
 请求仅存在内存中，十分钟后到期，每进程最多1,000个；告知桌面端的轮询间隔为两秒。工厂参数 `desktopLoginOptions` 可配置 `ttlMs`、`maxAttempts` 与 `pollIntervalMs`。网关重启会清除待完成授权，单次兑换的结果丢失时需要重新登录。兑换后沿用既有的持久化会话策略。网关与桌面改动须配套部署；不需要注册操作系统 URL 协议或启动本地回调监听器。
 
+### MediaKit 后处理试点
+
+<a id="mediakit-post-processing-pilot"></a>
+
+在测试账号网关服务中设置 `MUSE_MEDIAKIT_CONFIG`，指向发布目录外的私有 JSON 文件。Linux 上使用权限为 0600 的普通文件。不设置该变量时，网关接口关闭。在隔离的桌面开发构建里，将 [桌面 Host 补丁](../../apps/desktop-host/config/desktop.cordis.patch.yml)中 `tool-jubian` 条目的 `mediaKitPostprocess` 设为 `true`，并将 `MUSE_BASE_URL` 设为测试网关源站。桌面 Host 在加载用户配置补丁后插入该条目。按[桌面开发说明](../../apps/desktop/README.zh.md#develop)将开发数据与已安装应用的数据隔离。
+
+JSON 包含 `apiKey`、私有任务回执目录的绝对路径 `receiptDirectory`、`timeoutMs`、精确的 HTTPS 产物来源 `resultOrigins` 和 `approvals`。可选 `queueId` 选择 MediaKit 队列。每条授权绑定 `accountId`、`scriptId`、`taskId`、`sourceOrigin`、`sourcePath` 以及 `sourceSha256`，即完整源视频 URL（含查询参数）的 SHA-256。`operations` 可包含带 `resolution` 和 `priceCny` 的 `upscale` 条目，或带 `priceCny` 的 `erase_subtitle`，也可同时包含两项。`priceCny` 是已批准的正数估算，使用保留两位小数的字符串。火山按处理结果和费率实际计费。
+
+重启测试网关时保留发布目录外的任务回执。每个获批账号、片段和操作共用一个持久提交身份。确认火山拒收后，网关最多发放一次剧变备用提交许可，备用渠道单独通过项目预算评估。许可跨重启保留，响应丢失时仍视为已领取。在运营方拿到计费证据前，保留原火山任务的预算预留。火山任务失败或状态不明确时，无法领取备用提交许可。
+
+要停止接受新的火山任务，将 `approvals` 设为 `[]`，保留原有私有回执目录、火山密钥和产物来源设置。账号仍可凭原处理编号查询并下载自己已提交的任务。清空授权列表也会关闭备用提交许可。保留这套恢复配置，直至核对完已有任务。移除 `MUSE_MEDIAKIT_CONFIG` 会同时关闭提交、状态查询和产物获取接口。
+
 ### 账号会话
 
 网关会把 `MUSE_ACCOUNTS_FILE` 解析为绝对路径，并默认将登录会话写入同目录的 `sessions.json`；也可用 `MUSE_SESSIONS_FILE` 指定另一个绝对路径。两个文件都应位于不可变发布目录之外、不会暴露给用户的同一私有持久化目录。会话写入复用账号存储的仅所有者可访问目录和 0600 原子文件机制。文件只包含 token 的 SHA-256 摘要、账号 ID、账号 revision 与到期时间，不包含 bearer token 或 cookie 明文。一个会话文件只能由一个网关进程使用。
