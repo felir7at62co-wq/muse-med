@@ -14,6 +14,7 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRender } from '../src/index.ts'
 import * as Audio from '../src/audio.ts'
+import * as LocalClipEvidence from '../src/local-clip-evidence.ts'
 import * as LocalPatchOrigin from '../src/local-dialogue-patch-origin.ts'
 import { offlineWordReceipt, type OfflineWordReceiptVerifier } from '../src/offline-word-evidence.ts'
 import type { LocalDialoguePatchSourceBinding } from '../src/source-qa.ts'
@@ -386,6 +387,54 @@ it.each([false, true])('gates patched render sources on current Session verifica
     expect(verifyPatch).toHaveBeenCalledBefore(verifySource)
   } finally {
     stage.mockRestore(); createSource.mockRestore(); createPatch.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it.each([false, true])('checks local clip proof before render source QA when enabled=%s', async (enabled) => {
+  const files = await preparedProject(), ctx = new Context()
+  const clip: LocalClipEvidence.LocalClipRepairBinding = {
+    project: files.project, episode: '02',
+    original: { path: join(files.project, 'media', 'original.mp4'), sha256: 'a'.repeat(64) },
+    output: { path: join(files.project, 'editing', 'clip.mp4'), sha256: 'b'.repeat(64) },
+    startMs: 1000, endMs: 4000, durationSeconds: 3,
+  }
+  const binding = { mediaPath: clip.output.path, mediaSha256: clip.output.sha256,
+    ocrPath: 'ocr', ocrSha256: 'c'.repeat(64), inspectionPath: 'inspection', inspectionSha256: 'd'.repeat(64),
+    sessionId: 'clip-owner', reviewId: 'review', localRepair: clip }
+  const verifySource = vi.fn<VideoInspection.VideoSourceQaVerifier>().mockResolvedValue(undefined)
+  const verifyClip = vi.fn<Awaited<ReturnType<typeof LocalClipEvidence.createLocalClipRepairVerifier>>>()
+  const createSource = vi.spyOn(VideoInspection, 'createVideoSourceQaVerifier').mockResolvedValue(verifySource)
+  const createClip = vi.spyOn(LocalClipEvidence, 'createLocalClipRepairVerifier').mockResolvedValue(verifyClip)
+  const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
+    if (input.sourceQaVerifier === undefined) throw Error('Missing render proof consumer')
+    await input.sourceQaVerifier(binding)
+    throw Error('Local clip proof accepted')
+  })
+  try {
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(SandboxPolicy, { mode: 'workspace-write', workspaceRoot: files.project })
+    const harness = await mountAgentLoopTestHarness(ctx)
+    await ctx.plugin({ name: 'local-clip-render', inject, apply(scope: Context) { apply(scope, { enableLocalClipRepair: enabled }) } })
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw Error('Renderer registration missing')
+    const agent = await harness.create(SessionId('clip-owner'), {}, { cwd: files.project })
+    const args = { method: 'stage_delivery', project: files.project, episode: 2, timeline: files.timeline,
+      subtitle_srt: files.subtitle, output: files.output, draft: '02_剪映草稿/draft' }
+    await vi.waitFor(async () => {
+      await expect(tool.execute(args, { ...runContext(), agent })).rejects.toThrow(
+        enabled ? 'Local clip proof accepted' : '当前 Muse 未启用局部裁切的源片复验')
+    })
+    if (enabled) {
+      expect(verifyClip).toHaveBeenCalledExactlyOnceWith(agent.session, clip, expect.any(AbortSignal))
+      expect(verifySource).toHaveBeenCalledExactlyOnceWith(agent.session, binding, verifyClip.mock.lastCall?.[2])
+      expect(verifyClip).toHaveBeenCalledBefore(verifySource)
+    } else {
+      expect(createClip).not.toHaveBeenCalled()
+      expect(verifySource).not.toHaveBeenCalled()
+    }
+  } finally {
+    stage.mockRestore(); createSource.mockRestore(); createClip.mockRestore()
     await ctx.fiber.dispose()
   }
 })

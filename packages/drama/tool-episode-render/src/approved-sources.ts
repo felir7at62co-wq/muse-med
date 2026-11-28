@@ -6,8 +6,9 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { fileSha256 } from './cache.ts'
 import type { EpisodePaths } from './paths.ts'
 import type { ShotSource } from './types.ts'
+import { localClipRepairBindingSchema, type LocalClipRepairBinding } from './local-clip-evidence.ts'
 import { approvedDialoguePatchSchema, isLocalDialoguePatchOutput, verifySourceQa, type LocalDialoguePatchSourceBinding,
-  type SourceQaStagedAccess, type SourceQaVerifier, type SourceQaVerification } from './source-qa.ts'
+  type SourceProcessingEvidence, type SourceQaStagedAccess, type SourceQaVerifier, type SourceQaVerification } from './source-qa.ts'
 
 interface ReviewedShot {
   readonly shot: number
@@ -15,6 +16,10 @@ interface ReviewedShot {
   readonly audioSha256?: string
   readonly reviewSha256: string
   readonly requiresLocalDialoguePatch?: true
+  /** The selected media is a local clip, so subtitles need a clock generated from its own sound. */
+  readonly requiresLocalRepairClock?: true
+  /** Present after strict review: the exact clip repair the reviewing Session produced. */
+  readonly localRepair?: LocalClipRepairBinding
   readonly sourceQa?: SourceQaVerification
 }
 
@@ -127,10 +132,33 @@ async function verifyDialoguePatchFiles(paths: EpisodePaths, review: Record<stri
     originals: { target, donor } }
 }
 
+async function verifyLocalClipFiles(paths: EpisodePaths, review: Record<string, unknown>, row: ShotSource,
+  videoSha256: string, audioSha256: string | undefined, label: string, capture: (path: string, sha256: string) => void,
+  staged?: SourceQaStagedAccess): Promise<LocalClipRepairBinding> {
+  const operation = review.local_clip_repair
+  if (!record(operation) || review.subtitle_cleanup !== 'not_required' || review.subtitle_erasure !== undefined
+    || review.video_upscale !== undefined || review.local_dialogue_patch !== undefined
+    || hasSeparateAudio(paths.project, row) || audioSha256 !== videoSha256) {
+    throw new Error(`${label} 局部裁切候选须使用工具输出的同片原声，并按本次选片重新复验。`)
+  }
+  const original = await evidenceFile(paths.project, operation.original_path, label, staged)
+  const originalSha256 = await (staged === undefined ? fileSha256(original) : staged.hash(original))
+  if (operation.original_sha256 !== originalSha256) throw new Error(`${label} 局部返工的原片已经变化。`)
+  await verifyDownload(paths.project, review.original_download_receipt_path, original, originalSha256, label, capture, undefined, staged)
+  const output = await evidenceFile(paths.project, row.video, label, staged)
+  const parsed = localClipRepairBindingSchema.safeParse({ project: staged?.project ?? await realpath(paths.project),
+    episode: paths.episode, original: { path: original, sha256: originalSha256 }, output: { path: output, sha256: videoSha256 },
+    startMs: operation.start_ms, endMs: operation.end_ms, durationSeconds: operation.duration_seconds })
+  if (!parsed.success) throw new Error(`${label} 局部裁切审核缺少本次工具的原片、区间或时长记录。`)
+  capture(original, originalSha256)
+  return parsed.data
+}
+
 async function verifyContentEvidence(project: string, review: Record<string, unknown>, row: ShotSource,
   videoSha256: string, audioSha256: string | undefined, label: string, capture: (path: string, sha256: string) => void,
   staged: SourceQaStagedAccess | undefined, verifyDialoguePatch?: () => Promise<LocalDialoguePatchSourceBinding>,
-): Promise<LocalDialoguePatchSourceBinding | undefined> {
+  verifyLocalClip?: () => Promise<LocalClipRepairBinding>,
+): Promise<SourceProcessingEvidence | undefined> {
   const checks = review.content_review
   if (!record(checks) || checks.embedded_subtitles !== 'absent' || contentChecks.some(key => checks[key] !== 'pass')) {
     throw new Error(`${label} 内容复核不完整或仍有待修项。请核对所选片的内容、烧录字幕、音画和敏感画面。`)
@@ -140,7 +168,8 @@ async function verifyContentEvidence(project: string, review: Record<string, unk
   }
   const reviewedFrames = await Promise.all(review.review_frames.map(frame => evidenceFile(project, frame, label, staged)))
   for (const frame of reviewedFrames) capture(frame, await (staged === undefined ? fileSha256(frame) : staged.hash(frame)))
-  if (verifyDialoguePatch !== undefined) return await verifyDialoguePatch()
+  if (verifyDialoguePatch !== undefined) return { localDialoguePatch: await verifyDialoguePatch() }
+  if (verifyLocalClip !== undefined) return { localRepair: await verifyLocalClip() }
   if (review.subtitle_cleanup !== 'clean') {
     if (hasSeparateAudio(project, row) && audioSha256 !== undefined && audioSha256 !== videoSha256) {
       throw new Error(`${label} 独立原声音轨缺少可验证的原片复验，不能按未处理片归档。`)
@@ -304,6 +333,7 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
       throw new Error(`${label} 所选原声音频路径或字节与已审核来源不符。`)
     }
     let sourceQa: SourceQaVerification | undefined
+    let localRepair: LocalClipRepairBinding | undefined
     if (requireContent) {
       const contentFiles = new Map<string, string>()
       const capture = (path: string, sha256: string): void => {
@@ -314,11 +344,15 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
       const verifyPatch = patchDeclared
         ? () => verifyDialoguePatchFiles(paths, review, row, plan, videoTasks, videoSha256, audioSha256, label, capture, staged)
         : undefined
-      const patch = await verifyContentEvidence(paths.project, review, row, videoSha256, audioSha256, label, capture, staged, verifyPatch)
+      const verifyClip = review.local_clip_repair !== undefined
+        ? () => verifyLocalClipFiles(paths, review, row, videoSha256, audioSha256, label, capture, staged) : undefined
+      const processing = await verifyContentEvidence(paths.project, review, row, videoSha256, audioSha256, label, capture, staged,
+        verifyPatch, verifyClip)
       sourceQa = await verifySourceQa({ project: paths.project, review, videoPath: row.video, videoSha256,
         originalPath: row.audio, originalSha256: audioSha256 ?? videoSha256,
         ...(sourceQaVerifier === undefined ? {} : { verifier: sourceQaVerifier }), ...(staged === undefined ? {} : { staged }),
-        ...(patch === undefined ? {} : { localDialoguePatch: patch }) })
+        ...processing })
+      localRepair = processing?.localRepair
       sourceQa = { ...sourceQa, files: [...sourceQa.files,
         ...[...contentFiles].map(([path, sha256]) => ({ path, sha256 })),
         { path: resolve(paths.project, 'reviews', `ep${paths.episode}-p${String(row.package).padStart(2, '0')}.json`), sha256: approved.sha256 },
@@ -327,6 +361,8 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
     verified.push({ shot: row.shot, videoSha256,
       ...(audioSha256 === undefined ? {} : { audioSha256 }), reviewSha256: approved.sha256,
       ...(patchDeclared ? { requiresLocalDialoguePatch: true } : {}),
+      ...(review.local_clip_repair === undefined ? {} : { requiresLocalRepairClock: true as const }),
+      ...(localRepair === undefined ? {} : { localRepair }),
       ...(sourceQa === undefined ? {} : { sourceQa }) })
   }
   for (const shot of verified) for (const file of shot.sourceQa?.files ?? []) {

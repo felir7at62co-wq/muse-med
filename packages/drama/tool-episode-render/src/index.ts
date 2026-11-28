@@ -52,8 +52,10 @@ import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock }
 import type { SourceQaEvidenceBinding, SourceQaVerifier } from './source-qa.ts'
 import { createContentReviewVerifier, unattendedReviewMode, type ContentReviewVerifier } from './content-review.ts'
 import { registerLocalDialoguePatchTool } from './local-dialogue-patch-tool.ts'
+import { registerLocalClipTool } from './local-clip-tool.ts'
+import { createLocalClipRepairVerifier } from './local-clip-evidence.ts'
 import { registerContentListeningTool } from './content-listening-tool.ts'
-import { createOfflinePronunciationVerifier } from './offline-pronunciation-evidence.ts'
+import { createOfflinePronunciationVerifier, type OfflinePronunciationVerifier } from './offline-pronunciation-evidence.ts'
 import { createLocalDialogueSourceVerifier, type LocalDialogueSourceVerifier } from './local-dialogue-patch-origin.ts'
 import { installOfflineWordEvidence, type OfflineWordReceiptVerifier } from './offline-word-evidence.ts'
 
@@ -100,6 +102,8 @@ export interface Config {
   enableContentListeningReview?: boolean
   /** Expose local dialogue repair when the deployment provisions local pronunciation checks. */
   enableLocalDialoguePatch?: boolean
+  /** Expose same-clock local clip repair and source clock conformance, and accept their reviewed outputs as sources. */
+  enableLocalClipRepair?: boolean
   /** Optional deployment fallback for timelines without an ending-effect fit. */
   defaultEndingEffectFit?: EndingEffectFit
   /** Optional deployment fallback for projects without an explicit subtitle style. */
@@ -132,6 +136,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   enableContentListeningReview: z.boolean().default(false),
   enableLocalDialoguePatch: z.boolean().default(false),
+  enableLocalClipRepair: z.boolean().default(false),
   defaultEndingEffectFit: z.union(['source_once', 'stretch_to_window']),
   normalizeSubtitleText: z.boolean().default(false),
   enforceSubtitleVisual: z.boolean().default(false),
@@ -1139,6 +1144,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   let sourceQaScope: {
     readonly verify: VideoSourceQaVerifier
     readonly verifyDialogue?: LocalDialogueSourceVerifier
+    readonly verifyLocalClip?: Awaited<ReturnType<typeof createLocalClipRepairVerifier>>
     readonly offlineWords: Awaited<ReturnType<typeof installOfflineWordEvidence>>
     readonly signal: AbortSignal
     readonly contentReview: Awaited<ReturnType<typeof createContentReviewVerifier>> } | undefined
@@ -1146,20 +1152,24 @@ export function apply(ctx: Context, config: Config = {}): void {
     const verify = await createVideoSourceQaVerifier(scope)
     const contentReview = await createContentReviewVerifier(scope)
     const offlineWords = await installOfflineWordEvidence(scope)
-    let verifyDialogue: LocalDialogueSourceVerifier | undefined
+    let dialogue: {
+      pronunciation: OfflinePronunciationVerifier
+      verify: LocalDialogueSourceVerifier
+    } | undefined
     if (config.enableLocalDialoguePatch === true) {
       const pronunciation = await createOfflinePronunciationVerifier(scope)
-      verifyDialogue = await createLocalDialogueSourceVerifier(scope, pronunciation)
-      scope.fiber.assertActive()
-      registerLocalDialoguePatchTool(scope, settings, pronunciation)
-    } else {
-      scope.fiber.assertActive()
+      dialogue = { pronunciation, verify: await createLocalDialogueSourceVerifier(scope, pronunciation) }
     }
+    const verifyLocalClip = config.enableLocalClipRepair === true ? await createLocalClipRepairVerifier(scope) : undefined
+    scope.fiber.assertActive()
+    if (verifyLocalClip !== undefined) registerLocalClipTool(scope, settings)
+    if (dialogue !== undefined) registerLocalDialoguePatchTool(scope, settings, dialogue.pronunciation)
     if (config.enableContentListeningReview === true) registerContentListeningTool(scope, settings)
     scope.effect(() => {
       const owner = new AbortController()
       const binding = { verify, contentReview, offlineWords, signal: owner.signal,
-        ...(verifyDialogue === undefined ? {} : { verifyDialogue }) }
+        ...(dialogue === undefined ? {} : { verifyDialogue: dialogue.verify }),
+        ...(verifyLocalClip === undefined ? {} : { verifyLocalClip }) }
       sourceQaScope = binding
       return () => {
         owner.abort(Error('SOURCE_QA_HOST_UNAVAILABLE: 源片复验服务已卸载。'))
@@ -1291,6 +1301,10 @@ export function apply(ctx: Context, config: Config = {}): void {
         if (binding.localDialoguePatch !== undefined) {
           if (scope.verifyDialogue === undefined) throw Error('SOURCE_DIALOGUE_PATCH: 当前 Muse 未启用同一会话的修音源片复验。')
           await scope.verifyDialogue(session, binding.localDialoguePatch, signal)
+        }
+        if (binding.localRepair !== undefined) {
+          if (scope.verifyLocalClip === undefined) throw Error('SOURCE_LOCAL_CLIP: 当前 Muse 未启用局部裁切的源片复验。')
+          scope.verifyLocalClip(session, binding.localRepair, signal)
         }
         await scope.verify(session, binding, signal)
         signal.throwIfAborted()

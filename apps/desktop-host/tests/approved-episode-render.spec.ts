@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, expect, it } from 'vitest'
+import * as SourceReview from '@deepseek-ai/dsh-tool-episode-render/source-qa'
+import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config, createConfiguredEpisodeRenderer } from '../src/approved-episode-render.ts'
 import type { ConfiguredEpisodeRenderer, EpisodeRendererLimits } from '../src/approved-episode-render.ts'
 import { inspectEpisodeFile } from '../src/episode-render-inputs.ts'
 import { episodeFactsHash } from '../src/episode-render-descriptor.ts'
+import type { EpisodeSourceAuthorityFactory } from '../src/episode-source-authority-types.ts'
 import type { ApprovedEpisodeCaptureInput } from '@deepseek-ai/dsh-tool-jubian/episode-delivery'
 
 const roots: string[] = [], providers: ConfiguredEpisodeRenderer[] = []
@@ -66,7 +68,7 @@ async function fixture() {
     timelinePath: join(root, 'editing', '01-timeline.json'), subtitlePath: join(root, 'editing', '01.srt'), mixProfilePath: join(root, 'editing', 'mix.json'),
     inputHashes, digest: episodeFactsHash(inputHashes) }
   let declarationChanged = false, blocked: Promise<void> | undefined
-  const create = async () => {
+  const create = async (sourceAuthority?: EpisodeSourceAuthorityFactory) => {
     const provider = await createConfiguredEpisodeRenderer({ rendererConfig: { ffmpegPath: ffmpeg, ffprobePath: ffprobe,
       fontsDir: join(root, 'fonts'), subtitleFontFamily: 'Captured', watermarkFontFamily: 'Captured', maxBgmVolume: 1,
       normalizeSubtitleText: true, enforceSubtitleVisual: true, defaultSubtitleVisual: {
@@ -76,6 +78,7 @@ async function fixture() {
       cli: fileURLToPath(new URL('../../cli/src/bin.ts', import.meta.url)), tsxEsm: import.meta.resolve('tsx/esm'),
       tsconfig: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)), subprocessEntry: index, workerEntry: index },
     codeFiles: [index], endingAssetRoot: root, limits, resolveExecutable: async command => command,
+    ...(sourceAuthority === undefined ? {} : { sourceAuthority }),
     verifyConfiguration: async () => { if (blocked !== undefined) await blocked; if (declarationChanged) throw new Error('captured declaration changed') } }, signal)
     providers.push(provider); return provider
   }
@@ -91,6 +94,27 @@ it('captures sibling code modules, actual media and fonts while retaining deploy
   ]))
   expect(capture.identity.configurationSha256).toMatch(/^[a-f0-9]{64}$/u)
   expect(capture.identity.codeSha256).toMatch(/^[a-f0-9]{64}$/u)
+})
+
+it('requires the originating ordinary Session for formal local-cut rendering', async () => {
+  const f = await fixture()
+  const sourceAuthority = vi.fn<EpisodeSourceAuthorityFactory>()
+  const original = { path: join(f.root, 'original.mp4'), sha256: 'a'.repeat(64) }
+  const output = { path: join(f.root, 'local-cut.mp4'), sha256: 'b'.repeat(64) }
+  const captureSource = vi.spyOn(SourceReview, 'captureEpisodeSourceReview').mockImplementation(async (project, episode, _timeline, _settings, verify) => {
+    await verify({ mediaPath: output.path, mediaSha256: output.sha256,
+      ocrPath: join(f.root, 'ocr.json'), ocrSha256: 'c'.repeat(64), inspectionPath: join(f.root, 'inspection.json'),
+      inspectionSha256: 'd'.repeat(64), sessionId: 'ordinary-editing-session', reviewId: 'local-cut-review',
+      localRepair: { project, episode, original, output, startMs: 1000, endMs: 3000, durationSeconds: 2 } })
+    throw new Error('Background capture accepted a local-cut review')
+  })
+  try {
+    const provider = await f.create(sourceAuthority)
+    await expect(provider.capture(f.input, f.signal)).rejects.toThrow('SOURCE_LOCAL_CLIP_BACKGROUND_UNAVAILABLE')
+    expect(sourceAuthority).not.toHaveBeenCalled()
+  } finally {
+    captureSource.mockRestore()
+  }
 })
 
 it('refuses a changed non-index owner module; a fresh provider reports different code/configuration facts', async () => {
