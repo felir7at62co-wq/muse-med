@@ -5213,7 +5213,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:98`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:100`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -5228,6 +5228,8 @@ export interface Config {
   enableContentListeningReview?: boolean
   /** Expose local dialogue repair when the deployment provisions local pronunciation checks. */
   enableLocalDialoguePatch?: boolean
+  /** Expose same-clock local clip repair and source clock conformance, and accept their reviewed outputs as sources. */
+  enableLocalClipRepair?: boolean
   /** Optional deployment fallback for timelines without an ending-effect fit. */
   defaultEndingEffectFit?: EndingEffectFit
   /** Optional deployment fallback for projects without an explicit subtitle style. */
