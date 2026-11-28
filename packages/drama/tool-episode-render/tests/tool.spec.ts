@@ -15,7 +15,7 @@ import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRender } from '../src/index.ts'
 import * as Audio from '../src/audio.ts'
 import * as LocalPatchOrigin from '../src/local-dialogue-patch-origin.ts'
-import { offlineWordReceipt, type OfflineWordReceiptVerifier } from '../src/offline-word-evidence.ts'
+import type { OfflineWordReceiptVerifier } from '../src/offline-word-evidence.ts'
 import type { LocalDialoguePatchSourceBinding } from '../src/source-qa.ts'
 import * as Speech from '../src/speech-coverage.ts'
 import * as Staging from '../src/stage-delivery.ts'
@@ -286,7 +286,7 @@ it('does not publish a source verifier after its provider is removed during regi
 
 it('forwards staged local word timing to the current Session projection and rejects it without Host authority', async () => {
   const files = await preparedProject(), ctx = new Context()
-  const receipt = offlineWordReceipt.parse({
+  const receipt = {
     kind: 'muse_offline_word_timing', version: 1, project: files.project, listening_verified: false,
     source: { path: join(files.project, 'media', 'p1-clean.mp4'), sha256: 'a'.repeat(64) },
     pcm: { sha256: 'b'.repeat(64), sampleRate: 16000, samples: 16000 },
@@ -294,7 +294,7 @@ it('forwards staged local word timing to the current Session projection and reje
     transcript: { path: join(files.project, 'transcript', 'offline', 'words.json'), sha256: 'c'.repeat(64) },
     model: { name: 'Systran/faster-whisper-small', revision: '536b0662742c02347bc0e980a01041f333bce120',
       sha256: '3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671' },
-  })
+  } satisfies Parameters<OfflineWordReceiptVerifier>[0]
   const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
     if (input.verifyOfflineWords === undefined) throw Error('Missing staged local word verifier')
     input.verifyOfflineWords(receipt)
