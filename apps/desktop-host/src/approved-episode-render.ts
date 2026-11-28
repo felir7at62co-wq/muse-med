@@ -153,6 +153,9 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
         if (binding.localDialoguePatch !== undefined) {
           throw new Error('SOURCE_DIALOGUE_PATCH_BACKGROUND_UNAVAILABLE: 局部修音的审核和正式渲染需要同一 Muse 制作会话。请在执行修音并复测的会话运行 drama_render render。')
         }
+        if (binding.localRepair !== undefined) {
+          throw new Error('SOURCE_LOCAL_CLIP_BACKGROUND_UNAVAILABLE: 局部裁切的审核和正式渲染需要同一 Muse 制作会话。请在执行 drama_repair_clip 的会话运行 drama_render render。')
+        }
         const factory = this.options.sourceAuthority
         if (factory === undefined) throw new Error('Strict source review requires the original native Session authority')
         const existing = held?.get(binding.sessionId)

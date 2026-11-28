@@ -215,6 +215,11 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
         throw new Error('正式渲染的镜头副本与已审看源片字节不符，请重新 prepare。')
       }
     }
+    // Reviews, not the editable manifest marker, decide whether a local cut needs its own subtitle clock.
+    if (reviews.some(review => review.requiresLocalRepairClock === true)) {
+      await verifyPreparedSubtitleClock(input.subtitleSrt, paths, timeline, input.stagedSubtitleAudio,
+        undefined, document, localDialoguePatch, true)
+    }
     const summary = summarizeSourceQa(reviews)
     if (input.sourceQaExpectedSha !== undefined && summary.sha256 !== input.sourceQaExpectedSha) {
       throw new Error('暂存的源片审核事实与 Host 核验不一致。')

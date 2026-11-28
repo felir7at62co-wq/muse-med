@@ -4,6 +4,7 @@ import { constants } from 'node:fs'
 import { lstat, open, readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileSha256 } from './cache.ts'
+import type { LocalClipRepairBinding } from './local-clip-evidence.ts'
 import { normalizeOcrText } from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 import { z } from 'zod'
 
@@ -64,7 +65,12 @@ export interface SourceQaEvidenceBinding {
   readonly sessionId: string
   readonly reviewId: string
   readonly localDialoguePatch?: LocalDialoguePatchSourceBinding
+  /** When present, the Host verifies the exact `drama_repair_clip` result in the reviewing Session. */
+  readonly localRepair?: LocalClipRepairBinding
 }
+
+/** Local processing whose originating tool execution the Host must establish for the selected media. */
+export type SourceProcessingEvidence = Pick<SourceQaEvidenceBinding, 'localDialoguePatch' | 'localRepair'>
 
 /** Host-owned access to actual OCR execution and durable video observation records. */
 export type SourceQaVerifier = (binding: SourceQaEvidenceBinding) => Promise<void>
@@ -369,7 +375,8 @@ function verifyTextDecisions(evidence: Evidence, decisions: readonly ObjectValue
 }
 
 async function evidence(project: string, value: unknown, expectedMedia: string, expectedSha256: string,
-  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess, localDialoguePatch?: LocalDialoguePatchSourceBinding): Promise<Evidence> {
+  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess, processing: SourceProcessingEvidence = {}): Promise<Evidence> {
+  const { localDialoguePatch, localRepair } = processing
   if (!object(value) || value.media_sha256 !== expectedSha256) fail('复验没有绑定本次实际源片。')
   const media = await projectFile(project, value.media_path, staged)
   if (fileKey(media) !== fileKey(await projectFile(project, expectedMedia, staged))) fail('复验没有绑定本次实际源片。')
@@ -391,7 +398,7 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
   const binding: SourceQaEvidenceBinding = { mediaPath: media, mediaSha256: expectedSha256,
     ocrPath: ocr.path, ocrSha256: ocr.sha256, inspectionPath: inspection.path, inspectionSha256: inspection.sha256,
     sessionId: text(value.inspection.session_id, '审看会话'), reviewId: text(value.inspection.review_id, '审看ID'),
-    ...(localDialoguePatch === undefined ? {} : { localDialoguePatch }) }
+    ...(localDialoguePatch === undefined ? {} : { localDialoguePatch }), ...(localRepair === undefined ? {} : { localRepair }) }
   if (inspection.value.id !== binding.reviewId) fail('审看ID与实际报告不符。')
   await verifier(binding)
   const files = [{ path: media, sha256: expectedSha256 }, { path: ocr.path, sha256: ocr.sha256 },
@@ -401,15 +408,15 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
 }
 
 async function evidenceSet(project: string, value: unknown, expectedMedia: string, expectedSha256: string,
-  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess, localDialoguePatch?: LocalDialoguePatchSourceBinding,
+  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess, processing: SourceProcessingEvidence = {},
 ): Promise<readonly [Evidence, ...Evidence[]]> {
   if (!object(value)) fail('复验没有绑定本次实际源片。')
   const refs: readonly unknown[] = Array.isArray(value.ocr) ? value.ocr : [value.ocr]
   if (!refs.length) fail('复验缺少OCR文件。')
-  const first = await evidence(project, { ...value, ocr: refs[0] }, expectedMedia, expectedSha256, verifier, staged, localDialoguePatch)
+  const first = await evidence(project, { ...value, ocr: refs[0] }, expectedMedia, expectedSha256, verifier, staged, processing)
   const parts: [Evidence, ...Evidence[]] = [first]
   for (let index = 1; index < refs.length; index++) {
-    parts.push(await evidence(project, { ...value, ocr: refs[index] }, expectedMedia, expectedSha256, verifier, staged, localDialoguePatch))
+    parts.push(await evidence(project, { ...value, ocr: refs[index] }, expectedMedia, expectedSha256, verifier, staged, processing))
   }
   let end = 0
   for (const part of parts) {
@@ -446,6 +453,7 @@ export async function verifySourceQa(input: {
   verifier?: SourceQaVerifier
   staged?: SourceQaStagedAccess
   localDialoguePatch?: LocalDialoguePatchSourceBinding
+  localRepair?: LocalClipRepairBinding
 }): Promise<SourceQaVerification> {
   if (input.staged !== undefined && input.staged.project !== input.project) fail('暂存证据属于另一项目。')
   const qa = input.review.source_qa
@@ -459,11 +467,29 @@ export async function verifySourceQa(input: {
     || patch.sha256 !== input.videoSha256 || patch.sha256 !== input.originalSha256)) {
     fail('局部修音必须在原制作会话核验当前修音 MOV 的画面和原声。')
   }
+  const repair = input.localRepair
+  if (repair !== undefined && (patch !== undefined || input.review.subtitle_cleanup !== 'not_required'
+    || fileKey(repair.project) !== fileKey(input.staged?.project ?? await realpath(input.project))
+    || fileKey(repair.output.path) !== fileKey(resolve(input.project, input.videoPath))
+    || fileKey(repair.output.path) !== fileKey(resolve(input.project, input.originalPath))
+    || repair.output.sha256 !== input.videoSha256 || repair.output.sha256 !== input.originalSha256)) {
+    fail('局部裁切候选必须在原制作会话核验工具输出的同片画面和原声。')
+  }
   const selectedParts = await evidenceSet(input.project, qa.selected, input.videoPath, input.videoSha256,
-    input.verifier, input.staged, patch)
+    input.verifier, input.staged, { ...(patch === undefined ? {} : { localDialoguePatch: patch }),
+      ...(repair === undefined ? {} : { localRepair: repair }) })
   const [selected] = selectedParts
   const files = selectedParts.flatMap(part => part.files)
   let originalParts: readonly [Evidence, ...Evidence[]] | undefined
+  if (repair !== undefined) {
+    // A local cut needs the reviewed original as well as the candidate, and the measured clock of both.
+    originalParts = await evidenceSet(input.project, qa.original, repair.original.path, repair.original.sha256,
+      input.verifier, input.staged)
+    if (!sameTime(repair.durationSeconds, selected.duration) || repair.endMs / 1000 > originalParts[0].duration + 0.001) {
+      fail('局部裁切的源片区间或候选实测时长与工具回执不符。')
+    }
+    files.push(...originalParts.flatMap(part => part.files))
+  }
   if (input.review.subtitle_cleanup === 'clean') {
     if (input.originalSha256 === input.videoSha256) fail('清理片与原片字节相同，须核对实际去字幕结果。')
     originalParts = await evidenceSet(input.project, qa.original, input.originalPath, input.originalSha256, input.verifier, input.staged)

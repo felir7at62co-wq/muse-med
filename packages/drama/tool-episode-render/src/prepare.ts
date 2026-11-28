@@ -287,6 +287,11 @@ async function buildMaster(
   await runFfmpeg(toolkit, args)
 }
 
+function missingLocalRepairClock(episode: string): HarnessError {
+  return new HarnessError(`EP${episode} 局部返工缺少与当前音画一致的生成字幕时钟。请按新选片获得同源对齐，再执行 drama_render subtitles 和 prepare。`,
+    'SOURCE_LOCAL_CLIP_SUBTITLE_CLOCK_REQUIRED')
+}
+
 function missingDialoguePatchClock(episode: string): HarnessError {
   return new HarnessError(`EP${episode} 局部修音需要按当前 MOV 实际原声重新对齐并生成字幕，再运行 prepare。`,
     'SOURCE_DIALOGUE_PATCH_SUBTITLE_CLOCK_REQUIRED')
@@ -322,6 +327,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   )
   const reviewed = await verifySelectedSourceReviews(paths, rows)
   const requiresLocalDialoguePatch = reviewed.some(shot => shot.requiresLocalDialoguePatch === true)
+  const requiresLocalRepairClock = reviewed.some(shot => shot.requiresLocalRepairClock === true)
   const patchFiles = requiresLocalDialoguePatch
     ? (await verifySelectedSourceReviews(paths, rows, false, true, input.sourceQaVerifier))
       .flatMap(shot => shot.sourceQa?.files ?? [])
@@ -344,6 +350,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
     ...(endingEffectFit === undefined ? {} : { endingEffectFit }) }
   const subtitleClock = await verifySubtitleClock(input.subtitleSrt, input.episode, () => shots)
   if (requiresLocalDialoguePatch && subtitleClock === undefined) throw missingDialoguePatchClock(input.episode)
+  if (requiresLocalRepairClock && subtitleClock === undefined) throw missingLocalRepairClock(input.episode)
   const packagePath = resolve(input.project, 'episode_packages', input.episode, 'package.json')
   const packageHash = rows.some(row => row.package !== undefined) && await pathExists(packagePath)
     ? await fileSha256(packagePath) : undefined
@@ -404,6 +411,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   await assertVideoHashesAllowed(input.project, selected.map(shot => shot.sha256))
   await recheckReviews()
   await writeFile(paths.sources, `${JSON.stringify({ shots: selected,
+    ...(requiresLocalRepairClock ? { local_repair_subtitle_clock_required: true } : {}),
     ...(masterAudioSha256 === undefined ? {} : {
       master_audio_sha256: masterAudioSha256,
       timeline_clips: timeline.clips.map(clip => ({ shot: clip.shot, start_us: clip.startUs, duration_us: clip.durationUs })),
@@ -480,8 +488,15 @@ export async function prepareStagedEpisodeAudio(
  */
 export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePaths, timeline: Timeline,
   stagedAudio?: (sourceAudio: string) => string, signal?: AbortSignal, manifestDocument?: unknown,
-  requireDialoguePatchClock = false): Promise<void> {
-  const requireMaster = requireDialoguePatchClock || timeline.delivery?.subtitle?.require_speech_coverage === true
+  requireDialoguePatchClock = false, requireLocalRepairClock = false): Promise<void> {
+  const marked = manifestDocument ?? await readJsonDocument(paths.sources, '已准备分包清单').catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
+    throw error
+  })
+  const requiresLocalRepairClock = requireLocalRepairClock || (typeof marked === 'object' && marked !== null
+    && (marked as { local_repair_subtitle_clock_required?: unknown }).local_repair_subtitle_clock_required === true)
+  const requireMaster = requireDialoguePatchClock || requiresLocalRepairClock
+    || timeline.delivery?.subtitle?.require_speech_coverage === true
   const readSources = async () => {
     const source = manifestDocument ?? await readJsonDocument(paths.sources, '已准备分包清单')
     const rows = parseShotManifest(source, paths.sources)
@@ -519,6 +534,7 @@ export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePat
     })
   }, signal)
   if (requireDialoguePatchClock && clock === undefined) throw missingDialoguePatchClock(paths.episode)
+  if (requiresLocalRepairClock && clock === undefined) throw missingLocalRepairClock(paths.episode)
 }
 
 /** Files that establish the prepared source audio and optional generated subtitle clock. */
