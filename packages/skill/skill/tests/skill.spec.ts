@@ -856,9 +856,11 @@ describe('SkillRegistry registry', () => {
     expect(listCalls).toBe(4)
   })
 
-  it('invalidates a provider whose loaded definition changed identity', async () => {
+  it.each(['global', 'scoped'] as const)('invalidates a %s provider whose loaded definition changed identity', async (owner) => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)
+    const scopeKey = owner === 'scoped' ? { owner } : undefined
+    const scope = scopeKey === undefined ? undefined : createScope(ctx, scopeKey)
     let listCalls = 0
     const provider: SkillProvider = {
       name: 'renamed',
@@ -878,11 +880,16 @@ describe('SkillRegistry registry', () => {
         return { ...candidate, name: 'new-name', content: 'Fresh body.' }
       },
     }
-    registerProvider(ctx, provider)
+    scopedSkills(scope?.ctx ?? ctx).registerProvider(() => provider)
 
-    expect(await ctx.skills.get('old-name')).toBeUndefined()
-    await ctx.skills.list()
-    expect(listCalls).toBe(2)
+    try {
+      expect(await ctx.skills.get('old-name', { scope: scopeKey })).toBeUndefined()
+      await ctx.skills.list({ scope: scopeKey })
+      expect(listCalls).toBe(2)
+    } finally {
+      await scope?.dispose()
+      await ctx.fiber.dispose()
+    }
   })
 
   it('returns undefined when a discovered candidate disappears before loading', async () => {
@@ -1170,6 +1177,52 @@ describe('SkillRegistry scoped layers', () => {
     await preset.dispose()
   })
 
+  it.each([
+    { owner: 'sibling', complete: true, calls: 1 },
+    { owner: 'ancestor', complete: false, calls: 2 },
+  ] as const)('reports discovery completeness during two $owner mutations', async ({ owner, complete, calls }) => {
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const changingKey = { owner }
+    const viewedKey = { child: 'viewed' }
+    const changing = createScope(ctx, changingKey)
+    const viewed = createScope(ctx, viewedKey, owner === 'ancestor' ? { parent: changingKey } : undefined)
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let listCalls = 0
+    let removeScopedSkill: (() => void) | undefined
+    registerProvider(ctx, {
+      name: 'memory',
+      async list() {
+        listCalls += 1
+        if (listCalls === 1) {
+          started.resolve(undefined)
+          await release.promise
+        } else {
+          removeScopedSkill?.()
+        }
+        return [memorySkill('shared', 'Shared', 100)]
+      },
+      async get() { return undefined },
+    })
+    const pending = ctx.skills.snapshot({ scope: viewedKey })
+    try {
+      await started.promise
+      removeScopedSkill = scopedSkills(changing.ctx).register({
+        name: 'scoped-skill', description: 'Scoped only', source: 'runtime', content: 'Scoped skill.',
+      })
+      release.resolve(undefined)
+      expect(await pending).toMatchObject({ complete, skills: [{ name: 'shared' }] })
+      expect(listCalls).toBe(calls)
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([pending])
+      await viewed.dispose()
+      await changing.dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('lets the nearest layer win a duplicate name regardless of rank', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillRegistry)
@@ -1217,12 +1270,31 @@ describe('SkillRegistry scoped layers', () => {
     const agentKey = {}
     const binding = bindScopeParent(agentKey, scopeOf(presetA.ctx) as object)
     expect((await ctx.skills.list({ scope: agentKey })).map(skill => skill.name)).toEqual(['skill-a'])
-    // A blank-session recompose re-links the same key through its binding
-    // without any registry write.
-    binding.rebind(scopeOf(presetB.ctx) as object)
-    expect((await ctx.skills.list({ scope: agentKey })).map(skill => skill.name)).toEqual(['skill-b'])
-    await presetA.dispose()
-    await presetB.dispose()
+    const started = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    registerProvider(ctx, {
+      name: 'recompose-fixture',
+      async list() {
+        started.resolve(undefined)
+        await release.promise
+        return []
+      },
+      async get() { return undefined },
+    })
+    const pending = ctx.skills.snapshot({ scope: agentKey })
+    try {
+      await started.promise
+      binding.rebind(scopeOf(presetB.ctx) as object)
+      release.resolve(undefined)
+      expect(await pending).toMatchObject({ complete: true, skills: [{ name: 'skill-b' }] })
+      expect((await ctx.skills.list({ scope: agentKey })).map(skill => skill.name)).toEqual(['skill-b'])
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([pending])
+      await presetA.dispose()
+      await presetB.dispose()
+      await ctx.fiber.dispose()
+    }
   })
 
   it('scopes provider-name uniqueness per layer and reports scoped duplicates distinctly', async () => {
