@@ -154,7 +154,7 @@ it.skipIf(!hasFfmpeg).each([
     .resolves.toMatchObject({ status: 'unverified', samples: [{ reason: 'unavailable' }, {}, {}] })
 })
 
-function showFrame(time: number, width = pictureClockFeatures.size): string {
+function showFrame(time: number, width: number = pictureClockFeatures.size): string {
   return `config in time_base: 1/24\nn: 0 pts: ${String(time)} pts_time:0 fmt:rgb24 s:${String(width)}x48\n`
 }
 

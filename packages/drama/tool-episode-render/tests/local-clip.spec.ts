@@ -116,7 +116,7 @@ it.skipIf(!hasFfmpeg).each([
   }
   const crop = fault === 'invalid crop rectangle' ? { x: 1, y: 0, width: 20, height: 20 } : undefined
   await expect(repairLocalClip({ ...toolkit, channel: { run } },
-    { ...args, expectedInputSha256: original, crop })).rejects.toThrow(expectedError)
+    { ...args, expectedInputSha256: original, ...(crop === undefined ? {} : { crop }) })).rejects.toThrow(expectedError)
   expect(await fileSha256(args.input)).toBe(original)
   expect(await readdir(join(args.project, 'editing'))).toEqual([])
 })

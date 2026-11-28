@@ -329,7 +329,7 @@ it.skipIf(!hasFfmpeg).each(['Host channel', 'native file capture'] as const)(
       expect(clipped.isError, JSON.stringify(clipped.content)).toBe(false)
       const clip = localClipRepairBindingSchema.parse(clipped.value)
       expect(clip.original).toEqual({ path: original, sha256: originalHash })
-      expect(verify.mock.calls.map(([session, path]) => [session.id, path])).toEqual([[agent.id, original]])
+      expect(verify.mock.calls.map(([session, path]) => [session?.id, path])).toEqual([[agent.id, original]])
       verify.mockClear()
       const restored = await invoke('drama_restore_ending', args)
       expect(restored.isError, JSON.stringify(restored.content)).toBe(false)
@@ -337,7 +337,7 @@ it.skipIf(!hasFfmpeg).each(['Host channel', 'native file capture'] as const)(
       expect(restored.meta).toMatchObject({ [TOOL_BODY_META_KEY]: result })
       expect(result).toMatchObject({ project, episode: '43', original: { path: original, sha256: originalHash },
         donor: { path: donor, sha256: donorHash }, startMs: 1000, endMs: 2000, clock: { frames: 48, startFrame: 24 } })
-      expect(verify.mock.calls.map(([session, path, proof]) => [session.id, path, proof])).toEqual([
+      expect(verify.mock.calls.map(([session, path, proof]) => [session?.id, path, proof])).toEqual([
         [agent.id, original, originalEvidence], [agent.id, donor, donorEvidence],
       ])
       for (const { output } of [clip, result]) {
