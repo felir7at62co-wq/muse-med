@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as ShotScript from '@deepseek-ai/dsh-tool-shot-script'
@@ -52,7 +52,7 @@ async function fixture(options: {
   noRegistry?: boolean
   propLine?: string
 } = {}) {
-  const project = await mkdtemp(join(tmpdir(), 'muse-voice-layout-'))
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'muse-voice-layout-')))
   temporary.push(project)
   const context = new Context()
   contexts.push(context)
@@ -110,6 +110,17 @@ async function fixture(options: {
 }
 
 describe('formal voice review per-shot and grouped authorship', () => {
+  it('will not read a manifest recorded under a different project', async () => {
+    const { input } = await fixture()
+    const projectAlias = await realpath(await mkdtemp(join(tmpdir(), 'muse-unrelated-voice-')))
+    temporary.push(projectAlias)
+    const renderedInputs = input.renderedInputs.map(file => file.path.includes('production-')
+      ? { ...file, path: join(projectAlias, relative(input.project, file.path)) } : file)
+    const read = async () => { throw new Error('unexpected content read') }
+    await expect(resolveContentListeningVoices({ ...input, projectAlias, renderedInputs, read }))
+      .rejects.toThrow('当前集唯一的正式制作分包清单')
+  })
+
   it('maps every original shot and all eight lines to their authoritative rendered groups', async () => {
     const { input } = await fixture()
     const result = await resolveContentListeningVoices(input)

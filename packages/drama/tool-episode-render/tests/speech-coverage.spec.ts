@@ -46,7 +46,7 @@ it('does not assign one missed spoken word to two nearby shifted subtitle phrase
 })
 
 async function fixture(words: Word[] = [{ text: '做', start: 6.670, end: 6.910 }, { text: '饭', start: 6.910, end: 7.150 }]) {
-  const project = await mkdtemp(join(tmpdir(), 'muse-speech-coverage-'))
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'muse-speech-coverage-')))
   onTestFinished(() => rm(project, { recursive: true, force: true }))
   const source = join(project, 'part4.mp4'), subtitleSrt = join(project, 'final.srt')
   const transcriptsPath = join(project, 'receipts.json')

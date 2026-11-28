@@ -1,11 +1,13 @@
 /** Bind optional advisory voice samples to the current render and its authored speakers. */
 import { createHash } from 'node:crypto'
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { realpath } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ShotScriptVoiceParser } from '@deepseek-ai/dsh-tool-shot-script'
 import { pcmWavDuration } from '@deepseek-ai/dsh-util-values'
 import { z } from 'zod'
 import { requireProjectAudioFile } from './audio.ts'
+import { findListeningSourceInput, matchesListeningSourcePath, type ContentListeningProject } from './content-listening-source.ts'
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u)
 const stableId = z.string().trim().min(1).max(160)
@@ -150,8 +152,7 @@ function resolveAuthoredLayout(original: readonly OriginalShot[], packages: z.in
  * @param input - Current render evidence, authored dialogue and bounded project file reader.
  * @returns WAV attachments, their verified identities and the mapping of dialogue to references.
  */
-export async function resolveContentListeningVoices(input: {
-  readonly project: string
+export async function resolveContentListeningVoices(input: ContentListeningProject & {
   readonly episode: string
   readonly context: ContentListeningVoiceContext
   readonly authored: readonly AuthoredShot[]
@@ -164,29 +165,31 @@ export async function resolveContentListeningVoices(input: {
 }): Promise<ResolvedVoiceReferences> {
   const context = voiceContextInput.safeParse(input.context)
   requireVoice(context.success, '声线听校须提供原分镜文件及 1–3 份项目内已登记的原始 WAV。')
-  const project = input.project
-  const directory = join(project, 'episode_packages', input.episode)
+  const { project, projectAlias, episode } = input
+  const directory = resolve(await realpath(project), 'episode_packages', episode)
+  const aliasDirectory = resolve(projectAlias ?? project, 'episode_packages', episode)
   const manifests = input.renderedInputs.filter(file => isAbsolute(file.path) &&
-    relative(directory, dirname(file.path)) === '' && productionName.test(basename(file.path)))
+    (relative(directory, dirname(file.path)) === '' || relative(aliasDirectory, dirname(file.path)) === '')
+    && productionName.test(basename(file.path)))
   const manifest = manifests[0]
   requireVoice(manifests.length === 1 && manifest !== undefined && manifest.sha256 === productionName.exec(basename(manifest.path))?.[1],
     '成片回执缺少当前集唯一的正式制作分包清单。')
-  requireVoice(input.renderedInputs.some(file => isAbsolute(file.path)
-    && relative(input.authoredPath, file.path) === '' && file.sha256 === input.authoredSha256),
-  '当前成片未绑定本次逐镜原稿对白。')
+  requireVoice(await findListeningSourceInput(input, input.renderedInputs, input.authoredPath, input.authoredSha256) !== undefined,
+    '当前成片未绑定本次逐镜原稿对白。')
   const [manifestPath, configPath, scriptPath] = await Promise.all([
-    requireProjectAudioFile(project, manifest.path), requireProjectAudioFile(project, 'project_config.json'),
+    requireProjectAudioFile(project, resolve(directory, basename(manifest.path))), requireProjectAudioFile(project, 'project_config.json'),
     requireProjectAudioFile(project, context.data.source_script),
   ])
+  requireVoice(await matchesListeningSourcePath(input, manifestPath, manifest.path),
+    '成片回执缺少当前集唯一的正式制作分包清单。')
   const [manifestBytes, configBytes, scriptBytes] = await Promise.all([
     input.read(manifestPath, maxMetadataBytes), input.read(configPath, maxMetadataBytes),
     input.read(scriptPath, maxMetadataBytes),
   ])
   const productionSha = digest(manifestBytes), configSha = digest(configBytes), scriptSha = digest(scriptBytes)
   requireVoice(productionSha === manifest.sha256, '当前制作分包清单与成片回执不符。')
-  requireVoice(input.renderedInputs.some(file => isAbsolute(file.path)
-    && relative(configPath, file.path) === '' && file.sha256 === configSha),
-  '当前人物声线登记与成片回执不符。')
+  requireVoice(await findListeningSourceInput(input, input.renderedInputs, configPath, configSha) !== undefined,
+    '当前人物声线登记与成片回执不符。')
   const plan = production.safeParse(json(manifestBytes)), bible = projectBible.safeParse(json(configBytes))
   requireVoice(plan.success && bible.success && plan.data.episode === input.episode
     && plan.data.script_id === bible.data.jubian_script_id && plan.data.source_sha256 === scriptSha,

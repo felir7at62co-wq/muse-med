@@ -673,6 +673,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     || new Set(config.imageAllowedStandardIds).size !== config.imageAllowedStandardIds.length)) {
     throw new Error('imageAllowedStandardIds must contain distinct positive catalogue row IDs')
   }
+  const allowedRoutes = config.imageAllowedRoutes
+  if (allowedRoutes !== undefined && (!Array.isArray(allowedRoutes) || allowedRoutes.length === 0
+    || allowedRoutes.some((route: unknown) => route === null || typeof route !== 'object' || Array.isArray(route)
+      || !('modelId' in route) || !('platformId' in route)
+      || [route.modelId, route.platformId].some(id => typeof id !== 'string' || !id || id !== id.trim()))
+    || new Set(allowedRoutes.map(route => JSON.stringify([route.modelId, route.platformId]))).size !== allowedRoutes.length)) {
+    throw new Error('imageAllowedRoutes must contain distinct modelId and platformId pairs')
+  }
   const documentUploadOptions = { maxBytes: config.documentUploadMaxBytes ?? 32 * 1024 * 1024,
     timeoutMs: config.documentUploadTimeoutMs ?? 120000 }
   if (!Number.isSafeInteger(documentUploadOptions.maxBytes) || documentUploadOptions.maxBytes < 1) {
@@ -841,8 +849,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })
   // The rows a Settings page may pick between. It shares the transport above, so
   // the token that authorizes the read stays in this process.
-  ctx.plugin(JubianImageRoutes, { client,
-    ...(config.imageAllowedStandardIds === undefined ? {} : { allowedStandardIds: config.imageAllowedStandardIds }) })
+  const imageCataloguePolicy = {
+    ...(config.imageAllowedStandardIds === undefined ? {} : { allowedStandardIds: config.imageAllowedStandardIds }),
+    ...(allowedRoutes === undefined ? {} : { allowedRoutes }),
+  }
+  ctx.plugin(JubianImageRoutes, { client, ...imageCataloguePolicy })
   ctx.plugin(JubianVideoSelection, { client, ledger, enabled: config.sessionVideoSelection ?? false,
     ...(config.defaultVideoModel === undefined ? {} : { defaultModel: config.defaultVideoModel }) })
   if (config.sessionVideoSelection) {
@@ -883,7 +894,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   // `gpt-image-2` row.
   const image = (): ImageMethodOptions => ({
     selection: pinnedImageSelection(ctx, config),
-    ...(config.imageAllowedStandardIds === undefined ? {} : { allowedStandardIds: config.imageAllowedStandardIds }),
+    ...imageCataloguePolicy,
     ...(config.imageActiveTimeoutMs === undefined ? {} : { activeTimeoutMs: config.imageActiveTimeoutMs }),
     ...(config.imageActivePollMs === undefined ? {} : { pollIntervalMs: config.imageActivePollMs }),
   })
@@ -976,7 +987,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       page_num: ARGS.page_num, page_size: ARGS.page_size,
     },
     output: OUTPUT,
-    execute: guarded('jubian_catalog', args => catalogMethod(client, args, config.imageAllowedStandardIds)),
+    execute: guarded('jubian_catalog', args => catalogMethod(client, args, imageCataloguePolicy.allowedStandardIds,
+      imageCataloguePolicy.allowedRoutes)),
   }))
 
   registerJubianTool(defineTool({

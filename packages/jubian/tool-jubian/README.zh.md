@@ -93,7 +93,7 @@ Host 消费者可通过 `registerContextReviewer`，将纯同步建议追加到�
 
 视频包超过已知时长上限时，模型对本批受影响视频包统一调用一次 `jubian_video_model duration_conflict`。用户选择保留模型并重新规划完整视频包，或选择能够容纳原最长视频包的模型。工具不会悄悄缩短时长。Seedance 2.0 上限为 15 秒，Seedance 2.5 上限为 30 秒；上限不代表推荐包长。其他模型在核实前保留未知上限。
 
-`imageAllowedStandardIds` 按实时目录行 ID 限制生图目录、设置选项和单张／批量生图执行器。Muse 使用 `[76, 66, 86]`：两条 `gpt-image-2` 通道及 `gpt-image-2.5-sunburst-c`。被排除的行在付费请求前即校验失败；原来已记录的 key 仍可对账。不配置该限制的已有部署保留完整目录。
+`imageAllowedStandardIds` 放行指定的实时生图目录行 ID。`imageAllowedRoutes` 额外放行按张或按条报价且至少有一种可用 16:9 或 9:16 规格的指定模型和渠道组合。两项配置共同约束生图目录、设置页、单张和批量生图提交。Muse 加入多元探索的 Sunburst 和 Midjourney v8.2、火山方舟的 Seedream 5.5，以及阿里云的 Qwen Image 3.0 和 3.0 Pro。可在**设置 → 短剧 → 资产图生成通道**选择新增通道，或在调用时同时指定 `image_model_id` 和 `image_platform_id`。原请求继续使用原渠道，除非调用时或保存的设置中选择了其他渠道。被排除的通道或不支持的画幅会在付费请求前校验失败，已记录的 key 仍可对账。两项均未配置时，工具保留完整目录。
 
 ### 最小配置
 
@@ -219,7 +219,7 @@ inherited process environment (read-only, highest)
 
 ### 生图通道 Remote 命名空间
 
-第二个命名空间 `jubianImage` 只为一次读取而存在：`routes()` 返回账户目录里的 `gpt-image-2` 行——`standardId`、`platformId`、单价与单位——好让 **设置 → 短剧** 按价格把它们摆出来，而不是让人从一条报错里抄。它免费，读的是计费调用所读的同一份目录、走同一条传输，且这里没有任何方法会写入或回传令牌。
+`jubianImage.routes()` 向**设置 → 短剧**返回允许的目录行及报价。未限制目录的部署仍在设置页列出默认的 `gpt-image-2`。保存设置会锁定指定 `standardId`，该行可属于任何已放行的模型。提交时通过同一传输读取目录。列出通道免费，令牌留在 Host 中。
 
 读不动的目录报告为 `jubian-image/catalogue-unreadable`，消息就是传输层自己的原因，页面原样显示。这里不缓存：每次调用都重读账户，因为某一行的价格与是否存在属于账户状态，而不是插件状态。
 

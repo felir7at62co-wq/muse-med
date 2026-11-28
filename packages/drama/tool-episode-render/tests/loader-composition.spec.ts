@@ -1,6 +1,6 @@
 /** Public render arguments through a Loader-owned tool registration. */
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it, vi } from 'vitest'
@@ -237,8 +237,9 @@ it.each([false, true])('only exposes the provisioned audio tools (enabled: %s) a
 })
 
 it('routes an opted-in listening request with bounded local files and an explicitly provisioned transport', async () => {
-  const project = await tempProject()
-  const unrelated = await tempProject()
+  const project = await realpath(await tempProject())
+  const unrelated = await realpath(await tempProject())
+  const projectAlias = join(unrelated, 'project-alias')
   const ctx = new Context()
   const prepare = vi.spyOn(ListeningAudio, 'prepareContentListeningAudio').mockResolvedValue({
     status: 'prepared_for_review', listening_verified: false, grants_approval: false,
@@ -267,6 +268,7 @@ it('routes an opted-in listening request with bounded local files and an explici
     ctx.provide('shotScriptVoice', parseVoiceScript)
     await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
     await ctx.plugin(SandboxPolicy, { mode: 'read-only', workspaceRoot: project })
+    await symlink(project, projectAlias, 'junction')
     const harness = await mountAgentLoopTestHarness(ctx)
     await loadRenderer(ctx, project, { enableContentListeningReview: true })
     await expect.poll(() => ctx.tools.get('drama_review_audio')?.name).toBe('drama_review_audio')
@@ -277,12 +279,12 @@ it('routes an opted-in listening request with bounded local files and an explici
     for (const name of ['native.mp4', 'attempt.json', 'prepare.json', 'display.srt', 'script.txt', 'dialogue.json', 'voice.wav']) {
       await writeFile(join(project, name), name)
     }
-    const args = { project, episode: 21, output: 'native.mp4' }
+    const args = { project: projectAlias, episode: 21, output: 'native.mp4' }
     await expect(tool.execute({ ...args, method: 'review_status' }, exec)).rejects.toThrow('原听校尝试记录')
     await expect(tool.execute({ ...args, method: 'review_status', attempt: 'attempt.json' }, exec))
       .resolves.toMatchObject({ status: 'pending_provider', listening_verified: false, grants_approval: false })
     expect(status).toHaveBeenCalledWith(expect.objectContaining({
-      output: join(project, 'native.mp4'), attemptPath: join(project, 'attempt.json'), episode: '21',
+      project, projectAlias, output: join(project, 'native.mp4'), attemptPath: join(project, 'attempt.json'), episode: '21',
     }))
     agent.session.append('sandbox/mode', { mode: 'workspace-write' })
     await expect(tool.execute({ ...args, method: 'prepare' }, exec))

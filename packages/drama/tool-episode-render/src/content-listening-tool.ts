@@ -64,6 +64,7 @@ export function registerContentListeningTool(scope: Context, settings: RenderSet
         || (await scope.fs.stat(project, signal))?.type !== 'directory') {
         throw new Error('项目必须位于当前授权工作区内。')
       }
+      const selectedProject = { project: projectPath, projectAlias: project.displayPath }
       const file = async (candidate: string) => {
         const handle = await scope.fs.resolve(candidate, { cwd: projectPath, signal })
         const path = scope.fs.processPath(handle)
@@ -77,13 +78,13 @@ export function registerContentListeningTool(scope: Context, settings: RenderSet
       const episode = String(args.episode).padStart(2, '0')
       if (args.method === 'review_status') {
         if (args.attempt === undefined) throw new Error('review_status 需提供 review 的原听校尝试记录。')
-        return { ...await readContentListeningAttempt({ project: projectPath, episode, output,
+        return { ...await readContentListeningAttempt({ ...selectedProject, episode, output,
           attemptPath: await file(args.attempt), signal }) }
       }
       if (args.attempt !== undefined) throw new Error('attempt 仅用于 review_status。')
       const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe,
         channel: settings.channel ?? createFileCaptureChannel(signal) })
-      const base = { toolkit, project: projectPath, episode, output, signal }
+      const base = { toolkit, ...selectedProject, episode, output, signal }
       if (args.method === 'prepare') return { ...await prepareContentListeningAudio(base) }
       if (args.method === 'preflight') {
         if (args.preparation !== undefined || args.authored_dialogue !== undefined

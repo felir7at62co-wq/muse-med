@@ -1,8 +1,8 @@
 /** Source-bound listening through actual local media and a controlled audio transport. */
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { ProviderRequestId, type AudioReviewRoute, type AudioReviewTransport } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -50,8 +50,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 
-async function fixture(withRegisteredVoice = false, duration = 0.5, referenceDuration = 1) {
-  const project = await mkdtemp(join(tmpdir(), 'dsh-listen-candidate-'))
+async function fixture(withRegisteredVoice = false, duration = 0.5, referenceDuration = 1, recordThroughAlias = false) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-listen-candidate-')))
+  const project = recordThroughAlias ? join(root, 'project') : root
+  const projectAlias = recordThroughAlias ? join(root, 'alias') : project
   const runner = createMediaRunner()
   onTestFinished(async () => {
     receiptBoundary.afterAttempt = undefined
@@ -59,8 +61,13 @@ async function fixture(withRegisteredVoice = false, duration = 0.5, referenceDur
     receiptBoundary.allocationError = undefined
     receiptBoundary.saveError = undefined
     await runner.dispose()
-    await rm(project, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true })
   })
+  if (recordThroughAlias) {
+    await mkdir(project)
+    await symlink(project, projectAlias, 'junction')
+  }
+  const recorded = (path: string) => join(projectAlias, relative(project, path))
   const output = join(project, 'rendered.mp4')
   const subtitleSrt = join(project, 'display.srt')
   const authoredDialoguePath = join(project, 'authored.json')
@@ -82,14 +89,14 @@ async function fixture(withRegisteredVoice = false, duration = 0.5, referenceDur
   const voiceContext = withRegisteredVoice ? await writeVoiceFixture(project, episode, runner, inputFiles, referenceDuration) : undefined
   await writeSourceRecord(sourceRecordPathFor(output), {
     version: 1, episode, rendered_at: new Date(0).toISOString(),
-    output: { path: output, sha256: outputSha, size_bytes: (await stat(output)).size, duration_seconds: duration },
+    output: { path: recorded(output), sha256: outputSha, size_bytes: (await stat(output)).size, duration_seconds: duration },
     inputs: [authoredSha], encoder: 'mpeg4', checks: [],
-    input_files: inputFiles,
+    input_files: inputFiles.map(file => ({ ...file, path: recorded(file.path) })),
     delivery_inputs: { timeline_sha256: outputSha, subtitle_sha256: await fileSha256(subtitleSrt),
       master_audio_sha256: outputSha, videos: shots.map(row => row.shot).sort((left, right) => left - right)
         .map(shot => ({ shot, sha256: outputSha })) },
   })
-  const base = { project, episode, output, toolkit }
+  const base = { project, projectAlias, episode, output, toolkit }
   const prepared = await prepareContentListeningAudio(base)
   const input = { ...base, subtitleSrt, authoredDialoguePath, preparationPath: prepared.receipt_path }
   return { project, outputSha, authoredDialoguePath, authored, base, input, prepared, voiceContext }
@@ -194,8 +201,8 @@ it.skipIf(!hasFfmpeg)('uses current native media once and never converts pending
   expect(unusableRequest).toHaveBeenCalledTimes(1)
 }, 20_000)
 
-it.skipIf(!hasFfmpeg)('binds the native review and its accounting receipt to the registered role sample', async () => {
-  const { base, input, prepared, voiceContext } = await fixture(true)
+it.skipIf(!hasFfmpeg)('binds the native review and readback to the registered role sample through a selected project alias', async () => {
+  const { base, input, prepared, voiceContext } = await fixture(true, 0.5, 1, true)
   if (voiceContext === undefined) throw new Error('Missing registered voice fixture')
   const parseVoiceScript = await loadShotParser()
   const sample = voiceContext.references[0]

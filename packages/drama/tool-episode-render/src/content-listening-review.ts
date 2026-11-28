@@ -10,6 +10,7 @@ import { requireProjectAudioFile } from './audio.ts'
 import { parseContentListeningAssessment } from './content-listening-assessment.ts'
 import { reconcileBlindDialogue } from './content-listening-blind.ts'
 import { buildContentListeningRequest } from './content-listening-request.ts'
+import { matchesListeningSourcePath, type ContentListeningProject } from './content-listening-source.ts'
 import { voiceContextEvidence, type ContentListeningVoiceContext } from './content-listening-voices.ts'
 import { fileSha256 } from './cache.ts'
 import { SOURCE_RECORD_VERSION, sourceRecordPathFor } from './source-record.ts'
@@ -152,8 +153,7 @@ type ContentListeningAttempt = {
  * @param input - Project, rendered episode and a previously saved attempt receipt.
  * @returns The observed attempt status and verified receipt paths, if present.
  */
-export async function readContentListeningAttempt(input: {
-  readonly project: string
+export async function readContentListeningAttempt(input: ContentListeningProject & {
   readonly episode: string
   readonly output: string
   readonly attemptPath: string
@@ -162,7 +162,7 @@ export async function readContentListeningAttempt(input: {
   input.signal?.throwIfAborted()
   const project = await realpath(input.project)
   const [attemptPath, output] = await Promise.all([
-    requireProjectAudioFile(project, input.attemptPath), requireProjectAudioFile(project, input.output),
+    requireProjectAudioFile(input.project, input.attemptPath), requireProjectAudioFile(input.project, input.output),
   ])
   const attempt = attemptSchema.parse(await readBounded(attemptPath))
   const directory = join(project, 'audio', 'content-listening-reviews', attempt.identity)
@@ -176,7 +176,7 @@ export async function readContentListeningAttempt(input: {
   const record = attemptSourceSchema.parse(JSON.parse(recordBytes.toString('utf8')))
   const recordSha256 = createHash('sha256').update(recordBytes).digest('hex')
   if (record.episode !== input.episode || (attempt.episode !== undefined && input.episode !== attempt.episode)
-    || relative(output, record.output.path) !== '' || record.output.sha256 !== outputSha256
+    || !await matchesListeningSourcePath(input, output, record.output.path) || record.output.sha256 !== outputSha256
     || attempt.source_sha256 !== outputSha256 || attempt.source_record_sha256 !== recordSha256) {
     throw reviewError('CONTENT_LISTENING_REVIEW_INPUT', '听校尝试对应其他集或其他成片版本。')
   }
@@ -227,9 +227,8 @@ function reviewGuidedAudio(durationUs: number, value: unknown, hasVoiceReference
  * @returns A saved advisory assessment and its durable attempt identity.
  * @throws An unfinished request is kept for reconciliation. It does not trigger an automatic second provider request.
  */
-export async function reviewContentListening(input: {
+export async function reviewContentListening(input: ContentListeningProject & {
   readonly toolkit: MediaToolkit
-  readonly project: string
   readonly episode: string
   readonly output: string
   readonly subtitleSrt: string
@@ -250,13 +249,13 @@ export async function reviewContentListening(input: {
   }
   const project = await realpath(input.project)
   const [output, preparationPath] = await Promise.all([
-    requireProjectAudioFile(project, input.output), requireProjectAudioFile(project, input.preparationPath),
+    requireProjectAudioFile(input.project, input.output), requireProjectAudioFile(input.project, input.preparationPath),
   ])
   const preparation = preparationSchema.parse(await readBounded(preparationPath))
   if (relative(output, preparation.source_path) !== '' || relative(preparationPath, preparation.receipt_path) !== '') {
     throw reviewError('CONTENT_LISTENING_REVIEW_INPUT', '请使用本次成片对应的试听准备回执。')
   }
-  const request = await buildContentListeningRequest({ ...input, project, preparation })
+  const request = await buildContentListeningRequest({ ...input, preparation })
   const blind = request.blindDialogue
   const voice = request.voice?.evidence
   const offeredWavs = [request.wav, ...(request.voice?.wav ?? [])]

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished } from 'vitest'
@@ -58,7 +58,7 @@ it('distinguishes truncated input from a missing playback signal and accepts a b
 })
 
 it.skipIf(!hasFfmpeg)('preflights the same bound MP4 and exposes a real encoded final subtitle-tail omission', async () => {
-  const project = await mkdtemp(join(tmpdir(), 'muse-rendered-audio-preflight-')), runner = createMediaRunner()
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'muse-rendered-audio-preflight-'))), runner = createMediaRunner()
   onTestFinished(async () => {
     await runner.dispose()
     await rm(project, { recursive: true, force: true })
@@ -140,7 +140,7 @@ it.skipIf(!hasFfmpeg)('preflights the same bound MP4 and exposes a real encoded 
 }, 30_000)
 
 it('rejects incomplete source, clock, music, and subtitle receipts before reading media', async () => {
-  const project = await mkdtemp(join(tmpdir(), 'muse-reject-preflight-'))
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'muse-reject-preflight-')))
   onTestFinished(async () => { await rm(project, { recursive: true, force: true }) })
   await mkdir(join(project, 'audio'))
   const output = join(project, 'episode.mp4'), master = join(project, 'audio', '21.wav'), subtitle = join(project, 'display.srt')
