@@ -465,7 +465,7 @@ export class SkillRegistry extends Service {
   }
 
   /**
-   * Observe the current invocation-neutral catalog and whether its visible layers stayed stable during discovery.
+   * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
    * Incomplete observations are never cached, allowing consumers to retain last-good state and
    * retry on their next request boundary.
    * @param options - view options; `scope` selects the viewing agent's layers, `cwd` selects project roots, and `signal` cancels discovery.
