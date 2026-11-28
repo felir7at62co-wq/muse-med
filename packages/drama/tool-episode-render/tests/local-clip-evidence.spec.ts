@@ -43,6 +43,7 @@ it('accepts only the exact successful local edit from the native tool in this Se
       .toThrow('SOURCE_LOCAL_CLIP')
     const child = ctx.sessions.fork(session, undefined, SessionId('local-clip-evidence-child'))
     expect(() => { verify(child, binding, signal) }).toThrow('SOURCE_LOCAL_CLIP')
+    expect(() => { verify(undefined, binding, signal) }).toThrow('SOURCE_LOCAL_CLIP')
   } finally { await ctx.fiber.dispose() }
 })
 
@@ -71,5 +72,30 @@ it('also authenticates a completed nested clip tool in the initiating Session', 
     expect(verifyBinding).not.toThrow()
     const child = ctx.sessions.fork(session, undefined, SessionId('local-clip-nested-child'))
     expect(() => { verify(child, binding, signal) }).toThrow('SOURCE_LOCAL_CLIP')
+  } finally { await ctx.fiber.dispose() }
+})
+
+it('uses platform path identity while still requiring the exact completed clip receipt', async () => {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  try {
+    const verify = await createLocalClipRepairVerifier(ctx)
+    const signal = new AbortController().signal
+    const alternative = { ...binding, output: { ...binding.output, path: binding.output.path.toUpperCase() } }
+    const property = Object.getOwnPropertyDescriptor(process, 'platform')!
+    for (const platform of ['linux', 'win32'] as const) {
+      const session = ctx.sessions.create(SessionId(`local-clip-${platform}`))
+      const callId = ToolCallId(`receipt-${platform}`)
+      Object.defineProperty(process, 'platform', { ...property, value: platform })
+      try {
+        session.append('tool/call', { turn: 1, step: 1, callId, name: 'drama_repair_clip', arguments: '{}' })
+        session.append('tool/result', { turn: 1, step: 1,
+          message: createToolResultMessage({ callId, isError: false, content: [] }),
+          meta: { [TOOL_BODY_META_KEY]: binding } }, { surfaceOp: 'append' })
+        expect(() => { verify(session, binding, signal) }).not.toThrow()
+        if (platform === 'linux') expect(() => { verify(session, alternative, signal) }).toThrow('SOURCE_LOCAL_CLIP')
+        else expect(() => { verify(session, alternative, signal) }).not.toThrow()
+      } finally { Object.defineProperty(process, 'platform', property) }
+    }
   } finally { await ctx.fiber.dispose() }
 })

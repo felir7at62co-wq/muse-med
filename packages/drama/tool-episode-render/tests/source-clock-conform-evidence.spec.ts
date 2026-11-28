@@ -72,6 +72,31 @@ it('authenticates the exact native and nested completion in the initiating ordin
   } finally { await ctx.fiber.dispose() }
 })
 
+it('preserves case-sensitive path authority on POSIX and canonicalizes Windows path case', async () => {
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  try {
+    const verify = await createSourceClockConformVerifier(ctx)
+    const signal = new AbortController().signal
+    const alternative = { ...binding, output: { ...binding.output, path: binding.output.path.toUpperCase() } }
+    const property = Object.getOwnPropertyDescriptor(process, 'platform')!
+    for (const platform of ['linux', 'win32'] as const) {
+      const session = ctx.sessions.create(SessionId(`conform-${platform}`))
+      const callId = ToolCallId(`receipt-${platform}`)
+      Object.defineProperty(process, 'platform', { ...property, value: platform })
+      try {
+        session.append('tool/call', { turn: 1, step: 1, callId, name: 'drama_conform_clip', arguments: '{}' })
+        session.append('tool/result', { turn: 1, step: 1,
+          message: createToolResultMessage({ callId, isError: false, content: [] }),
+          meta: { [TOOL_BODY_META_KEY]: binding } }, { surfaceOp: 'append' })
+        expect(() => { verify(session, binding, signal) }).not.toThrow()
+        if (platform === 'linux') expect(() => { verify(session, alternative, signal) }).toThrow('SOURCE_CLOCK_SESSION')
+        else expect(() => { verify(session, alternative, signal) }).not.toThrow()
+      } finally { Object.defineProperty(process, 'platform', property) }
+    }
+  } finally { await ctx.fiber.dispose() }
+})
+
 it('uses real file hashes through the registered tool and refuses readonly and out-of-project inputs before media work', async () => {
   const work = await mkdtemp(join(tmpdir(), 'dsh-conform-tool-'))
   const ctx = new Context()

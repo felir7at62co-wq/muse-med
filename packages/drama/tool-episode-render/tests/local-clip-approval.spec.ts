@@ -18,7 +18,7 @@ import { episodePaths, pathExists } from '../src/paths.ts'
 import { prepareEpisode, preparedSubtitleClockInputs } from '../src/prepare.ts'
 import { renderEpisode } from '../src/render.ts'
 import { endingRestoreBindingSchema } from '../src/restore-ending.ts'
-import { createSourceQaStagedAccess, type SourceQaStagedAccess } from '../src/source-qa.ts'
+import { createSourceQaStagedAccess, verifySourceQa, type SourceQaStagedAccess } from '../src/source-qa.ts'
 import { subtitleClockPath, writeSubtitleClock } from '../src/subtitle-clock.ts'
 import { createMediaRunner, ffmpeg, ffprobe, hasFfmpeg } from './audio-ffmpeg-harness.ts'
 import { cleanup, probeHandler, srtDocument, stubChannel, tempProject, writePlaceholder } from './harness.ts'
@@ -161,6 +161,41 @@ it('requires original and candidate observations with clocks consistent with the
   await expect(check()).rejects.toThrow('候选实测时长与工具回执不符')
   await f.save({ ...f.review, local_clip_repair: { ...f.review.local_clip_repair, duration_seconds: 4 } })
   await expect(check()).rejects.toThrow('候选实测时长与工具回执不符')
+})
+
+it('refuses malformed or mixed repair declarations before trusting any Host observation', async () => {
+  const f = await fixture()
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  const check = () => verifySelectedSourceReviews(f.paths, [f.row], true, true, verifier)
+  for (const conflict of [
+    { local_clip_repair: null }, { subtitle_cleanup: 'clean' }, { subtitle_erasure: {} }, { video_upscale: {} },
+  ]) {
+    await f.save({ ...f.review, ...conflict })
+    await expect(check()).rejects.toThrow('须使用工具输出的同片原声')
+  }
+  await f.save({ ...f.review, local_clip_repair: { ...f.review.local_clip_repair, end_ms: f.binding.startMs } })
+  await expect(check()).rejects.toThrow('审核缺少本次工具的原片、区间或时长记录')
+  expect(verifier).not.toHaveBeenCalled()
+})
+
+it('requires the exact clip project and same original audio and video binding even with a Host verifier', async () => {
+  const f = await fixture()
+  const { project, original, output } = f.binding
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  const input = { project, review: f.review, localRepair: f.binding, verifier,
+    videoPath: output.path, videoSha256: output.sha256, originalPath: output.path, originalSha256: output.sha256 }
+  for (const changed of [
+    { localRepair: { ...f.binding, project: join(project, 'different-project') } },
+    { localRepair: { ...f.binding, output: original } },
+    { originalPath: original.path }, { originalSha256: original.sha256 }, { videoSha256: original.sha256 },
+  ]) {
+    await expect(verifySourceQa({ ...input, ...changed })).rejects.toThrow('核验工具输出的同片画面和原声')
+  }
+  expect(verifier).not.toHaveBeenCalled()
+  const accepted = await verifySourceQa(input)
+  expect(accepted.files).toContainEqual(output)
+  expect(accepted.files).toContainEqual(original)
+  expect(verifier.mock.calls.map(([evidence]) => evidence.localRepair)).toEqual([f.binding, undefined])
 })
 
 it('denies local repair and ending replacement before media work when the current visual proof fails', async () => {
