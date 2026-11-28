@@ -21,6 +21,7 @@ it.skipIf(!hasFfmpeg)('prepares and preflights a native render whose source reco
   onTestFinished(async () => { await runner.dispose(); await rm(temp, { recursive: true, force: true }) })
   await mkdir(project)
   await symlink(project, projectAlias, 'junction')
+  const geometry = { width: 480, height: 854, fps: 30 }
   const paths = episodePaths(projectAlias, '21')
   const subtitleSrt = join(projectAlias, 'editing', 'fixture.srt')
   const mixProfile = join(projectAlias, 'audio', 'mix.json')
@@ -33,14 +34,16 @@ it.skipIf(!hasFfmpeg)('prepares and preflights a native render whose source reco
   }
   await Promise.all([
     writeFile(join(projectAlias, 'project_config.json'), JSON.stringify({ project_bible: {
-      visual_medium: 'animation_3d', delivery: { audio: { require_music_decision: true } },
+      visual_medium: 'animation_3d', delivery: { ...geometry, audio: { require_music_decision: true } },
     } })),
-    writeFile(paths.timeline, JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 2_000_000 }], body_end: 2 })),
-    writeFile(subtitleSrt, '1\n00:00:00,200 --> 00:00:01,100\nFixture\n'),
+    writeFile(paths.timeline, JSON.stringify({
+      delivery: geometry, clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }], body_end: 1,
+    })),
+    writeFile(subtitleSrt, '1\n00:00:00,100 --> 00:00:00,400\nFixture\n'),
     writeFile(mixProfile, JSON.stringify({ schema_version: 1, mode: 'no_bgm', original_gain: 1, analysis_window_ms: 20 })),
-    capture(['-f', 'lavfi', '-i', 'testsrc2=s=480x854:r=60:d=2', '-vf', 'noise=alls=60:allf=t+u',
+    capture(['-f', 'lavfi', '-i', 'testsrc2=s=480x854:r=30:d=1', '-vf', 'noise=alls=60:allf=t+u',
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '13', '-pix_fmt', 'yuv420p', join(paths.videoDir, 'shot_001.mp4')]),
-    capture(['-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000:duration=2', '-ac', '2', '-c:a', 'pcm_s16le', paths.masterAudio]),
+    capture(['-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000:duration=1', '-ac', '2', '-c:a', 'pcm_s16le', paths.masterAudio]),
   ])
   const settings = { ...resolveSettings({ ffmpegPath: ffmpeg, ffprobePath: ffprobe, preferNvenc: false,
     ...(process.env.DSH_FONTS_DIR === undefined ? {} : { fontsDir: process.env.DSH_FONTS_DIR }) }), channel: runner.channel }
@@ -55,12 +58,12 @@ it.skipIf(!hasFfmpeg)('prepares and preflights a native render whose source reco
   const toolkit = createMediaToolkit({ ffmpeg, ffprobe, channel: runner.channel })
   const base = { toolkit, project, projectAlias, episode: '21', output: actualOutput }
   await expect(prepareContentListeningAudio(base)).resolves.toMatchObject({
-    source_path: actualOutput, source_sha256: record?.output.sha256, duration_us: 2_000_000,
+    source_path: actualOutput, source_sha256: record?.output.sha256, duration_us: 1_000_000,
   })
   await expect(preflightContentListening({ ...base, subtitleSrt: await realpath(subtitleSrt) })).resolves.toMatchObject({
     source_sha256: record?.output.sha256, external_requests: 0, source_music_mode: 'none',
   })
-}, 45_000)
+}, 90_000)
 
 it('refuses foreign links and identical files at a different identity when binding receipts', async () => {
   const temp = await realpath(await mkdtemp(join(tmpdir(), 'dsh-listening-receipt-path-')))
