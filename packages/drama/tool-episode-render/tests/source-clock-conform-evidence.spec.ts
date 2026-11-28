@@ -1,5 +1,6 @@
 /** Only the tool execution can prove a restored picture clock and retained original sound. */
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -127,13 +128,11 @@ it('uses real file hashes through the registered tool and refuses readonly and o
     const actual = await invoke()
     expect(actual.isError, JSON.stringify(actual.content)).toBe(false)
     expect(produce).toHaveBeenCalledOnce()
-    expect(produce.mock.calls[0]?.[1]).toEqual({ project, episode: 21,
-      original: { path: original, sha256: digest('original bytes') },
-      processed: { path: processed, sha256: digest('processed bytes') } })
-    expect(actual.meta).toMatchObject({ [TOOL_BODY_META_KEY]: {
-      original: { path: original, sha256: digest('original bytes') },
-      processed: { path: processed, sha256: digest('processed bytes') },
-    } })
+    const expectedOriginal = { path: realpathSync.native(original), sha256: digest('original bytes') }
+    const expectedProcessed = { path: realpathSync.native(processed), sha256: digest('processed bytes') }
+    expect(produce.mock.calls[0]?.[1]).toEqual({ project: realpathSync.native(project), episode: 21,
+      original: expectedOriginal, processed: expectedProcessed })
+    expect(actual.meta).toMatchObject({ [TOOL_BODY_META_KEY]: { original: expectedOriginal, processed: expectedProcessed } })
   } finally {
     produce.mockRestore()
     await ctx.fiber.dispose()
