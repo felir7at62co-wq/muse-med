@@ -28,16 +28,28 @@ async function host(config: Notify.Config, coordinator?: unknown) {
   return { ctx, sent }
 }
 
-function coordinatorWith(unattended: boolean, tasks: unknown[]) {
+function coordinatorWith(unattended: boolean, tasks: readonly Notify.CoordinationTask[]) {
+  const next = Promise.withResolvers<readonly Notify.CoordinationTask[]>()
+  let current = tasks
   return {
     mode: { unattended },
+    list() { return current },
+    update(tasks: readonly Notify.CoordinationTask[]) {
+      current = tasks
+      next.resolve(tasks)
+    },
     async *watchMain(signal: AbortSignal) {
       yield 'main-session'
       await new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }) })
     },
     async *watch(_main: string, signal: AbortSignal) {
       yield tasks
-      await new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }) })
+      const aborted = new Promise<undefined>((resolve) => {
+        signal.addEventListener('abort', () => { resolve(undefined) }, { once: true })
+      })
+      const updated = await Promise.race([next.promise, aborted])
+      if (updated !== undefined) yield updated
+      await aborted
     },
   }
 }
@@ -79,6 +91,20 @@ it('leaves attended deployments to the people already watching', async () => {
   const { sent } = await host({ botId: 'bot_1', targetId: 'alerts', fallbackMinutes: 1 },
     coordinatorWith(false, [marked(Date.now() - 2 * 60_000)]))
   await new Promise(resolve => setTimeout(resolve, 50))
+  expect(sent).toEqual([])
+})
+
+it('omits the fallback when the task starts a new revision during the grace period', async () => {
+  vi.useFakeTimers()
+  onTestFinished(() => { vi.useRealTimers() })
+  const task = marked(Date.now())
+  const coordinator = coordinatorWith(true, [task])
+  const { sent } = await host({ botId: 'bot_1', targetId: 'alerts', fallbackMinutes: 1 }, coordinator)
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(sent).toEqual([])
+
+  coordinator.update([{ ...task, attempts: [...task.attempts, { sessionId: 'worker-2' }] }])
+  await vi.advanceTimersByTimeAsync(30_000)
   expect(sent).toEqual([])
 })
 

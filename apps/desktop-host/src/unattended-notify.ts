@@ -51,6 +51,7 @@ export interface CoordinationTask {
 /** Minimal coordinator surface used for the fallback notice. */
 interface CoordinatorView {
   readonly mode: { readonly unattended: boolean }
+  list(sessionId: never): readonly CoordinationTask[]
   watchMain(signal: AbortSignal): AsyncIterable<string | null>
   watch(sessionId: never, signal: AbortSignal): AsyncIterable<readonly CoordinationTask[]>
 }
@@ -141,26 +142,29 @@ export function apply(ctx: Context, config: Config = {}): void {
       const handled = new Set<string>()
       const timers = new Set<ReturnType<typeof setTimeout>>()
       const watching = new Set<string>()
-      const consider = (tasks: readonly CoordinationTask[]): void => {
+      const consider = (main: string, tasks: readonly CoordinationTask[]): void => {
         for (const task of attentionTasks(tasks)) {
           if (handled.has(task.key)) continue
           handled.add(task.key)
           const timer = setTimeout(() => {
             timers.delete(timer)
+            // Recovery may have replaced this revision while the fallback was waiting.
+            const current = attentionTasks(coordinator.list(main as never)).find(notice => notice.key === task.key)
+            if (current === undefined) return
             // The agent's own notice shortly before or after the mark already reached a person.
-            if ((notified.get(task.sessionId) ?? 0) >= task.at - fallbackMs) return
+            if ((notified.get(current.sessionId) ?? 0) >= current.at - fallbackMs) return
             const minutes = Math.round(fallbackMs / 60_000)
-            void deliver(formatNotice(`任务需要人处理：${task.title}`,
-              `无人值守协调器已停止自动重派这项任务，${minutes} 分钟内执行会话没有发出通知。\n\n原因：${task.reason}\n\n`
-              + '请打开 Muse 查看该会话，处理后在会话中回复，或重新派发。', task.sessionId), owner.signal)
-              .then(() => { notified.set(task.sessionId, Date.now()) })
+            void deliver(formatNotice(`任务需要人处理：${current.title}`,
+              `无人值守协调器已停止自动重派这项任务，${minutes} 分钟内执行会话没有发出通知。\n\n原因：${current.reason}\n\n`
+              + '请打开 Muse 查看该会话，处理后在会话中回复，或重新派发。', current.sessionId), owner.signal)
+              .then(() => { notified.set(current.sessionId, Date.now()) })
               .catch((error: unknown) => { ctx.logger('muse-unattended-notify').warn('Fallback notice failed', error) })
           }, Math.max(0, task.at + fallbackMs - Date.now()))
           timers.add(timer)
         }
       }
       const follow = async (main: string): Promise<void> => {
-        for await (const tasks of coordinator.watch(main as never, owner.signal)) consider(tasks)
+        for await (const tasks of coordinator.watch(main as never, owner.signal)) consider(main, tasks)
       }
       void (async () => {
         for await (const main of coordinator.watchMain(owner.signal)) {
