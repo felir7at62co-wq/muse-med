@@ -233,7 +233,7 @@ export async function verifyEpisodeContentReview(input: {
       if (audioRanges.some(row => row.dimension !== 'pronunciation')) fail('声音范围必须明确核对实际发音。')
       if (audioRanges.length > 0) coverage(audioRanges, 'pronunciation', input.duration, concern)
     } catch (error) {
-      concern(String(error instanceof Error ? error.message : error).replace(/^CONTENT_REVIEW_PENDING: /u, '机器读音检查：'))
+      concern(String(error).replace(/^(?:Error: )?CONTENT_REVIEW_PENDING: /u, '机器读音检查：'))
     }
   }
   let listened = false

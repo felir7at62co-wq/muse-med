@@ -66,23 +66,51 @@ describe('unattended content review', () => {
     f.saved.entry.content_review.output.checks[0]!.status = 'issue'
     f.saved.entry.content_review.output.checks[0]!.reason = '第3秒白手套消失'
     f.saved.entry.picture = 'unverified'
-    ;(f.saved.entry.issues as unknown[]).push('P3 裸手待返工')
-    await f.report({ duration: 5, frames: [{ id: 'first', decoded_time: 0.1 }, { id: 'last', decoded_time: 4.9 }],
-      event_groups: [{ uncertainty: '陆知宁是否戴手套看不清' }] })
+    f.saved.entry.audio = 'unverified'
+    ;(f.saved.entry.issues as unknown[]).push('P3 裸手待返工', 'P3 裸手待返工', { note: '声画同步待复核' })
+    const observed = { duration: 5, frames: [{ id: 'first', decoded_time: 0.1 }, { id: 'last', decoded_time: 4.9 }] }
+    const source = f.saved.entry.content_review.sources[0]!
+    source.inspection.sha256 = await f.saved.json(source.inspection.path, { ...observed,
+      event_groups: [{ uncertainty: '分包里的茶杯仍看不清' }] })
+    await f.report({ ...observed, event_groups: [{ uncertainty: '无' }, { uncertainty: '陆知宁是否戴手套看不清' }] })
     await expect(verifyEpisodeContentReview(f.input)).rejects.toThrow('CONTENT_REVIEW_PENDING')
     const receipt = await verifyEpisodeContentReview({ ...f.input, unattended: true })
     const pending = receipt.pending ?? []
     expect(pending.some(item => item.includes('白手套消失'))).toBe(true)
     expect(pending.some(item => item.includes('看不清'))).toBe(true)
-    expect(pending.some(item => item.includes('P3 裸手待返工'))).toBe(true)
+    expect(pending.filter(item => item.includes('P3 裸手待返工'))).toHaveLength(1)
+    expect(pending).toContain('成片审查问题：{"note":"声画同步待复核"}')
     expect(pending.some(item => item.includes('画面'))).toBe(true)
+    expect(pending.some(item => item.includes('声音审查为unverified'))).toBe(true)
+    expect(pending).toContain('第1镜分包已观察动作事件仍有未决疑点：分包里的茶杯仍看不清')
+    expect(pending).not.toContain('成片已观察动作事件仍有未决疑点：无')
     expect(pending).not.toContain(LISTENING_PENDING)
+  })
+
+  it.each(['absent audio evidence', 'empty machine ranges'] as const)('leaves listening pending with %s', async (kind) => {
+    const f = await fixture()
+    if (kind === 'absent audio evidence') Reflect.deleteProperty(f.saved.entry.content_review, 'audio')
+    else {
+      unlistened(f)
+      f.saved.entry.content_review.audio.ranges = []
+    }
+    await f.save()
+    await expect(verifyEpisodeContentReview({ ...f.input, unattended: true })).resolves.toMatchObject({ pending: [LISTENING_PENDING] })
+  })
+
+  it('records invalid machine pronunciation evidence for review', async () => {
+    const f = await fixture()
+    f.saved.entry.content_review.audio.ranges[0]!.dimension = 'continuity'
+    await f.save()
+    const receipt = await verifyEpisodeContentReview({ ...f.input, unattended: true })
+    expect(receipt.pending).toEqual([expect.stringContaining('机器读音检查：声音范围必须明确核对实际发音。')])
   })
 
   it.each<{ name: string; mutate: (f: Awaited<ReturnType<typeof fixture>>) => void | Promise<void> }>([
     { name: 'subtitle verdict not ok', mutate: (f) => { f.saved.entry.subtitle = 'issue' } },
     { name: 'spec verdict not ok', mutate: (f) => { f.saved.entry.spec = 'unverified' } },
     { name: 'unreviewed film', mutate: (f) => { f.saved.entry.reviewed = false } },
+    { name: 'missing issue list', mutate: (f) => { Reflect.deleteProperty(f.saved.entry, 'issues') } },
     { name: 'picture coverage gap', mutate: (f) => { f.saved.entry.content_review.output.checks[0]!.start_seconds = 1 } },
     { name: 'range without a reason', mutate: (f) => { f.saved.entry.content_review.output.checks[0]!.reason = '' } },
     { name: 'missing observation identity', mutate: (f) => { f.saved.entry.content_review.output.inspection.review_id = '' } },
