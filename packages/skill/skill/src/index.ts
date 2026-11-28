@@ -318,6 +318,7 @@ interface CollectResult {
 
 /** One scope's complete skill-registry contribution. */
 class SkillLayer implements ScopeLayer {
+  revision = 0
   /** Providers registered through contexts carrying this scope, insertion-ordered. */
   readonly providers: NamedEntries<RegisteredProvider>
   /** Runtime skills registered through contexts carrying this scope. */
@@ -354,7 +355,7 @@ export class SkillRegistry extends Service {
   private readonly collectCacheMaxEntries: number
   private readonly layers = new ScopedLayers<SkillLayer>(
     scope => new SkillLayer(scope),
-    () => { this.invalidateCache() },
+    () => { this.notifyChange() },
   )
   private readonly collectCache = new Map<string, Map<string, IndexedCandidate>>()
   private revision = 0
@@ -389,7 +390,8 @@ export class SkillRegistry extends Service {
       invalidate: () => {
         const active = registration
         if (active !== undefined && active.layer.providers.get(active.name)?.provider === provider) {
-          this.invalidateCache()
+          this.invalidateLayer(active.layer)
+          this.notifyChange()
         }
       },
     }
@@ -401,8 +403,7 @@ export class SkillRegistry extends Service {
       }
       const order = this.nextProviderOrder
       this.nextProviderOrder += 1
-      return this.layers.effect(
-        this.ctx,
+      return this.registerInLayer(
         (layer) => {
           const undo = layer.providers.insert(name, { provider, order })
           registration = { layer, name }
@@ -412,7 +413,7 @@ export class SkillRegistry extends Service {
             lifecycle.abort(new Error(`skill provider "${name}" disposed`))
           }
         },
-        { label: 'skills.registerProvider()' },
+        'skills.registerProvider()',
       )
     } catch (error) {
       lifecycle.abort(error)
@@ -442,13 +443,12 @@ export class SkillRegistry extends Service {
       invocation: skill.invocation ?? { modelInvocable: true, userInvocable: true },
       provider: skill.provider ?? RUNTIME_PROVIDER,
     }
-    return this.layers.effect(
-      this.ctx,
+    return this.registerInLayer(
       (layer) => {
         layer.runtime.set(definition.name, definition)
         return () => { layer.runtime.delete(definition.name) }
       },
-      { label: 'skills.register()' },
+      'skills.register()',
     )
   }
 
@@ -513,17 +513,16 @@ export class SkillRegistry extends Service {
     throwIfAborted(options.signal)
     let attempt = 1
     while (true) {
-      const revision = this.revision
       // The chain is part of the key rather than assumed stable: a blank-session
       // recompose re-parents an existing scope without touching this registry,
       // and only a chain-bearing key makes the next read see the new preset.
-      const key = this.collectCacheKey(options.cwd, scopeChainOf(options.scope), revision)
+      const key = this.collectCacheKey(options.cwd, scopeChainOf(options.scope))
       const cached = this.collectCache.get(key)
       if (cached !== undefined) return { entries: cached, cacheable: true }
 
       const result = await this.collectFresh(options)
       throwIfAborted(options.signal)
-      if (revision !== this.revision) {
+      if (key !== this.collectCacheKey(options.cwd, scopeChainOf(options.scope))) {
         if (attempt < MAX_COLLECT_ATTEMPTS) {
           attempt += 1
           continue
@@ -546,6 +545,7 @@ export class SkillRegistry extends Service {
     // the exact scope last, so the nearest layer's same-name entry replaces
     // the farther ones — the tools registry's shadowing rule. Rank decides
     // duplicates only within one layer.
+    // Capture the visible layer identities before awaiting any provider.
     const layers = [this.layers.global, ...this.layers.chainLayers(options.scope)]
     const merged = new Map<string, IndexedCandidate>()
     let cacheable = true
@@ -611,16 +611,29 @@ export class SkillRegistry extends Service {
     return { entries: candidates, cacheable }
   }
 
-  private invalidateCache(): void {
-    this.revision += 1
+  private registerInLayer(action: (layer: SkillLayer) => () => void, label: string): () => void {
+    return this.layers.effect(this.ctx, (layer) => {
+      const undo = action(layer)
+      this.invalidateLayer(layer)
+      return () => {
+        undo()
+        this.invalidateLayer(layer)
+      }
+    }, { label })
+  }
+
+  private invalidateLayer(layer: SkillLayer): void {
+    layer.revision = ++this.revision
     this.collectCache.clear()
-    this.notifyChange()
   }
 
   /** Invalidate after a stale definition load, only while the exact registration that produced the entry is still live. */
   private invalidateEntry(entry: IndexedCandidate): void {
     /* v8 ignore else -- A definition load can outlive the exact provider registration it selected. */
-    if (entry.layer.providers.get(entry.provider.name)?.provider === entry.provider) this.invalidateCache()
+    if (entry.layer.providers.get(entry.provider.name)?.provider === entry.provider) {
+      this.invalidateLayer(entry.layer)
+      this.notifyChange()
+    }
   }
 
   private scopeId(key: ScopeKey): number {
@@ -633,8 +646,9 @@ export class SkillRegistry extends Service {
     return id
   }
 
-  private collectCacheKey(cwd: string | undefined, chain: ScopeKey[], revision: number): string {
-    return JSON.stringify({ cwd, scopes: chain.map(key => this.scopeId(key)), revision })
+  private collectCacheKey(cwd: string | undefined, chain: ScopeKey[]): string {
+    return JSON.stringify({ cwd, revision: this.layers.global.revision,
+      scopes: chain.map(key => [this.scopeId(key), this.layers.peek(key)?.revision ?? 0]) })
   }
 
   /** Notify catalog observers without making their refresh work load-bearing. */

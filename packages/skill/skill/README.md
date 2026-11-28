@@ -93,7 +93,7 @@ The registry is host+per-scope layered, the shape the tools registry established
 
 ### Catalog collection
 
-A read (`list`/`snapshot`) collects each layer's candidates: runtime skills first, then each provider's `list()` result, awaiting providers sequentially and containing failures. Candidates are validated, deduplicated within the layer, and merged across layers; summaries sort by name. Completed collections are cached per cwd, scope chain, and revision up to `collectCacheMaxEntries`; an in-flight collection retries once when a provider or runtime mutation bumps the revision mid-read, and a second change returns the latest candidates as an incomplete, uncached observation.
+A read (`list`/`snapshot`) collects each layer's candidates: runtime skills first, then each provider's `list()` result, awaiting providers sequentially and containing failures. Candidates are validated, deduplicated within the layer, and merged across layers; summaries sort by name. Completed collections are cached per cwd, scope chain, and visible layer revisions up to `collectCacheMaxEntries`. An in-flight collection retries once if the scope chain or a visible layer changes, and a second such change returns the latest candidates as an incomplete, uncached observation.
 
 ### Loading and staleness
 
@@ -101,7 +101,7 @@ A read (`list`/`snapshot`) collects each layer's candidates: runtime skills firs
 
 ### Invalidation
 
-The registry has no TTL: only a provider calling its registration-scoped `invalidate()`, or a runtime registration or disposal, clears completed catalogs. Each invalidation bumps a revision, clears the cache, and emits the unfiltered `skills/change` event; consumers refetch with their own lookup options. `invalidate()` takes effect only while the exact registration that received it is still active, so a late callback cannot disturb a replacement provider with the same name.
+The registry has no TTL. Registering or disposing a provider or runtime skill, and calling a live provider's `invalidate()`, advance the owning layer's revision, clear completed catalogs, and emit the unfiltered `skills/change` event. Consumers refetch with their own lookup options. `invalidate()` takes effect only while the exact registration that received it is still active, so a late callback cannot disturb a replacement provider with the same name.
 
 </details>
 
