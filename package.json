@@ -348,7 +348,7 @@
     "vitest": "^4.1.11",
     "ws": "8.21.0",
     "yaml": "2.9.0",
-    "zod": "4.6.6",
+    "zod": "4.6.7",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
     "@deepseek-ai/dsh-terminal-panel": "workspace:*"
   },

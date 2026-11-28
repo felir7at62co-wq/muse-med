@@ -89,7 +89,7 @@
     "@deepseek-ai/dsh-client-resources": "workspace:*",
     "@deepseek-ai/dsh-api-session-controller": "workspace:*",
     "@deepseek-ai/dsh-client-ui-input-trigger": "workspace:*",
-    "zod": "4.6.6"
+    "zod": "4.6.7"
   },
   "files": [
     "locale/*.json",
