@@ -66,9 +66,11 @@ it('only accepts the binding actually issued by offline transcription in this se
   issue(session, 'committed', offline, body)
   expect(() => { verify(receipt) }).not.toThrow()
   expect(() => { verify({ ...receipt, source: { ...source, sha256: 'd'.repeat(64) } }) }).toThrow('缺少此声音')
-  expect(() => useAlternatePathRules(() => {
-    verify({ ...receipt, receipt: resolve(project, 'unissued.json') })
-  })).toThrow('缺少此声音')
+  expect(() => {
+    useAlternatePathRules(() => {
+      verify({ ...receipt, receipt: resolve(project, 'unissued.json') })
+    })
+  }).toThrow('缺少此声音')
   expect(() => { read(undefined, signal)(receipt) }).toThrow('缺少此声音')
   const child = ctx.sessions.fork(session, undefined, SessionId('offline-word-child'))
   expect(() => { read(child, signal)(receipt) }).toThrow('缺少此声音')
