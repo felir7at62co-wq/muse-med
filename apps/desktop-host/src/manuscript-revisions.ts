@@ -6,7 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, HarnessError, type ContextFormed } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-fs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -46,6 +46,7 @@ export interface Config {
   maxTextChars: number
   maxParagraphs: number
   maxEditLength: number
+  /** Maximum number of documents in one bounded manuscript operation. */
   maxDocuments: number
   /** Maximum unabridged material text returned by one explicit reading request. */
   maxMaterialChars: number
@@ -85,6 +86,7 @@ export interface Config {
   continuityDeliveryChecks: boolean
   /** Maximum logged reminders for an explicitly pending screenplay delivery in one turn. */
   continuityMaxDeliveryCorrections: number
+  /** Maximum serialized bytes in each workspace-local manuscript ledger. */
   maxLedgerBytes: number
   /** Maximum retained source/version associations; history is never silently evicted. */
   maxVersions: number
@@ -239,15 +241,19 @@ export class ManuscriptRevisions {
         if ((await stat(file)).size > this.config.maxLedgerBytes) throw Error('MANUSCRIPT_LEDGER_SIZE: 保留记录过大。')
         ledger = ledgerSchema.parse(JSON.parse(await readFile(file, { signal, encoding: 'utf8' })))
       } catch (error) {
+        if (error instanceof SyntaxError || error instanceof z.ZodError) {
+          throw new HarnessError('返稿记录格式无效，文件未改写。请保留原文件，核实同一工作区的格式有效备份后再恢复。',
+            'MANUSCRIPT_LEDGER_INVALID', { cause: error })
+        }
         if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
         ledger = { version: 1, baselines: [], reviews: {} }
       }
-      const before = JSON.stringify(ledger)
+      const before = `${JSON.stringify(ledger)}\n`
       const result = await run(ledger)
-      const after = JSON.stringify(ledger)
+      const after = `${JSON.stringify(ledger)}\n`
       if (Buffer.byteLength(after) > this.config.maxLedgerBytes) throw Error('MANUSCRIPT_LEDGER_SIZE: 保留记录过大，未清理已有保护。')
       signal.throwIfAborted()
-      if (before !== after) await writeFileAtomic(file, `${after}\n`, { mode: 0o600, dirMode: 0o700 })
+      if (before !== after) await writeFileAtomic(file, after, { mode: 0o600, dirMode: 0o700 })
       return result
     }, { waitMs: this.config.lockWaitMs })
   }
@@ -256,10 +262,7 @@ export class ManuscriptRevisions {
     const saved = { ...document, session }
     const index = ledger.baselines.findIndex(entry => entry.path === document.path && entry.session === session)
     if (index >= 0) ledger.baselines[index] = saved
-    else {
-      if (ledger.baselines.length >= this.config.maxDocuments) throw Error('MANUSCRIPT_DOCUMENT_LIMIT: 请归档旧项目后继续，未丢弃基线。')
-      ledger.baselines.push(saved)
-    }
+    else ledger.baselines.push(saved)
   }
 
   /**
@@ -270,8 +273,12 @@ export class ManuscriptRevisions {
    * @param signal - Delivery cancellation.
    */
   async delivered(cwd: string, session: string, paths: readonly string[], signal: AbortSignal): Promise<void> {
-    const documents = await Promise.all(paths.filter(isManuscript).map(path => readManuscript(path, cwd, this.config, signal)))
-    if (!documents.length) return
+    const manuscriptPaths = paths.filter(isManuscript)
+    if (!manuscriptPaths.length) return
+    if (manuscriptPaths.length > this.config.maxDocuments) {
+      throw new HarnessError('本次呈现的文稿数量超过自动保存交付基线的上限。请按文稿分批呈现。', 'MANUSCRIPT_DOCUMENT_LIMIT')
+    }
+    const documents = await Promise.all(manuscriptPaths.map(path => readManuscript(path, cwd, this.config, signal)))
     await this.transact(cwd, signal, (ledger) => {
       for (const document of documents) this.remember(ledger, document, session)
     })
