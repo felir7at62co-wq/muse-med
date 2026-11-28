@@ -7,6 +7,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { fileSha256 } from './cache.ts'
 import { createFileCaptureChannel, createMediaToolkit } from './ffmpeg.ts'
 import { conformSourceClock, sourceClockConformBindingSchema } from './source-clock-conform.ts'
+import { jsonEvidenceOutput } from './tool-json-output.ts'
 import type { RenderSettings } from './types.ts'
 
 /**
@@ -26,12 +27,7 @@ export function registerSourceClockConformTool(scope: Context, settings: RenderS
       original: { type: 'string', required: true, description: '项目内的原始下载视频，须包含原声。' },
       processed: { type: 'string', required: true, description: '对应的项目内最终处理视频。' },
     },
-    output: {
-      schema: { type: 'object', additionalProperties: true },
-      preserveBodyMeta: true,
-      presentationMeta: (_args, binding) => binding,
-      render: (_args, binding) => [{ type: 'text', text: JSON.stringify(binding, null, 2) }],
-    },
+    output: jsonEvidenceOutput,
     execute: async ({ project, episode, original, processed }, exec) => {
       const { signal } = exec
       const session = exec.agent?.session

@@ -32,8 +32,10 @@ export const endingRestoreBindingSchema = z.strictObject({
     channels: z.number().int().positive(), packetsSha256: sha }),
 })
 
+/** Candidate identity and evidence of its retained body, replacement ending and original audio. */
 export type EndingRestoreBinding = z.infer<typeof endingRestoreBindingSchema>
 
+/** Project-owned original cut, alternate ending and exact replacement frame boundary. */
 export interface EndingRestoreArgs {
   readonly project: string
   readonly episode: number

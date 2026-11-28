@@ -1,29 +1,41 @@
 /** Public render arguments through a Loader-owned tool registration. */
-import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import Tools, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
+import { fileSha256 } from '../src/cache.ts'
+import { localClipRepairBindingSchema } from '../src/local-clip-evidence.ts'
+import { sourceClockConformBindingSchema } from '../src/source-clock-conform.ts'
 import type { DramaRenderReport } from '../src/types.ts'
 import * as Render from '../src/index.ts'
 import * as Media from '../src/ffmpeg.ts'
+import { createMediaRunner, ffmpeg, ffprobe, hasFfmpeg } from './audio-ffmpeg-harness.ts'
 import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, probeJson, runContext,
   seekHandler, shippedEndingAsset, stubChannel, tempProject, writePlaceholder } from './harness.ts'
 
 /** Load the real renderer contribution through a private test-only Cordis config. */
-async function loadRenderer(ctx: Context, root: string): Promise<void> {
+async function loadRenderer(ctx: Context, root: string,
+  agentConfig?: Pick<Render.Config, 'enableLocalClipRepair' | 'ffmpegPath' | 'ffprobePath'>): Promise<void> {
   const config = join(root, 'cordis.yml')
   await writeFile(config, [
-    "- name: '@deepseek-ai/dsh-system-prompt'",
-    "- name: '@deepseek-ai/dsh-tools'",
+    ...(ctx.get('systemPrompt') === undefined ? ["- name: '@deepseek-ai/dsh-system-prompt'"] : []),
+    ...(ctx.get('tools') === undefined ? ["- name: '@deepseek-ai/dsh-tools'"] : []),
     "- name: '@deepseek-ai/dsh-tool-episode-render'",
     '  config:',
     '    preferNvenc: false',
+    ...Object.entries(agentConfig ?? {}).map(([key, value]) => `    ${key}: ${JSON.stringify(value)}`),
     '',
   ].join('\n'))
   ctx.baseUrl = pathToFileURL(root).href + '/'
@@ -49,6 +61,82 @@ async function loadRenderer(ctx: Context, root: string): Promise<void> {
   await ctx.loader.await()
   for (const entry of ctx.loader.entries()) await entry.fiber?.await()
 }
+
+it.skipIf(!hasFfmpeg)('requires Session project authority and returns real clip and conform receipts through the Loader', async () => {
+  const root = await tempProject()
+  const ctx = new Context()
+  const runner = createMediaRunner()
+  const signal = new AbortController().signal
+  try {
+    const project = join(root, 'project')
+    await mkdir(project)
+    const original = join(project, 'original.mp4'), processed = join(project, 'processed.mp4')
+    const unrelated = join(root, 'outside-project.mp4')
+    const encode = async (args: readonly string[]) => {
+      const result = await runner.runCommand(ffmpeg, ['-n', '-v', 'error', ...args])
+      expect(result.code, result.stderr).toBe(0)
+    }
+    await encode(['-f', 'lavfi', '-i', 'testsrc2=size=128x96:rate=24:duration=2',
+      '-f', 'lavfi', '-i', 'sine=frequency=337:sample_rate=48000:duration=2',
+      '-c:v', 'libx264', '-qp', '0', '-c:a', 'aac', original])
+    await encode(['-i', original, '-vf', 'scale=256:192:flags=neighbor', '-c:v', 'libx264', '-qp', '0', '-an', processed])
+    await copyFile(original, unrelated)
+    const originalId = { path: original, sha256: await fileSha256(original) }
+    const processedId = { path: processed, sha256: await fileSha256(processed) }
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(SandboxPolicy, { workspaceRoot: root, mode: 'workspace-write' })
+    const driver = await mountAgentLoopTestHarness(ctx)
+    await loadRenderer(ctx, root, { enableLocalClipRepair: true, ffmpegPath: ffmpeg, ffprobePath: ffprobe })
+    const toolNames = ['drama_repair_clip', 'drama_conform_clip'] as const
+    await expect.poll(() => toolNames.map(name => ctx.tools.get(name)?.name)).toEqual([...toolNames])
+    expect(ctx.tools.get('drama_restore_ending')).toBeUndefined()
+    const owner = await driver.create(SessionId('clip-loader-owner'), {}, { cwd: root })
+    const child = await ctx.agents.create({ sessionId: SessionId('clip-loader-child'),
+      meta: { origin: 'subagent', parentSession: owner.id, cwd: root } })
+    const cutArgs = { project: 'project', episode: 21, input: 'original.mp4', start_ms: 500, end_ms: 1500 }
+    const conformArgs = { project: 'project', episode: 21, original: 'original.mp4', processed: 'processed.mp4' }
+    const call = (name: string, args: Record<string, unknown>, agent = owner) => executeModelToolFixture(ctx, {
+      name, arguments: args, signal, callId: ToolCallId(name), agent,
+    })
+    const denied = async (name: string, args: Record<string, unknown>, detail: string, agent = owner) => {
+      const result = await call(name, args, agent)
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.content)).toContain(detail)
+    }
+    const tools = [['drama_repair_clip', cutArgs], ['drama_conform_clip', conformArgs]] as const
+    for (const [name, args] of tools) await denied(name, args, '普通 Muse 会话', child.agent)
+    owner.session.append('sandbox/mode', { mode: 'read-only' })
+    for (const [name, args] of tools) await denied(name, args, '仅可读取文件')
+    owner.session.append('sandbox/mode', { mode: 'workspace-write' })
+    await denied('drama_repair_clip', { ...cutArgs, input: unrelated }, '授权工作区')
+    await denied('drama_conform_clip', { ...conformArgs, processed: unrelated }, '必须是项目内的文件')
+    await denied('drama_conform_clip', { ...conformArgs, project: 'outside-project.mp4' }, '授权工作区')
+    await expect(readdir(join(project, 'editing'))).rejects.toHaveProperty('code', 'ENOENT')
+
+    const trimmed = await call('drama_repair_clip', cutArgs)
+    expect(trimmed.isError, JSON.stringify(trimmed.content)).toBe(false)
+    const trim = localClipRepairBindingSchema.parse(trimmed.value)
+    expect(trim).toMatchObject({ project, episode: '21', original: originalId, startMs: 500, endMs: 1500 })
+    expect(trimmed.meta).toMatchObject({ [TOOL_BODY_META_KEY]: trim })
+    const changed = await call('drama_conform_clip', conformArgs)
+    expect(changed.isError, JSON.stringify(changed.content)).toBe(false)
+    const conform = sourceClockConformBindingSchema.parse(changed.value)
+    expect(conform).toMatchObject({ project, episode: '21', original: originalId, processed: processedId,
+      clock: { originalRate: '24/1', originalFrames: 48, processedFrames: 48 }, audio: { sampleRate: 48_000 } })
+    expect(changed.meta).toMatchObject({ [TOOL_BODY_META_KEY]: conform })
+    for (const { output } of [trim, conform]) {
+      expect(await fileSha256(output.path)).toBe(output.sha256)
+      expect(await readdir(dirname(output.path))).toEqual(['clip.mp4'])
+    }
+    expect(await fileSha256(original)).toBe(originalId.sha256)
+    expect(await fileSha256(processed)).toBe(processedId.sha256)
+    expect(await fileSha256(unrelated)).toBe(originalId.sha256)
+  } finally {
+    await ctx.fiber.dispose()
+    await runner.dispose()
+    await cleanup(root)
+  }
+}, 45_000)
 
 /** Invoke the Loader-owned tool with public arguments and validate both schemas. */
 async function invoke(tool: ToolDefinition, args: Record<string, unknown>) {

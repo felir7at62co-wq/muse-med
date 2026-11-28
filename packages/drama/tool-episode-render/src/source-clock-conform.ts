@@ -26,7 +26,7 @@ const featureBytes = pictureClockFeatures.bytes
 const file = z.strictObject({ path: z.string().min(1), sha256: z.hash('sha256') })
 const rateText = z.string().regex(/^[1-9]\d{0,6}\/[1-9]\d{0,6}$/u)
 
-/** Exact native conform result. Provider provenance and observations must be verified separately. */
+/** Exact native conform result. Provider source identity and visual observations require separate checks. */
 export const sourceClockConformBindingSchema = z.strictObject({
   version: z.literal(1), project: z.string().min(1), episode: z.string().regex(/^\d{2,}$/u),
   original: file, processed: file, output: file,
@@ -35,7 +35,9 @@ export const sourceClockConformBindingSchema = z.strictObject({
   audio: z.strictObject({ sha256: z.hash('sha256'), sampleRate: z.number().int().positive(), channels: z.number().int().positive(),
     packetsSha256: z.hash('sha256') }),
 })
+/** Source digests, frame mapping and original audio evidence bound to the new candidate. */
 export type SourceClockConformBinding = z.infer<typeof sourceClockConformBindingSchema>
+/** Project-owned original and processed MP4 identities for a new clock-bound candidate. */
 export interface SourceClockConformArgs {
   readonly project: string
   readonly episode: number
@@ -46,7 +48,6 @@ export interface SourceClockConformArgs {
 interface Rate { readonly num: bigint; readonly den: bigint }
 interface VideoClock { readonly rate: Rate; readonly rateString: string; readonly count: number }
 const exactRate = (text: string): Rate => {
-  if (!rateText.safeParse(text).success) throw new Error('SOURCE_CLOCK: 缺少有效的精确时基。')
   const separator = text.indexOf('/')
   return { num: BigInt(text.slice(0, separator)), den: BigInt(text.slice(separator + 1)) }
 }
@@ -58,7 +59,12 @@ const clockProbe = z.object({
   frames: z.array(z.object({ best_effort_timestamp: z.number().int().nonnegative() })).min(1).max(maxFrames),
 })
 
-/** Read and prove the full zero-based constant-frame-rate picture clock. */
+/**
+ * Read and prove the full zero-based constant-frame-rate picture clock.
+ * @param toolkit - FFprobe binary and the owning subprocess channel.
+ * @param path - Local MP4 whose first video stream is checked.
+ * @returns Exact rational rate and verified number of decoded frames.
+ */
 export async function probeClock(toolkit: MediaToolkit, path: string): Promise<VideoClock> {
   const args = ['-v', 'error', ...mp4Input, '-select_streams', 'v:0', '-show_streams', '-show_frames',
     '-show_entries', 'stream=time_base,avg_frame_rate,r_frame_rate,duration_ts,nb_frames:frame=best_effort_timestamp', '-of', 'json', path]
@@ -112,7 +118,10 @@ async function frameFeatures(toolkit: MediaToolkit, video: string, raw: string, 
  * @param rightFrame - The frame index within the second buffer.
  * @returns Overall and largest local tile mean absolute RGB difference.
  */
-export function pictureFeatureDifference(left: Buffer, leftFrame: number, right: Buffer, rightFrame: number) {
+export function pictureFeatureDifference(left: Buffer, leftFrame: number, right: Buffer, rightFrame: number): {
+  meanDifference: number
+  maximumTileDifference: number
+} {
   const leftStart = leftFrame * featureBytes, rightStart = rightFrame * featureBytes
   let difference = 0
   let maximumTile = 0
@@ -166,7 +175,12 @@ export async function verifyMatchingPicturePrefix(toolkit: MediaToolkit,
   verifyPictures(before, alternate, Array.from({ length: prefixCount }, (_, index) => index), signal)
 }
 
-/** Hash the decoded first audio track without mixing or resampling. */
+/**
+ * Hash the decoded first audio track without mixing or resampling.
+ * @param toolkit - FFmpeg binary and the owning subprocess channel.
+ * @param path - Local MP4 containing the first audio stream.
+ * @returns SHA-256 of the decoded 32-bit PCM stream.
+ */
 export async function audioHash(toolkit: MediaToolkit, path: string): Promise<string> {
   const args = ['-v', 'error', '-xerror', ...mp4Input, '-i', path, '-map', '0:a:0',
     '-c:a', 'pcm_s32le', '-f', 'hash', '-hash', 'sha256', 'pipe:1']
@@ -183,8 +197,13 @@ const audioPacketProbe = z.object({
     data_hash: z.string().regex(/^SHA256:[0-9a-f]{64}$/u) })).min(1).max(24000),
 })
 
-/** Bind the first track's encoded payloads, timing and channel count. */
-export async function audioPackets(toolkit: MediaToolkit, path: string) {
+/**
+ * Bind the first track's encoded payloads, timing and channel count.
+ * @param toolkit - FFprobe binary and the owning subprocess channel.
+ * @param path - Local MP4 containing the first audio stream.
+ * @returns Verified channel count and SHA-256 of packet order, timing and digests.
+ */
+export async function audioPackets(toolkit: MediaToolkit, path: string): Promise<{ channels: number; packetsSha256: string }> {
   const args = ['-v', 'error', ...mp4Input, '-select_streams', 'a:0', '-show_packets', '-show_streams',
     '-show_entries', 'stream=time_base,channels:packet=pts,dts,duration,data_hash', '-show_data_hash', 'sha256', '-of', 'json', path]
   const result = await toolkit.channel.run(toolkit.ffprobe, args)
@@ -194,7 +213,13 @@ export async function audioPackets(toolkit: MediaToolkit, path: string) {
   return { channels: parsed.data.streams[0].channels, packetsSha256: createHash('sha256').update(JSON.stringify(parsed.data)).digest('hex') }
 }
 
-/** Hash every decoded YUV420P picture in presentation order. */
+/**
+ * Hash every decoded YUV420P picture in presentation order.
+ * @param toolkit - FFmpeg binary and the owning subprocess channel.
+ * @param path - Local MP4 whose first video stream is checked.
+ * @param count - Required number of decoded frame hashes.
+ * @returns A SHA-256 digest for each complete frame in presentation order.
+ */
 export async function frameHashes(toolkit: MediaToolkit, path: string, count: number): Promise<string[]> {
   const args = ['-v', 'error', '-xerror', '-noautorotate', ...mp4Input, '-i', path, '-map', '0:v:0', '-vf', 'format=yuv420p',
     '-fps_mode', 'passthrough', '-c:v', 'rawvideo', '-threads', '1', '-f', 'framehash', '-hash', 'sha256', 'pipe:1']
@@ -220,7 +245,13 @@ async function requireCanonicalDirectory(path: string): Promise<void> {
   if (await realpath(path) !== path || !(await lstat(path)).isDirectory()) throw new Error('SOURCE_CLOCK: 候选目录不在规范项目路径。')
 }
 
-/** Produce a new clock-bound candidate from exact authorized inputs in the project. */
+/**
+ * Produce a new clock-bound candidate from exact authorized inputs in the project.
+ * @param toolkit - Media binaries and the owning subprocess channel.
+ * @param args - Project, episode and exact original and processed file identities.
+ * @param signal - Cancellation checked during evidence verification and before publication.
+ * @returns New candidate identity with its verified frame mapping and original audio evidence.
+ */
 export async function conformSourceClock(toolkit: MediaToolkit, args: SourceClockConformArgs,
   signal?: AbortSignal): Promise<SourceClockConformBinding> {
   signal?.throwIfAborted()

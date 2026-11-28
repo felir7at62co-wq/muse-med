@@ -11,6 +11,7 @@ import { localClipRepairBindingSchema } from './local-clip-evidence.ts'
 import { repairLocalClip } from './local-clip.ts'
 import { endingRestoreBindingSchema, restoreEnding } from './restore-ending.ts'
 import { registerSourceClockConformTool } from './source-clock-conform-tool.ts'
+import { jsonEvidenceOutput } from './tool-json-output.ts'
 import type { RenderSettings } from './types.ts'
 
 const regionPoint = {
@@ -66,12 +67,7 @@ export function registerLocalClipTool(scope: Context, settings: RenderSettings, 
       } },
       ...verifyVisualRepair === undefined ? {} : { visual_evidence: regionalEvidence },
     },
-    output: {
-      schema: { type: 'object', additionalProperties: true },
-      preserveBodyMeta: true,
-      presentationMeta: (_args, binding) => binding,
-      render: (_args, result) => [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-    },
+    output: jsonEvidenceOutput,
     execute: async ({ project, episode, input, start_ms, end_ms, crop, visual_evidence }, exec) => {
       const session = exec.agent?.session
       if (session === undefined || session.header.origin === 'subagent') throw new Error('请在普通 Muse 会话内制作局部裁切候选。')
@@ -119,11 +115,7 @@ export function registerLocalClipTool(scope: Context, settings: RenderSettings, 
       visual_evidence: regionalEvidence,
       donor_evidence: { ...regionalEvidence, description: '正确片尾实际看到的两张局部图。defect_seconds 填对照区间内的片尾复看焦点。' },
     },
-    output: {
-      schema: { type: 'object', additionalProperties: true }, preserveBodyMeta: true,
-      presentationMeta: (_args, binding) => binding,
-      render: (_args, binding) => [{ type: 'text', text: JSON.stringify(binding, null, 2) }],
-    },
+    output: jsonEvidenceOutput,
     execute: async ({ project, episode, original, donor, start_ms, visual_evidence, donor_evidence }, exec) => {
       const session = exec.agent?.session
       if (!session || session.header.origin === 'subagent') throw new Error('请在普通 Muse 会话内恢复实际片尾。')

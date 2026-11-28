@@ -485,6 +485,7 @@ export async function prepareStagedEpisodeAudio(
  * @param signal - Optional owning operation cancellation.
  * @param manifestDocument - Optional parsed manifest from the same captured bytes as the caller.
  * @param requireDialoguePatchClock - Require exact selected-audio alignment for a verified local repair.
+ * @param requireLocalRepairClock - Require the subtitle clock from the prepared local clip and its sound.
  */
 export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePaths, timeline: Timeline,
   stagedAudio?: (sourceAudio: string) => string, signal?: AbortSignal, manifestDocument?: unknown,
