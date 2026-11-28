@@ -5601,8 +5601,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
 
 /** The composition fields the paid image route reads. */
 export interface ImageRouteConfig {
-  /** Exact image catalogue rows this deployment exposes and permits. Undefined leaves the catalogue unrestricted. */
+  /** Exact image catalogue rows this deployment exposes and permits. With both policy fields absent, tools keep the full catalogue. */
   imageAllowedStandardIds?: number[]
+  /** Additional model and platform pairs with a per-image price and a supported landscape or portrait specification. */
+  imageAllowedRoutes?: ImageRouteIdentity[]
   /**
    * Which `platformId` of the `taskType=2` catalogue `image_generate` buys from,
    * such as `KU_AI`. The account catalogue can list one model id once per
@@ -5667,6 +5669,14 @@ export interface PromptRiskReviewConfig {
   contextChars?: number
   /** Maximum findings returned across all addressed cards; defaults to 100, range 1..1000. */
   maxMatches?: number
+}
+
+/** Exact model and platform identifiers from the provider's image catalogue. */
+export interface ImageRouteIdentity {
+  /** Model identifier shared by one or more platforms. */
+  modelId: string
+  /** Platform identifier used to keep same-name channels distinct. */
+  platformId: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-jubian -->

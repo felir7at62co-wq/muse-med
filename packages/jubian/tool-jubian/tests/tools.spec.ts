@@ -630,6 +630,13 @@ it.each([
   { sessionVideoSelection: true, defaultVideoModel: null },
   { sessionVideoSelection: true, defaultVideoModel: { modelId: '', platformId: 'p', resolution: '480p' } },
   { imageAllowedStandardIds: [] }, { imageAllowedStandardIds: [1, 1] }, { imageAllowedStandardIds: [0] },
+  { imageAllowedRoutes: {} }, { imageAllowedRoutes: [] }, { imageAllowedRoutes: [null] },
+  { imageAllowedRoutes: ['model'] }, { imageAllowedRoutes: [[]] },
+  { imageAllowedRoutes: [{ modelId: 'model' }] }, { imageAllowedRoutes: [{ platformId: 'channel' }] },
+  { imageAllowedRoutes: [{ modelId: 42, platformId: 'channel' }] },
+  { imageAllowedRoutes: [{ modelId: '', platformId: 'channel' }] },
+  { imageAllowedRoutes: [{ modelId: ' model', platformId: 'channel' }] },
+  { imageAllowedRoutes: [{ modelId: 'model', platformId: 'channel' }, { modelId: 'model', platformId: 'channel' }] },
 ])('rejects malformed deployment selections before registering tools: %j', async (raw) => {
   await expect(mount({ config: JSON.parse(JSON.stringify(raw)) as Partial<Config> })).rejects.toThrow()
 })

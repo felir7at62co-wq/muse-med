@@ -83,7 +83,12 @@
         workerPreset: short-drama
         searchLimit: 30
         readChars: 24000
+        # Only used when unattended: one more fresh worker before a task is marked for a person.
+        redispatchLimit: 2
     - id: muse-coordination-worker
       name: '@deepseek-ai/dsh-session-coordinator/worker'
+    # Inactive until botId and targetId of a saved DSH-IM delivery target are set in the configuration file.
+    - id: muse-unattended-notify
+      name: '@deepseek-ai/dsh-desktop-host/unattended-notify'
     - id: ui-muse-session-coordinator
       name: '@deepseek-ai/dsh-client-ui-session-coordinator'

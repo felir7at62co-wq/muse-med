@@ -86,7 +86,7 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-desktop-host': [
     'lib/index.js', 'lib/native-preset.js', 'config/desktop.cordis.patch.yml',
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
-    'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
+    'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js', 'lib/unattended-notify.js',
     'lib/manuscript-revisions.js', 'lib/manuscript-continuity-preset.js', 'lib/manuscript-source-review.js',
     'lib/jianying-draft.js', 'lib/feishu-migration.js',
     'lib/source-recovery.js', 'lib/retired-bot.js', 'licenses', 'lib/computer-use.js',

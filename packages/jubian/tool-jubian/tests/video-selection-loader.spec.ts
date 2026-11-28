@@ -3,13 +3,14 @@ import { readFile } from 'node:fs/promises'
 import { expect, it, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import Llm, { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import UserQuestions from '@deepseek-ai/dsh-user-questions'
 import Tools from '@deepseek-ai/dsh-tools'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountWorkingDirectoryFixture } from '../../../subagent/subagent/tests/working-directory-fixture.ts'
 import Subagents from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
@@ -145,5 +146,52 @@ it('asks about shorter duration, applies the human answer and appends context wi
     expect(results[0]!.data.message.content).toMatchSnapshot('explicit longer-model answer')
     expect(requests.every(request => request.startsWith('GET '))).toBe(true)
     expect(agent.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection').map(event => event.data.selection.maxDurationSeconds)).toEqual([30, 15, 30])
+  } finally { fetch.mockRestore(); await ctx.fiber.dispose() }
+})
+
+it('lists the same allowed Sunburst channels in the catalogue tool and Settings', async () => {
+  const modelId = 'gpt-image-2.5-sunburst-c'
+  const duo = { modelId, platformId: 'DUO_YUAN_TAN_SUO' }
+  const generation = { genTypes: [{ id: 108, type: 3 }], videoStandards: [
+    { id: 429, ratio: '16:9', resolution: '1K' }, { id: 428, ratio: '9:16', resolution: '1K' },
+  ] }
+  const approved = [
+    { id: 86, modelId, platformId: 'KU_AI', unitPrice: 0.405, unit: '元/条' },
+    { id: 1721, ...duo, ...generation, unitPrice: 0.4, unit: '元/条' },
+  ]
+  const catalogue = [...approved,
+    { id: 1722, ...duo, ...generation, unitPrice: 180, unit: '元/百万 tokens' },
+    { id: 1723, ...generation, modelId, platformId: 'OTHER', unitPrice: 0.4, unit: '元/条' },
+  ]
+  const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
+    { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
+    { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'fixture-token' } },
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  const requests: string[] = []
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    const address = new URL(url instanceof Request ? url.url : url.toString())
+    requests.push(`${init?.method} ${address.pathname}${address.search}`)
+    if (init?.method !== 'GET' || address.pathname !== '/prod-api/model/charge/getSelectList' || address.search !== '?taskType=2') {
+      throw new Error('Unexpected image catalogue request')
+    }
+    return new Response(JSON.stringify({ code: 200, data: catalogue }))
+  })
+  try {
+    await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false,
+      imagePlatformId: 'KU_AI', imageAllowedStandardIds: [76, 66, 86], imageAllowedRoutes: [duo] } })
+    await ctx.loader.await()
+    for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+    const tool = await executeModelToolFixture(ctx, { callId: ToolCallId('sunburst-catalogue'), name: 'jubian_catalog',
+      arguments: { method: 'models', task_type: 2 }, signal: new AbortController().signal })
+    if (tool.isError) throw new Error(JSON.stringify(tool.content))
+    expect(tool.value).toEqual({ models: approved })
+    const settings = ctx.get('jubianImage')
+    if (settings === undefined) throw new Error('The image routes service was not loaded')
+    await expect(settings.routes()).resolves.toEqual({ candidates: approved.map(({ id, platformId, unitPrice, unit }) => ({
+      modelId, modelName: modelId, platformId, standardId: id, unitPrice, unit,
+    })) })
+    const readCatalogue = 'GET /prod-api/model/charge/getSelectList?taskType=2'
+    expect(requests).toEqual([readCatalogue, readCatalogue])
   } finally { fetch.mockRestore(); await ctx.fiber.dispose() }
 })

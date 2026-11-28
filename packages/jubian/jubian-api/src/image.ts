@@ -61,7 +61,7 @@ export interface ImageModelSelectors {
  * several rows the call fails and names every candidate instead of choosing.
  */
 export interface ImageModelSelection {
-  /** Explicit live model id; omitted calls retain GPT Image 2. */
+  /** Explicit live model ID. With no model or row pin, the tool defaults to GPT Image 2. */
   modelId?: string
   /** Exact videoStandards row id when otherwise equivalent specifications repeat. */
   videoStandardId?: number
@@ -69,7 +69,7 @@ export interface ImageModelSelection {
   resolution?: string
   /** The row's `platformId`, such as `KU_AI`. */
   platformId?: string
-  /** The row's own `id`, which is the request's `standardId`, such as `66`. */
+  /** Exact live price row ID, which supplies its own model when no model is specified. */
   standardId?: number
 }
 
@@ -210,15 +210,17 @@ function candidateSummary(row: Record<string, unknown>): string {
 
 /** Pick the selected model and platform row, or fail naming every candidate. */
 function imageModelRow(catalogue: unknown, selection: ImageModelSelection): Record<string, unknown> {
-  const modelId = selection.modelId ?? IMAGE_MODEL_ID
-  const matches = rows(catalogue).filter(row => row.modelId === modelId)
-  if (matches.length === 0) invalid(`the account catalogue carries no ${modelId} row`)
+  const { standardId } = selection
+  const modelId = selection.modelId ?? (standardId === undefined ? IMAGE_MODEL_ID : undefined)
+  const matches = rows(catalogue).filter(row => modelId === undefined || row.modelId === modelId)
+  if (matches.length === 0) invalid(`the account catalogue carries no ${modelId ?? 'image model'} row`)
   const selected = matches.filter(row => (selection.platformId === undefined || row.platformId === selection.platformId)
-    && (selection.standardId === undefined || Number(standardIdOf(row)) === selection.standardId))
+    && (standardId === undefined || Number(standardIdOf(row)) === standardId))
   if (selected.length === 1) return selected[0] as Record<string, unknown>
   const candidates = matches.map(candidateSummary).join(' | ')
-  invalid(`${matches.length} catalogue rows carry ${modelId} and the configured selection`
-    + ` selected ${selected.length} of them; pin exactly one row with image_model_id/image_platform_id, on the 短剧 settings page (资产图生成通道),`
+  const target = modelId ?? `standardId=${standardId}`
+  invalid(`the configured selection for ${target} selected ${selected.length} of ${matches.length} catalogue rows;`
+    + ' pin exactly one row with image_model_id/image_platform_id, on the 短剧 settings page (资产图生成通道),'
     + ` or with the tool config fields imagePlatformId/imageStandardId. Candidates: ${candidates}`)
 }
 
@@ -237,16 +239,18 @@ export function resolveImageModel(catalogue: unknown, selection: ImageModelSelec
   return readPayload('resolveImageModel', catalogue, () => {
     const model = imageModelRow(catalogue, selection)
     const strictDimensions = model.modelId === IMAGE_MODEL_ID
+    const resolutions = model.modelId === 'seedream-5-5' && model.platformId === 'FANG_ZHOU'
+      ? ['1K', '1.5K', '2K', '4K'] : ['1K', '2K', '4K']
     const standards = rows(model.videoStandards).filter(row => row.ratio === ratio
       && (selection.videoStandardId === undefined || Number(row.id) === selection.videoStandardId)
-      && typeof row.resolution === 'string' && ['1K', '2K', '4K'].includes(row.resolution.toUpperCase())
+      && typeof row.resolution === 'string' && resolutions.includes(row.resolution.toUpperCase())
       && (!strictDimensions || (typeof row.width === 'number' && Number.isSafeInteger(row.width)
         && row.width > 0 && row.width <= 8192 && row.width % 16 === 0
         && typeof row.height === 'number' && Number.isSafeInteger(row.height)
         && row.height > 0 && row.height <= 8192 && row.height % 16 === 0
         && (ratio === '16:9' ? row.width * 9 === row.height * 16 : row.width * 16 === row.height * 9))))
     const resolution = selection.resolution === undefined
-      ? ['1K', '2K', '4K'].find(value => standards.some(row => (row.resolution as string).toUpperCase() === value))
+      ? resolutions.find(value => standards.some(row => (row.resolution as string).toUpperCase() === value))
       : selection.resolution.toUpperCase()
     const atResolution = standards.filter(row => (row.resolution as string).toUpperCase() === resolution)
     const generationRows = model.genTypes === undefined || model.genTypes === null ? [] : rows(model.genTypes)
