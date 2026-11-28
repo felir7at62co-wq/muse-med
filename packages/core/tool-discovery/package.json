@@ -36,7 +36,7 @@
   "license": "MIT AND Apache-2.0",
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:~",
-    "zod": "4.6.6"
+    "zod": "4.6.7"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~",

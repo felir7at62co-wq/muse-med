@@ -97,7 +97,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*",
-    "zod": "4.6.6",
+    "zod": "4.6.7",
     "@deepseek-ai/dsh-brand": "workspace:*"
   },
   "peerDependencies": {
