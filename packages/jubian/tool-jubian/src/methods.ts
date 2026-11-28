@@ -63,6 +63,7 @@ import { createImageReferenceResolver, resolveImageReferenceScanOptions, unknown
 import type { ImageReferenceResolution, ImageReferenceScanOptions } from './image-continuity.ts'
 import type { CharacterReferenceQaGenerationPreparation } from './character-reference-qa-bridge.ts'
 import { routeMediaPostprocess, withMediaPostprocessLock, type MediaPostprocessClient } from './mediakit.ts'
+import { allowedImageCatalogue, isFixedImagePriceUnit, type ImageRouteIdentity } from './image.ts'
 
 export { bodyHash, writeUnderLedger } from './write.ts'
 export type { WriteOutcome } from './write.ts'
@@ -279,6 +280,8 @@ export function resolveStoryboardBatchOptions(config: {
 export interface ImageMethodOptions {
   /** Exact catalogue rows permitted by this deployment. */
   allowedStandardIds?: readonly number[]
+  /** Additional exact routes with live per-image pricing permitted by this deployment. */
+  allowedRoutes?: readonly ImageRouteIdentity[]
   /** Deployment image selection; explicit per-call models replace it. */
   selection?: ImageModelSelection
   /** Total budget for reaching `hsAssetStatus === 'Active'`, in milliseconds. */
@@ -291,14 +294,36 @@ export interface ImageMethodOptions {
   sleep?: (ms: number) => Promise<void>
 }
 
-/** Explicit model selection does not retain another model's configured platform or standard. */
+/** A partial override inherits the actual model or channel of a saved price row. */
 function imageSelection(args: { image_model_id?: string; image_platform_id?: string; image_resolution?: string; image_spec_id?: number },
-  configured: ImageModelSelection | undefined): ImageModelSelection {
-  const base = args.image_model_id === undefined ? configured ?? {} : { modelId: args.image_model_id }
-  const platform = args.image_platform_id === undefined ? base
-    : { ...(base.modelId === undefined ? {} : { modelId: base.modelId }), platformId: args.image_platform_id }
+  configured: ImageModelSelection | undefined, catalogue: unknown, options: ImageMethodOptions | undefined): ImageModelSelection {
+  let saved = configured ?? {}
+  const { image_model_id: modelId, image_platform_id: platformId } = args
+  const partialOverride = (modelId === undefined) !== (platformId === undefined)
+  if (partialOverride && saved.standardId !== undefined && (saved.modelId === undefined || saved.platformId === undefined)
+    && (platformId !== undefined || saved.platformId === undefined)) {
+    const rows = readModels(imageSubmissionCatalogue(catalogue, options, saved))
+    const pinned = rows.filter(row => Number(row.id ?? row.standardId) === saved.standardId)
+    const [row] = pinned
+    if (pinned.length !== 1 || typeof row?.modelId !== 'string' || typeof row.platformId !== 'string') {
+      throw new JubianError('CONTRACT_CHANGED', 'The saved image route could not be identified; specify both image_model_id and image_platform_id')
+    }
+    saved = { ...saved, modelId: row.modelId, platformId: row.platformId }
+  }
+  const base = modelId === undefined || modelId === saved.modelId ? saved : { modelId }
+  const platform = platformId === undefined || platformId === base.platformId ? base
+    : { ...(base.modelId === undefined ? {} : { modelId: base.modelId }), platformId }
   return { ...platform, ...(args.image_spec_id === undefined ? {} : { videoStandardId: args.image_spec_id }),
     ...(args.image_resolution === undefined ? {} : { resolution: args.image_resolution }) }
+}
+
+/** Additional routes require a channel or row choice so model-only calls keep their existing route. */
+function imageSubmissionCatalogue(value: unknown, image: ImageMethodOptions | undefined,
+  selection: ImageModelSelection): unknown {
+  if (image?.allowedRoutes !== undefined && selection.platformId === undefined && selection.standardId === undefined) {
+    return allowedImageCatalogue(value, image.allowedStandardIds ?? [], undefined)
+  }
+  return allowedImageCatalogue(value, image?.allowedStandardIds, image?.allowedRoutes)
 }
 
 /** The seams a method needs besides the provider transport, injectable for tests. */
@@ -676,7 +701,7 @@ async function readProjectImageStyle(client: JubianClient, scriptId: number, sig
 }
 
 /** Validate every local batch argument before any item reads the provider or writes the ledger. */
-function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number, selection: ImageModelSelection): Array<{
+function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number): Array<{
   item: ImageBatchItem
   key: string
   assetName: string
@@ -706,9 +731,6 @@ function preparedImageBatch(args: MethodArgs, naming: Naming, maxItems: number, 
     const item: ImageBatchItem = { ...requested,
       ...(resolution === undefined ? {} : { image_resolution: resolution }),
       ...(aspectRatio === undefined ? {} : { image_aspect_ratio: aspectRatio }) }
-    if (item.image_model_id !== undefined && item.image_model_id === selection.modelId) delete item.image_model_id
-    if (item.image_model_id === undefined && item.image_platform_id !== undefined
-      && item.image_platform_id === selection.platformId) delete item.image_platform_id
     const key = requireKey(item.idempotency_key)
     if (key !== key.trim() || !key.isWellFormed() || /[\u0000-\u001f\u007f]/u.test(key) || keys.has(key)) {
       throw new JubianError('INVALID_ARGUMENT', `items[${index}].idempotency_key is blank, padded or duplicated`)
@@ -764,27 +786,15 @@ function page(args: MethodArgs): string {
 }
 
 /**
- * `jubian_catalog` — catalogue, screenplay and episode reads.
- * @param client - Jubian transport.
- * @param args - Dispatched on `method`.
- * @returns The requested slice, keyed by the `method` that asked for it.
- */
-/** Restrict image catalogue rows before any request body or quote is prepared. */
-function imageCatalogue(value: unknown, allowed: readonly number[] | undefined): unknown {
-  if (allowed === undefined) return value
-  if (!Array.isArray(value)) throw new JubianError('CONTRACT_CHANGED', 'Unreadable image catalogue')
-  return value.filter(item => item && typeof item === 'object' && allowed.includes(Number((item as Record<string, unknown>).id)))
-}
-
-/**
  * Read provider catalogues with an optional deployment image-channel restriction.
  * @param client - Authenticated read transport.
  * @param args - Catalogue operation and exact identifiers.
- * @param allowedImageStandards - Permitted taskType=2 catalogue row IDs; omission keeps all rows.
+ * @param allowedImageStandards - Permitted taskType=2 catalogue row IDs.
+ * @param allowedImageRoutes - Additional exact model and platform pairs with per-image pricing.
  * @returns Requested catalogue or project information.
  */
 export async function catalogMethod(client: JubianClient, args: MethodArgs,
-  allowedImageStandards?: readonly number[]): Promise<Record<string, unknown>> {
+  allowedImageStandards?: readonly number[], allowedImageRoutes?: readonly ImageRouteIdentity[]): Promise<Record<string, unknown>> {
   switch (args.method) {
     case 'auth': return authenticationMethod(client)
     case 'models': {
@@ -793,7 +803,8 @@ export async function catalogMethod(client: JubianClient, args: MethodArgs,
         throw new JubianError('CONTRACT_CHANGED')
       }
       const result = await client.request({ method: 'GET', path: `/model/charge/getSelectList?taskType=${taskType}` })
-      return { models: readModels(taskType === 2 ? imageCatalogue(result.data, allowedImageStandards) : result.data) }
+      return { models: readModels(taskType === 2
+        ? allowedImageCatalogue(result.data, allowedImageStandards, allowedImageRoutes) : result.data) }
     }
     case 'rate': {
       const standardId = need(args.standard_id)
@@ -1107,8 +1118,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     case 'image_generate_batch': {
       deps.signal?.throwIfAborted()
       const limits = deps.imageBatch ?? resolveImageBatchOptions()
-      const image = { ...deps.image, selection: imageSelection(args, deps.image?.selection) }
-      const requests = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems, image.selection)
+      const requests = preparedImageBatch(args, deps.naming ?? resolveNaming(), limits.maxItems)
       const resolveReferences = createImageReferenceResolver(client,
         deps.imageReferenceScan ?? resolveImageReferenceScanOptions(), deps.signal)
       const scriptId = need(args.script_id)
@@ -1121,15 +1131,17 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           ...(request.item.references === undefined ? {} : { references: request.item.references }) })
         prepared.push({ ...request, style, reference })
       }
-      const catalogueRows = imageCatalogue((await client.request({
-        method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data, deps.image?.allowedStandardIds)
+      const catalogueRows = (await client.request({
+        method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data
+      const image = { ...deps.image, selection: imageSelection(args, deps.image?.selection, catalogueRows, deps.image) }
       for (const { item, key, assetName, assetType, style, reference } of prepared) {
-        const selection: ImageModelSelection = imageSelection(item, image.selection)
+        const selection = imageSelection(item, image.selection, catalogueRows, image)
         const payload = buildImageRequest({ scriptId, assetName,
           assetType, prompt: need(item.prompt), imageStyle: style,
           references: reference.references,
           ...(item.image_aspect_ratio === undefined ? {} : { aspectRatio: item.image_aspect_ratio }),
-          ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) }, catalogueRows, selection)
+          ...(item.parent_asset_id === undefined ? {} : { parentAssetId: item.parent_asset_id }) },
+        imageSubmissionCatalogue(catalogueRows, image, selection), selection)
         const existing = await ledger.find(key)
         if (existing !== undefined && (existing.method !== 'image_generate' || existing.script_id !== args.script_id
           || existing.request_sha256 !== bodyHash(payload))) {
@@ -1226,7 +1238,6 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           throw new JubianError('INVALID_ARGUMENT', 'Managed character-reference generation cannot replace an existing asset')
         }
       }
-      const selection: ImageModelSelection = imageSelection(args, deps.image?.selection)
       // An episode locates the source scene, but a managed reference always creates
       // the current character's asset. Trust the Host identity over a caller-supplied
       // display name, and do not prefix that character name with EPxx.
@@ -1257,6 +1268,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       }))
       // Use the same permitted catalogue rows to build the request and reserve its cost.
       let catalogueRows: unknown
+      let selection: ImageModelSelection
       let selectors: ImageModelSelectors | undefined
       let result: Awaited<ReturnType<typeof writeUnderLedger>>
       try {
@@ -1265,7 +1277,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
             const style = imageStyle ??= await readProjectImageStyle(client, scriptId, deps.signal)
             const rows = deps.imageCatalogue !== undefined ? deps.imageCatalogue : (await client.request({
               method: 'GET', path: `/model/charge/getSelectList?taskType=${TASKS.image}` })).data
-            catalogueRows = imageCatalogue(rows, deps.image?.allowedStandardIds)
+            selection = imageSelection(args, deps.image?.selection, rows, deps.image)
+            catalogueRows = imageSubmissionCatalogue(rows, deps.image, selection)
             selectors = resolveImageModel(catalogueRows, selection, args.image_aspect_ratio)
             return buildImageRequest({ scriptId, assetName,
               assetType, prompt, imageStyle: style,
@@ -1278,9 +1291,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           () => {
             const price = readImageDisplayPrice(catalogueRows, selection)
             const observedAt = new Date().toISOString()
-            const pricingUnit = typeof price.unit === 'string' ? price.unit.trim() : undefined
-            if (price.status === 'available'
-              && (pricingUnit === '张' || pricingUnit === '条' || pricingUnit === '元/张' || pricingUnit === '元/条')) {
+            if (price.status === 'available' && isFixedImagePriceUnit(price.unit)) {
               return { amount: String(price.unit_price), unit: 'CNY', observedAt }
             }
             return { observedAt }

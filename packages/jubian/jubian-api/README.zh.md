@@ -247,7 +247,7 @@ async function downloadVideo(row: VideoSubtask) {
 
 - **项目名称不会修补分镜名称**——`readScript()` 把提供方的 `scriptName` 读成 `name`，旧载荷可回退读取 `name`；两者都不是文本时返回 `null`。`readStoryboard()` 在快照中原样保留分镜自己的 `scriptName`，即使它是 `null`；本库不会用项目数据写回分镜。
 - **拒绝会点名它拒绝了什么**——读取器抛出的 `CONTRACT_CHANGED` 带上它读不了的字段名，以及它收到的载荷的脱敏结构，因此调用方无需读原始响应体，就能分清是远端字段动了还是端点错了。
-- **图片选择器由调用方决定**——只有当这个选择把候选收敛到恰好一行 `gpt-image-2` 时，`resolveImageModel()` 才接受该目录。多行而未给选择时调用失败，错误里列出每个候选的 `platformId`、`standardId`、单价与单位；给了选择却匹配不到任何候选时同样失败。本库没有任何偏好某个平台或更便宜那一行的规则。
+- **图片选择器由调用方决定。** `resolveImageModel()` 要求恰好匹配一个目录行。只提供 `standardId` 时跨模型查找该行，同时指定模型时也要匹配模型。两者都省略时默认用 `gpt-image-2`。找不到匹配项或匹配多行时，提交前会返回失败及相关目录候选。
 - **费用与价格字段是证据，不是结算**——`real_cost`、`estimated_cost`、`discount_cost` 与 `readImageDisplayPrice()` 承载提供方报告的内容，且 `readImageDisplayPrice()` 始终返回 `quote_verified: false`；这里没有任何东西授权花钱。
 - **默认擦除矩形不裁切到画面内**——`defaultSubtitleBox()` 复现提供方实测的比例（`zimuTop` 570/1280、高 720/1280、宽为画面内缩一个像素），因此在 720x1280 的源上这个框可以越过底边；该形状取自一次被接受的请求，而不是提供方的保证。
 - **`needsUpscale()` 在无法判断时回答 `null`**——交付目标无法识别、来源无法识别且没有已记录的转高清证据，或非 SeedVR2 处理后来源行低于目标时，会得到 `null` 而不是布尔值；调用方必须把它当作未回答，而不是可以交付的许可。目前没有抓到 MediaKit 子结果载荷，因此假定其转高清行与已抓到的 SeedVR2 行一样记录自身模型和输出标签。
@@ -259,7 +259,7 @@ async function downloadVideo(row: VideoSubtask) {
 
 项目读取通过 `project_settings` 返回已保存的视频配置，包括解码后的 `globalConfig`，不代选模型、不合并独立配置。分集行将提供方的显示集号保留为 `episode_count`，它独立于 `episode_id` 和分页顺序；缺失或不可读的集号保持 null。素材选源按 key 首次出现的顺序处理，允许提示词重复引用同一资产及媒体用途；回读比较身份、名称、URL、类型、顺序与提示词，不比较服务端附加元数据。选定 key 的任意一次引用使用 `音频` 标记名称时，图片选源在 PUT 前拒绝；重复引用不能把图片 key 改成音频 key。媒体下载也接受 HTTPS 域名 `101.aigc.jubianai.net`，沿用大小、文件头与重定向检查。
 
-图片请求构造器默认使用 `16:9`，也接受显式 `9:16`。它从实时 `taskType=2` 目录中已选模型／平台行按画幅挑选 `videoStandardId`，而 `standardId` 仍是该计价模型行的 ID。参考图 URL 按原顺序进入 `materialList`；缺少或无效的规格在返回计费请求体之前被拒绝。这仅证明本地请求构造能力，远端是否受理 9:16 尚未验证。
+图片请求构造器默认使用 `16:9`，也接受显式 `9:16`。它从实时 `taskType=2` 目录中已选模型和渠道行按画幅挑选 `videoStandardId`，`standardId` 是该计价行的 ID。火山方舟（`FANG_ZHOU`）的 Seedream 5.5 也支持目录中的 `1.5K` 规格。参考图 URL 按原顺序进入 `materialList`，缺少或无效的规格会在构造计费请求时被拒绝。这些检查验证本地请求构造。
 
 <a id="dev-note"></a>
 ### 开发备注

@@ -17,8 +17,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { JubianClient } from '@deepseek-ai/dsh-jubian'
-import { MODEL_TASK_TYPES, imageCandidates, readModels } from '@deepseek-ai/dsh-jubian-api'
+import { JubianError, type JubianClient } from '@deepseek-ai/dsh-jubian'
+import { MODEL_TASK_TYPES, imageCandidates, readModels, resolveImageModel } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageModelSelection } from '@deepseek-ai/dsh-jubian-api'
 // Type-only: resolves the `settings` service and its Context merge.
 import type {} from '@deepseek-ai/dsh-settings'
@@ -44,8 +44,10 @@ declare module '@deepseek-ai/cordis' {
 
 /** The composition fields the paid image route reads. */
 export interface ImageRouteConfig {
-  /** Exact image catalogue rows this deployment exposes and permits. Undefined leaves the catalogue unrestricted. */
+  /** Exact image catalogue rows this deployment exposes and permits. With both policy fields absent, tools keep the full catalogue. */
   imageAllowedStandardIds?: number[]
+  /** Additional model and platform pairs with a per-image price and a supported landscape or portrait specification. */
+  imageAllowedRoutes?: ImageRouteIdentity[]
   /**
    * Which `platformId` of the `taskType=2` catalogue `image_generate` buys from,
    * such as `KU_AI`. The account catalogue can list one model id once per
@@ -59,6 +61,56 @@ export interface ImageRouteConfig {
    * from, such as `66`. Either this or `imagePlatformId` is enough to pin one row.
    */
   imageStandardId?: number
+}
+
+/** Exact model and platform identifiers from the provider's image catalogue. */
+export interface ImageRouteIdentity {
+  /** Model identifier shared by one or more platforms. */
+  modelId: string
+  /** Platform identifier used to keep same-name channels distinct. */
+  platformId: string
+}
+
+const FIXED_IMAGE_PRICE_UNITS = new Set(['张', '条', '元/张', '元/条'])
+
+/**
+ * Recognize quotes that price one image directly.
+ * @param unit - The unit returned with a catalogue price.
+ * @returns Whether one image can be reserved at that price.
+ */
+export function isFixedImagePriceUnit(unit: unknown): boolean {
+  return typeof unit === 'string' && FIXED_IMAGE_PRICE_UNITS.has(unit.trim())
+}
+
+/**
+ * Apply the same deployment policy to image discovery, display and submission.
+ * @param value - Live image catalogue from the provider.
+ * @param allowedStandardIds - Existing exact catalogue row IDs.
+ * @param allowedRoutes - Additional exact model and platform pairs with per-image pricing.
+ * @returns The permitted portion of the catalogue, or the original payload for unrestricted deployments.
+ * @throws {JubianError} When a restricted catalogue is not a list.
+ */
+export function allowedImageCatalogue(value: unknown, allowedStandardIds: readonly number[] | undefined,
+  allowedRoutes: readonly ImageRouteIdentity[] | undefined): unknown {
+  if (allowedStandardIds === undefined && allowedRoutes === undefined) return value
+  if (!Array.isArray(value)) throw new JubianError('CONTRACT_CHANGED', 'Unreadable image catalogue')
+  return value.filter((item: unknown) => {
+    if (!item || typeof item !== 'object') return false
+    const row = item as Record<string, unknown>
+    if (allowedStandardIds?.includes(Number(row.id))) return true
+    const id = typeof row.id === 'string' && /^[1-9][0-9]*$/.test(row.id) ? Number(row.id) : row.id
+    if (!(allowedRoutes?.some(route => route.modelId === row.modelId && route.platformId === row.platformId) === true
+      && typeof id === 'number' && Number.isSafeInteger(id) && id > 0 && typeof row.unitPrice === 'number'
+      && Number.isFinite(row.unitPrice) && row.unitPrice >= 0.01 && isFixedImagePriceUnit(row.unit))) return false
+    return (['16:9', '9:16'] as const).some((ratio) => {
+      try {
+        return resolveImageModel([row], { standardId: id }, ratio).modelGenerationTypeId !== null
+      } catch (_error) {
+        // The live row has no supported default specification for this ratio.
+        return false
+      }
+    })
+  })
 }
 
 /**
@@ -111,15 +163,17 @@ export class JubianImageRoutes extends TypertRemoteService {
    * @param ctx - Host context carrying the Remote assembly.
    * @param options - the transport the tools already read the account over.
    */
-  constructor(ctx: Context, options: { client: JubianClient; allowedStandardIds?: number[] }) {
+  constructor(ctx: Context, options: { client: JubianClient; allowedStandardIds?: number[]; allowedRoutes?: ImageRouteIdentity[] }) {
     super(ctx, 'jubianImage')
     this.client = options.client
     this.allowedStandardIds = options.allowedStandardIds
+    this.allowedRoutes = options.allowedRoutes
   }
 
   /** Transport shared with the tools: one origin, one credential, one timeout. */
   private readonly client: JubianClient
   private readonly allowedStandardIds: number[] | undefined
+  private readonly allowedRoutes: ImageRouteIdentity[] | undefined
 
   /**
    * List image catalogue rows permitted by this deployment.
@@ -136,9 +190,8 @@ export class JubianImageRoutes extends TypertRemoteService {
       const response = await this.client.request({
         method: 'GET', path: `/model/charge/getSelectList?taskType=${MODEL_TASK_TYPES.image}` })
       const models = readModels(response.data)
-      const allowed = this.allowedStandardIds
-      if (allowed === undefined) return { candidates: imageCandidates(models) }
-      return { candidates: models.filter(model => allowed.includes(Number(model.id)))
+      if (this.allowedStandardIds === undefined && this.allowedRoutes === undefined) return { candidates: imageCandidates(models) }
+      return { candidates: readModels(allowedImageCatalogue(models, this.allowedStandardIds, this.allowedRoutes))
         .map(model => ({ standardId: Number(model.id), platformId: String(model.platformId), modelId: String(model.modelId),
           modelName: String(model.modelName ?? model.modelId),
           unitPrice: typeof model.unitPrice === 'number' ? model.unitPrice : null, unit: typeof model.unit === 'string' ? model.unit : null })) }
