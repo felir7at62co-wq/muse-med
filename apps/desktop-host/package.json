@@ -18,6 +18,7 @@
     "lib/creation-skills.js",
     "lib/short-drama-guidance.js",
     "lib/editing-policy.js",
+    "lib/unattended-notify.js",
     "lib/manuscript-revisions.js",
     "lib/manuscript-continuity-preset.js",
     "lib/manuscript-source-review.js",
@@ -167,7 +168,8 @@
     "./computer-use": "./lib/computer-use.js",
     "./delegation-policy": "./lib/delegation-policy.js",
     "./approved-episode-render": "./lib/approved-episode-render.js",
-    "./episode-render-worker": "./lib/episode-render-worker.js"
+    "./episode-render-worker": "./lib/episode-render-worker.js",
+    "./unattended-notify": "./lib/unattended-notify.js"
   },
   "dsh": {
     "bundle": {
