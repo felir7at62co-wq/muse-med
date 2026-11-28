@@ -56,6 +56,26 @@ export interface ContentReviewReceipt {
   readonly path: string
   readonly sha256: string
   readonly files: readonly { readonly path: string; readonly sha256: string }[]
+  /**
+   * Unattended runs only: findings a person still has to settle after the whole drama is made, in review order.
+   * Absent when nothing is pending, so attended receipts keep their previous shape.
+   */
+  readonly pending?: readonly string[]
+}
+
+/** First line of the pending list when no person has listened to the current output. */
+export const LISTENING_PENDING = '整集试听待人工听校：无人值守运行中没有人试听当前成片，发音、漏说错说、说话人和声音衔接须在全剧完成后人工听校。'
+
+/**
+ * Whether this Host runs without a person, read from the session coordinator's deployment mode when it is mounted.
+ * @param ctx - Any Host scope; the coordinator is optional and read structurally so this package keeps no dependency on it.
+ * @returns True only when a mounted coordinator reports `unattended`.
+ */
+export function unattendedReviewMode(ctx: Pick<Context, 'get'>): boolean {
+  const coordinator: unknown = (ctx.get as (name: string) => unknown)('sessionCoordinator')
+  if (coordinator === null || typeof coordinator !== 'object') return false
+  const mode: unknown = (coordinator as { mode?: unknown }).mode
+  return mode !== null && typeof mode === 'object' && (mode as { unattended?: unknown }).unattended === true
 }
 
 type Row = Record<string, unknown>
@@ -83,21 +103,29 @@ async function localFile(project: string, path: unknown, expected?: unknown, con
   return { path: file, sha256, value }
 }
 
-function coverage(ranges: readonly Row[], dimension: string, duration: number): void {
+/**
+ * Require reviewed ranges to cover the whole duration; an open finding inside a reviewed range goes to `concern`.
+ * Gaps and malformed ranges always fail: something must actually have been reviewed.
+ */
+function coverage(ranges: readonly Row[], dimension: string, duration: number, concern: (reason: string) => void = fail): void {
   const selected = ranges.filter(row => row.dimension === dimension).sort((a, b) => Number(a.start_seconds) - Number(b.start_seconds))
   let covered = 0
   for (const row of selected) {
     if (!number(row.start_seconds) || !number(row.end_seconds) || row.start_seconds < 0
       || row.end_seconds <= row.start_seconds || row.end_seconds > duration + 0.001
       || row.start_seconds > covered + 0.001) fail(`${dimension}存在未审查区间。`)
-    if (row.status !== 'ok' || !text(row.reason)) fail(`${dimension} ${row.start_seconds}–${row.end_seconds}秒仍有问题或未核实。`)
+    if (!text(row.reason)) fail(`${dimension} ${row.start_seconds}–${row.end_seconds}秒缺少审查说明。`)
+    if (row.status !== 'ok') concern(`${dimension} ${row.start_seconds}–${row.end_seconds}秒仍有问题或未核实：${row.reason}`)
     covered = Math.max(covered, row.end_seconds)
   }
   if (covered < duration - 0.001) fail(`${dimension}未覆盖完整的${duration}秒。`)
 }
 
 /** Require current source/output content review before staging or sending a final episode.
- * @param input - Current independently verified output and selected pre-concatenation clips.
+ * @param input - Current independently verified output and selected pre-concatenation clips. With `unattended`,
+ * the review must still exist and cover every frame and range, but open picture findings, recorded issues and the
+ * missing human listening answer become `pending` items for the person who reviews the finished drama.
+ * Subtitle and spec verdicts stay mandatory in both modes.
  * @returns Exact review files to bind to the delivery receipt; no semantic perfection is claimed.
  */
 export async function verifyEpisodeContentReview(input: {
@@ -110,13 +138,27 @@ export async function verifyEpisodeContentReview(input: {
   readonly cuts: readonly number[]
   readonly path?: string
   readonly verifier?: ContentReviewVerifier
+  readonly unattended?: boolean
 }): Promise<ContentReviewReceipt> {
+  const unattended = input.unattended === true
+  const pending: string[] = []
+  const concern = (reason: string): void => {
+    if (!unattended) fail(reason)
+    if (!pending.includes(reason)) pending.push(reason)
+  }
   const saved = await localFile(input.project, input.path ?? '_probe/delivery-config/film-reviews.json')
   const films = saved.value.films, film = object(films) ? films[input.episode] ?? films[String(Number(input.episode))] : undefined
   if (!object(film) || !text(film.source) || !equalPath(resolve(input.project, film.source), input.output)
     || film.sha256 !== input.outputSha256 || film.reviewed !== true) fail('缺少当前成片SHA-256绑定的审查登记。')
-  if (['picture', 'audio', 'subtitle', 'spec'].some(key => film[key] !== 'ok')
-    || !Array.isArray(film.issues) || film.issues.length !== 0) fail('成片审查仍有issues或unverified，技术通过不能放行。')
+  if (!Array.isArray(film.issues)) fail('成片审查缺少issues列表。')
+  if (!unattended) {
+    if (['picture', 'audio', 'subtitle', 'spec'].some(key => film[key] !== 'ok')
+      || film.issues.length !== 0) fail('成片审查仍有issues或unverified，技术通过不能放行。')
+  } else {
+    if (['subtitle', 'spec'].some(key => film[key] !== 'ok')) fail('成片字幕或规格审查未通过，无人值守也不能放行。')
+    for (const key of ['picture', 'audio'] as const) if (film[key] !== 'ok') concern(`成片${key === 'picture' ? '画面' : '声音'}审查为${String(film[key])}，待人工复核。`)
+    for (const issue of film.issues) concern(`成片审查问题：${typeof issue === 'string' ? issue : JSON.stringify(issue)}`)
+  }
   const content = film.content_review
   if (!object(content) || content.version !== 1 || !object(content.output)) fail('缺少分包和成片的内容证据。')
   const sources = rows(content.sources, '原始分包审查')
@@ -149,9 +191,11 @@ export async function verifyEpisodeContentReview(input: {
       frameIds.add(frame.id)
     }
     if (!frameIds.size) fail('内容判断没有实际观察帧。')
-    if (report.value.event_groups !== undefined && rows(report.value.event_groups, '动作事件').some(event =>
-      typeof event.uncertainty !== 'string' || hasReviewUncertainty(event.uncertainty))) fail('已观察动作事件仍有未决疑点。')
-    for (const dimension of dimensions) coverage(checks, dimension, duration)
+    if (report.value.event_groups !== undefined) for (const event of rows(report.value.event_groups, '动作事件')) {
+      if (typeof event.uncertainty !== 'string') fail('已观察动作事件缺少疑点说明。')
+      if (hasReviewUncertainty(event.uncertainty)) concern(`${final ? '成片' : `第${String(target.shot)}镜分包`}已观察动作事件仍有未决疑点：${event.uncertainty}`)
+    }
+    for (const dimension of dimensions) coverage(checks, dimension, duration, concern)
     for (const check of checks) {
       if (!dimensions.includes(check.dimension as typeof dimensions[number]) || !text(check.expected)
         || !Array.isArray(check.frame_ids) || check.frame_ids.length < 2
@@ -181,14 +225,36 @@ export async function verifyEpisodeContentReview(input: {
     }
     files.push({ path: media, sha256: expected }, { path: report.path, sha256: report.sha256 })
   }
-  const audio = content.audio
-  if (!object(audio) || audio.status !== 'ok' || !text(audio.session_id) || !text(audio.question_call_id)) fail('实际发音仍未听核。')
-  const audioRanges = rows(audio.ranges, '声音审查')
-  if (audioRanges.some(row => row.dimension !== 'pronunciation')) fail('声音范围必须明确核对实际发音。')
-  coverage(audioRanges, 'pronunciation', input.duration)
-  const question = contentListeningQuestion(input.output, input.outputSha256, input.duration)
-  await input.verifier({ kind: 'listening', sessionId: audio.session_id, callId: audio.question_call_id,
-    questionId: question.id, question: question.question })
+  const audio: Row = object(content.audio) ? content.audio : {}
+  const answered = audio.status === 'ok' && text(audio.session_id) && text(audio.question_call_id)
+  if (!unattended && !answered) fail('实际发音仍未听核。')
+  if (!unattended) {
+    const audioRanges = rows(audio.ranges, '声音审查')
+    if (audioRanges.some(row => row.dimension !== 'pronunciation')) fail('声音范围必须明确核对实际发音。')
+    coverage(audioRanges, 'pronunciation', input.duration)
+  } else if (audio.ranges !== undefined) {
+    // Unattended: machine pronunciation ranges are optional evidence; gaps and open ranges go to the person.
+    try {
+      const audioRanges = rows(audio.ranges, '声音审查')
+      if (audioRanges.some(row => row.dimension !== 'pronunciation')) fail('声音范围必须明确核对实际发音。')
+      if (audioRanges.length > 0) coverage(audioRanges, 'pronunciation', input.duration, concern)
+    } catch (error) {
+      concern(String(error).replace(/^(?:Error: )?CONTENT_REVIEW_PENDING: /u, '机器读音检查：'))
+    }
+  }
+  let listened = false
+  if (answered) {
+    const question = contentListeningQuestion(input.output, input.outputSha256, input.duration)
+    try {
+      await input.verifier({ kind: 'listening', sessionId: String(audio.session_id), callId: String(audio.question_call_id),
+        questionId: question.id, question: question.question })
+      listened = true
+    } catch (error) {
+      // Nobody can answer in an unattended run; a claimed answer that does not verify leaves listening to a person.
+      if (!unattended || !String(error).includes('CONTENT_REVIEW_PENDING')) throw error
+    }
+  }
+  if (unattended && !listened) pending.unshift(LISTENING_PENDING)
   for (const file of files) if (await fileSha256(file.path) !== file.sha256) fail('核验期间内容证据已变化。')
-  return { path: saved.path, sha256: saved.sha256, files }
+  return { path: saved.path, sha256: saved.sha256, files, ...(pending.length === 0 ? {} : { pending }) }
 }

@@ -50,7 +50,7 @@ import { fitSubtitleCues } from './subtitle-fit.ts'
 import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitleDisplayWarnings } from './subtitles.ts'
 import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
 import type { SourceQaEvidenceBinding, SourceQaVerifier } from './source-qa.ts'
-import { createContentReviewVerifier, type ContentReviewVerifier } from './content-review.ts'
+import { createContentReviewVerifier, unattendedReviewMode, type ContentReviewVerifier } from './content-review.ts'
 import { registerLocalDialoguePatchTool } from './local-dialogue-patch-tool.ts'
 import { registerContentListeningTool } from './content-listening-tool.ts'
 import { createOfflinePronunciationVerifier } from './offline-pronunciation-evidence.ts'
@@ -1279,7 +1279,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...(last_shot === undefined ? {} : { lastShot: last_shot }),
         ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
         ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),
-      }, settings, async (binding) => {
+      }, unattendedReviewMode(ctx) ? { ...settings, unattendedReview: true } : settings, async (binding) => {
         const scope = sourceQaScope
         if (scope === undefined) throw Error('SOURCE_QA_HOST_UNAVAILABLE: 当前会话缺少源片复验服务，请恢复文件、沙箱策略和会话审看服务后重试。')
         const signal = AbortSignal.any([exec.signal, scope.signal])

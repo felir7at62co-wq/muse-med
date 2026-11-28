@@ -17,17 +17,18 @@ import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-ses
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
+import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import * as Present from '@deepseek-ai/dsh-tool-present'
 import * as EditingPolicy from '../src/editing-policy.ts'
 import { validateShortDramaDelivery } from '../src/short-drama-delivery.ts'
-import { verifyEpisodeContentReview, type ContentReviewVerifier } from '@deepseek-ai/dsh-tool-episode-render/delivery'
+import { LISTENING_PENDING, verifyEpisodeContentReview, type ContentReviewVerifier } from '@deepseek-ai/dsh-tool-episode-render/delivery'
 import { contentReviewFixture } from '../../../packages/drama/tool-episode-render/tests/content-review-fixture.ts'
 import { draftFontFixture } from '../../../packages/drama/tool-episode-render/tests/draft-font-fixture.ts'
-import { installReviewState } from '../../../packages/perception/tool-video-inspect/src/review-state.ts'
+import { installReviewState, reviewEvidenceJson, saveReview, VideoReviewId, type VideoReview } from '../../../packages/perception/tool-video-inspect/src/review-state.ts'
 import { installSourceQaState } from '../../../packages/perception/tool-video-inspect/src/source-qa-state.ts'
 
 const cleanups: Array<() => Promise<unknown>> = []
@@ -589,7 +590,7 @@ it('preserves measured landscape typography without enforcing the portrait face'
   await expect(validateShortDramaDelivery([f.video], signal, undefined, verifiedContent)).resolves.toBeUndefined()
 })
 
-async function formalHost(f: Awaited<ReturnType<typeof fixture>>, evidenceServices = true) {
+async function formalHost(f: Awaited<ReturnType<typeof fixture>>, evidenceServices = true, mode?: { unattended: boolean }) {
   const ctx = new Context(); cleanups.push(() => ctx.fiber.dispose())
   ctx.baseUrl = pathToFileURL(f.root).href + '/'
   await ctx.plugin(Loader); await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(AgentRegistry)
@@ -597,11 +598,10 @@ async function formalHost(f: Awaited<ReturnType<typeof fixture>>, evidenceServic
   ctx.loader.builtins.include = Include
   await ctx.plugin(LocalFileSystem, { cwd: f.root }); await ctx.plugin(SessionProjections)
   await ctx.plugin(WorkingDirectory, { defaultDirectory: f.root })
-  if (evidenceServices) {
-    await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: f.root })
-    await installReviewState(ctx)
-    await installSourceQaState(ctx)
-  }
+  if (mode !== undefined) ctx.provide('sessionCoordinator', { mode } as never)
+  if (evidenceServices) await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: f.root })
+  const readReviews = evidenceServices ? await installReviewState(ctx) : undefined
+  if (evidenceServices) await installSourceQaState(ctx)
   await ctx.plugin(Present, { maxFiles: 2 })
   ctx.loader.builtins['test-editing-policy'] = EditingPolicy
   const config = join(f.root, 'cordis.yml')
@@ -628,10 +628,93 @@ async function formalHost(f: Awaited<ReturnType<typeof fixture>>, evidenceServic
       if (args.path === undefined) return 'no file selected'
       sent.push(args.path); return 'queued'
     } }))
-  const execute = (name: string, path: string) => executeModelToolFixture(ctx, { name, callId: ToolCallId(`delivery-${++serial}`),
-    arguments: name === 'present' ? { files: [{ path }] } : { path }, agent: owner, signal })
-  return { ctx, owner, execute, sent, policy }
+  const execute = (name: string, path: string) => ctx.agents.withInitiator(owner, () => executeModelToolFixture(ctx, {
+    name, callId: ToolCallId(`delivery-${++serial}`),
+    arguments: name === 'present' ? { files: [{ path }] } : { path }, agent: owner, signal,
+  }))
+  return { ctx, owner, execute, sent, policy, readReviews }
 }
+
+async function recordContentObservations(f: Awaited<ReturnType<typeof fixture>>, h: Awaited<ReturnType<typeof formalHost>>) {
+  const { ctx, owner: { session }, readReviews } = h
+  if (readReviews === undefined) throw Error('Expected the formal Host observation service')
+  const { sources, output } = f.review.entry.content_review
+  for (const { source, inspection } of [...sources, output]) {
+    const target = await ctx.fs.resolve(source, { cwd: f.root })
+    const info = await ctx.fs.stat(target)
+    if (info?.type !== 'file') throw Error('Expected current fixture video')
+    const { duration, frames } = await readFixture<{ duration: number; frames: { id: string; decoded_time: number }[] }>(inspection.path)
+    const review: VideoReview = { id: VideoReviewId(inspection.review_id), episode: '41', path: source,
+      source_version: info.version, duration, scanned_until: duration, scan_complete: true,
+      frames: frames.map(({ id, decoded_time }) => ({ id, time: decoded_time, decoded_time, reasons: ['fixture'], exposed: true,
+        image: { attachmentId: 'fixture-frame', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
+        observation: { visible: '人物在门口放下杯子', change: '人物转身离开', uncertainty: '' } })) }
+    saveReview(readReviews, session, review)
+    const report = reviewEvidenceJson(review)
+    await writeFile(inspection.path, report)
+    inspection.session_id = session.id
+    inspection.sha256 = sha(report)
+    const body = { complete: true, path: source, source_version: info.version, review_id: review.id,
+      observation_session_id: session.id, observation_report: inspection.path, observation_report_sha256: inspection.sha256 }
+    const callId = ToolCallId(`observation-${++serial}`)
+    // Replay successful tool issuance so the Host verifies the current Session and exact report bytes.
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'video_inspect', arguments: '{}' })
+    session.append('tool/result', { turn: 1, step: 1, meta: { [TOOL_BODY_META_KEY]: body },
+      message: createToolResultMessage({ callId, content: [{ type: 'text', text: JSON.stringify(body) }], isError: false }) },
+    { surfaceOp: 'append' })
+  }
+  await f.json(f.review.path, f.review.document)
+}
+
+it('requires matching pending review for unattended presentation and attachments, including a staged upload copy', async () => {
+  const f = await fixture(), mode = { unattended: true }, h = await formalHost(f, true, mode)
+  f.review.entry.content_review.audio.status = 'unverified'
+  await recordContentObservations(f, h)
+  const contentReview = await verifyEpisodeContentReview({ project: f.project, episode: '41', output: f.working,
+    outputSha256: sha('candidate-video'), duration: 2, sources: [{ shot: 1, sha256: sha('current-source'), duration: 2 }],
+    cuts: [], verifier: verifiedContent, unattended: true })
+  expect(contentReview.pending).toEqual([LISTENING_PENDING])
+  const receipt = await readFixture<Record<string, unknown>>(f.receipt)
+  const { path, sha256, files } = contentReview
+  const reviewWithoutPending = { path, sha256, files }
+  const upload = join(f.episode, '00-交付上传', '41.mp4')
+  await mkdir(dirname(upload), { recursive: true })
+  await writeFile(upload, await readFile(f.video))
+  const operations = [
+    { name: 'present', path: relative(f.root, f.video) },
+    { name: 'send_file', path: relative(f.root, f.video) },
+    { name: 'send_file', path: relative(f.root, upload) },
+  ]
+  const presented = () => h.owner.session.snapshotEvents().filter(event => event.type === 'deliverables/presented')
+
+  for (const wrongReview of [reviewWithoutPending, { ...contentReview, pending: ['已完成听校'] }]) {
+    await f.json(f.receipt, { ...receipt, content_review: wrongReview })
+    for (const { name, path } of operations) {
+      const result = await h.execute(name, path)
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result)).toContain('short_drama_delivery_content')
+    }
+  }
+  expect(presented()).toHaveLength(0)
+  expect(h.sent).toEqual([])
+
+  await f.json(f.receipt, { ...receipt, content_review: contentReview })
+  for (const { name, path } of operations) {
+    const result = await h.execute(name, path)
+    expect(result.isError, JSON.stringify(result.error)).toBe(false)
+  }
+  expect(presented()).toHaveLength(1)
+  expect(h.sent).toEqual([relative(f.root, f.video), relative(f.root, upload)])
+
+  mode.unattended = false
+  for (const { name, path } of operations) {
+    const result = await h.execute(name, path)
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result)).toContain('CONTENT_REVIEW_PENDING')
+  }
+  expect(presented()).toHaveLength(1)
+  expect(h.sent).toHaveLength(2)
+})
 
 it('uses the real Loader policy to reject unobserved content before presentation and both attachment executors', async () => {
   const f = await fixture(), h = await formalHost(f)
