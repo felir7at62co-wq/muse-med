@@ -486,12 +486,11 @@ export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePat
     const source = manifestDocument ?? await readJsonDocument(paths.sources, '已准备分包清单')
     const rows = parseShotManifest(source, paths.sources)
     const prepared = source as { master_audio_sha256?: unknown; timeline_clips?: unknown }
-    if (requireMaster || prepared.master_audio_sha256 !== undefined || prepared.timeline_clips !== undefined) {
-      const expected = prepared.master_audio_sha256
-      if (typeof expected !== 'string' || !/^[0-9a-f]{64}$/u.test(expected)
-        || !await pathExists(paths.masterAudio) || await fileSha256(paths.masterAudio, signal) !== expected) {
-        throw new Error(`EP${paths.episode} 整集原声与准备记录不一致，请用当前选源重新 prepare。`)
-      }
+    if (!requireMaster && prepared.master_audio_sha256 === undefined && prepared.timeline_clips === undefined) return rows
+    const expected = prepared.master_audio_sha256
+    if (typeof expected !== 'string' || !/^[0-9a-f]{64}$/u.test(expected)
+      || !await pathExists(paths.masterAudio) || await fileSha256(paths.masterAudio, signal) !== expected) {
+      throw new Error(`EP${paths.episode} 整集原声与准备记录不一致，请用当前选源重新 prepare。`)
     }
     const clock = prepared.timeline_clips
     if (requireMaster && (!Array.isArray(clock) || clock.length !== timeline.clips.length
