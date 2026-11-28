@@ -616,11 +616,20 @@ export const Config = z.strictObject({
 })
 
 const jsExpressionTag = { tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }
+const presetEntryList = z.array(z.looseObject({ id: z.string().optional(), name: z.string(),
+  group: z.boolean().optional(), config: z.unknown().optional() }))
+
+function findEpisodeRenderers(entries: unknown): z.infer<typeof presetEntryList> {
+  return presetEntryList.parse(entries).flatMap((row) => {
+    if (row.group === true) return findEpisodeRenderers(row.config)
+    return row.id === 'tool-episode-render' && row.name === '@deepseek-ai/dsh-tool-episode-render' ? [row] : []
+  })
+}
+
 async function selectedRendererConfig(ctx: Context, preset: string): Promise<{ document: string; config: RendererConfig }> {
   const document = await ctx.agentPresets.readDocument(preset)
   const parsed: unknown = parseYaml(document.content, { customTags: [jsExpressionTag] })
-  const rows = z.array(z.looseObject({ id: z.string().optional(), name: z.string(), config: z.unknown().optional() })).parse(parsed)
-  const renderer = rows.filter(row => row.id === 'tool-episode-render' && row.name === '@deepseek-ai/dsh-tool-episode-render')
+  const renderer = findEpisodeRenderers(parsed)
   if (renderer.length !== 1) throw new Error('The selected Desktop preset must declare exactly one episode renderer')
   const evaluated: unknown = interpolate(ctx, renderer[0]?.config)
   return { document: document.content, config: parseEpisodeRendererConfig(evaluated) }

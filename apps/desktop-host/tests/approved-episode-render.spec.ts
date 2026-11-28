@@ -1,11 +1,12 @@
 /** Configured provider captures actual owner modules, runtime files and immutable project policy. */
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import * as SourceReview from '@deepseek-ai/dsh-tool-episode-render/source-qa'
-import { createConfiguredEpisodeRenderer } from '../src/approved-episode-render.ts'
+import { afterEach, expect, it, vi } from 'vitest'
+import { apply, Config, createConfiguredEpisodeRenderer } from '../src/approved-episode-render.ts'
 import type { ConfiguredEpisodeRenderer, EpisodeRendererLimits } from '../src/approved-episode-render.ts'
 import { inspectEpisodeFile } from '../src/episode-render-inputs.ts'
 import { episodeFactsHash } from '../src/episode-render-descriptor.ts'
@@ -19,6 +20,27 @@ afterEach(async () => {
 })
 const limits: EpisodeRendererLimits = { requestBytes: 4096, replyBytes: 8192, descriptorBytes: 131072, journalBytes: 131072,
   lockWaitMs: 1000, mediaGraceMs: 100, mediaStdoutBytes: 65536, mediaStderrBytes: 65536, diagnosticBytes: 4096, runtimeEntries: 100 }
+
+it.each([
+  { preset: 'creation', duplicate: false },
+  { preset: 'short-drama', duplicate: false },
+  { preset: 'creation', duplicate: true },
+])('selects the shipped $preset renderer with duplicate=$duplicate before capturing its runtime', async ({ preset, duplicate }) => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-renderer-preset-'))
+  roots.push(root)
+  const ctx = new Context()
+  const document = await readFile(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8')
+  const content = duplicate ? document + '\n- id: tool-episode-render\n  name: "@deepseek-ai/dsh-tool-episode-render"\n' : document
+  ctx.provide('agentPresets', { readDocument: async () => ({ content }) } as never)
+  try {
+    const started = apply(ctx, Config.parse({ runtimeDir: join(root, 'missing-runtime'), endingAssetRoot: root, presetId: preset }))
+    if (duplicate) await expect(started).rejects.toThrow('must declare exactly one episode renderer')
+    else await expect(started).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-configured-renderer-'))); roots.push(root)
   for (const name of ['code', 'fonts', 'media', 'editing']) await mkdir(join(root, name))

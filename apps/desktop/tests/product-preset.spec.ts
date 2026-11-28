@@ -90,9 +90,19 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     const source = document.content
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>
     expect(rows.some(row => row.id === 'tool-jubian')).toBe(false)
-    for (const id of ['drama-gate', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render', 'perception-bgm']) {
+    for (const id of ['drama-gate', 'tool-drama-assets', 'perception-bgm']) {
       expect(rows.some(row => row.id === id), id).toBe(true)
     }
+    expect(rows.find(row => row.id === 'local-episode-tools')).toMatchObject({
+      name: 'cordis:group',
+      group: true,
+      isolate: { shotScriptVoice: true },
+      config: [
+        { id: 'tool-shot-script', config: { reviewMode: 'advisory', sessionVideoSelection: true } },
+        { id: 'tool-bgm-compose' },
+        { id: 'tool-episode-render' },
+      ],
+    })
     expect(rows.some(row => row.id === 'tool-character-reference')).toBe(false)
     expect(rows.find(row => row.id === 'character-reference')).toMatchObject({
       name: 'cordis:group',
@@ -148,7 +158,6 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
       expect(row).toMatchObject({ id, config: { provider } })
     }
     expect(prompt).not.toContain('pipeline_state.json')
-    expect(rows.find(row => row.id === 'tool-shot-script')?.config).toMatchObject({ reviewMode: 'advisory', sessionVideoSelection: true })
     expect(rows.some(row => row.id === 'screenplay-project')).toBe(false)
     expect(rows.some(row => row.id === 'editing-policy')).toBe(true)
     expect(prompt).toContain('单集目标、最低集长或汇总差额不授权重新分配视频包时长')

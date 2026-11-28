@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { expect, it } from 'vitest'
 import { assetRow, manifestDocument, speakingShot } from '../../../packages/drama/tool-shot-script/tests/harness.ts'
@@ -10,7 +11,10 @@ import { sessionVideoShot } from '../../../packages/drama/tool-shot-script/tests
 
 it('runs the shipped short-drama row as a non-blocking review and writes only its separate draft', async () => {
   const path = fileURLToPath(new URL('../../desktop-host/presets/short-drama/agent.cordis.yml', import.meta.url))
-  const row = loadOverlayPatches('muse-shot-review-test', path).find(row => row.id === 'tool-shot-script')
+  const group = loadOverlayPatches('muse-shot-review-test', path).find(row => row.id === 'local-episode-tools')
+  const tools: unknown = group?.config
+  if (!Array.isArray(tools)) throw new Error('Missing local episode tools')
+  const row = (tools as EntryOptions[]).find(row => row.id === 'tool-shot-script')
   expect(row).toMatchObject({ name: '@deepseek-ai/dsh-tool-shot-script', config: { reviewMode: 'advisory', sessionVideoSelection: true } })
   expect(row?.disabled).not.toBe(true)
   const config: unknown = row?.config
