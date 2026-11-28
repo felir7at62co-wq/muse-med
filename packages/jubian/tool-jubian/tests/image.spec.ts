@@ -72,10 +72,11 @@ describe('the jubianImage Remote namespace', () => {
   /**
    * Mount the namespace over a stub transport.
    * @param request - the transport call this test drives.
+   * @param policy - the catalogue filters of the mounted deployment.
    * @returns the Host service under its Remote namespace.
    */
   async function boot(request: (options: { path: string }) => Promise<{ data: unknown }>,
-    allowedStandardIds?: number[]): Promise<JubianImageRoutes> {
+    policy: Omit<ConstructorParameters<typeof JubianImageRoutes>[1], 'client'> = {}): Promise<JubianImageRoutes> {
     const ctx = new Context()
     class CatalogueClient extends JubianClient {
       override async request(options: JubianRequest): Promise<JubianResponse> {
@@ -84,7 +85,7 @@ describe('the jubianImage Remote namespace', () => {
       }
     }
     const client = new CatalogueClient({ credential: async () => 'fixture-token' })
-    await ctx.plugin(JubianImageRoutes, { client, ...(allowedStandardIds ? { allowedStandardIds } : {}) })
+    await ctx.plugin(JubianImageRoutes, { client, ...policy })
     return ctx.jubianImage
   }
 
@@ -104,10 +105,32 @@ describe('the jubianImage Remote namespace', () => {
 
   it('offers only the three permitted channels, retaining distinct model names', async () => {
     const routes = await boot(async () => ({ data: [...CATALOGUE,
-      { id: 86, modelId: 'gpt-image-2.5-sunburst-c', platformId: 'KU_AI', unitPrice: 0.3, unit: '元/条' }] }), [76, 66, 86])
+      { id: 86, modelId: 'gpt-image-2.5-sunburst-c', platformId: 'KU_AI', unitPrice: 0.3, unit: '元/条' }] }),
+    { allowedStandardIds: [76, 66, 86] })
     const result = await routes.routes()
     expect(result.candidates.map(row => row.standardId)).toEqual([66, 76, 86])
     expect(result.candidates[2]).toMatchObject({ modelId: 'gpt-image-2.5-sunburst-c' })
+  })
+
+  it('offers the live Sunburst channels as separately priced settings choices', async () => {
+    const modelId = 'gpt-image-2.5-sunburst-c'
+    const platformId = 'DUO_YUAN_TAN_SUO'
+    const genTypes = [{ id: 117, type: 3 }]
+    const videoStandards = [
+      { id: 2941, ratio: '16:9', resolution: '1K', width: 1280, height: 720 },
+      { id: 3941, ratio: '9:16', resolution: '1K', width: 720, height: 1280 },
+    ]
+    const routes = await boot(async () => ({ data: [
+      { id: 86, modelId, platformId: 'KU_AI', unitPrice: 0.405, unit: '元/条' },
+      { id: 1721, modelId, platformId, unitPrice: 0.4, unit: '元/条', genTypes, videoStandards },
+      { id: 1722, modelId, platformId, unitPrice: 180, unit: '元/百万 tokens', genTypes, videoStandards },
+      { id: 1723, modelId, platformId: 'OTHER', unitPrice: 0.4, unit: '元/条', genTypes, videoStandards },
+      { id: 1724, modelId, platformId, unitPrice: 0.4, unit: '元/条', genTypes, videoStandards: [] },
+    ] }), { allowedStandardIds: [86], allowedRoutes: [{ modelId, platformId }] })
+    await expect(routes.routes()).resolves.toEqual({ candidates: [
+      { standardId: 86, modelId, modelName: modelId, platformId: 'KU_AI', unitPrice: 0.405, unit: '元/条' },
+      { standardId: 1721, modelId, modelName: modelId, platformId, unitPrice: 0.4, unit: '元/条' },
+    ] })
   })
 
   it('reports an unreadable catalogue with the transport\'s own reason', async () => {

@@ -253,6 +253,222 @@ describe('explicit image catalogue selection', () => {
   })
 })
 
+describe('live image channel allowances', () => {
+  const sunburst = 'gpt-image-2.5-sunburst-c'
+  const duo = 'DUO_YUAN_TAN_SUO'
+  const imageSpecs = (id: number, resolution: '1K' | '1.5K' = '1K') => {
+    const width = resolution === '1.5K' ? 1920 : 1280
+    const height = resolution === '1.5K' ? 1080 : 720
+    return [
+      { id, ratio: '16:9', resolution, width, height, genNum: 1 },
+      { id: id + 1000, ratio: '9:16', resolution, width: height, height: width, genNum: 1 },
+    ]
+  }
+  const legacyRow = { ...MULTI_IMAGE_CATALOGUE[0]!, id: 86, modelId: sunburst, unitPrice: 0.405 }
+  const duoRow = { ...legacyRow, id: 1721, platformId: duo, unitPrice: 0.4, unit: ' 元/条 ',
+    genTypes: [{ id: 117, type: 3 }], videoStandards: imageSpecs(2941) }
+  const additionalRows = [
+    { ...duoRow, id: 1722, modelId: 'seedream-5-5', platformId: 'FANG_ZHOU', unitPrice: 0.18, unit: '元/张',
+      videoStandards: imageSpecs(2942, '1.5K') },
+    { ...duoRow, id: 1724, modelId: 'midjourney-v8.2', unitPrice: 0.6, videoStandards: imageSpecs(2944) },
+    { ...duoRow, id: 1725, modelId: 'qwen-image-3.0', platformId: 'HH', unitPrice: 0.18, unit: '元/张',
+      videoStandards: imageSpecs(2945) },
+    { ...duoRow, id: 1726, modelId: 'qwen-image-3.0-pro', platformId: 'HH', unitPrice: 0.5, unit: '元/张',
+      videoStandards: imageSpecs(2946) },
+  ]
+  const blockedRow = { ...duoRow, id: 1723, modelId: 'midjourney-v7', unitPrice: 0.6, videoStandards: imageSpecs(2943) }
+  const allowedStandardIds = [66, 76, 86]
+  const allowedRoutes = [duoRow, ...additionalRows].map(({ modelId, platformId }) => ({ modelId, platformId }))
+  const image = { asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'sunburst-duo' }
+  const selection = { image_model_id: sunburst, image_platform_id: duo }
+  const legacyItem = { ...image, asset_name: 'legacy lead', idempotency_key: 'sunburst-ku', image_model_id: sunburst }
+  const platformOverrides = [
+    { entry: 'single image', request: { method: 'image_generate', script_id: 2708, ...image, image_platform_id: duo } },
+    { entry: 'top-level batch', request: { method: 'image_generate_batch', script_id: 2708, image_platform_id: duo, items: [image] } },
+    { entry: 'batch item', request: { method: 'image_generate_batch', script_id: 2708, items: [{ ...image, image_platform_id: duo }] } },
+  ] satisfies { entry: string; request: MethodArgs }[]
+
+  it('lists the exact permitted pair from the live image catalogue alongside the legacy row', async () => {
+    const stringId = { ...duoRow, id: String(duoRow.id) }
+    const tokenRate = { ...duoRow, id: 1730, unit: '元/百万 tokens' }
+    const missingPrice = { ...duoRow, id: 1731, unitPrice: undefined }
+    const missingId = { ...duoRow, id: undefined }
+    const invalidId = { ...duoRow, id: 'invalid' }
+    const sameModel = { ...duoRow, id: 1732, platformId: 'OTHER' }
+    const samePlatform = { ...duoRow, id: 1733, modelId: 'another-model' }
+    const zeroPrice = { ...duoRow, id: 1734, unitPrice: 0 }
+    const subCentPrice = { ...duoRow, id: 1735, unitPrice: 0.004 }
+    const { client, calls } = imageProvider([legacyRow, stringId, ...additionalRows, blockedRow,
+      tokenRate, missingPrice, missingId, invalidId, sameModel, samePlatform, zeroPrice, subCentPrice, null, 'invalid row'])
+    await expect(catalogMethod(client, { method: 'models', task_type: 2 }, allowedStandardIds, allowedRoutes))
+      .resolves.toEqual({ models: [legacyRow, stringId, ...additionalRows] })
+    expect(calls.map(call => call.method)).toEqual(['GET'])
+  })
+
+  it.each(['image_generate', 'image_generate_batch'])('uses the live channel selectors and price in %s', async (method) => {
+    const { client, calls } = imageProvider([legacyRow, duoRow, ...additionalRows])
+    const deps: MethodDeps = imageDeps({ selection: { standardId: 86 } })
+    deps.image = { ...deps.image, allowedStandardIds, allowedRoutes }
+    const item = { ...image, ...selection }
+    const otherItems = additionalRows.map(row => ({ ...image, idempotency_key: row.modelId, asset_name: row.modelId,
+      image_model_id: row.modelId, image_platform_id: row.platformId, image_aspect_ratio: '9:16' as const }))
+    await videoMethod(client, ledger, method === 'image_generate'
+      ? { method, script_id: 2708, ...item }
+      : { method, script_id: 2708, items: [item, legacyItem, ...otherItems] }, deps)
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(method === 'image_generate' ? 1 : 6)
+    expect(JSON.parse(String(writes.find(call => call.body?.assetName === image.asset_name)?.body?.modelConfig)))
+      .toMatchObject({ modelId: sunburst, platformId: duo, standardId: duoRow.id,
+        modelGenerationTypeId: 117, videoStandardId: 2941 })
+    expect(await ledger.find(image.idempotency_key)).toMatchObject({ quoted_amount: '0.4', quote_unit: 'CNY' })
+    if (method === 'image_generate_batch') {
+      const legacyWrite = writes.find(call => call.body?.assetName === legacyItem.asset_name)
+      expect(JSON.parse(String(legacyWrite?.body?.modelConfig)))
+        .toMatchObject({ modelId: sunburst, platformId: 'KU_AI', standardId: legacyRow.id })
+      expect(await ledger.find(legacyItem.idempotency_key)).toMatchObject({ quoted_amount: '0.405', quote_unit: 'CNY' })
+      for (const row of additionalRows) {
+        const request = writes.find(call => call.body?.assetName === row.modelId)
+        expect(JSON.parse(String(request?.body?.modelConfig)))
+          .toMatchObject({ modelId: row.modelId, platformId: row.platformId, standardId: row.id,
+            ratio: '9:16', resolution: row.videoStandards[1]!.resolution, videoStandardId: row.videoStandards[1]!.id })
+        expect(await ledger.find(row.modelId)).toMatchObject({ quoted_amount: String(row.unitPrice), quote_unit: 'CNY' })
+      }
+    }
+  })
+
+  it.each(['image_generate', 'image_generate_batch'])('uses a saved channel row in %s with no explicit override', async (method) => {
+    const { client, calls } = imageProvider([legacyRow, duoRow])
+    const deps: MethodDeps = imageDeps({ selection: { standardId: duoRow.id } })
+    deps.image = { ...deps.image, allowedStandardIds, allowedRoutes }
+    await videoMethod(client, ledger, method === 'image_generate'
+      ? { method, script_id: 2708, ...image }
+      : { method, script_id: 2708, items: [image] }, deps)
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]?.body?.modelConfig)))
+      .toMatchObject({ standardId: duoRow.id, platformId: duo })
+    expect(await ledger.find(image.idempotency_key)).toMatchObject({ quoted_amount: '0.4', quote_unit: 'CNY' })
+  })
+
+  it.each(platformOverrides)('keeps the saved model when a $entry only changes its channel', async ({ request }) => {
+    const { client, calls } = imageProvider([MULTI_IMAGE_CATALOGUE[1]!, legacyRow, duoRow])
+    const deps: MethodDeps = imageDeps({ selection: { standardId: legacyRow.id } })
+    deps.image = { ...deps.image, allowedStandardIds, allowedRoutes }
+    await videoMethod(client, ledger, request, deps)
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]?.body?.modelConfig)))
+      .toMatchObject({ modelId: sunburst, standardId: duoRow.id, platformId: duo })
+    expect(await ledger.find(image.idempotency_key)).toMatchObject({ quoted_amount: '0.4', quote_unit: 'CNY' })
+  })
+
+  it('recognizes a configured model when its legacy catalogue row only provides standardId', async () => {
+    const saved = { ...legacyRow, id: undefined, standardId: legacyRow.id }
+    const { client, calls } = imageProvider([saved, duoRow, MULTI_IMAGE_CATALOGUE[1]!])
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, selection: { modelId: sunburst, standardId: legacyRow.id } }
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image, image_platform_id: duo }, deps)
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]?.body?.modelConfig)))
+      .toMatchObject({ modelId: sunburst, standardId: duoRow.id, platformId: duo })
+  })
+
+  it.each([
+    { missing: 'saved model row', rows: [MULTI_IMAGE_CATALOGUE[1]!, duoRow] },
+    { missing: 'requested channel for the saved model', rows: [MULTI_IMAGE_CATALOGUE[1]!, legacyRow] },
+  ])('refuses platform-only overrides when the $missing is missing', async ({ rows }) => {
+    const { client, calls } = imageProvider(rows)
+    const deps: MethodDeps = imageDeps({ selection: { standardId: legacyRow.id } })
+    deps.image = { ...deps.image, allowedStandardIds, allowedRoutes }
+    for (const { request } of platformOverrides) {
+      await expect(videoMethod(client, ledger, request, deps)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    }
+    expect(calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('blocks Midjourney v7 even with an otherwise valid live row', async () => {
+    const { client, calls } = imageProvider([legacyRow, duoRow, blockedRow])
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, allowedStandardIds, allowedRoutes }
+    const item = { ...image, image_model_id: blockedRow.modelId, image_platform_id: blockedRow.platformId }
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...item }, deps))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [legacyItem, item] }, deps)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([
+    ['wrong platform', { platformId: 'OTHER' }],
+    ['no quote', { unitPrice: undefined }],
+    ['zero quote', { unitPrice: 0 }],
+    ['sub-cent quote', { unitPrice: 0.004 }],
+    ['token pricing', { unit: '元/百万 tokens' }],
+    ['missing specifications', { videoStandards: [] }],
+    ['only an ambiguous specification', { videoStandards: [duoRow.videoStandards[0]!, { ...duoRow.videoStandards[0]!, id: 4999 }] }],
+    ['missing generation type', { genTypes: [] }],
+  ])('refuses %s before writing a single image or any item in a batch', async (_name, override) => {
+    const { client, calls } = imageProvider([legacyRow, { ...duoRow, ...override }])
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, allowedStandardIds, allowedRoutes }
+    const item = { ...image, ...selection }
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...item }, deps))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [legacyItem, item] }, deps))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['16:9', '9:16'] as const)('admits a route with a %s specification and refuses its missing ratio', async (ratio) => {
+    const videoStandards = duoRow.videoStandards.filter(spec => spec.ratio === ratio)
+    const row = { ...duoRow, videoStandards }
+    const { client, calls } = imageProvider([row])
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, allowedStandardIds, allowedRoutes }
+    await expect(catalogMethod(client, { method: 'models', task_type: 2 }, allowedStandardIds, allowedRoutes))
+      .resolves.toEqual({ models: [row] })
+    const missingRatio = ratio === '16:9' ? '9:16' : '16:9'
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image, ...selection,
+      image_aspect_ratio: missingRatio }, deps)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...image, ...selection,
+      image_aspect_ratio: ratio }, deps)
+    const payload = calls.find(call => call.method === 'POST')?.body?.modelConfig
+    expect(JSON.parse(String(payload))).toMatchObject({ ratio, videoStandardId: videoStandards[0]!.id })
+  })
+
+  it('keeps the original channel for a model-only single image', async () => {
+    const { client, calls } = imageProvider([legacyRow, duoRow])
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, allowedStandardIds, allowedRoutes }
+    await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...legacyItem }, deps)
+    const writes = calls.filter(call => call.method === 'POST')
+    expect(writes).toHaveLength(1)
+    expect(JSON.parse(String(writes[0]?.body?.modelConfig)))
+      .toMatchObject({ modelId: sunburst, standardId: legacyRow.id, platformId: 'KU_AI' })
+    expect(await ledger.find(legacyItem.idempotency_key)).toMatchObject({ quoted_amount: '0.405', quote_unit: 'CNY' })
+  })
+
+  it.each([{ legacyIds: undefined }, { legacyIds: [86] }])
+  ('keeps model-only calls from switching to the new channel with legacy IDs $legacyIds', async ({ legacyIds }) => {
+    const { client, calls } = imageProvider([duoRow])
+    const deps: MethodDeps = imageDeps()
+    deps.image = { ...deps.image, allowedRoutes, ...(legacyIds === undefined ? {} : { allowedStandardIds: legacyIds }) }
+    await expect(videoMethod(client, ledger, { method: 'image_generate', script_id: 2708, ...legacyItem }, deps))
+      .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    await expect(videoMethod(client, ledger, { method: 'image_generate_batch', script_id: 2708,
+      items: [legacyItem] }, deps)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+})
+
 describe('image batch selection defaults', () => {
   const standards = [
     { id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 },

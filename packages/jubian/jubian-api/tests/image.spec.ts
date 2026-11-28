@@ -20,6 +20,8 @@ const MULTI = [
     videoStandards: [{ id: 92, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] },
 ]
 
+const SUNBURST = { ...MULTI[1]!, id: 501, modelId: 'gpt-image-2.5-sunburst-c', unitPrice: 0.4, unit: '元/条' }
+
 describe('resolveImageModel', () => {
   it.each([{ ratio: '9:16' }, { resolution: '8K' }, { resolution: null }, { width: 0 }, { width: 8193 },
     { width: 1.5 }, { width: '1280' }, { width: 1281 }, { height: 0 }, { height: 8193 }, { height: 1.5 },
@@ -60,6 +62,18 @@ describe('resolveImageModel', () => {
   it('selects the requested 9:16 specification from the same model and price row', () => {
     expect(resolveImageModel(CATALOGUE, {}, '9:16')).toEqual({ standardId: 42, modelId: 'gpt-image-2',
       platformId: 'YU_DIAN', modelGenerationTypeId: 7, genType: 3, videoStandardId: 93, resolution: '1K' })
+  })
+
+  it('uses the live Seedream 5.5 1.5K specification on Volcengine', () => {
+    const catalogue = [{ ...CATALOGUE[0]!, modelId: 'seedream-5-5', platformId: 'FANG_ZHOU', videoStandards: [
+      { id: 219, ratio: '16:9', resolution: '2K' }, { id: 217, ratio: '16:9', resolution: '1.5K' },
+      { id: 218, ratio: '9:16', resolution: '1.5K' },
+    ] }]
+    expect(resolveImageModel(catalogue, { standardId: 42 })).toMatchObject({ videoStandardId: 217, resolution: '1.5K' })
+    const payload = buildImageRequest({ scriptId: 1, assetName: 'test', assetType: 1, prompt: 'ready', references: [], aspectRatio: '9:16' },
+      catalogue, { standardId: 42, resolution: '1.5K' })
+    expect(JSON.parse(String(payload.modelConfig))).toMatchObject({ videoStandardId: 218, resolution: '1.5K', ratio: '9:16' })
+    expect(() => resolveImageModel([{ ...catalogue[0]!, platformId: 'OTHER' }], { standardId: 42 }, '9:16')).toThrow('9:16')
   })
 
   it('refuses 9:16 when the selected model row has no matching specification', () => {
@@ -115,6 +129,39 @@ describe('resolveImageModel against a catalogue listing several gpt-image-2 rows
     const config = JSON.parse(body.modelConfig as string) as Record<string, unknown>
     expect(config).toMatchObject({ standardId: 76, platformId: 'DUO_YUAN_TAN_SUO', videoStandardId: 92,
       modelGenerationTypeId: 8 })
+  })
+})
+
+describe('image catalogue row selection across models', () => {
+  const catalogue = [...CATALOGUE, SUNBURST]
+
+  it('uses the saved row model, channel, specification, and price', () => {
+    const selection = { standardId: 501 }
+    expect(resolveImageModel(catalogue, selection)).toMatchObject({ standardId: 501,
+      modelId: 'gpt-image-2.5-sunburst-c', platformId: 'DUO_YUAN_TAN_SUO', videoStandardId: 92 })
+    expect(readImageDisplayPrice(catalogue, selection)).toEqual({
+      status: 'available', unit_price: 0.4, unit: '元/条', quote_verified: false,
+    })
+  })
+
+  it('uses GPT Image 2 when neither a model nor a price row is selected', () => {
+    expect(resolveImageModel(catalogue)).toMatchObject({ modelId: 'gpt-image-2', standardId: 42 })
+  })
+
+  it('rejects a missing or duplicated price row instead of selecting a model or price', () => {
+    const selection = { standardId: 501 }
+    const duplicate = [...catalogue, { ...CATALOGUE[0]!, id: 501 }]
+    for (const read of [resolveImageModel, readImageDisplayPrice]) {
+      expect(() => read([], selection)).toThrow('no image model row')
+      expect(() => read(CATALOGUE, selection)).toThrow('standardId=501 selected 0')
+      expect(() => read(duplicate, selection)).toThrow('standardId=501 selected 2')
+    }
+  })
+
+  it('requires an explicit model to agree with the selected price row', () => {
+    const mismatched = { modelId: 'gpt-image-2', standardId: 501 }
+    expect(() => resolveImageModel(catalogue, mismatched)).toThrow('gpt-image-2 selected 0')
+    expect(() => readImageDisplayPrice(catalogue, mismatched)).toThrow('gpt-image-2 selected 0')
   })
 })
 

@@ -89,7 +89,7 @@ When the conversation already has a video model choice, `select_assets` reports 
 
 If a package exceeds a known model limit, the model uses `jubian_video_model duration_conflict` once for the affected batch. The user chooses between retaining the model and replanning complete packages, or selecting a model that supports the longest original package. No duration is silently shortened. Seedance 2.0 supports up to 15 seconds and Seedance 2.5 up to 30 seconds; these are ceilings rather than recommended package lengths. Other models retain an unknown limit until verified.
 
-`imageAllowedStandardIds` restricts the image catalogue, Settings options and single/batch image executors to exact live catalogue row IDs. Muse uses `[76, 66, 86]`: the two `gpt-image-2` channels and `gpt-image-2.5-sunburst-c`. An excluded row fails preflight before a paid request; a recorded original key remains reconcilable. Omitting the restriction retains the full catalogue for existing deployments.
+`imageAllowedStandardIds` admits exact live image catalogue row IDs. `imageAllowedRoutes` additionally admits exact model and platform pairs with a live per-image price and a supported 16:9 or 9:16 specification. Both apply to the image catalogue, Settings, and single and batch image submission. Muse adds Sunburst and Midjourney v8.2 on `DUO_YUAN_TAN_SUO`, Seedream 5.5 on `FANG_ZHOU`, and Qwen Image 3.0 and 3.0 Pro on `HH`. Select a new row under **Settings → 短剧 → 资产图生成通道**, or specify both `image_model_id` and `image_platform_id`. Existing requests keep their channel unless the caller or saved settings selects another. Excluded rows or unavailable aspect ratios fail preflight before a paid request, and recorded keys remain reconcilable. With both options omitted, tools retain the full catalogue.
 
 ### Minimal configuration
 
@@ -215,7 +215,7 @@ Both directions cross the browser/Host boundary through the generated `jubianTok
 
 ### The image-route Remote namespace
 
-The second namespace, `jubianImage`, exists for one read: `routes()` returns the account's `gpt-image-2` catalogue rows — `standardId`, `platformId`, unit price and unit — so **Settings → 短剧** can offer them by price instead of making somebody read a failure message. It is free, it is the same catalogue read the paid call makes over the same transport, and no method here writes anything or returns the token.
+The `jubianImage.routes()` read returns the permitted catalogue rows and their prices to **Settings → 短剧**. An unrestricted deployment still lists the default `gpt-image-2` model in Settings. A saved Settings choice pins the exact `standardId`, including when the row belongs to a different model. The same transport reads the catalogue during submission. Listing routes is free and keeps the token on the Host.
 
 A catalogue it cannot read is reported as `jubian-image/catalogue-unreadable` carrying the transport's own message, and the page shows that message verbatim. Nothing is cached: every call reads the account, because a row's price and existence are account state rather than plugin state.
 
