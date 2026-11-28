@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Include, { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Loader, { type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { MemoryCredentials } from '../../../packages/credentials/credentials/tests/memory.ts'
@@ -69,7 +69,9 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     expect(persona?.prefix).not.toContain('Check the [exit code')
     expect(persona?.suffix).toContain('short-drama/')
     expect(persona?.suffix).not.toContain('{{cwd}}')
-    expect(presetRows.find(row => row.id === 'tool-shot-script')).toMatchObject({
+    const localTools: unknown = presetRows.find(row => row.id === 'local-episode-tools')?.config
+    if (!Array.isArray(localTools)) throw new Error('Missing local episode tools')
+    expect((localTools as EntryOptions[]).find(row => row.id === 'tool-shot-script')).toMatchObject({
       name: '@deepseek-ai/dsh-tool-shot-script',
       config: { reviewMode: 'advisory', sessionVideoSelection: true },
     })
