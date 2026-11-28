@@ -1,6 +1,7 @@
 /** Real returned files and tool dispatch protect user revisions across a resumed refinement. */
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import * as Present from '@deepseek-ai/dsh-tool-present'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { afterEach, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
@@ -169,6 +170,67 @@ it('restores actual external changes as logged context on an ordinary user messa
   expect(JSON.stringify(result.messages.at(-1))).toContain('甲：证据就在这里，别再骗我。')
   const resumed = new ManuscriptRevisions(f.config)
   expect(await resumed.refresh(f.root, f.agent.id, signal)).toContain('修改者尚未确认')
+})
+
+it('retains and reopens baselines for 50 episodes presented in separate batches', async () => {
+  const paths = Array.from({ length: 50 }, (_, index) => index + 1)
+    .flatMap(episode => [`第${episode}集-初稿.md`, `第${episode}集-修订.md`])
+  const batchSize = 8
+  const calls = Array.from({ length: Math.ceil(paths.length / batchSize) }, (_, batch) =>
+    toolCallResponse(`batch-${batch + 1}`, 'present', {
+      files: paths.slice(batch * batchSize, (batch + 1) * batchSize).map(path => ({ path })),
+    }))
+  const f = await fixture([...calls, textResponse('本轮交付完成。')])
+  for (const [index, path] of paths.entries()) {
+    await writeFile(join(f.root, path), `第${Math.floor(index / 2) + 1}集\n甲：我会保留这份${index + 1}号稿。`)
+  }
+  await f.ctx.plugin(Present, { maxFiles: batchSize })
+  await f.ctx.plugin(RevisionPlugin, Config({ continuityDeliveryChecks: false }))
+  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '分批呈现这 50 集的两版文稿。' }] }))
+  await f.agent.whenIdle()
+  const deliveries = f.agent.session.snapshotEvents().filter(event => event.type === 'deliverables/presented')
+  expect(deliveries).toHaveLength(calls.length)
+  const ledgerPath = join(f.root, '.muse', 'manuscript-revisions', 'ledger.json')
+  const saved = z.object({ baselines: z.array(z.object({ path: z.string(), session: z.string() })) })
+    .parse(JSON.parse(await readFile(ledgerPath, 'utf8')))
+  const expectedPaths = await Promise.all(paths.map(path => realpath(join(f.root, path))))
+  expect(saved.baselines).toEqual(expectedPaths.map(path => ({ path, session: f.agent.id })))
+  expect(JSON.stringify(f.agent.session.snapshotEvents())).not.toContain('上一稿快照未保存')
+  await writeFile(join(f.root, '第50集-修订.md'), '第50集\n甲：返稿新增的证据就在这里。')
+  const resumed = new ManuscriptRevisions(f.config)
+  expect(await resumed.refresh(f.root, f.agent.id, signal)).toContain('返稿新增的证据就在这里。')
+})
+
+it('preserves the existing ledger when a presentation or its serialized baseline ledger exceeds its limit', async () => {
+  const f = await fixture()
+  await f.revisions.delivered(f.root, f.agent.id, ['baseline.md'], signal)
+  const ledgerPath = join(f.root, '.muse', 'manuscript-revisions', 'ledger.json')
+  const original = await readFile(ledgerPath)
+  const single = new ManuscriptRevisions(Config({ maxDocuments: 1 }))
+  await expect(single.delivered(f.root, f.agent.id, ['baseline.md', 'returned.md'], signal))
+    .rejects.toMatchObject({ code: 'MANUSCRIPT_DOCUMENT_LIMIT' })
+  const bounded = new ManuscriptRevisions(Config({ maxLedgerBytes: original.length }))
+  await expect(bounded.delivered(f.root, f.agent.id, ['baseline.md'], signal)).resolves.toBeUndefined()
+  await expect(bounded.delivered(f.root, f.agent.id, ['returned.md'], signal)).rejects.toThrow('MANUSCRIPT_LEDGER_SIZE')
+  expect(await readFile(ledgerPath)).toEqual(original)
+})
+
+it.each(['unsupported archive fields', 'invalid JSON'])('reports %s and preserves the ledger until a valid backup is restored', async (kind) => {
+  const f = await fixture()
+  await f.revisions.delivered(f.root, f.agent.id, ['baseline.md'], signal)
+  const ledgerPath = join(f.root, '.muse', 'manuscript-revisions', 'ledger.json')
+  const original = await readFile(ledgerPath, 'utf8')
+  const invalid = kind === 'invalid JSON' ? '{' : JSON.stringify({ ...JSON.parse(original), archive: { series: 4 } }) + '\n'
+  await writeFile(ledgerPath, invalid)
+  await f.ctx.plugin(RevisionPlugin, f.config)
+  const result = await executeModelToolFixture(f.ctx, { signal, callId: ToolCallId('invalid-baseline-ledger'),
+    name: 'manuscript_revision', arguments: { action: 'status' }, agent: f.agent })
+  expect(result).toMatchObject({ isError: true, error: { info: { code: 'MANUSCRIPT_LEDGER_INVALID' } } })
+  expect(JSON.stringify(result.content)).toContain('同一工作区的格式有效备份')
+  expect(await readFile(ledgerPath, 'utf8')).toBe(invalid)
+  await writeFile(ledgerPath, original)
+  await writeFile(join(f.root, 'baseline.md'), returned)
+  expect(await f.revisions.refresh(f.root, f.agent.id, signal)).toContain('甲：证据就在这里，别再骗我。')
 })
 
 it('uses an explicitly supplied next baseline and refreshes changed returned bytes', async () => {
