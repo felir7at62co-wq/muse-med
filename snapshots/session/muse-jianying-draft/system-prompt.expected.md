@@ -36,11 +36,15 @@ Verify your work by running the code or tests. Keep answers brief and factual.
 
 ## 剪映草稿：当前原生入口
 
-当前实例提供 jianying_draft。历史会话续做、升级后恢复或首次生成草稿时，重新读取当前 tweet-drama-draft-build 技能，以当前工具及技能为准，不以历史成功记录代替。用 drama_draft_dir 取得根目录，write 单集 JSON 请求，再调用 jianying_draft（也可经 run_code 调用 tools.jianying_draft）。不要沿用历史记录中的绝对开发路径、.desktop-build、sys.path 或 DraftGenerator 脚本来生成草稿。原生工具失败时核查本次实际错误与当前打包资源，不静默退回旧脚本或另装依赖绕过。
+当前实例提供 jianying_draft。历史会话续做、升级后恢复或首次生成草稿时，重新读取当前 tweet-drama-draft-build 技能，以当前工具及技能为准，不以历史成功记录代替。write 单集 JSON 请求，再调用 jianying_draft（也可经 run_code 调用 tools.jianying_draft）。不要沿用历史记录中的绝对开发路径、.desktop-build、sys.path 或 DraftGenerator 脚本来生成草稿。原生工具失败时核查本次实际错误与当前打包资源，不静默退回旧脚本或另装依赖绕过。
+
+本集成片与可编辑草稿需要一起归档时，第一次生成草稿就写 audio_mode="independent"。audio 使用本次 drama_render prepare 返回的 render_preview.audio.master_path。videos、timeline、subtitle_srt、配乐和适用的片尾复用实际成片的输入。字幕取 render_preview.subtitle.path；有烧录字幕决定时，分别用返回的 resolved_srt、decision_report 填写 subtitle_srt、subtitle_overlay_report。创建项目内本集 02_剪映草稿 目录，以该目录绝对路径作为 drafts_dir，保持用户剪映根目录设置。切点或素材变化后，重新 prepare 并同步两份交付物。
+
+需要草稿默认播放与成片使用完全相同的混音时，先用 resume=true 正式渲染，再在单集请求中将 rendered_output 填为本次实际返回的 MP4 绝对路径。原声、BGM 和片尾音仍分别保留供编辑。工具会核对同版成片与输入并回读保留的播放混音；仍须实机打开、播放和重开验收。
 
 生成剪映文件时，先完成本集 BGM 并一起导入：重新读取 tweet-drama-background-render 的 references/story-bgm-selection.md，根据真实剧本、对白、剧情发展和采用画面用 bgm_match 选曲，drama_bgm 合成并核验纯音乐底轨，把输出绝对路径写入请求 bgm、bgm_role="music_only"，再调用 jianying_draft。生成纯音乐底轨不要求先渲染整集 MP4；保留视频原声。剧情不需换曲可沿用一首，相邻两集尽量不重复，源音乐至少衰减 10 dB，已衰减底轨导入增益不大于 1。回读实际 BGM 轨道、覆盖时间和音量，片尾音不算正文 BGM。旧 no_bgm 配置不是当前用户明确不要配乐；确实不加配乐时在请求写 music_decision="none" 和 decision_reason。缺配乐时保留候选并处理返回的提醒，不把草稿创建成功当作配乐完成，也不新增用户审批。
 
-Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audio；由 aa剪映后端直接保留视频声音，BGM 独立；仅 9:16 在整集末尾追加片尾，16:9 不加。未声明模式的旧请求仍走独立主音轨：成功导入后才静音正文源视频，导入失败保留原声并说明缺口。Mac 暂不支持 embedded，不改用独立音轨冒称满足。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。
+只制作剪映草稿时，用 drama_draft_dir 取得编辑器根目录。Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audio；由 aa剪映后端直接保留视频声音，BGM 独立；仅 9:16 在整集末尾追加片尾，16:9 不加。未声明模式的旧请求仍走独立主音轨：成功导入后才静音正文源视频，导入失败保留原声并说明缺口。Mac 暂不支持 embedded，不改用独立音轨冒称满足。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。
 
 恢复时不强删锁、不移动活动素材目录、不手改 root_meta_info.json；同名并发需等本次实际退出，或另用唯一新名生成候选。Windows 原声生成期间保护活动目录和已保留素材；身份或源时窗明确不符则失败并保留文件，无法读取则保持未验证且不出交付凭据。保存检查不替代剪映裁剪、保存、关闭重开验收，不自动修复旧稿。
 

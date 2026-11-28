@@ -5965,7 +5965,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
   "properties": {
     "method": {
       "type": "string",
-      "description": "task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，按 subtasks.rows 展开合并任务，使用子结果 storyboard_id 归卡；无该字段时按原卡查 sources 核实归属；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
+      "description": "task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；带 parent_result_id 可跨页找该原片已有的转高清或去字幕任务；sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；subtasks=分页对象 subtasks，按 subtasks.rows 展开合并任务，使用子结果 storyboard_id 归卡；无该字段时按原卡查 sources 核实归属；unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。",
       "enum": [
         "task",
         "tasks",
@@ -5993,6 +5993,10 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     "task_type": {
       "type": "integer",
       "description": "仅 tasks 可选：按提供方正整数任务类型筛选，如 1=生成、10=去字幕、20=转高清；省略查询全部类型。"
+    },
+    "parent_result_id": {
+      "type": "integer",
+      "description": "仅 tasks 可选：原视频结果 ID。配合 task_type=20（转高清）或 10（去字幕），从第 1 页只读查找。"
     },
     "page_num": {
       "type": "number",

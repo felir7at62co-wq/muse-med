@@ -128,6 +128,18 @@
     ]
   },
   {
+    "command": "project-delivery-fixture-ffprobe",
+    "args": [
+      "-v",
+      "error",
+      "-show_streams",
+      "-show_format",
+      "-of",
+      "json",
+      "{{cwd}}/exports/.render_cache/01/subtitled.mp4"
+    ]
+  },
+  {
     "command": "project-delivery-fixture-ffmpeg",
     "args": [
       "-y",
@@ -142,7 +154,7 @@
       "-i",
       "{{cwd}}/approved-bgm.wav",
       "-filter_complex",
-      "[1:a]apad,atrim=0:5.000000,volume=1[a0];[2:a]atrim=0:5.000000,volume=0.1[a1];[a0][a1]amix=inputs=2:duration=longest:normalize=0,atrim=0:5.000000,alimiter=limit=0.95:level=false[a]",
+      "[1:a]aresample=48000,asetpts=N/SR/TB,apad,atrim=end_sample=240000,volume=1[a0];[2:a]aresample=48000,asetpts=N/SR/TB,atrim=0:5.000000,volume=0.1[a1];[a0][a1]amix=inputs=2:duration=longest:normalize=0,atrim=end_sample=240000,alimiter=limit=0.95:level=false:latency=1[a]",
       "-map",
       "0:v:0",
       "-map",
@@ -154,6 +166,8 @@
       "-b:a",
       "192k",
       "-ar",
+      "48000",
+      "-movie_timescale",
       "48000",
       "-movflags",
       "+faststart",

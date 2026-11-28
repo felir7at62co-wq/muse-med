@@ -89,7 +89,7 @@ it('keeps the review index project-owned and requires ordinary bounded JSON file
   await expect(verifyEpisodeContentReview(f.input)).rejects.toThrow('JSON对象')
 })
 
-it('covers every segment using ordered ranges and requires observations on both sides of a real join', async () => {
+it('requires one continuity judgment referencing actual frames near and across the join', async () => {
   const f = await fixture(), target = f.saved.entry.content_review.output
   target.checks = ['physical_logic', 'continuity'].flatMap(dimension => [
     { dimension, start_seconds: 0, end_seconds: 2.5, status: 'ok', expected: '杯子在窗台上', reason: '手已离开', frame_ids: ['first', 'before'] },
@@ -97,7 +97,16 @@ it('covers every segment using ordered ranges and requires observations on both 
   ]).reverse()
   await f.report({ duration: 5, frames: [{ id: 'first', decoded_time: 0.1 }, { id: 'before', decoded_time: 2.4 },
     { id: 'after', decoded_time: 2.6 }, { id: 'last', decoded_time: 4.9 }], event_groups: [] })
-  await expect(verifyEpisodeContentReview({ ...f.input, cuts: [2.5] })).resolves.toHaveProperty('sha256')
+  const input = { ...f.input, cuts: [2.5] }
+  await expect(verifyEpisodeContentReview(input)).rejects.toThrow('接缝缺少引用两侧实际观察帧的连续性判断')
+  const cutCheck = { dimension: 'continuity', start_seconds: 0, end_seconds: 5, status: 'ok',
+    expected: '角色按剧本脱下白手套', reason: '切点前角色正在摘手套，切点后露出手掌，符合剧情。', frame_ids: ['first', 'last'] }
+  target.checks.push(cutCheck)
+  await f.save()
+  await expect(verifyEpisodeContentReview(input)).rejects.toThrow('接缝缺少引用两侧实际观察帧的连续性判断')
+  Object.assign(cutCheck, { start_seconds: 2.4, end_seconds: 2.6, frame_ids: ['before', 'after'] })
+  await f.save()
+  await expect(verifyEpisodeContentReview(input)).resolves.toHaveProperty('sha256')
 })
 
 it('rejects review content that changes while the independent verifier is running', async () => {

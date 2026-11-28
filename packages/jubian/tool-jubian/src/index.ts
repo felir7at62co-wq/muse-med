@@ -33,7 +33,8 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger,
+  readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { assertNewNativeDispatchAllowed, reconcileRecordedVideo, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
@@ -82,6 +83,10 @@ import type { GenerationSessionBinding } from './generation-binding.ts'
 import { registerGenerationWatchDelivery } from './generation-watch-delivery.ts'
 import { createNativeGenerationDelivery } from './generation-watch-native-delivery.ts'
 import { resolveVideoSourceOptions } from './video-sources.ts'
+import type { HistoricalVideoSourceEvidence } from './video-sources.ts'
+import { createHistoricalVideoSourceVerifier } from './prior-video-source.ts'
+export type { HistoricalVideoSourceIdentity } from './video-sources.ts'
+export type { HistoricalVideoSourceReceipt, HistoricalVideoSourceVerifier } from './prior-video-source.ts'
 import { mountVideoRecovery, resolveVideoRecovery, type VideoRecoveryConfig } from './video-recovery-config.ts'
 export { JubianVideoRecovery, ApprovedSourceCancelled, ApprovedSourceCancellationError } from './video-recovery-service.ts'
 import { EPISODE_UI_CONFIG_GLOBAL, EpisodeUiConfig } from './episode-ui-config.ts'
@@ -99,6 +104,8 @@ export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDeliveryConfig {
+  /** Opt in to same-Session original video proof for local dialogue repairs. Defaults to false. */
+  historicalVideoSourceVerification?: boolean
   /** Browser pending-episode polling interval; integer 100..60000ms, default 1000. */
   episodePollIntervalMs?: number
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
@@ -469,10 +476,12 @@ const VIDEO_OUTPUT = {
     tasks: { type: 'object', additionalProperties: true, properties: {
       ...VIDEO_PAGE_FIELDS,
       scope: { type: 'object', additionalProperties: false, required: true,
-        description: '本次总数与完整性对应的查询范围；task_type=null 表示不按类型筛选。', properties: {
+        description: '本次总数与完整性对应的查询范围。task_type=null 表示不按类型筛选。', properties: {
           script_id: { type: 'integer', required: true },
           task_type: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+          parent_result_id: { type: 'integer', description: '本次查找历史处理任务所用的原视频结果 ID。' },
         } },
+      pages_read: { type: 'integer', description: '按原视频结果查找时实际读取的页数。' },
       project_complete: { type: 'boolean', required: true,
         description: '仅本次未按任务类型筛选且完整读到提供方项目列表时为 true；不保证提供方保留全部历史。' },
       total: { type: 'number', required: true },
@@ -498,6 +507,14 @@ const VIDEO_OUTPUT = {
     guidance: { type: 'string' },
   } },
   render: OUTPUT.render,
+} as const
+
+const MEDIA_OUTPUT = {
+  ...OUTPUT,
+  schema: { type: 'object', additionalProperties: true, properties: {
+    download_receipt_path: { type: 'string', description: '续跑下载回执的本地路径，包含精确源 URL 的 SHA-256 和保存文件的身份，不保存源 URL。' },
+    source_sha256: { type: 'string', description: '续跑下载所用完整源 URL 的 SHA-256（64 位十六进制），供匹配回执。' },
+  } },
 } as const
 
 /**
@@ -627,6 +644,16 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     throw new TypeError('mediaKitPostprocess must be a boolean')
   }
   const mediaKit = () => config.mediaKitPostprocess === true ? ctx.get('museAccount') : undefined
+  if (config.historicalVideoSourceVerification !== undefined && typeof config.historicalVideoSourceVerification !== 'boolean') {
+    throw new TypeError('historicalVideoSourceVerification must be a boolean')
+  }
+  const historicalVideoSourceVerification = config.historicalVideoSourceVerification === true
+  const historicalVideoSources = new WeakMap<object, readonly HistoricalVideoSourceEvidence[]>()
+  if (historicalVideoSourceVerification) ctx.inject(['sessionProjections'], async (scope) => {
+    const verify = await createHistoricalVideoSourceVerifier(scope)
+    scope.fiber.assertActive()
+    scope.effect(() => scope.provide('jubianHistoricalVideoSource', verify))
+  })
   const generationBindings = new WeakMap<object, GenerationPresentation>()
   const generationSessionBindings = new GenerationSessionBindings(ctx)
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
@@ -743,7 +770,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       throw new Error('Managed character-reference use is not configured in this Host.')
     }
     const store = qaCharacterReferenceStore ?? await privateCharacterReferenceStore()
-    return createCharacterReferenceQaBridge({ authority, store,
+    return createCharacterReferenceQaBridge({ authority, store, client,
       ...(qaCharacterReferenceStore === undefined ? { ownerIdentity: projectPrivateOwnerIdentity } : {}) })
   }
   const registerJubianTool = (definition: ToolDefinition): (() => void) => {
@@ -1332,7 +1359,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     output: storyboardOutput(generationBindings),
     execute: async (args, exec) => {
       requireArguments('jubian_storyboard', args)
-      if (config.sessionVideoSelection && ['prepare_video', 'generate', 'submit_video', 'submit_video_batch'].includes(args.method)) {
+      const historyReadOnly = client.isHistoryReadOnly()
+      if (!historyReadOnly && config.sessionVideoSelection && ['prepare_video', 'generate', 'submit_video', 'submit_video_batch'].includes(args.method)) {
         if (!exec.agent) throw new Error('Video generation requires a conversation-owned model selection')
         const service = ctx.get('jubianVideoSelection')
         if (!service) throw new Error('Video model selection unavailable')
@@ -1363,7 +1391,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           const { generation_watch_id: _watchId, generation_watch_group_exchange_id: _groupId, ...safe } = result
           return safe
         }
-        if (!config.generationWatch || !agent) return await dispatch()
+        if (historyReadOnly || !config.generationWatch || !agent) return await dispatch()
         const method = input.method === 'generate' ? await resolveGenerateMethod(ledger, input) : input.method
         if (method !== 'submit_video' && method !== 'submit_video_batch') return await dispatch()
         const watch = generationWatch
@@ -1479,6 +1507,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       method: { type: 'string', required: true,
         enum: ['task', 'tasks', 'subtasks', 'sources', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
         description: 'task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；'
+          + '带 parent_result_id 可跨页找该原片已有的转高清或去字幕任务；'
           + 'sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；'
           + 'subtasks=分页对象 subtasks，按 subtasks.rows 展开合并任务，使用子结果 storyboard_id 归卡；无该字段时按原卡查 sources 核实归属；'
           + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
@@ -1486,6 +1515,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           + 'upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },
       task_id: ARGS.task_id, script_id: ARGS.script_id, storyboard_id: ARGS.storyboard_id,
       task_type: { type: 'integer', description: '仅 tasks 可选：按提供方正整数任务类型筛选，如 1=生成、10=去字幕、20=转高清；省略查询全部类型。' },
+      parent_result_id: { type: 'integer', description: '仅 tasks 可选：原视频结果 ID。配合 task_type=20（转高清）或 10（去字幕），从第 1 页只读查找。' },
       page_num: ARGS.page_num, page_size: ARGS.page_size,
       delivery_resolution: ARGS.delivery_resolution,
       asset_name: ARGS.asset_name, asset_type: ARGS.asset_type, prompt: ARGS.prompt,
@@ -1503,9 +1533,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       resolution: { type: 'string', description: 'upscale 可选：所选高清模型目录中的输出分辨率，默认1080p。' },
       idempotency_key: ARGS.idempotency_key,
     },
-    output: VIDEO_OUTPUT,
+    output: historicalVideoSourceVerification ? { ...VIDEO_OUTPUT, preserveBodyMeta: true,
+      presentationMeta: (args) => {
+        const rows = historicalVideoSources.get(args)
+        return rows === undefined ? undefined : { historical_video_sources: rows.map(row => ({ ...row })) }
+      } } : VIDEO_OUTPUT,
     execute: async (args, exec) => await guarded('jubian_video', async (received) => {
       const input = videoOperationArguments(received)
+      if (historicalVideoSourceVerification && input.method === 'sources') historicalVideoSources.delete(args)
       const characterReferenceGeneration = input.character_reference === undefined
         ? undefined
         : await (async () => {
@@ -1516,6 +1551,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         })()
       return await videoMethod(client, ledger, input, { image: image(), imageBatch, imageReferenceScan, videoSources,
         signal: exec.signal, naming, postprocess: mediaKit(), readJubianCredential,
+        ...(historicalVideoSourceVerification && input.method === 'sources'
+          ? { recordHistoricalVideoSources: (rows) => { historicalVideoSources.set(args, rows) } } : {}),
         ...(characterReferenceGeneration === undefined ? {} : { characterReferenceGeneration }) })
     })(args),
   }))
@@ -1576,10 +1613,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         : {}),
       resume: { type: 'boolean', description: '续跑时设 true：同一 URL 的本地下载回执与字节通过核对后复用；旧文件缺证或已变化时另存候选。' },
     },
-    output: { ...OUTPUT, schema: { type: 'object', additionalProperties: true, properties: {
-      download_receipt_path: { type: 'string', description: '续跑下载回执的本地路径，包含精确源 URL 的 SHA-256 和保存文件的身份，不保存源 URL。' },
-      source_sha256: { type: 'string', description: '续跑下载所用完整源 URL 的 SHA-256（64 位十六进制），供匹配回执。' },
-    } } },
+    output: historicalVideoSourceVerification ? { ...MEDIA_OUTPUT, preserveBodyMeta: true,
+      presentationMeta: (args, value) => args.resume === true && args.media_kind === 'video' && value.reused === false
+        ? { path: value.path ?? null, bytes: value.bytes ?? null, source_sha256: value.source_sha256 ?? null,
+          sha256: value.sha256 ?? null, download_receipt_path: value.download_receipt_path ?? null,
+          kind: value.kind ?? null, media_type: value.media_type ?? null, reused: value.reused }
+        : undefined } : MEDIA_OUTPUT,
     execute: (args, exec) => guarded('jubian_media', (input) => {
       if (config.mediaKitPostprocess === true && (input.method === 'status' || input.method === 'download_processed')) {
         return readMediaPostprocess(mediaKit(), need(input.processing_job_key, 'processing_job_key'),

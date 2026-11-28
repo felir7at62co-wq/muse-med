@@ -357,6 +357,12 @@ it('reads existing sources and the original ledger key when a model fills the en
       if (path === '/admin/aigc/video/task/list?scriptId=301&taskType=1&pageNum=1&pageSize=1000') {
         return respond({ total: 1, rows: [task] })
       }
+      if (path === '/admin/aigc/video/task/list?scriptId=301&taskType=20&pageNum=1&pageSize=1') {
+        return respond({ total: 2, rows: [{ id: 91, scriptId: 301, episodeId: 55, taskType: 20, parentResultId: 89 }] })
+      }
+      if (path === '/admin/aigc/video/task/list?scriptId=301&taskType=20&pageNum=2&pageSize=1') {
+        return respond({ total: 2, rows: [{ id: 90, scriptId: 301, episodeId: 55, taskType: 20, parentResultId: 88 }] })
+      }
     }
     if (method === 'POST' && url.pathname.endsWith('/admin/aigc/video/task/sub/list')) {
       return respond({ total: 1, rows: [child] })
@@ -386,6 +392,8 @@ it('reads existing sources and the original ledger key when a model fills the en
       toolCallResponse('generation-task-list', 'jubian_video', { ...form, method: 'tasks',
         character_reference: { ...character_reference, authorization_version: 0 }, storyboard_id: 0,
         page_size: 1000, task_type: 1 }),
+      toolCallResponse('existing-upscale', 'jubian_video', { ...form, method: 'tasks',
+        page_size: 1, task_type: 20, parent_result_id: 88 }),
       toolCallResponse('original-key', 'jubian_video', { ...form, method: 'unresolved' }),
       textResponse('Existing card sources and the pending generation record were read.'),
     ])
@@ -397,13 +405,15 @@ it('reads existing sources and the original ledger key when a model fills the en
     await agent.whenIdle()
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
       .map(event => event.data.message)
-    expect(results.map(result => result.isError)).toEqual([false, false, false])
-    const [sources, tasks, unresolved] = results.map((result): unknown =>
+    expect(results.map(result => result.isError)).toEqual([false, false, false, false])
+    const [sources, tasks, upscale, unresolved] = results.map((result): unknown =>
       JSON.parse(result.content.filter(block => block.type === 'text').map(block => block.text).join('')))
     expect(sources).toMatchObject({ sources: { script_id: 301, storyboard_id: 201, status: 'available', complete: true,
       sources: [{ task_id: 77, subtask_id: 88, video_url: 'https://media.example/original.mp4' }] } })
     expect(tasks).toMatchObject({ tasks: { scope: { script_id: 301, task_type: 1 },
       project_complete: false, rows: [{ task_id: 77 }] } })
+    expect(upscale).toMatchObject({ tasks: { scope: { script_id: 301, task_type: 20, parent_result_id: 88 },
+      complete: true, project_complete: false, pages_read: 2, rows: [{ task_id: 90, parent_result_id: 88 }] } })
     expect(unresolved).toMatchObject({ unresolved: [{ idempotency_key: originalKey, outcome: 'unsettled' }] })
     expect(requests).toEqual([
       { method: 'GET', path: '/aigc/storyboard/201', body: null },
@@ -412,6 +422,8 @@ it('reads existing sources and the original ledger key when a model fills the en
       { method: 'POST', path: '/admin/aigc/video/task/sub/list?pageNum=1&pageSize=100&orderByColumn=createTime&orderBy=desc',
         body: { aigcVideoTaskId: 77 } },
       { method: 'GET', path: '/admin/aigc/video/task/list?scriptId=301&taskType=1&pageNum=1&pageSize=1000', body: null },
+      { method: 'GET', path: '/admin/aigc/video/task/list?scriptId=301&taskType=20&pageNum=1&pageSize=1', body: null },
+      { method: 'GET', path: '/admin/aigc/video/task/list?scriptId=301&taskType=20&pageNum=2&pageSize=1', body: null },
     ])
     expect(await ledger.records()).toEqual(before)
   } finally { await ctx.fiber.dispose() }

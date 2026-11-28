@@ -10,7 +10,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { access, copyFile, mkdtemp, mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdtemp, mkdir, readFile, readdir, realpath, rm, rmdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -18,6 +18,7 @@ import { pathToFileURL } from 'node:url'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import * as Draft from '../src/jianying-draft.ts'
 import { jianyingDraftLibraryMismatch } from '../src/jianying-draft-library.ts'
+import { findPairedDraftRender } from '../src/jianying-draft-pair.ts'
 import { runDramaBgm } from '@deepseek-ai/dsh-tool-bgm-compose'
 import { createSubprocessChannel } from '@deepseek-ai/dsh-tool-bgm-compose/src/media.ts'
 
@@ -39,6 +40,100 @@ const nativeCli = process.env.DSH_TEST_JIANYING_CLI
 const nativeVideo = process.env.DSH_TEST_JIANYING_VIDEO
 const nativeMusic = process.env.DSH_TEST_JIANYING_MUSIC
 const runFile = promisify(execFile)
+
+function oneSecondPictureClock(fps: number) {
+  return { status: 'verified_cfr', evidence: 'verified_segment_frames_and_output_pts', fps,
+    body_end_frame: fps, body_end_us: 1_000_000, total_frames: fps,
+    clips: [{ shot: 1, start_frame: 0, end_frame: fps, start_us: 0, duration_us: 1_000_000 }] }
+}
+
+async function playbackFixture(f: Awaited<ReturnType<typeof fixture>>, native = false) {
+  const root = await realpath(f.root)
+  const video = join(root, 'shot.mp4'), audio = join(root, 'master.wav'), output = join(root, 'render.mp4')
+  const subtitle = join(root, 'dialogue.srt'), timeline = join(root, 'timeline.json')
+  const draftRoot = join(root, '视频', '第95集', '02_剪映草稿')
+  await mkdir(draftRoot, { recursive: true })
+  if (native) {
+    if (mediaFfmpeg === undefined) throw new Error('Configure actual FFmpeg for this test')
+    await f.startExternal(mediaFfmpeg, ['-v', 'error', '-n', '-f', 'lavfi', '-i', 'color=blue:s=160x120:r=24:d=1',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=1', '-c:v', 'libx264',
+      '-c:a', 'aac', '-ar', '48000', '-ac', '2', '-movie_timescale', '48000', '-shortest', output]).result
+    await copyFile(output, video)
+    await f.startExternal(mediaFfmpeg, ['-v', 'error', '-n', '-f', 'lavfi', '-i', 'sine=frequency=550:sample_rate=48000:duration=1',
+      '-ac', '2', '-c:a', 'pcm_s16le', audio]).result
+  } else {
+    await Promise.all([writeFile(output, 'different working render'), writeFile(video, 'selected clip'), writeFile(audio, 'master bytes')])
+  }
+  await writeFile(subtitle, '1\n00:00:00,100 --> 00:00:00,900\n同版字幕\n')
+  await writeFile(timeline, JSON.stringify({ body_end: 1, clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }],
+    delivery: { visual_medium: 'animation_3d', width: 160, height: 120, fps: 24 } }))
+  const digest = async (path: string) => createHash('sha256').update(await readFile(path)).digest('hex')
+  const input_files = await Promise.all([video, audio, subtitle, timeline].map(async path => ({ path, sha256: await digest(path) })))
+  const workingSha = await digest(output)
+  const receipt = { version: 1, episode: '95', request_sha256: 'd'.repeat(64), output: { path: output, sha256: workingSha },
+    delivery_inputs: { timeline_sha256: await digest(timeline), subtitle_sha256: await digest(subtitle),
+      master_audio_sha256: await digest(audio), videos: [{ shot: 1, sha256: await digest(video) }], music: { mode: 'none' },
+      ...(native ? { picture_clock: oneSecondPictureClock(24) } : {}) },
+    input_files }
+  await writeFile(output + '.source-record.json', JSON.stringify(receipt))
+  const request = { project: root, rendered_output: output, episode: 95, name_prefix: 'paired-',
+    audio_mode: 'independent', audio, videos: [video], timeline, subtitle_srt: subtitle,
+    music_decision: 'none', decision_reason: 'No added music for this test' }
+  const requestFile = await realpath(f.input.request_file)
+  await writeFile(requestFile, JSON.stringify(request))
+  const input = { request_file: requestFile, drafts_dir: draftRoot, workspace: root }
+  return { root, request, input, receipt, digest, workingSha }
+}
+
+it('checks the exact working MP4 receipt, canonical episode root and each selected input before launching paired draft generation', async () => {
+  const f = await fixture()
+  const source = await playbackFixture(f)
+  const verify = (request: object = source.request, draftRoot = source.input.drafts_dir, workspace = source.root) =>
+    findPairedDraftRender(request, source.input.request_file, draftRoot, workspace, 65_536, f.signal)
+  expect(await verify()).toMatchObject({ episode: '95', output: { path: source.request.rendered_output, sha256: source.workingSha } })
+  const otherDraftRoot = await realpath(f.input.drafts_dir)
+  await expect(verify(source.request, otherDraftRoot)).rejects.toThrow('本集 02_剪映草稿')
+  await expect(verify(source.request, source.input.drafts_dir, otherDraftRoot)).rejects.toThrow('当前工作区')
+  await expect(verify({ ...source.request, audio_mode: 'embedded' })).rejects.toThrow('audio_mode=independent')
+  await expect(verify({ ...source.request, bgm: source.request.audio })).rejects.toThrow('配乐决定')
+  await writeFile(source.request.subtitle_srt, 'Changed effective subtitles')
+  await expect(verify()).rejects.toThrow('render_preview.subtitle.path')
+})
+
+it.runIf(Boolean(mediaPython && mediaFfmpeg))('keeps the verified picture clock and paired MP4 PCM in a saved native draft', async () => {
+  if (mediaPython === undefined || mediaFfmpeg === undefined) throw new Error('Configure native draft media tools')
+  const f = await fixture()
+  const source = await playbackFixture(f, true)
+  const config = {
+    ...f.config, timeoutMs: 60_000, pythonPath: mediaPython, ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
+  }
+  const receiptPath = source.request.rendered_output + '.source-record.json'
+  await writeFile(receiptPath, JSON.stringify({ ...source.receipt,
+    delivery_inputs: { ...source.receipt.delivery_inputs, picture_clock: oneSecondPictureClock(30) } }))
+  await expect(Draft.generateJianyingDraft(f.ctx.subprocess, source.input, config, f.signal))
+    .rejects.toThrow('帧数或时间戳')
+  expect(await readdir(source.input.drafts_dir)).toEqual([])
+  await writeFile(receiptPath, JSON.stringify(source.receipt))
+  const result = await Draft.generateJianyingDraft(f.ctx.subprocess, source.input, config, f.signal)
+  expect(result).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
+    rendered_mix: { source_mp4_sha256: source.workingSha, sample_rate: 48_000, channels: 2, sample_count: 48_000 } })
+  const mix = result.rendered_mix
+  const draft = result.drafts[0]?.path
+  if (draft === undefined || mix === undefined) throw new Error('Expected retained mix and native draft')
+  expect(await source.digest(mix.path)).toBe(mix.sha256)
+  expect(await source.digest(source.request.rendered_output)).toBe(source.workingSha)
+  expect(await readdir(source.input.drafts_dir)).toEqual([basename(draft)])
+  expect(JSON.parse(await readFile(join(draft, 'muse-episode-source.json'), 'utf8'))).toMatchObject({
+    picture_clock: oneSecondPictureClock(24),
+  })
+  const content = JSON.parse(await readFile(join(draft, 'draft_content.json'), 'utf8')) as {
+    tracks: { type: string; name: string; segments: { volume: number }[] }[]
+  }
+  const audible = content.tracks.filter(track => ['audio', 'video'].includes(track.type)
+    && track.segments.some(segment => segment.volume > 0))
+  expect(audible).toHaveLength(1)
+  expect(audible[0]).toMatchObject({ name: '成片混音', segments: [{ volume: 1 }] })
+}, 90_000)
 
 it.runIf(process.platform === 'win32' && Boolean(mediaPython && mediaFfmpeg && nativeCli && nativeVideo && nativeMusic))(
   'imports an attenuated real music source beside embedded audio through the installed Jianying CLI', async () => {

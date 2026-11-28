@@ -1,12 +1,13 @@
 /** Private subtitle inputs retain the original picture, audio and timeline identities. */
 import { createHash } from 'node:crypto'
-import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
 import { episodePaths } from '../src/paths.ts'
-import { preparedSubtitleClockInputs, prepareStagedEpisodeAudio } from '../src/prepare.ts'
+import { preparedSubtitleClockInputs, prepareStagedEpisodeAudio, verifyPreparedSubtitleClock } from '../src/prepare.ts'
 import { subtitleClockPath, writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { readTimeline } from '../src/timeline.ts'
 import { cleanup, srtDocument, stubChannel, tempProject, writePlaceholder } from './harness.ts'
 
 const roots: string[] = []
@@ -27,6 +28,23 @@ async function fixture() {
   const read = async (signal?: AbortSignal) => await preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined, signal)
   return { project, paths, video, audio, subtitle, source, manifest, save, read }
 }
+
+it('demands the exact repaired clip clock even when a legacy subtitle was otherwise valid', async () => {
+  const f = await fixture()
+  f.source.video = f.source.audio = join(f.project, 'editing', 'dialogue-patch-02-ABC123', 'clip.mov')
+  f.manifest.master_audio_sha256 = await fileSha256(f.paths.masterAudio)
+  f.manifest.timeline_clips = [{ shot: 1, start_us: 0, duration_us: 1_000_000 }]
+  await f.save()
+  const timeline = await readTimeline(f.paths.timeline)
+  const verify = () => verifyPreparedSubtitleClock(f.paths.subtitle, f.paths, timeline, undefined, undefined, f.manifest, true)
+  await expect(verify()).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_SUBTITLE_CLOCK_REQUIRED')
+  const shots = [{ source: f.source, video: f.video, audio: f.video, durationUs: 1_000_000 }]
+  const sha = await fileSha256(f.video)
+  await writeSubtitleClock(f.paths.subtitle, f.subtitle, '02', shots, new Map([[1, sha]]))
+  await expect(verify()).resolves.toBeUndefined()
+  await writeFile(f.video, 'different prepared repaired clip')
+  await expect(verify()).rejects.toThrow('生成字幕与当前集')
+})
 
 it.each(['picture audio', 'external audio', 'prepared clock', 'generated subtitle'] as const)
 ('captures exact private subtitle inputs: %s', async (kind) => {
@@ -49,7 +67,7 @@ it.each(['picture audio', 'external audio', 'prepared clock', 'generated subtitl
     shots: [{ shot: 1, video: f.video, audio: kind === 'external audio' ? f.audio : f.video }] })
 })
 
-it.each(['invalid JSON', 'non-object', 'extra shot', 'wrong shot', 'missing master hash', 'invalid master hash',
+it.each(['invalid JSON', 'non-object', 'extra shot', 'wrong shot', 'missing master hash', 'invalid master hash', 'missing master audio',
   'changed master', 'missing clock', 'clock not array', 'clock length', 'clock missing row', 'clock shot', 'clock start',
   'clock duration', 'generated without metadata', 'required speech without metadata'] as const)
 ('rejects incomplete or changed private subtitle evidence: %s', async (fault) => {
@@ -61,6 +79,7 @@ it.each(['invalid JSON', 'non-object', 'extra shot', 'wrong shot', 'missing mast
     case 'wrong shot': f.manifest.shots = [{ ...f.source, shot: 2 }]; break
     case 'missing master hash': delete f.manifest.master_audio_sha256; break
     case 'invalid master hash': f.manifest.master_audio_sha256 = 'invalid'; break
+    case 'missing master audio': await rm(f.paths.masterAudio); break
     case 'changed master': await writeFile(f.paths.masterAudio, 'changed'); break
     case 'missing clock': delete f.manifest.timeline_clips; break
     case 'clock not array': f.manifest.timeline_clips = {}; break

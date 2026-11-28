@@ -5,17 +5,21 @@ description: Use when 3D 动画或仿真人短剧需要可编辑草稿、实际�
 
 # 短剧剪辑与字幕
 
-旧独立音轨草稿与正式成片遵循同一[媒介与交付策略](../tweet-drama-background-render/SKILL.md#媒介与交付策略)：明确 `animation_3d` 时不添加水印、片尾 2 秒末帧定格、片尾音或特效；`photorealistic` 保留这些交付元素。媒介缺失的旧项目警告并保留旧版行为，不从风格文字或横竖比猜测。
+独立音轨草稿与正式成片遵循同一[媒介与交付策略](../tweet-drama-background-render/SKILL.md#媒介与交付策略)：明确 `animation_3d` 时不添加水印、片尾 2 秒末帧定格、片尾音或特效；`photorealistic` 保留这些交付元素。媒介缺失的旧项目警告并保留旧版行为，不从风格文字或横竖比猜测。
 
-Windows 原声草稿按画幅选择片尾：只有 `9:16` 在整集末尾追加两秒，`16:9` 及其他比例不追加，也不加载片尾音或特效；水印仍由项目媒介决定。Windows 原声草稿的 `16:9` 字幕使用剪映字号 `7`、位置 `X=0`、`Y=-879`；工具根据实际剪映画布高度换算内部位置，覆盖旧项目保存的字号和位置，颜色与描边沿用原要求。Muse 产品竖版新草稿使用统一字幕视觉的剪映映射，忽略旧字幕样式但仍可在剪映编辑；实际打开剪映核对。Windows 草稿默认将选定原视频按剧情顺序入轨、保留视频自带对白和音效；BGM、字幕与适用的整集片尾分别可编辑。调用同一 `jianying_draft`，请求写 `audio_mode: "embedded"` 并省略 `audio`，由随包 aa剪映后端执行。不为加字幕或配乐先提取整集音频、预混 BGM 或重编码正文视频，不为凑时长在正文剪口补静帧或主动改速。用户明确要求配音、替换声音或其它剪辑时按其要求处理。未声明模式的旧请求仍需独立主音频；Mac 暂沿用该路径，不能把它冒称为保留内嵌原声。具体字段与 Windows 运行要求见[输入输出](references/io-contract.md#desktop-request)。
+Windows 原声草稿按画幅选择片尾：只有 `9:16` 在整集末尾追加两秒，`16:9` 及其他比例不追加，也不加载片尾音或特效；水印仍由项目媒介决定。Windows 原声草稿的 `16:9` 字幕使用剪映字号 `7`、位置 `X=0`、`Y=-879`；工具根据实际剪映画布高度换算内部位置，覆盖旧项目保存的字号和位置，颜色与描边沿用原要求。Muse 产品竖版新草稿使用统一字幕视觉的剪映映射，忽略旧字幕样式但仍可在剪映编辑；实际打开剪映核对。Windows 仅制作草稿且保留视频自带对白和音效时，调用 `jianying_draft` 并在请求写 `audio_mode: "embedded"`，省略 `audio`。随包 aa剪映后端保留视频原声，BGM、字幕与适用的整集片尾分别可编辑。不为加字幕或配乐先提取整集音频、预混 BGM 或重编码正文视频，不为凑时长在正文剪口补静帧或主动改速。用户明确要求配音、替换声音或其它剪辑时按其要求处理。未声明模式的旧请求仍需独立主音频；Mac 暂沿用该路径。具体字段与 Windows 运行要求见[输入输出](references/io-contract.md#desktop-request)。
 
 ## 剪映草稿目录
 
 **生成剪映文件时一并完成 BGM**：先读取相邻 `tweet-drama-background-render/references/story-bgm-selection.md`，根据实际剧本、对白、剧情发展和采用画面选曲，执行 `bgm_match match/download → drama_bgm preview/compose/verify`，再把合成的纯音乐 WAV 绝对路径写入请求 `bgm`，声明 `bgm_role: "music_only"`。音乐底轨与原视频分别入轨，不为此先合成整集 MP4，不把对白＋音乐审查混音当 BGM。源曲至少衰减 10 dB，已衰减底轨导入时增益不大于 1。剧情不需换曲可用一首，相邻两集尽量不重复。回读实际 BGM 轨道、正文覆盖和音量，片尾音不能替代正文配乐；未试听时如实标记。旧 `audio-mix.json` 的 `no_bgm` 不自动继承为本次不配乐决定；用户明确只要原声或剧情确需不加音乐时，在请求写 `music_decision: "none"`、`decision_reason`，不要伪造静音 BGM。缺 BGM 的旧请求仍保留草稿候选并返回待完成提醒，Muse 应修正后用新名称保存，不把提醒当成请用户手工配乐的理由，也不把保存成功写成配乐交付完成。
 
-仅在准备生成剪映草稿时调用 `drama_draft_dir {}`，读取 Settings 的 `jianyingDraftDir`。返回 `ready` 就使用返回的 `path`，不再询问用户；返回 `unconfigured` 或路径失效时，用 `ask_user_question` 询问“请提供本机剪映专业版设置里的草稿保存根目录”。不要猜测其他机器的路径，也不要替用户创建一个假定的编辑器根目录。把用户回答传给 `drama_draft_dir {path: ...}`；工具验证已有绝对目录可读写、保存同一 Settings 字段并回读，成功后才能生成草稿。工具或保存失败时说明原因并修正，不改写其他设置，不用另一份配置文件绕过。这个步骤不阻塞写作、分镜或视频生成。
+**成片与草稿一起归档**：从第一次生成就写 `audio_mode: "independent"`，将本次 `drama_render prepare` 返回的 `render_preview.audio.master_path` 写入 `audio`。复用同一套选片、时间线、实际使用的字幕和适用的片尾；字幕取 `render_preview.subtitle.path`，有烧录字幕决定时传此次对应的 `resolved_srt` 和 `subtitle_overlay_report`。在项目内创建本集 `02_剪映草稿` 目录，使用它的绝对路径为 `drafts_dir`，保持编辑器设置不变。剪辑或选片变化时重新 `prepare`，同步成片和草稿后再调用 `drama_render stage_delivery`。归档后从交付位置在剪映重开并播放。
 
-生成剪映草稿统一调用 `jianying_draft`，将 `drama_draft_dir` 成功结果的 `path` 原样作为 `drafts_dir`，不用让用户手写 PowerShell 或另装 Python。先用 `write` 保存[单集请求文件](references/io-contract.md#desktop-request)，再传其绝对路径为 `request_file`。Windows 原声模式用 aa剪映调用已安装剪映的 CLI；独立音轨请求沿用打包的 `GuanYixuan/pyJianYingDraft`。工具只处理指定一集，返回草稿路径、保留素材目录与实际实现身份。`editor_open_verified=false` 表示尚未在本机剪映打开验证；不能因已有草稿是密文就断言新草稿无法打开，也不能宣称任意版本均兼容。工具失败时按实际错误调查，不静默换引擎。当前实例缺少此工具时，核查 Muse 版本与安装状态。
+需要草稿默认播放与成片使用同一混音时，先以 `resume=true` 生成正式成片，再把本次实际返回的 MP4 绝对路径填入 `rendered_output`。独立原声、配乐及适用的片尾音仍可编辑，保存时由一条核对过的成片混音负责默认回放。修改内容后重新渲染和成对出稿，并重新审核。
+
+**仅生成草稿**：调用 `drama_draft_dir {}`，读取 Settings 的 `jianyingDraftDir`。返回 `ready` 时将返回的 `path` 原样作为 `drafts_dir`。返回 `unconfigured` 或路径失效时，用 `ask_user_question` 询问“请提供本机剪映专业版设置里的草稿保存根目录”，再传给 `drama_draft_dir {path: ...}`。工具验证已有绝对目录可读写、保存同一 Settings 字段并回读。这个步骤不阻塞写作、分镜或视频生成。
+
+生成剪映草稿统一用 `write` 保存[单集请求文件](references/io-contract.md#desktop-request)，以其绝对路径作为 `request_file` 传给 `jianying_draft`。Windows 原声模式用 aa剪映调用已安装剪映的 CLI；独立音轨请求使用打包的 `GuanYixuan/pyJianYingDraft`。工具只处理指定一集，返回草稿路径、保留素材目录与实际实现身份。`editor_open_verified=false` 表示尚未在本机剪映打开验证。工具失败时按实际错误调查，保留现有草稿。当前实例缺少此工具时，核查 Muse 版本与安装状态。
 
 历史会话续做或 Muse 更新后恢复草稿制作时，重新读取本技能，以当前原生工具为准。历史记录中成功过的 `DraftGenerator`、`sys.path`、`.desktop-build` 和绝对开发目录不是当前生成入口；即使仍能启动，也可能绕过现版音轨处理与保存校验。原生工具报错时核查当前错误和打包资源，不静默改用旧脚本或另装依赖。此为 Agent 操作指导，不新增用户审批；不会自动修改已生成草稿，需要修复时另存唯一名称的候选，保留原稿。
 

@@ -1,10 +1,14 @@
-/** Model tool for account-bound cloud speech transcription of local media. */
+/** Model tool for cloud transcription and deployment-provisioned local speech checks. */
+import { randomUUID } from 'node:crypto'
 import { isAbsolute, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 import { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
+import { offlineResult, transcribeOffline } from './offline.ts'
+import type { OfflineSpeechConfig } from './pronunciation-runtime.ts'
+import { inspectPronunciation, pronunciationParameter, pronunciationResult, type PronunciationConfig } from './pronunciation.ts'
 import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, startAudioTranscriptionBatch, type AudioAccount } from './runner.ts'
 
 /** Cordis row name for model-visible speech transcription. */
@@ -36,6 +40,17 @@ export interface Config {
   readonly uploadRetryBudgetMs: number
   /** Largest number of files one batch start accepts. */
   readonly maxBatchInputs: number
+  /** Host-provisioned local assets for advisory Mandarin word timing. */
+  readonly offline?: OfflineSpeechConfig
+  /** Host-provisioned local assets for advisory Mandarin pronunciation checks. */
+  readonly pronunciation?: PronunciationConfig
+}
+
+const localSpeechFields = {
+  pythonPath: Schema.string().required(),
+  libraryDir: Schema.string().required(),
+  librarySha256: Schema.string().required(),
+  modelDir: Schema.string().required(),
 }
 
 /** Validated product settings; the gateway enforces its independent limits. */
@@ -49,6 +64,11 @@ export const Config: Schema<Config> = Schema.object({
   maxAudioBytes: Schema.number().step(1).min(1).max(536_870_912).default(100_000_000),
   uploadRetryBudgetMs: Schema.number().step(1).min(0).max(600_000).default(120_000),
   maxBatchInputs: Schema.number().step(1).min(1).max(100).default(10),
+  offline: Schema.object(localSpeechFields).extra('default', undefined),
+  pronunciation: Schema.object({
+    ...localSpeechFields,
+    minimumMargin: Schema.number().min(8).max(50).default(8),
+  }).extra('default', undefined),
 })
 
 const resultProperties = {
@@ -154,6 +174,12 @@ function projectRoot(project: string, workspace: string | undefined): string {
  * @param config - Media binaries and local size/time limits.
  */
 export function apply(ctx: Context, config: Config): void {
+  const offline = config.offline ?? undefined
+  const pronunciation = config.pronunciation ?? undefined
+  const methods = ['start', 'inspect', 'status', ...(offline === undefined ? [] : ['offline'] as const),
+    ...(pronunciation === undefined ? [] : ['pronunciation'] as const)] as const
+  const outputs = { oneOf: [...outputSchema.oneOf, ...(offline === undefined ? [] : [offlineResult]),
+    ...(pronunciation === undefined ? [] : [pronunciationResult])] } as const
   const museAccount = ctx.get('museAccount') as MuseAccountService
   const account: AudioAccount = {
     status: () => museAccount.readLocalStatus(),
@@ -162,30 +188,62 @@ export function apply(ctx: Context, config: Config): void {
   }
   ctx.tools.register(defineTool({
     name: 'audio_transcribe',
-    description: '使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；多集用 inputs 一次提交，工具逐集上传，上传繁忙或请求过频时按服务端提示等待，并沿用同一收据重试。inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件，也不要删除收据。需要先登录 Muse。',
+    description: '使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；多集用 inputs 一次提交，工具逐集上传，上传繁忙或请求过频时按服务端提示等待，并沿用同一收据重试。inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件，也不要删除收据。需要先登录 Muse。'
+      + (offline === undefined ? '' : ' offline 在本机生成中文词级时间证据，不上传或登录，适用于最多120秒的项目内选片、修音片或成片。读取该次返回的 offline_transcript.receipt 和 transcript.path。未识别到词保留待核状态。')
+      + (pronunciation === undefined ? '' : ' pronunciation 在本机比较同一句的两个普通话读音，定位待核听时段，无需上传原声。'),
     parameters: {
-      method: { type: 'string', required: true, enum: ['start', 'inspect', 'status'], description: 'start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。' },
+      method: { type: 'string', required: true,
+        enum: methods,
+        description: 'start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。'
+          + (offline === undefined ? '' : ' offline=对单个本地 input 转写并保留同源字词时点。')
+          + (pronunciation === undefined ? '' : ' pronunciation=对 input 中同一句的两个普通话读音作本地比较。') },
       project: { type: 'string', required: true, description: '项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。' },
-      input: { type: 'string', description: 'start 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。' },
+      input: { type: 'string', description: (['start', ...methods.slice(3)].join('/'))
+        + ' 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。' },
+      ...(pronunciation === undefined ? {} : { pronunciation: pronunciationParameter }),
       inputs: { type: 'array', items: { type: 'string' }, description: `start 多集输入（与 input 二选一，1–${config.maxBatchInputs} 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途收据的集沿用原收据，不重新计费，已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。` },
       wait_seconds: { type: 'number', description: '只读查询总等待（0–30 秒）；默认 0，仅查一轮。超时后沿原收据查询；status 经确认补传的时间另计。' },
       receipt: { type: 'string', description: 'inspect/status 必填：start 返回的 transcript/jobs 收据路径；相对路径以 project 为基准。' },
       language: { type: 'string', enum: ['zh', 'auto'], description: 'start 识别语种；默认 zh。' },
       purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。' },
     },
-    output: { schema: outputSchema, render: (_args, value): ContentBlock[] => {
-      const results: readonly { status?: string; purpose?: string; error_code?: string }[] = 'items' in value ? value.items : [value]
-      return [
-        ...(results.some(item => item.error_code === 'queue_full') ? [{ type: 'text' as const, text: 'Muse 转写队列已满，请稍后重试' }] : []),
-        ...(results.some(item => item.status === 'silent' && item.purpose === 'screenplay') ? [{ type: 'text' as const, text: SILENT_SCREENPLAY_NOTE }] : []),
-        ...('items' in value ? [{ type: 'text' as const, text: batchProgress(value) }] : []),
-        ...(results.some(item => item.error_code === 'upload-timeout' || item.error_code === 'query-timeout')
-          ? [{ type: 'text' as const, text: '本次未能确认转写状态。请用原收据查询，已受理的任务仍可继续处理。' }] : []),
-        { type: 'text', text: JSON.stringify(value) },
-      ]
-    } },
+    output: { schema: outputs,
+      ...(offline === undefined && pronunciation === undefined ? {} : { preserveBodyMeta: true }),
+      presentationMeta: (_args, value) => 'offline_pronunciation' in value || 'offline_transcript' in value ? value : undefined,
+      render: (_args, value): ContentBlock[] => {
+        if ('offline_pronunciation' in value || 'offline_transcript' in value) return [{ type: 'text', text: JSON.stringify(value) }]
+        const results: readonly { status?: string; purpose?: string; error_code?: string }[] = 'items' in value ? value.items : [value]
+        return [
+          ...(results.some(item => item.error_code === 'queue_full') ? [{ type: 'text' as const, text: 'Muse 转写队列已满，请稍后重试' }] : []),
+          ...(results.some(item => item.status === 'silent' && item.purpose === 'screenplay') ? [{ type: 'text' as const, text: SILENT_SCREENPLAY_NOTE }] : []),
+          ...('items' in value ? [{ type: 'text' as const, text: batchProgress(value) }] : []),
+          ...(results.some(item => item.error_code === 'upload-timeout' || item.error_code === 'query-timeout')
+            ? [{ type: 'text' as const, text: '本次未能确认转写状态。请用原收据查询，已受理的任务仍可继续处理。' }] : []),
+          { type: 'text', text: JSON.stringify(value) },
+        ]
+      } },
     execute: async (args, exec) => {
-      const project = projectRoot(args.project, exec.agent?.session.header.cwd)
+      const workspace = exec.agent?.session.header.cwd
+      const project = projectRoot(args.project, workspace)
+      if (args.method === 'offline') {
+        if (offline === undefined || workspace === undefined || !args.input || args.inputs !== undefined
+          || args.receipt !== undefined || args.wait_seconds !== undefined || args.language !== undefined
+          || args.purpose !== undefined || args.pronunciation !== undefined) {
+          throw new ToolArgsError(['offline requires a workspace and one local Mandarin audio or video input'])
+        }
+        return { offline_transcript: await transcribeOffline(workspace, project, args.input, config, offline, exec.signal) }
+      }
+      if (args.method === 'pronunciation') {
+        if (pronunciation === undefined || workspace === undefined || !args.input || args.pronunciation === undefined
+          || args.inputs !== undefined || args.receipt !== undefined || args.wait_seconds !== undefined
+          || args.language !== undefined || args.purpose !== undefined) {
+          throw new ToolArgsError(['pronunciation requires a workspace, one input and one Mandarin pronunciation comparison'])
+        }
+        const { offline_pronunciation: local } = await inspectPronunciation(workspace, project, args.input,
+          args.pronunciation, config, pronunciation, exec.signal)
+        return { offline_pronunciation: { ...local, evidence_id: randomUUID() } }
+      }
+      if (args.pronunciation !== undefined) throw new ToolArgsError(['pronunciation parameters require method pronunciation'])
       const pacing = { retryBudgetMs: config.uploadRetryBudgetMs }
       if (args.method === 'start') {
         if (args.input !== undefined && args.inputs !== undefined) throw new ToolArgsError(['start accepts input or inputs, not both'])

@@ -1,4 +1,5 @@
 /** Read-only, card-bound video history for extraction and reuse across generation settings. */
+import { createHash } from 'node:crypto'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import type { JubianClient, JubianRequest, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { FAILED_STATUSES, SUCCESS_STATUSES, readSubtaskPage, taskIdOf, taskStatusOf } from '@deepseek-ai/dsh-jubian-api'
@@ -25,6 +26,21 @@ export interface VideoSource {
   model_id: string | null
   resolution: string | null
   status: string
+}
+
+/** Native history evidence for the original generation of one exact card result. */
+export interface HistoricalVideoSourceIdentity {
+  readonly scriptId: number
+  readonly episodeId: number
+  readonly storyboardId: number
+  readonly taskId: number
+  readonly subtaskId: number
+  readonly firstResultId: number
+}
+
+/** Original URL fingerprint; a later processed video URL never substitutes for it. */
+export interface HistoricalVideoSourceEvidence extends HistoricalVideoSourceIdentity {
+  readonly originalUrlSha256: string
 }
 
 /** Advisory source evidence, never authorization to submit or repeat a generation. */
@@ -78,6 +94,43 @@ function identity(value: unknown): number | null {
 function owned(row: Row, scriptId: number): boolean {
   return identity(row.scriptId) === scriptId
 }
+
+function succeeded(status: unknown): boolean {
+  return typeof status === 'string' && (SUCCESS_STATUSES as readonly string[]).includes(status.trim().toLowerCase())
+}
+
+function originalUrlDigest(child: Row, resultId: number, base: string | null, selected: string): string | undefined {
+  if (base === null || !Array.isArray(child.resultList) || child.resultList.length !== 1) return undefined
+  // readSubtaskPage has already validated this row and selected the current URL in provider order.
+  const result = record(child.resultList[0])
+  if (identity(result.firstResultId) !== resultId || (child.firstResultId != null && identity(child.firstResultId) !== resultId)
+    || result.taskType !== 1 || !succeeded(result.resultStatus)) return undefined
+  if (base === selected) {
+    if (result.hdCount != null && result.hdCount !== 0) return undefined
+    const hasLastUrl = result.lastTosVideoUrl != null && result.lastTosVideoUrl !== ''
+    if (result.lastTaskType === 1) {
+      if (result.lastResultId != null && identity(result.lastResultId) !== resultId) return undefined
+      if (hasLastUrl ? result.lastTosVideoUrl !== base || !succeeded(result.lastResultStatus)
+        : result.lastResultStatus != null) return undefined
+    } else if (result.lastTaskType != null || hasLastUrl || result.lastResultId != null || result.lastResultStatus != null) {
+      return undefined
+    }
+  } else {
+    const lastId = identity(result.lastResultId)
+    if ((result.lastTaskType !== 10 && result.lastTaskType !== 20) || !succeeded(result.lastResultStatus)
+      || result.lastTosVideoUrl !== selected || (result.lastResultId != null && (lastId === null || lastId === resultId))) return undefined
+  }
+  const originalFields = [result.tosVideoUrl, result.originalVideoUrl].filter(value => value != null && value !== '')
+  if (originalFields.length === 0 || originalFields.some(value => value !== base) || base.includes('\\')) return undefined
+  try {
+    const url = new URL(base)
+    if (url.protocol === 'https:' && !url.username && !url.password && !url.hash) return createHash('sha256').update(base).digest('hex')
+  } catch {
+    // Invalid URLs do not establish an original source.
+  }
+  return undefined
+}
+
 function list(response: JubianResponse, allowUnpaged: boolean): { rows: Row[]; total: number | null; unpaged: boolean } {
   if (Array.isArray(response.data)) return { rows: response.data.map(record),
     total: allowUnpaged ? response.data.length : null, unpaged: allowUnpaged }
@@ -99,16 +152,19 @@ function list(response: JubianResponse, allowUnpaged: boolean): { rows: Row[]; t
  * @param args - Exact project and original card identities.
  * @param options - Explicit bounds for pagination, task hydration and output.
  * @param signal - Foreground cancellation, propagated without converting it into a finding.
+ * @param recordEvidence - Optional native metadata sink for original results from a complete read.
  * @returns Bounded source evidence and coverage; successful media still needs speaker/content inspection.
  */
 export async function readVideoSources(client: JubianClient, args: { script_id: number; storyboard_id: number },
-  options: VideoSourceOptions, signal?: AbortSignal): Promise<VideoSourceResult> {
+  options: VideoSourceOptions, signal?: AbortSignal,
+  recordEvidence?: (rows: readonly HistoricalVideoSourceEvidence[]) => void): Promise<VideoSourceResult> {
   if (identity(args.script_id) === null || identity(args.storyboard_id) === null) {
     throw new JubianError('INVALID_ARGUMENT', 'script_id and storyboard_id must be positive integers')
   }
   const result: VideoSourceResult = { ...args, queried_at: new Date().toISOString(), status: 'unknown', complete: true,
     coverage: { history: 'card', pages_read: 0, tasks_found: 0, tasks_checked: 0, results_found: 0 },
     sources: [], tasks: [], issues: [], next: '' }
+  const originals: HistoricalVideoSourceEvidence[] = []
   let pendingChild = false
   const issue = (code: string) => { result.complete = false; if (!result.issues.includes(code)) result.issues.push(code) }
   const read = async (request: JubianRequest): Promise<JubianResponse | null> => {
@@ -144,6 +200,8 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
       else result.tasks.pop()
       describe()
     }
+    const episode = originals[0]?.episodeId
+    recordEvidence?.(result.complete && originals.every(original => original.episodeId === episode) ? originals : [])
     return result
   }
   const cardResponse = await read({ method: 'GET', path: `/aigc/storyboard/${args.storyboard_id}` })
@@ -238,6 +296,8 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
     const parentHasCard = owner === args.storyboard_id || listedOwner === args.storyboard_id
     let parentMatched = parentHasCard
     const parentStatus = taskStatusOf(detail, ownerHint === null ? {} : candidate)
+    const episodeId = identity(detail.episodeId)
+    const originalGeneration = detail.taskType === 1 && succeeded(taskStatusOf(detail, {}))
     if (!parentStatus) issue('TASK_STATUS_UNKNOWN')
     const seenChildren = new Set<number>()
     let total: number | null = null, complete = false
@@ -283,6 +343,14 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
         result.sources.push({ task_id: taskId, subtask_id: parsed.subtask_id, first_result_id: parsed.first_result_id,
           video_url: parsed.video_url, base_video_url: parsed.base_video_url, model_id: parsed.model_id,
           resolution: parsed.resolution, status })
+        if (recordEvidence !== undefined && originalGeneration && episodeId !== null
+          && (owner === args.storyboard_id || childOwner === args.storyboard_id)
+          && [card.episodeId, candidate.episodeId, child.episodeId].every(id => id == null || identity(id) === episodeId)
+          && parsed.subtask_id === id && parsed.first_result_id !== null) {
+          const fingerprint = originalUrlDigest(child, parsed.first_result_id, parsed.base_video_url, parsed.video_url)
+          if (fingerprint !== undefined) originals.push({ scriptId: args.script_id, episodeId, storyboardId: args.storyboard_id,
+            taskId, subtaskId: id, firstResultId: parsed.first_result_id, originalUrlSha256: fingerprint })
+        }
       }
       if (seenChildren.size === total) { complete = true; break }
       if (seenChildren.size > total || seenChildren.size === before) { issue('INCOMPLETE_CHILD_PAGE'); break }

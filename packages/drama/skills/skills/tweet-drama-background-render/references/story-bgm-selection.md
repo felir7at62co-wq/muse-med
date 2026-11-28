@@ -46,12 +46,16 @@ visual_review 为实际观察后保存的 JSON，最少包含 `video`（实际�
     "intent": "母亲说出牺牲后，母女从误解转为克制的理解，不把场面放大为英雄凯旋",
     "desired_tags": ["family", "gentle"],
     "avoid_tags": ["epic", "comedy"],
-    "dialogue_density": "dense"
+    "dialogue_density": "dense",
+    "evidence": [
+      {"kind": "script", "file": "剧本/本集.md", "quotes": ["<本集真实台词或动作原文>"]},
+      {"kind": "visual_review", "file": "qa/本段画面.json", "quotes": ["<该 JSON 中的真实画面观察原文>"]}
+    ]
   }
 }
 ```
 
-上面的示例仅展示意图字段；生产调用还须填写当前项目的真实 evidence，不能照抄示例台词或省略依据。先核对 `story_request` 是否符合这段剧情，再比较候选的 `story_fit`、原始情绪测量和许可。有 `audio_profile` 时先看音频推断与实际采样时间窗，再看曲名和宽泛 moods；`supported` 表示有候选证据，不表示听感合格。音频/曲名/情绪证据分别列出，`missing_tags`、`unknowns`、`audio_conflicts` 和 `mood_conflicts` 保留未解决点；高情绪距离仍需解释，不能因标签合适就忽略能量过强或情绪相反。`human_reviewed=false` 明确表示未人工试听，原始 similarity 不能改成适配百分比；配器和人声只是模型候选。抽样未覆盖的源曲片段仍须检查，不能把采样窗直接当成已认可的乐句切点。
+将示例中的文件和引语替换为当前项目的真实证据。先核对 `story_request` 是否符合这段剧情，再比较候选的 `story_fit`、原始情绪测量和许可。有 `audio_profile` 时先看音频推断与实际采样时间窗，再看曲名和宽泛 moods；`supported` 表示有候选证据，不表示听感合格。音频/曲名/情绪证据分别列出，`missing_tags`、`unknowns`、`audio_conflicts` 和 `mood_conflicts` 保留未解决点；高情绪距离仍需解释，不能因标签合适就忽略能量过强或情绪相反。`human_reviewed=false` 明确表示未人工试听，原始 similarity 不能改成适配百分比；配器和人声只是模型候选。抽样未覆盖的源曲片段仍须检查，不能把采样窗直接当成已认可的乐句切点。
 
 `review_candidates` 保留曲名与避免意图冲突的候选；`withheld_candidates` 保留本语境下用户明确否决的候选。不得为了用排名第一而改写剧情意图、删掉避免标签或覆盖用户否决。缺少积极证据时先保留原声或留白；若真实试听支持，也可说明依据采用未确认候选。库里没有合适曲目就说明缺口，不凭空编造曲名、音乐属性或适配分数。
 
@@ -67,7 +71,7 @@ visual_review 为实际观察后保存的 JSON，最少包含 `video`（实际�
 
 配乐计划必须使用当前工具字段，不能把简写片段表直接传给 `drama_bgm`。最小格式为 `{"episodes":[{"episode":"01","body_duration_seconds":30,"segments":[{"track":"实际选定曲名","source":"audio/selected.mp3","start_seconds":0,"end_seconds":30,"reason":"依据本段真实剧情填写"}]}]}`。这是格式示例，实际时长取本次 timeline 的 `body_end`，曲名、来源、理由和起播点按实际选择填写，`episode` 为字符串。格式错误按返回的具体字段路径修正，不改剧本、不跳过选曲或转为无依据的留白。
 
-仅下载准备使用的实际 track_id，沿用返回的许可和 SHA-256。预选时检查真实源曲的开头、拟用段和尾部，确认人声、配器、密度、能量变化和可用长度；整曲平均情绪不代表选定的十几秒都合适。没有播放能力时如实写“待试听”，不得将元数据检查写成听过。`human_reviewed=false` 是标签的证据属性，不是禁止自动选曲的条件；Agent 按剧情和已有音频证据完成候选选择、合成与参数核验，保留听感不确定项，不把全部选曲工作交回用户。
+仅下载准备使用的实际 track_id，沿用返回的许可和 SHA-256。`license_info.commercial_use` 保留来源中的布尔值或字符串 `"unknown"`。预选时检查真实源曲的开头、拟用段和尾部，确认人声、配器、密度、能量变化和可用长度；整曲平均情绪不代表选定的十几秒都合适。没有播放能力时如实写“待试听”，不得将元数据检查写成听过。`human_reviewed=false` 是标签的证据属性，不是禁止自动选曲的条件；Agent 按剧情和已有音频证据完成候选选择、合成与参数核验，保留听感不确定项，不把全部选曲工作交回用户。
 
 在 `drama_bgm` 计划中记录正文 `start_seconds/end_seconds`、真实源曲 `source_start_seconds`、选曲理由，并复制候选实测 `valence/arousal` 和实际 `tags`；用 `story_context` 记录情节发展和观众感受，`dialogue_context` 记录对白含义。不能编造缺失的测量或标签。起播点按真实音频的自然乐句选取；自动 onset 只检测起音，不等于识别高潮、节拍或合适乐句。相接段落各需预留 `crossfade_seconds/2` 的额外源曲长度，`crossfade_seconds` 必须大于 0；不能用 0 绕过片长不足。曲长不足时换片段、合理缩短覆盖，或显式 `music` 留出真实原声间隔；不挪动剧情转折，不默认任意循环自然。
 

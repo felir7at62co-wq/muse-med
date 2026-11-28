@@ -65,6 +65,7 @@
     "src/video-session.ts",
     "src/video-session-types.ts",
     "src/video-sources.ts",
+    "src/prior-video-source.ts",
     "src/production.ts",
     "src/video-recovery-project.ts",
     "src/video-recovery.ts",

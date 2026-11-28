@@ -837,5 +837,35 @@ class CloudCorrectionTests(unittest.TestCase):
         self.assertEqual(corrected[0]['words'][0]['text'], '程')
 
 
+class OfflineReceiptTest(unittest.TestCase):
+    def test_offline_words_follow_the_selected_audio_and_changed_words_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            video, audio = root / 'clip.mov', root / 'selected.wav'
+            video.write_bytes(b'picture')
+            audio.write_bytes(b'actual selected sound')
+            directory = root / 'transcript' / 'offline' / 'local-AbC123'
+            directory.mkdir(parents=True)
+            receipt, words = directory / 'receipt.json', directory / 'words.json'
+            words.write_text(json.dumps([{'words': [{'text': '甲', 'start': 0.2, 'end': 0.4}]}]), encoding='utf-8')
+            document = {'kind': 'muse_offline_word_timing', 'version': 1, 'listening_verified': False,
+                        'project': str(root), 'receipt': str(receipt),
+                        'source': {'path': str(audio), 'sha256': hashlib.sha256(audio.read_bytes()).hexdigest()},
+                        'transcript': {'path': str(words), 'sha256': hashlib.sha256(words.read_bytes()).hexdigest()}}
+            receipt.write_text(json.dumps(document), encoding='utf-8')
+            with self.assertRaisesRegex(SystemExit, '当前选定声音'):
+                ALIGN._read_cloud_alignment(video, receipt)
+            chars, _, sha = ALIGN._read_cloud_alignment(video, receipt, selected_audio=audio)
+            self.assertEqual(chars, [('甲', 0.2, 0.4, 0.2, 0.4)])
+            self.assertEqual(sha, document['source']['sha256'])
+            words.write_text('[]', encoding='utf-8')
+            with self.assertRaisesRegex(SystemExit, '逐词时间已变化'):
+                ALIGN._read_cloud_alignment(video, receipt, selected_audio=audio)
+            document['recognition'] = 'no_reliable_words'
+            receipt.write_text(json.dumps(document), encoding='utf-8')
+            with self.assertRaisesRegex(SystemExit, '实际声音仍待核听'):
+                ALIGN._read_cloud_alignment(video, receipt, allow_empty=True, selected_audio=audio)
+
+
 if __name__ == '__main__':
     unittest.main()

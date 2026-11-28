@@ -29,11 +29,15 @@ exports[`exposes subtask rows in PTC output types while accepting other video-me
     complete: boolean;
     has_more: boolean | null;
     next_page: number | null;
-    /** 本次总数与完整性对应的查询范围；task_type=null 表示不按类型筛选。 */
+    /** 本次总数与完整性对应的查询范围。task_type=null 表示不按类型筛选。 */
     scope: {
       script_id: number;
       task_type: number | null;
+      /** 本次查找历史处理任务所用的原视频结果 ID。 */
+      parent_result_id?: number;
     };
+    /** 按原视频结果查找时实际读取的页数。 */
+    pages_read?: number;
     /** 仅本次未按任务类型筛选且完整读到提供方项目列表时为 true；不保证提供方保留全部历史。 */
     project_complete: boolean;
     total: number;

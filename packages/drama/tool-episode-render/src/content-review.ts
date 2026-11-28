@@ -227,8 +227,14 @@ export async function verifyEpisodeContentReview(input: {
     }
     if (final) for (const cut of input.cuts) {
       const near = frames.filter(frame => number(frame.decoded_time) && Math.abs(frame.decoded_time - cut) <= 0.5)
-      if (!near.some(frame => Number(frame.decoded_time) < cut) || !near.some(frame => Number(frame.decoded_time) >= cut)) {
+      const before = new Set(near.filter(frame => Number(frame.decoded_time) < cut).map(frame => frame.id))
+      const after = new Set(near.filter(frame => Number(frame.decoded_time) >= cut).map(frame => frame.id))
+      if (before.size === 0 || after.size === 0) {
         fail(`成片${cut.toFixed(3)}秒接缝缺少两侧实际观察帧。`)
+      }
+      if (!checks.some(({ dimension, frame_ids: ids }) => dimension === 'continuity' && Array.isArray(ids)
+        && ids.some(id => before.has(id)) && ids.some(id => after.has(id)))) {
+        fail(`成片${cut.toFixed(3)}秒接缝缺少引用两侧实际观察帧的连续性判断。`)
       }
     }
     files.push({ path: media, sha256: expected }, { path: report.path, sha256: report.sha256 })

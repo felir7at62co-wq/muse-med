@@ -46,6 +46,9 @@ import {
   ReasoningEffortId,
 } from '@deepseek-ai/dsh-llm'
 import type {
+  AudioReviewRequest,
+  AudioReviewRoute,
+  AudioReviewTransportResult,
   GenerateOptions,
   ImageAttachmentAccess,
   LlmFailure,
@@ -59,7 +62,7 @@ import type {
   ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { deadline, idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
@@ -68,6 +71,7 @@ import { bindThinkingToPrefix } from './prefix-binding.ts'
 import type { PrefixDigests } from './prefix-binding.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 import { completeCompletionsResponse } from './completions-response.ts'
+import { geminiAudioPayload, isDirectGeminiAudioEndpoint, prepareGeminiAudio, readGeminiAudioResponse } from './gemini-audio.ts'
 
 /**
  * Initially active declaration added to an Anthropic request whose projected
@@ -78,6 +82,8 @@ const ANTHROPIC_TOOL_UPDATE_PLACEHOLDER: ToolSchema = {
   description: 'Reserved placeholder that keeps deferred tool loading active; never call this tool.',
   parameters: { type: 'object', properties: {} },
 }
+
+const GEMINI_AUDIO_REVIEW_TIMEOUT = 'GEMINI_AUDIO_REVIEW_TIMEOUT'
 
 function requestObject(value: unknown, field: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -360,6 +366,16 @@ function providerResponseFacts(response: Response): ProviderResponseFacts {
   }
 }
 
+function isConfiguredGeminiAudioRoute(
+  profile: ResolvedPiAiProviderProfile,
+  model: string,
+  descriptor: Model<Api> | undefined,
+): boolean {
+  return profile.geminiAudioModel === model && Boolean(profile.apiKeyEnv?.trim())
+    && descriptor?.api === 'google-generative-ai' && /^gemini-[a-z0-9][a-z0-9.-]{0,90}$/u.test(model)
+    && isDirectGeminiAudioEndpoint(descriptor.baseUrl)
+}
+
 /**
  * pi-ai-backed multi-provider adapter. Each operation reads the current
  * profiles, so a configuration change reaches the next request without a
@@ -506,9 +522,70 @@ export class PiAiAdapter extends LlmAdapter {
     return this.streamWithSnapshot(options, this.current())
   }
 
+  /**
+   * Read the eligible direct Gemini audio routes from the current configuration snapshot.
+   * @returns Provider and model pairs explicitly enabled for audio review.
+   */
+  configuredGeminiAudioRoutes(): readonly AudioReviewRoute[] {
+    const snapshot = this.current()
+    const routes: AudioReviewRoute[] = []
+    for (const [provider, profile] of snapshot.profiles) {
+      const model = profile.geminiAudioModel
+      if (model === undefined || profile.modelErrors.has(model)) continue
+      if (isConfiguredGeminiAudioRoute(profile, model, snapshot.models.getModel(provider, model))) routes.push({ provider, model })
+    }
+    return routes
+  }
+
+  /**
+   * Send a bounded request on an enabled direct audio route using one configuration snapshot.
+   * @param input - Selected route, prompt, WAV clips and optional cancellation or accounting callback.
+   * @returns Advisory review response bound to the route and the supplied audio digests.
+   */
+  async requestGeminiAudio(input: AudioReviewRequest): Promise<AudioReviewTransportResult> {
+    const { provider, model, prompt, signal, onProviderResponse } = input
+    if (signal?.aborted) throw new LlmError('Gemini audio review was cancelled.', 'ABORTED')
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, provider)
+    const descriptor = this.modelOf(snapshot, provider, model)
+    if (!isConfiguredGeminiAudioRoute(profile, model, descriptor)) {
+      throw new LlmError('This direct Gemini audio review route has not been configured.', 'UNSUPPORTED_CONTENT')
+    }
+    const prepared = prepareGeminiAudio(input)
+    using bound = deadline(signal, 90_000, GEMINI_AUDIO_REVIEW_TIMEOUT)
+    const aborted = Promise.withResolvers<never>()
+    const onAbort = (): void => { aborted.reject(bound.signal.reason) }
+    bound.signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      const stream = this.streamWithSnapshot({
+        provider,
+        model,
+        maxTokens: 4096,
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+        signal: bound.signal,
+      }, snapshot, payload => geminiAudioPayload(payload, prepared.parts))
+      const attempt = readGeminiAudioResponse(stream, onProviderResponse === undefined ? undefined : async (facts) => {
+        bound.signal.throwIfAborted()
+        await onProviderResponse({ provider, model, audioSha256: prepared.audioSha256, ...facts })
+      })
+      const result = await Promise.race([attempt, aborted.promise])
+      bound.signal.throwIfAborted()
+      return { provider, model, audioSha256: prepared.audioSha256, ...result, listeningVerified: false, grantsApproval: false }
+    } catch (error: unknown) {
+      if (timeoutOf(bound.signal, GEMINI_AUDIO_REVIEW_TIMEOUT) !== undefined) {
+        throw new LlmError('Gemini audio review reached its request deadline.', 'TIMEOUT')
+      }
+      if (bound.signal.aborted) throw new LlmError('Gemini audio review was cancelled.', 'ABORTED')
+      throw error
+    } finally {
+      bound.signal.removeEventListener('abort', onAbort)
+    }
+  }
+
   private async * streamWithSnapshot(
     options: GenerateOptions,
     snapshot: PiAiSnapshot,
+    prepareIsolatedPayload?: (payload: unknown) => unknown,
   ): AsyncIterable<StreamChunk> {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
@@ -535,6 +612,10 @@ export class PiAiAdapter extends LlmAdapter {
       options.reasoningEffort ?? profile.reasoning,
     )
     const apiKey = await this.config.resolveApiKey(options.provider, profile)
+    if (prepareIsolatedPayload !== undefined) {
+      options.signal?.throwIfAborted()
+      if (!apiKey?.trim()) throw new LlmError('The configured audio review credential is unavailable.', 'MISSING_CREDENTIAL')
+    }
     const requestContext = responseRequestContext(options, model.baseUrl)
     let responseFacts: ProviderResponseFacts | undefined
     const captureResponse: typeof globalThis.fetch = async (input, init) => {
@@ -588,7 +669,10 @@ export class PiAiAdapter extends LlmAdapter {
       const { context, digest } = bindThinkingToPrefix(converted, model.api, prefixDigests, manualThinking, (count) => {
         this.config.onThinkingOmitted?.({ provider: options.provider, model: options.model, count })
       })
-      const events = snapshot.models.streamSimple(model, context, {
+      const onPayload = prepareIsolatedPayload
+        ?? (profile.googleThoughtSummaries?.has(model.id) ? requestGoogleThoughtSummaries : undefined)
+      const isolatedModel = prepareIsolatedPayload === undefined ? model : { ...model, headers: {} }
+      const events = snapshot.models.streamSimple(isolatedModel, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
@@ -596,8 +680,10 @@ export class PiAiAdapter extends LlmAdapter {
         signal: watchdog.signal,
         // pi-ai's Google Generative AI adapter throws on any custom fetch.
         ...model.api === 'google-generative-ai' ? {} : { fetch: captureResponse },
-        ...profile.googleThoughtSummaries?.has(model.id) ? { onPayload: requestGoogleThoughtSummaries } : {},
-        headers: requestHeaders(profile.headers, requestContext, this.config.prepareHeaders),
+        ...onPayload === undefined ? {} : { onPayload },
+        headers: prepareIsolatedPayload === undefined
+          ? requestHeaders(profile.headers, requestContext, this.config.prepareHeaders)
+          : requestHeaders(undefined, requestContext, undefined),
       })
       const iterator = toStreamChunks(
         events,

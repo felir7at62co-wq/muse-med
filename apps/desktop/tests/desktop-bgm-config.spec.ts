@@ -1,16 +1,23 @@
 import { readFile } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
-import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Loader, { type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import * as yaml from 'js-yaml'
 import { expect, it } from 'vitest'
 
+function localEpisodeTools(rows: readonly EntryOptions[]): readonly EntryOptions[] {
+  const tools: unknown = rows.find(row => row.id === 'local-episode-tools')?.config
+  if (!Array.isArray(tools)) throw new Error('Missing local episode tools')
+  return tools as EntryOptions[]
+}
+
 it.each(['creation', 'short-drama'])('keeps source attenuation through the %s BGM composer and final mixer', async (preset) => {
   const source = await readFile(new URL(`../../desktop-host/presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8')
-  const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: Record<string, unknown> }>
-  expect(rows.find(row => row.id === 'tool-bgm-compose')?.config?.maxSourceGainDb).toBe(-10)
-  expect(rows.find(row => row.id === 'perception-bgm')?.config?.requireStoryEvidence).toBe(true)
-  expect(rows.find(row => row.id === 'tool-episode-render')?.config?.maxBgmVolume).toBe(1)
+  const rows = yaml.load(source, { schema: entryListSchema }) as EntryOptions[]
+  const tools = localEpisodeTools(rows)
+  expect(tools.find(row => row.id === 'tool-bgm-compose')?.config).toMatchObject({ maxSourceGainDb: -10 })
+  expect(rows.find(row => row.id === 'perception-bgm')?.config).toMatchObject({ requireStoryEvidence: true })
+  expect(tools.find(row => row.id === 'tool-episode-render')?.config).toMatchObject({ maxBgmVolume: 1 })
 })
 
 it('matches the public BGM catalogue without claiming a bundled analysis model', async () => {
@@ -43,7 +50,7 @@ it('matches the public BGM catalogue without claiming a bundled analysis model',
 
 it.each(['creation', 'short-drama'])('binds %s composition and rendering to resolved media executables', async (preset) => {
   const source = await readFile(new URL(`../../desktop-host/presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8')
-  const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; name: string }>
+  const rows = yaml.load(source, { schema: entryListSchema }) as EntryOptions[]
   const captured = new Map<string, Record<string, unknown>>()
   const ctx = new Context()
   try {
@@ -55,7 +62,7 @@ it.each(['creation', 'short-drama'])('binds %s composition and rendering to reso
       load() { throw new Error('Unexpected loader load') }, async import(specifier: string) {
         return { name: specifier, apply(_ctx: Context, config: Record<string, unknown>) { captured.set(specifier, config) } }
       } }
-    for (const row of rows.filter(row => ['tool-bgm-compose', 'tool-episode-render'].includes(row.id))) {
+    for (const row of localEpisodeTools(rows).filter(row => ['tool-bgm-compose', 'tool-episode-render'].includes(row.id))) {
       await ctx.loader.create(row)
     }
     await ctx.loader.await()

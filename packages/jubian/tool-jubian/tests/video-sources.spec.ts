@@ -1,4 +1,5 @@
 /** Existing videos remain extractable across model choices; incomplete inventory never establishes absence. */
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { readVideoSources, resolveVideoSourceOptions } from '../src/video-sources.ts'
@@ -33,6 +34,88 @@ function fixture(overrides: (path: string, body: Row | undefined) => unknown = (
 }
 const args = { script_id: 5542, storyboard_id: 2165139 }
 const defaults = resolveVideoSourceOptions()
+
+describe('native historical source proof', () => {
+  const original = 'https://media.example/original.mp4'
+  const latest = 'https://media.example/processed.mp4'
+  const base = { firstResultId: 99, taskType: 1, resultStatus: 'succeeded', tosVideoUrl: original }
+  const processed = { ...base, lastTaskType: 20, lastResultId: 100, lastTosVideoUrl: latest, lastResultStatus: 'succeeded' }
+
+  it.each([
+    { reason: 'the baseline original', result: base },
+    { reason: 'an original also identified by its child row', result: base, childFields: { firstResultId: 99 } },
+    { reason: 'ownership confirmed only by its child row', result: base, detailFields: { storyboardId: undefined } },
+    { reason: 'the original field alone', result: { ...base, tosVideoUrl: undefined, originalVideoUrl: original } },
+    { reason: 'empty latest URL with equivalent original fields', result: { ...base, lastTosVideoUrl: '', originalVideoUrl: original } },
+    { reason: 'matching generation mirrors without a latest URL', result: { ...base, lastTaskType: 1, lastResultId: 99 } },
+    { reason: 'an upscaled derivative with independent identity', result: processed, selected: latest },
+    { reason: 'an erased derivative with an older missing result ID', result: { ...processed, lastTaskType: 10, lastResultId: undefined }, selected: latest },
+  ])('records the original URL digest for $reason', async ({ result, childFields, detailFields, selected }) => {
+    const { client } = fixture(path => path.endsWith('/task/77') ? task(77, { episodeId: 12, ...detailFields })
+      : path.includes('/sub/list?') ? { total: 1, rows: [child(88, { ...childFields, resultList: [result] })] } : undefined)
+    const evidence = vi.fn()
+    expect(await readVideoSources(client, args, defaults, undefined, evidence)).toMatchObject({ complete: true,
+      status: 'available', sources: [{ base_video_url: original, video_url: selected ?? original }] })
+    expect(evidence).toHaveBeenCalledExactlyOnceWith([{ scriptId: args.script_id, storyboardId: args.storyboard_id,
+      episodeId: 12, taskId: 77, subtaskId: 88, firstResultId: 99,
+      originalUrlSha256: createHash('sha256').update(original).digest('hex') }])
+  })
+
+  it.each([{ entry: null }, { entry: [] }, { entry: 'not a result' }])('rejects malformed result rows: $entry', async ({ entry }) => {
+    const { client } = fixture(path => path.endsWith('/task/77') ? task(77, { episodeId: 12 })
+      : path.includes('/sub/list?') ? { total: 1, rows: [child(88, { resultList: [entry] })] } : undefined)
+    const evidence = vi.fn()
+    expect(await readVideoSources(client, args, defaults, undefined, evidence)).toMatchObject({ complete: false,
+      status: 'unknown', sources: [], issues: includesIssues(['UNREADABLE_CHILD']) })
+    expect(evidence).toHaveBeenCalledExactlyOnceWith([])
+  })
+
+  it.each([
+    { reason: 'an inconclusive original URL', result: { ...base, tosVideoUrl: undefined, lastTosVideoUrl: latest } },
+    { reason: 'multiple competing result records', result: base, another: { ...base, firstResultId: 100 } },
+    { reason: 'a mismatched child and result identity', result: base, childFields: { firstResultId: 100 } },
+    { reason: 'an invalid result identity', result: { ...base, firstResultId: null }, childFields: { firstResultId: 99 } },
+    { reason: 'an explicitly failed generation result', result: { ...base, resultStatus: 'failed' } },
+    { reason: 'a failed original mirror', result: { ...base, lastTaskType: 1, lastTosVideoUrl: original, lastResultStatus: 'failed' } },
+    { reason: 'a mismatched original mirror identity', result: { ...base, lastTaskType: 1, lastResultId: 100 } },
+    { reason: 'a result status with no mirror URL', result: { ...base, lastTaskType: 1, lastResultStatus: 'succeeded' } },
+    { reason: 'a result status with no mirror type', result: { ...base, lastResultStatus: 'succeeded' } },
+    { reason: 'a URL with no mirror type', result: { ...base, lastTosVideoUrl: original } },
+    { reason: 'an identity with no mirror type', result: { ...base, lastResultId: 99 } },
+    { reason: 'an unexpected mirror type', result: { ...base, lastTaskType: 2 } },
+    { reason: 'conflicting original URL fields', result: { ...base, originalVideoUrl: latest } },
+    { reason: 'a derivative that recycles the original ID', result: { ...processed, lastResultId: 99 } },
+    { reason: 'a derivative that names an invalid result', result: { ...processed, lastResultId: 'wrong' } },
+    { reason: 'an original URL with credentials', result: { ...processed, tosVideoUrl: 'https://name:secret@media.example/source' } },
+    { reason: 'an original URL with only a password', result: { ...processed, tosVideoUrl: 'https://:secret@media.example/source' } },
+    { reason: 'an original URL with a fragment', result: { ...processed, tosVideoUrl: `${original}#fragment` } },
+    { reason: 'an original URL with a backslash', result: { ...processed, tosVideoUrl: 'https://media.example\\source' } },
+    { reason: 'an invalid but nonempty original URL', result: { ...processed, tosVideoUrl: 'https://%' } },
+    { reason: 'a result with no identity', result: { ...base, firstResultId: undefined } },
+  ])('keeps the video discoverable while refusing proof for $reason', async ({ result, another, childFields }) => {
+    const { client } = fixture(path => path.endsWith('/task/77') ? task(77, { episodeId: 12 })
+      : path.includes('/sub/list?') ? { total: 1, rows: [child(88, { ...childFields,
+        resultList: another === undefined ? [result] : [result, another] })] } : undefined)
+    const evidence = vi.fn()
+    expect(await readVideoSources(client, args, defaults, undefined, evidence)).toMatchObject({ complete: true, status: 'available' })
+    expect(evidence).toHaveBeenCalledExactlyOnceWith([])
+  })
+
+  it('refuses proof for a task history that names the same card in two different episodes', async () => {
+    const { client } = fixture((path, body) => {
+      if (path.includes('/byStoryboard/')) return [task(77, { episodeId: 12 }), task(78, { episodeId: 13 })]
+      if (path.endsWith('/task/77')) return task(77, { episodeId: 12 })
+      if (path.endsWith('/task/78')) return task(78, { episodeId: 13 })
+      if (path.includes('/sub/list?')) return { total: 1, rows: [child(88, { aigcVideoTaskId: body?.aigcVideoTaskId,
+        resultList: [base] })] }
+      return undefined
+    })
+    const evidence = vi.fn()
+    expect(await readVideoSources(client, args, defaults, undefined, evidence)).toMatchObject({ complete: true,
+      status: 'available', coverage: { results_found: 2 } })
+    expect(evidence).toHaveBeenCalledExactlyOnceWith([])
+  })
+})
 
 /** Keep Vitest asymmetric values unknown-typed inside partial result assertions. */
 function includesIssues(values: string[]): unknown {

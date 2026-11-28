@@ -344,21 +344,42 @@ export function subtitleBurnFilter(assPath: string, fontsDir: string, delivery: 
  * to the total so `amix` cannot end early. `normalize=0` keeps every gain the
  * caller's own, and the limiter is the delivery spec's final ceiling.
  * @param spec - The boundaries and gains this mix uses.
- * @returns The filter graph, whose only output pad is `[a]`.
+ * @returns The final `[a]` pad and, when requested, the independent `[musicstem]` pad.
  */
 export function audioMixFilter(spec: AudioMixSpec): string {
   if (spec.profile !== undefined) return profiledAudioMixFilter(spec, spec.profile)
-  const total = spec.totalSeconds.toFixed(6)
   const body = spec.bodyEndSeconds.toFixed(6)
-  const delayMs = Math.round(spec.bodyEndSeconds * 1000)
+  const clock = spec.deliverySampleClock === undefined ? '' : DELIVERY_AUDIO_CLOCK_FILTER
+  const trim = audioOutputTrim(spec)
   const ending = spec.endingSeconds > 0
-    ? `[3:a]atrim=0:${spec.endingSeconds.toFixed(6)},adelay=${String(delayMs)}|${String(delayMs)},volume=1[a2];`
+    ? `[3:a]${endingAudioFilter(spec)},volume=1[a2];`
       + '[a0][a1][a2]amix=inputs=3:duration=longest:normalize=0,'
     : '[a0][a1]amix=inputs=2:duration=longest:normalize=0,'
-  return `[1:a]apad,atrim=0:${total},volume=${String(spec.masterVolume)}[a0];`
-    + `[2:a]atrim=0:${body},volume=${String(spec.bgmVolume)}[a1];`
+  return `[1:a]${clock}apad,${trim},volume=${String(spec.masterVolume)}[a0];`
+    + `[2:a]${clock}atrim=0:${body},volume=${String(spec.bgmVolume)}[a1];`
     + ending
-    + `atrim=0:${total},alimiter=limit=0.95:level=false[a]`
+    + `${trim},${AUDIO_OUTPUT_LIMITER}[a]`
+}
+
+/** Sample rate of the delivery soundtrack and its MP4 movie clock. */
+export const DELIVERY_AUDIO_SAMPLE_RATE = 48_000
+const DELIVERY_AUDIO_CLOCK_FILTER = `aresample=${String(DELIVERY_AUDIO_SAMPLE_RATE)},asetpts=N/SR/TB,`
+const AUDIO_OUTPUT_LIMITER = 'alimiter=limit=0.95:level=false:latency=1'
+const DUCKING_INPUT_FRAMES = 'asetnsamples=n=1024:p=0'
+
+function audioOutputTrim(spec: AudioMixSpec): string {
+  return spec.deliverySampleClock === undefined ? `atrim=0:${spec.totalSeconds.toFixed(6)}`
+    : `atrim=end_sample=${String(spec.deliverySampleClock.endSample)}`
+}
+
+function endingAudioFilter(spec: AudioMixSpec): string {
+  const clock = spec.deliverySampleClock
+  if (clock !== undefined) {
+    return `${DELIVERY_AUDIO_CLOCK_FILTER}atrim=end_sample=${String(clock.endSample - clock.bodyEndSample)},`
+      + `adelay=delays=${String(clock.bodyEndSample)}S:all=1`
+  }
+  const delay = String(Math.round(spec.bodyEndSeconds * 1000))
+  return `atrim=0:${spec.endingSeconds.toFixed(6)},adelay=${delay}|${delay}`
 }
 
 /** Compile the same explicit profile for final delivery and bounded audio auditions. */
@@ -367,17 +388,21 @@ function profiledAudioMixFilter(spec: AudioMixSpec, profile: ResolvedAudioMixPro
   const total = spec.totalSeconds.toFixed(6)
   const body = spec.bodyEndSeconds.toFixed(6)
   const start = (spec.startSeconds ?? 0).toFixed(6)
-  const parts = [`[${String(original)}:a]atrim=start=${start}:duration=${total},`
-    + `asetpts=PTS-STARTPTS,apad,atrim=0:${total},volume=${String(profile.original_gain)}`
-    + (profile.mode === 'ducking' ? ',asplit=2[a0][sc]' : '[a0]')]
+  const clock = spec.deliverySampleClock === undefined ? '' : DELIVERY_AUDIO_CLOCK_FILTER
+  const trim = audioOutputTrim(spec)
+  const parts = [`[${String(original)}:a]${clock}atrim=start=${start}:duration=${total},`
+    + `asetpts=PTS-STARTPTS,apad,${trim},volume=${String(profile.original_gain)}`
+    + (profile.mode === 'ducking' ? ',asplit=2[a0][sc0]' : '[a0]')]
   const labels = ['[a0]']
   if (profile.mode !== 'no_bgm') {
-    parts.push(`[${String(original + 1)}:a]atrim=start=${start}:duration=${body},`
-      + `asetpts=PTS-STARTPTS,volume=${String(profile.music_gain)}[music]`)
+    parts.push(`[${String(original + 1)}:a]${clock}atrim=start=${start}:duration=${body},`
+      + `asetpts=PTS-STARTPTS,volume=${String(profile.music_gain)}`
+      + (profile.mode === 'ducking' ? `,${DUCKING_INPUT_FRAMES}` : '') + '[music]')
     if (profile.mode === 'ducking') {
       const duck = profile.ducking
       if (duck === undefined) throw new Error('ducking 音频配置缺少显式压缩参数。')
       const threshold = Math.pow(10, duck.threshold_db / 20).toFixed(9)
+      parts.push(`[sc0]${DUCKING_INPUT_FRAMES}[sc]`)
       parts.push('[music][sc]sidechaincompress='
         + `threshold=${threshold}:ratio=${String(duck.ratio)}:attack=${String(duck.attack_ms)}`
         + `:release=${String(duck.release_ms)}:knee=${String(duck.knee)}:makeup=1:detection=rms:link=maximum[ducked]`)
@@ -388,14 +413,12 @@ function profiledAudioMixFilter(spec: AudioMixSpec, profile: ResolvedAudioMixPro
   }
   if (spec.endingSeconds > 0) {
     const input = spec.endingInput ?? original + (profile.mode === 'no_bgm' ? 1 : 2)
-    const delay = String(Math.round(spec.bodyEndSeconds * 1000))
-    parts.push(`[${String(input)}:a]atrim=0:${spec.endingSeconds.toFixed(6)},`
-      + `adelay=${delay}|${delay},volume=1[a2]`)
+    parts.push(`[${String(input)}:a]${endingAudioFilter(spec)},volume=1[a2]`)
     labels.push('[a2]')
   }
   parts.push(labels.join('')
     + (labels.length === 1 ? 'anull,' : `amix=inputs=${String(labels.length)}:duration=longest:normalize=0,`)
-    + `atrim=0:${total},alimiter=limit=0.95:level=false[a]`)
+    + `${trim},${AUDIO_OUTPUT_LIMITER}[a]`)
   return parts.join(';')
 }
 

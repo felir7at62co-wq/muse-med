@@ -1,5 +1,5 @@
 /** Generate editable Jianying drafts with the selected bundled, managed backend. */
-import { access, readFile, stat } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
@@ -9,6 +9,8 @@ import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependenc
 import type { default as SubprocessRuntime, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
 import { jianyingDraftLibraryMismatch } from './jianying-draft-library.ts'
+import { confirmPairedDraftMix, findPairedDraftRender, preparePairedDraftMix } from './jianying-draft-pair.ts'
+import type { RenderedDraftMix } from '@deepseek-ai/dsh-tool-episode-render/delivery'
 
 /** Deployment-owned interpreter, process limits and bundled resource location. */
 export interface Config {
@@ -71,6 +73,8 @@ export const Config: z<Config> = z.object({
 export interface DraftInput {
   readonly request_file: string
   readonly drafts_dir: string
+  /** Current workspace for a paired render, supplied by the Host rather than the request. */
+  readonly workspace?: string
 }
 
 /** Resolved generator identity for an explicit audio source on the current platform. */
@@ -92,10 +96,14 @@ export function resolveJianyingDraftBackend(audioMode: 'embedded' | 'independent
   return { script: 'windows_aa_draft.py', library: 'aa-jianying' }
 }
 
-/** Resolve source-audio mode and missing-music feedback without treating an old mix profile as a current decision. */
-function resolveDraftRequest(bytes: Buffer): { audioMode: 'embedded' | 'independent'; musicReminder?: string } {
+function parseDraftRequest(bytes: Buffer): Record<string, unknown> {
   const request: unknown = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/u, ''))
   if (typeof request !== 'object' || request === null || Array.isArray(request)) throw new Error('Draft request must be a JSON object')
+  return request as Record<string, unknown>
+}
+
+/** Resolve source-audio mode and missing-music feedback without treating an old mix profile as a current decision. */
+function resolveDraftRequest(request: Record<string, unknown>): { audioMode: 'embedded' | 'independent'; musicReminder?: string } {
   const audioMode = !('audio_mode' in request) || request.audio_mode === 'independent' ? 'independent'
     : request.audio_mode === 'embedded' ? 'embedded' : undefined
   if (audioMode === undefined) throw new Error('audio_mode must be embedded or independent')
@@ -157,7 +165,8 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   if (!requestStat.isFile() || requestStat.size > config.maxInputBytes) throw new Error('Draft request must be a regular file within the input limit')
   const requestBytes = await readFile(input.request_file)
   if (requestBytes.byteLength > config.maxInputBytes) throw new Error('Draft request exceeds the input limit')
-  const request = resolveDraftRequest(requestBytes)
+  const draftRequest = parseDraftRequest(requestBytes)
+  const request = resolveDraftRequest(draftRequest)
   const backend = resolveJianyingDraftBackend(request.audioMode, process.platform)
   const python = config.pythonPath ?? (process.platform === 'win32'
     ? join(dirname(config.source), 'media', 'python', 'python.exe')
@@ -166,7 +175,8 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   const manifest = fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-drama-skills/package.json'))
     .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const script = join(dirname(manifest), 'skills', 'tweet-drama-draft-build', 'scripts', backend.script)
-  const env: Record<string, string | undefined> = { PYTHONUTF8: '1', DSH_BGM_MAX_GAIN: String(config.maxBgmGain ?? 8) }
+  const env: Record<string, string | undefined> = { PYTHONUTF8: '1', DSH_BGM_MAX_GAIN: String(config.maxBgmGain ?? 8),
+    MUSE_PREPARED_DRAFT_MIX: undefined, MUSE_PREPARED_DRAFT_PICTURE_CLOCK: undefined }
   if (config.fontsDir !== undefined) env.MUSE_FONTS_DIR = config.fontsDir
   if (config.subtitleFontFamily !== undefined) env.MUSE_SUBTITLE_FONT_FAMILY = config.subtitleFontFamily
   if (config.enforceSubtitleVisual) {
@@ -191,21 +201,49 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   }
   const timeout = AbortSignal.timeout(config.timeoutMs)
   const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
-  const handle = subprocess.spawn({
-    argv: [python, '-B', script, input.request_file, input.drafts_dir, String(config.maxInputBytes)],
-    cwd: dirname(input.request_file), env, signal: combined, graceMs: config.graceMs,
-    stdio: { stdin: 'ignore', stdout: { maxBytes: config.maxOutputBytes }, stderr: { maxBytes: config.maxOutputBytes } },
-  })
+  const pair = !Object.hasOwn(draftRequest, 'rendered_output') ? undefined
+    : await findPairedDraftRender(draftRequest, input.request_file, input.drafts_dir, input.workspace, config.maxInputBytes, combined)
+  const staging = pair === undefined ? undefined : await mkdtemp(join(pair.drafts, '.muse-draft-pair-'))
+  const requestCopy = staging === undefined ? undefined : join(staging, 'request.json')
+  const mixCopy = staging === undefined ? undefined : join(staging, 'playback.wav')
   let outcome: SubprocessOutcome
-  try { outcome = await handle.done } finally { await handle.waitForExit() }
+  let output: string
+  let stderr: string | undefined
+  let playback: RenderedDraftMix | undefined
+  try {
+    if (pair !== undefined && requestCopy !== undefined && mixCopy !== undefined) {
+      await writeFile(requestCopy, requestBytes, { flag: 'wx', signal: combined })
+      playback = await preparePairedDraftMix(subprocess, pair, mixCopy, {
+        ffmpeg: config.ffmpegPath ?? process.env.DSH_FFMPEG_PATH ?? 'ffmpeg',
+        ffprobe: config.ffprobePath ?? process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
+        graceMs: config.graceMs, maxOutputBytes: config.maxOutputBytes,
+      }, combined)
+      env.MUSE_PREPARED_DRAFT_MIX = JSON.stringify(playback)
+      if (pair.inputs.picture_clock !== undefined) {
+        env.MUSE_PREPARED_DRAFT_PICTURE_CLOCK = JSON.stringify(pair.inputs.picture_clock)
+      }
+    }
+    const handle = subprocess.spawn({
+      argv: [python, '-B', script, requestCopy ?? input.request_file, pair?.drafts ?? input.drafts_dir, String(config.maxInputBytes)],
+      cwd: dirname(input.request_file), env, signal: combined, graceMs: config.graceMs,
+      stdio: { stdin: 'ignore', stdout: { maxBytes: config.maxOutputBytes }, stderr: { maxBytes: config.maxOutputBytes } },
+    })
+    try { outcome = await handle.done } finally { await handle.waitForExit() }
+    const stdout = handle.collected.stdout?.readFrom(0)
+    if (stdout === undefined || stdout.lossy) throw new Error('Draft generator output is missing or exceeds the output limit')
+    output = stdout.text
+    stderr = handle.collected.stderr?.readFrom(0).text.trim()
+  } finally {
+    if (staging !== undefined) {
+      for (const path of [requestCopy, mixCopy]) if (path !== undefined) await rm(path, { force: true })
+      await rmdir(staging)
+    }
+  }
   combined.throwIfAborted()
-  const stdout = handle.collected.stdout?.readFrom(0)
-  if (stdout === undefined || stdout.lossy) throw new Error('Draft generator output is missing or exceeds the output limit')
-  if (!stdout.text.trim()) {
-    const stderr = handle.collected.stderr?.readFrom(0).text.trim()
+  if (!output.trim()) {
     throw new Error(`Draft generator returned no JSON (exit ${outcome.exitCode}): ${stderr || 'no diagnostic output'}`)
   }
-  const value: unknown = JSON.parse(stdout.text)
+  const value: unknown = JSON.parse(output)
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Draft generator returned an invalid JSON object')
   const row = value as Record<string, unknown>
   const summary = z.object({ success: z.boolean().required(), error: z.string().default('process did not complete successfully') })(row)
@@ -222,6 +260,14 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
     || (backend.library === 'aa-jianying' && row.backend !== 'aa-jianying')) {
     throw new Error('Draft generator returned inconsistent saved-draft results')
   }
+  let renderedMix: RenderedDraftMix | undefined
+  if (pair !== undefined && playback !== undefined) {
+    const draft = result.drafts[0]
+    if (result.drafts_created !== 1 || draft === undefined || draft.episode !== pair.episode) {
+      throw new Error('配套成片与单集草稿的保存结果不一致。')
+    }
+    renderedMix = await confirmPairedDraftMix(pair, draft.path, result.materials_dir, playback, combined)
+  }
   const libraryMismatch = process.platform === 'win32' ? await jianyingDraftLibraryMismatch(input.drafts_dir) : undefined
   const libraryWarning = libraryMismatch === undefined ? undefined
     : `草稿已保存至 ${libraryMismatch.saved_root}，但剪映当前保存设置中的草稿根目录是 ${libraryMismatch.active_root}。`
@@ -236,7 +282,8 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
       draft.quality = 'needs_review'
     }
   }
-  return libraryMismatch === undefined ? result : { ...result, draft_library: { status: 'different_root', ...libraryMismatch } }
+  return { ...result, ...(renderedMix === undefined ? {} : { rendered_mix: renderedMix }),
+    ...(libraryMismatch === undefined ? {} : { draft_library: { status: 'different_root', ...libraryMismatch } }) }
 }
 
 /** Loader identity for Desktop's single draft-building entry point. */
@@ -254,26 +301,43 @@ export function apply(ctx: Context, config: Config): void {
     order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), interpolate: false,
     text: `## 剪映草稿：当前原生入口
 
-当前实例提供 jianying_draft。历史会话续做、升级后恢复或首次生成草稿时，重新读取当前 tweet-drama-draft-build 技能，以当前工具及技能为准，不以历史成功记录代替。用 drama_draft_dir 取得根目录，write 单集 JSON 请求，再调用 jianying_draft（也可经 run_code 调用 tools.jianying_draft）。不要沿用历史记录中的绝对开发路径、.desktop-build、sys.path 或 DraftGenerator 脚本来生成草稿。原生工具失败时核查本次实际错误与当前打包资源，不静默退回旧脚本或另装依赖绕过。
+当前实例提供 jianying_draft。历史会话续做、升级后恢复或首次生成草稿时，重新读取当前 tweet-drama-draft-build 技能，以当前工具及技能为准，不以历史成功记录代替。write 单集 JSON 请求，再调用 jianying_draft（也可经 run_code 调用 tools.jianying_draft）。不要沿用历史记录中的绝对开发路径、.desktop-build、sys.path 或 DraftGenerator 脚本来生成草稿。原生工具失败时核查本次实际错误与当前打包资源，不静默退回旧脚本或另装依赖绕过。
+
+本集成片与可编辑草稿需要一起归档时，第一次生成草稿就写 audio_mode="independent"。audio 使用本次 drama_render prepare 返回的 render_preview.audio.master_path。videos、timeline、subtitle_srt、配乐和适用的片尾复用实际成片的输入。字幕取 render_preview.subtitle.path；有烧录字幕决定时，分别用返回的 resolved_srt、decision_report 填写 subtitle_srt、subtitle_overlay_report。创建项目内本集 02_剪映草稿 目录，以该目录绝对路径作为 drafts_dir，保持用户剪映根目录设置。切点或素材变化后，重新 prepare 并同步两份交付物。
+
+需要草稿默认播放与成片使用完全相同的混音时，先用 resume=true 正式渲染，再在单集请求中将 rendered_output 填为本次实际返回的 MP4 绝对路径。原声、BGM 和片尾音仍分别保留供编辑。工具会核对同版成片与输入并回读保留的播放混音；仍须实机打开、播放和重开验收。
 
 生成剪映文件时，先完成本集 BGM 并一起导入：重新读取 tweet-drama-background-render 的 references/story-bgm-selection.md，根据真实剧本、对白、剧情发展和采用画面用 bgm_match 选曲，drama_bgm 合成并核验纯音乐底轨，把输出绝对路径写入请求 bgm、bgm_role="music_only"，再调用 jianying_draft。生成纯音乐底轨不要求先渲染整集 MP4；保留视频原声。剧情不需换曲可沿用一首，相邻两集尽量不重复，源音乐至少衰减 10 dB，已衰减底轨导入增益不大于 1。回读实际 BGM 轨道、覆盖时间和音量，片尾音不算正文 BGM。旧 no_bgm 配置不是当前用户明确不要配乐；确实不加配乐时在请求写 music_decision="none" 和 decision_reason。缺配乐时保留候选并处理返回的提醒，不把草稿创建成功当作配乐完成，也不新增用户审批。
 
-Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audio；由 aa剪映后端直接保留视频声音，BGM 独立；仅 9:16 在整集末尾追加片尾，16:9 不加。未声明模式的旧请求仍走独立主音轨：成功导入后才静音正文源视频，导入失败保留原声并说明缺口。Mac 暂不支持 embedded，不改用独立音轨冒称满足。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。
+只制作剪映草稿时，用 drama_draft_dir 取得编辑器根目录。Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audio；由 aa剪映后端直接保留视频声音，BGM 独立；仅 9:16 在整集末尾追加片尾，16:9 不加。未声明模式的旧请求仍走独立主音轨：成功导入后才静音正文源视频，导入失败保留原声并说明缺口。Mac 暂不支持 embedded，不改用独立音轨冒称满足。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。
 
 恢复时不强删锁、不移动活动素材目录、不手改 root_meta_info.json；同名并发需等本次实际退出，或另用唯一新名生成候选。Windows 原声生成期间保护活动目录和已保留素材；身份或源时窗明确不符则失败并保留文件，无法读取则保持未验证且不出交付凭据。保存检查不替代剪映裁剪、保存、关闭重开验收，不自动修复旧稿。` })
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'jianying_draft',
-    description: '生成一集可编辑剪映草稿，先读 tweet-drama-draft-build 并用 drama_draft_dir 取得根目录。先按剧情选曲、用 drama_bgm 生成纯音乐底轨，再将 bgm 绝对路径和 bgm_role=music_only 一起写入草稿请求；确实不加配乐时写 music_decision=none、decision_reason。缺配乐返回待完成提醒，不自动选曲或把片尾音算作正文 BGM。write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。可选 ending_audio、ending_effect，所有文件用绝对路径。Windows 片尾仅在 9:16 末尾追加，16:9 不加。含对白的审查混音不能当配乐重复叠加。字幕复用同源云转写时间轴，对照剧本在派生文件纠错，不均分时间。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对，不要求提示清零。返回 backend、草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。',
+    description: '生成一集可编辑剪映草稿，先读 tweet-drama-draft-build。'
+      + '与成片一起归档时，从首次请求指定 audio_mode=independent，audio 取本次 drama_render prepare 的 render_preview.audio.master_path。'
+      + '复用成片的选片、时间线和实际字幕，drafts_dir 使用项目内本集 02_剪映草稿 的绝对路径。'
+      + '要保持与成片相同的播放混音，单集请求的 rendered_output 填本次 resume=true 渲染返回的实际 MP4。'
+      + '只做草稿时用 drama_draft_dir 取得编辑器根目录；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。'
+      + '未声明模式或 audio_mode=independent 时用 pyJianYingDraft，audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。'
+      + 'write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline。'
+      + '先按剧情选曲、用 drama_bgm 生成纯音乐底轨，把绝对路径和 bgm_role=music_only 写入请求；确实不加配乐时写 music_decision=none、decision_reason。'
+      + '缺配乐返回待完成提醒，不自动选曲或把片尾音算作正文 BGM。可选 ending_audio、ending_effect，所有文件用绝对路径。'
+      + 'Windows 原声草稿片尾仅在 9:16 末尾追加，16:9 不加。含对白的审查混音不能当配乐重复叠加。'
+      + '字幕复用同源云转写时间轴，对照剧本在派生文件纠错，不均分时间。只处理指定集，不覆盖已有草稿；'
+      + '质量疑点返回 warnings 与 review_path 供核对，不要求提示清零。返回 backend、草稿路径与实际实现身份；'
+      + 'editor_open_verified=false 表示尚未在剪映打开验收。',
     parameters: {
       request_file: { type: 'string', required: true, description: 'Existing JSON request file for one selected episode; relative paths use the current workspace.' },
-      drafts_dir: { type: 'string', required: true, description: 'Existing editor root returned by drama_draft_dir.' },
+      drafts_dir: { type: 'string', required: true,
+        description: 'Existing draft destination. Paired MP4 and draft delivery uses the project episode’s 02_剪映草稿 directory; standalone drafts use the editor root returned by drama_draft_dir.' },
     },
     output: { schema: { type: 'object', additionalProperties: true },
       render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
     execute: (args, exec) => {
       const cwd = exec.agent?.session.header.cwd ?? process.cwd()
       return generateJianyingDraft(ctx.subprocess, {
-        request_file: resolve(cwd, args.request_file), drafts_dir: resolve(cwd, args.drafts_dir),
+        request_file: resolve(cwd, args.request_file), drafts_dir: resolve(cwd, args.drafts_dir), workspace: cwd,
       }, config, exec.signal)
     },
   })))

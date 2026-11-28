@@ -2,16 +2,19 @@
 import { createHash } from 'node:crypto'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { fileSha256 } from './cache.ts'
 import type { EpisodePaths } from './paths.ts'
 import type { ShotSource } from './types.ts'
-import { verifySourceQa, type SourceQaStagedAccess, type SourceQaVerifier, type SourceQaVerification } from './source-qa.ts'
+import { approvedDialoguePatchSchema, isLocalDialoguePatchOutput, verifySourceQa, type LocalDialoguePatchSourceBinding,
+  type SourceQaStagedAccess, type SourceQaVerifier, type SourceQaVerification } from './source-qa.ts'
 
 interface ReviewedShot {
   readonly shot: number
   readonly videoSha256: string
   readonly audioSha256?: string
   readonly reviewSha256: string
+  readonly requiresLocalDialoguePatch?: true
   readonly sourceQa?: SourceQaVerification
 }
 
@@ -59,7 +62,7 @@ function validErasureInterval(value: unknown): boolean {
 }
 
 async function verifyDownload(project: string, receiptPath: unknown, media: string, sha256: string | undefined,
-  label: string, capture: (path: string, sha256: string) => void, urlSha256?: string, staged?: SourceQaStagedAccess): Promise<void> {
+  label: string, capture: (path: string, sha256: string) => void, urlSha256?: string, staged?: SourceQaStagedAccess) {
   const file = await evidenceFile(project, receiptPath, label, staged)
   const bytes = await (staged === undefined ? readFile(file) : staged.read(file))
   const download = document(bytes, file)
@@ -71,11 +74,63 @@ async function verifyDownload(project: string, receiptPath: unknown, media: stri
     throw new Error(`${label} 正式下载回执与本次选片或原声的字节、结果来源不符。`)
   }
   capture(file, digest(bytes))
+  return { receiptPath: file, urlSha256: download.source_sha256 }
+}
+
+const positiveId = (id: unknown): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0
+
+function localPatchPending(label: string): HarnessError {
+  return new HarnessError(`${label} 局部修音候选须在原制作会话完成同片原声、读音和源片复验后才可交付。`, 'SOURCE_DIALOGUE_PATCH_PENDING')
+}
+
+async function verifyDialoguePatchFiles(paths: EpisodePaths, review: Record<string, unknown>, row: ShotSource,
+  plan: Record<string, unknown> | undefined, tasks: readonly unknown[], videoSha256: string, audioSha256: string | undefined, label: string,
+  capture: (path: string, sha256: string) => void, staged?: SourceQaStagedAccess,
+): Promise<LocalDialoguePatchSourceBinding> {
+  const declaration = approvedDialoguePatchSchema.safeParse(review.local_dialogue_patch)
+  const project = paths.project
+  const task = tasks[Number(row.package) - 1]
+  if (!declaration.success || staged !== undefined || !positiveId(plan?.script_id) || !positiveId(plan.episode_id)
+    || !record(task) || task.index !== row.package || !positiveId(task.storyboard_id) || review.storyboard_id !== task.storyboard_id
+    || review.subtitle_cleanup !== 'not_required' || review.original_download_receipt_path !== undefined
+    || review.subtitle_erasure !== undefined || review.video_upscale !== undefined || review.source_clock_conform !== undefined
+    || review.local_clip_repair !== undefined || review.local_picture_patch !== undefined
+    || hasSeparateAudio(project, row) || review.audio_sha256 !== videoSha256 || audioSha256 !== videoSha256) {
+    throw localPatchPending(label)
+  }
+  const projectRoot = await realpath(project)
+  const selected = await evidenceFile(project, row.video, label)
+  if (resolve(project, row.video) !== selected || !isLocalDialoguePatchOutput(projectRoot, selected)) throw localPatchPending(label)
+  const config = await evidenceFile(project, 'project_config.json', label)
+  const configBytes = await readFile(config)
+  if (document(configBytes, config).jubian_script_id !== plan.script_id) throw localPatchPending(label)
+  capture(config, digest(configBytes))
+
+  const original = async ({ source_path, source_sha256, download_receipt_path, ...identity }: typeof declaration.data.target) => {
+    const path = await evidenceFile(project, source_path, label)
+    const sha256 = await fileSha256(path)
+    if (resolve(project, source_path) !== path || sha256 !== source_sha256) throw localPatchPending(label)
+    capture(path, sha256)
+    const transport = await verifyDownload(project, download_receipt_path, path, sha256, label, capture)
+    return { ...identity, path, sha256, ...transport }
+  }
+  const { target: targetSource, donor: donorSource, recheck_evidence_id: recheckEvidenceId } = declaration.data
+  const [target, donor] = await Promise.all([original(targetSource), original(donorSource)])
+  if (target.task_id === donor.task_id || target.subtask_id === donor.subtask_id || target.first_result_id === donor.first_result_id
+    || target.path === donor.path || target.path === selected || donor.path === selected
+    || target.sha256 === donor.sha256 || target.sha256 === videoSha256 || donor.sha256 === videoSha256
+    || target.receiptPath === donor.receiptPath || target.urlSha256 === donor.urlSha256) {
+    throw localPatchPending(label)
+  }
+  return { project: projectRoot, episode: paths.episode, output: selected, sha256: videoSha256,
+    scriptId: plan.script_id, episodeId: plan.episode_id, storyboardId: task.storyboard_id, recheckEvidenceId,
+    originals: { target, donor } }
 }
 
 async function verifyContentEvidence(project: string, review: Record<string, unknown>, row: ShotSource,
   videoSha256: string, audioSha256: string | undefined, label: string, capture: (path: string, sha256: string) => void,
-  staged?: SourceQaStagedAccess): Promise<void> {
+  staged: SourceQaStagedAccess | undefined, verifyDialoguePatch?: () => Promise<LocalDialoguePatchSourceBinding>,
+): Promise<LocalDialoguePatchSourceBinding | undefined> {
   const checks = review.content_review
   if (!record(checks) || checks.embedded_subtitles !== 'absent' || contentChecks.some(key => checks[key] !== 'pass')) {
     throw new Error(`${label} 内容复核不完整或仍有待修项。请核对所选片的内容、烧录字幕、音画和敏感画面。`)
@@ -85,6 +140,7 @@ async function verifyContentEvidence(project: string, review: Record<string, unk
   }
   const reviewedFrames = await Promise.all(review.review_frames.map(frame => evidenceFile(project, frame, label, staged)))
   for (const frame of reviewedFrames) capture(frame, await (staged === undefined ? fileSha256(frame) : staged.hash(frame)))
+  if (verifyDialoguePatch !== undefined) return await verifyDialoguePatch()
   if (review.subtitle_cleanup !== 'clean') {
     if (hasSeparateAudio(project, row) && audioSha256 !== undefined && audioSha256 !== videoSha256) {
       throw new Error(`${label} 独立原声音轨缺少可验证的原片复验，不能按未处理片归档。`)
@@ -117,6 +173,7 @@ async function verifyContentEvidence(project: string, review: Record<string, unk
   }
   await verifyDownload(project, erasure.download_receipt_path, row.video, videoSha256, label, capture, erasure.output_url_sha256, staged)
   await verifyDownload(project, review.original_download_receipt_path, row.audio, audioSha256, label, capture, undefined, staged)
+  return undefined
 }
 
 /** Compare normalized selected paths, including the manifest's default embedded audio.
@@ -182,11 +239,13 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
     return pending
   }
   let packageSha256: string | undefined
+  let plan: Record<string, unknown> | undefined
+  let videoTasks: readonly unknown[] = []
   let packageCount = 0
   if (approvedPackages.length > 0 || (delivering && reviews.size > 0)) {
     const file = resolve(paths.project, 'episode_packages', paths.episode, 'package.json')
     const bytes = await (staged === undefined ? readFile(file) : staged.read(file))
-    const plan = document(bytes, file)
+    plan = document(bytes, file)
     const tasks = plan.video_tasks
     if (plan.episode !== paths.episode || !Array.isArray(tasks) || tasks.length === 0
       || tasks.some((task: unknown) => !record(task) || !Array.isArray(task.shots) || task.shots.length === 0
@@ -194,6 +253,7 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
       throw new Error(`EP${paths.episode} 编译分包清单的集号或包内容无效。`)
     }
     packageCount = tasks.length
+    videoTasks = tasks
     packageSha256 = digest(bytes)
     const selected = new Set(rows.map(row => row.package))
     if (rows.some(row => row.package === undefined || row.package > packageCount)
@@ -208,6 +268,13 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
     const separate = hasSeparateAudio(paths.project, row)
     const approved = row.package === undefined ? undefined : reviews.get(row.package)
     const label = `EP${paths.episode} 镜头 ${row.shot}${row.package === undefined ? '' : ` P${row.package}`}`
+    const patchDeclared = approved?.row.local_dialogue_patch !== undefined
+    const patchPath = [row.video, row.audio].some(path => isLocalDialoguePatchOutput(paths.project, path))
+    const markedApproved = approved?.row.status === 'approved'
+    const pendingPatch = !patchDeclared || !patchPath || separate || !markedApproved
+    if ((patchDeclared || patchPath) && ((delivering && !requireContent) || ((delivering || markedApproved) && pendingPatch))) {
+      throw localPatchPending(label)
+    }
     if (approved?.row.status !== 'approved') {
       if (delivering && (requireContent || separate || reviews.size > 0)) {
         throw new Error(`${label} 缺少本集选源审核，独立原声音频须有明确来源后才能归档。`)
@@ -244,10 +311,14 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
         if (previous !== undefined && previous !== sha256) throw new Error(`${label} 审核证据在核验期间已变化。`)
         contentFiles.set(path, sha256)
       }
-      await verifyContentEvidence(paths.project, review, row, videoSha256, audioSha256, label, capture, staged)
+      const verifyPatch = patchDeclared
+        ? () => verifyDialoguePatchFiles(paths, review, row, plan, videoTasks, videoSha256, audioSha256, label, capture, staged)
+        : undefined
+      const patch = await verifyContentEvidence(paths.project, review, row, videoSha256, audioSha256, label, capture, staged, verifyPatch)
       sourceQa = await verifySourceQa({ project: paths.project, review, videoPath: row.video, videoSha256,
         originalPath: row.audio, originalSha256: audioSha256 ?? videoSha256,
-        ...(sourceQaVerifier === undefined ? {} : { verifier: sourceQaVerifier }), ...(staged === undefined ? {} : { staged }) })
+        ...(sourceQaVerifier === undefined ? {} : { verifier: sourceQaVerifier }), ...(staged === undefined ? {} : { staged }),
+        ...(patch === undefined ? {} : { localDialoguePatch: patch }) })
       sourceQa = { ...sourceQa, files: [...sourceQa.files,
         ...[...contentFiles].map(([path, sha256]) => ({ path, sha256 })),
         { path: resolve(paths.project, 'reviews', `ep${paths.episode}-p${String(row.package).padStart(2, '0')}.json`), sha256: approved.sha256 },
@@ -255,6 +326,7 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
     }
     verified.push({ shot: row.shot, videoSha256,
       ...(audioSha256 === undefined ? {} : { audioSha256 }), reviewSha256: approved.sha256,
+      ...(patchDeclared ? { requiresLocalDialoguePatch: true } : {}),
       ...(sourceQa === undefined ? {} : { sourceQa }) })
   }
   for (const shot of verified) for (const file of shot.sourceQa?.files ?? []) {

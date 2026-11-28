@@ -66,9 +66,11 @@ export async function verifyDeliveryArtifacts({ cwd, report, sourceHashes, comma
   assert.ok(!ass.includes('内容由AI生成'), 'animation must not acquire the photorealistic ending mark')
   const mux = commands.filter(command => command.args.includes('-stream_loop'))
   assert.equal(mux.length, 1)
+  assert.equal(mux[0].args[mux[0].args.indexOf('-movie_timescale') + 1], '48000')
   assert.equal(mux[0].args[mux[0].args.indexOf('-filter_complex') + 1],
-    '[1:a]apad,atrim=0:5.000000,volume=1[a0];[2:a]atrim=0:5.000000,volume=0.1[a1];'
-    + '[a0][a1]amix=inputs=2:duration=longest:normalize=0,atrim=0:5.000000,alimiter=limit=0.95:level=false[a]')
+    '[1:a]aresample=48000,asetpts=N/SR/TB,apad,atrim=end_sample=240000,volume=1[a0];'
+    + '[2:a]aresample=48000,asetpts=N/SR/TB,atrim=0:5.000000,volume=0.1[a1];'
+    + '[a0][a1]amix=inputs=2:duration=longest:normalize=0,atrim=end_sample=240000,alimiter=limit=0.95:level=false:latency=1[a]')
   const burned = commands.filter(command => command.args.some(arg => arg.includes("ass='")))
   assert.equal(burned.length, 1)
   assert.ok(burned[0].args.some(arg => arg.includes('display.ass') && arg.endsWith('fps=24') && !arg.includes('setpts=')))

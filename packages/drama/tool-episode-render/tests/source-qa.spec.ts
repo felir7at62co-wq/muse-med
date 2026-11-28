@@ -1,13 +1,17 @@
 import { join } from 'node:path'
 import { appendFile, copyFile, mkdir, open, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises'
+import * as Files from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { Worker } from 'node:worker_threads'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { createSourceQaStagedAccess, verifySourceQa, type SourceQaVerifier } from '../src/source-qa.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { cleanup, tempProject, writePlaceholder } from './harness.ts'
 import { sourceQaFixture, sourceQaOcrLine, verifiedSourceQaFixture } from './source-qa-fixture.ts'
+
+vi.mock('node:fs/promises', async importOriginal => ({
+  ...await importOriginal<typeof import('node:fs/promises')>(),
+}))
 
 const projects: string[] = []
 afterEach(async () => { await Promise.all(projects.splice(0).map(cleanup)) })
@@ -320,29 +324,16 @@ it('refuses a staged file whose identity is replaced between the probe and the o
   const file = { originalPath, stagedPath, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }
   const access = createSourceQaStagedAccess(project, stage, [file], new AbortController().signal)
   await expect(access.hash(originalPath)).resolves.toBe(file.sha256)
-  const renamer = new Worker(`
-    const { renameSync, writeFileSync } = require('node:fs')
-    const { workerData } = require('node:worker_threads')
-    const deadline = Date.now() + workerData.ms
-    while (Date.now() < deadline) {
-      try { writeFileSync(workerData.spare, workerData.bytes) } catch {}
-      try { renameSync(workerData.spare, workerData.target) } catch {}
-    }
-  `, { eval: true, workerData: { spare, target: stagedPath, bytes, ms: 8000 } })
+  await writeFile(spare, bytes)
+  const realOpen = Files.open
+  const replaceOnOpen = vi.spyOn(Files, 'open').mockImplementation(async (path, flags, mode) => {
+    if (path === stagedPath) await Files.rename(spare, stagedPath)
+    return await realOpen(path, flags, mode)
+  })
   try {
-    const deadline = Date.now() + 4000
-    let refused = false
-    let other: unknown
-    while (!refused && Date.now() < deadline) {
-      try { await access.hash(originalPath) }
-      catch (error) {
-        if ((error as Error).message === 'Source QA stage file changed') refused = true
-        else { other = error; break }
-      }
-    }
-    if (other !== undefined) throw other
-    expect(refused).toBe(true)
-  } finally { await renamer.terminate() }
+    await expect(access.hash(originalPath)).rejects.toThrow('Source QA stage file changed')
+    expect(replaceOnOpen).toHaveBeenCalledTimes(1)
+  } finally { replaceOnOpen.mockRestore() }
 })
 
 it('requires an independent execution verifier even when every declared artifact looks complete', async () => {

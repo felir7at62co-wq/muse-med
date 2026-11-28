@@ -5,6 +5,53 @@ import { lstat, open, readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import { normalizeOcrText } from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
+import { z } from 'zod'
+
+const positiveId = z.number().int().positive()
+const originalDeclaration = z.strictObject({
+  task_id: positiveId, subtask_id: positiveId, first_result_id: positiveId,
+  source_path: z.string().min(1), source_sha256: z.hash('sha256'), download_receipt_path: z.string().min(1),
+})
+
+/** The approved review's exact original download references and repaired-clip pronunciation recheck. */
+export const approvedDialoguePatchSchema = z.strictObject({
+  target: originalDeclaration, donor: originalDeclaration, recheck_evidence_id: z.uuidv4(),
+})
+
+interface DialoguePatchOriginal {
+  readonly task_id: number
+  readonly subtask_id: number
+  readonly first_result_id: number
+  readonly path: string
+  readonly sha256: string
+  readonly receiptPath: string
+  readonly urlSha256: string
+}
+
+/** Files and provider identities the current Session must independently prove. */
+export interface LocalDialoguePatchSourceBinding {
+  readonly project: string
+  readonly episode: string
+  readonly scriptId: number
+  readonly episodeId: number
+  readonly storyboardId: number
+  readonly output: string
+  readonly sha256: string
+  readonly recheckEvidenceId: string
+  readonly originals: { readonly target: DialoguePatchOriginal; readonly donor: DialoguePatchOriginal }
+}
+
+/**
+ * Identify the native dialogue patcher's project-relative output.
+ * @param project - Project root.
+ * @param output - Absolute or project-relative source path.
+ * @returns Whether the path has the reserved layout for a pending patched clip.
+ */
+export function isLocalDialoguePatchOutput(project: string, output: string): boolean {
+  const [directory, operation, file, extra] = relative(project, resolve(project, output)).split(sep).map(fileKey)
+  return directory === 'editing' && /^dialogue-patch-\d{2,}-[a-z0-9]{6}$/iu.test(operation ?? '')
+    && file === 'clip.mov' && extra === undefined
+}
 
 /** Exact local artifacts whose successful execution the Host must establish. */
 export interface SourceQaEvidenceBinding {
@@ -16,6 +63,7 @@ export interface SourceQaEvidenceBinding {
   readonly inspectionSha256: string
   readonly sessionId: string
   readonly reviewId: string
+  readonly localDialoguePatch?: LocalDialoguePatchSourceBinding
 }
 
 /** Host-owned access to actual OCR execution and durable video observation records. */
@@ -321,10 +369,13 @@ function verifyTextDecisions(evidence: Evidence, decisions: readonly ObjectValue
 }
 
 async function evidence(project: string, value: unknown, expectedMedia: string, expectedSha256: string,
-  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess): Promise<Evidence> {
+  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess, localDialoguePatch?: LocalDialoguePatchSourceBinding): Promise<Evidence> {
   if (!object(value) || value.media_sha256 !== expectedSha256) fail('复验没有绑定本次实际源片。')
   const media = await projectFile(project, value.media_path, staged)
   if (fileKey(media) !== fileKey(await projectFile(project, expectedMedia, staged))) fail('复验没有绑定本次实际源片。')
+  if (localDialoguePatch === undefined && isLocalDialoguePatchOutput(project, media)) {
+    fail('局部修音候选缺少当前会话的正式修音证据。')
+  }
   if (await (staged === undefined ? fileSha256(media) : staged.hash(media)) !== expectedSha256) fail('复验源片已变化。')
   if (!object(value.inspection)) fail('审看身份缺失。')
   const [ocr, inspection] = await Promise.all([artifact(project, value.ocr, 'OCR', staged), artifact(project, value.inspection, '审看报告', staged)])
@@ -339,7 +390,8 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
   inspectReport(inspection.value, ocr.value, duration)
   const binding: SourceQaEvidenceBinding = { mediaPath: media, mediaSha256: expectedSha256,
     ocrPath: ocr.path, ocrSha256: ocr.sha256, inspectionPath: inspection.path, inspectionSha256: inspection.sha256,
-    sessionId: text(value.inspection.session_id, '审看会话'), reviewId: text(value.inspection.review_id, '审看ID') }
+    sessionId: text(value.inspection.session_id, '审看会话'), reviewId: text(value.inspection.review_id, '审看ID'),
+    ...(localDialoguePatch === undefined ? {} : { localDialoguePatch }) }
   if (inspection.value.id !== binding.reviewId) fail('审看ID与实际报告不符。')
   await verifier(binding)
   const files = [{ path: media, sha256: expectedSha256 }, { path: ocr.path, sha256: ocr.sha256 },
@@ -349,14 +401,15 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
 }
 
 async function evidenceSet(project: string, value: unknown, expectedMedia: string, expectedSha256: string,
-  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess): Promise<readonly [Evidence, ...Evidence[]]> {
+  verifier: SourceQaVerifier, staged?: SourceQaStagedAccess, localDialoguePatch?: LocalDialoguePatchSourceBinding,
+): Promise<readonly [Evidence, ...Evidence[]]> {
   if (!object(value)) fail('复验没有绑定本次实际源片。')
   const refs: readonly unknown[] = Array.isArray(value.ocr) ? value.ocr : [value.ocr]
   if (!refs.length) fail('复验缺少OCR文件。')
-  const first = await evidence(project, { ...value, ocr: refs[0] }, expectedMedia, expectedSha256, verifier, staged)
+  const first = await evidence(project, { ...value, ocr: refs[0] }, expectedMedia, expectedSha256, verifier, staged, localDialoguePatch)
   const parts: [Evidence, ...Evidence[]] = [first]
   for (let index = 1; index < refs.length; index++) {
-    parts.push(await evidence(project, { ...value, ocr: refs[index] }, expectedMedia, expectedSha256, verifier, staged))
+    parts.push(await evidence(project, { ...value, ocr: refs[index] }, expectedMedia, expectedSha256, verifier, staged, localDialoguePatch))
   }
   let end = 0
   for (const part of parts) {
@@ -392,12 +445,22 @@ export async function verifySourceQa(input: {
   originalSha256: string
   verifier?: SourceQaVerifier
   staged?: SourceQaStagedAccess
+  localDialoguePatch?: LocalDialoguePatchSourceBinding
 }): Promise<SourceQaVerification> {
   if (input.staged !== undefined && input.staged.project !== input.project) fail('暂存证据属于另一项目。')
   const qa = input.review.source_qa
   if (!object(qa) || qa.version !== 1 || !object(qa.selected)) fail('缺少当前源片的source_qa记录。先对实际源片运行video_ocr完整扫描（间隔0.5秒），再优先用video_source_review，或已启用完整模式的video_inspect执行scan→next实际查看图片→observe。按渲染工具README记录工具返回的真实路径、摘要和身份后重验。')
   if (input.verifier === undefined) fail('缺少真实OCR执行和审看记录核验，请在Muse正常drama_render入口，沿video_source_review或已启用完整模式的video_inspect补齐真实审看后重验。')
-  const selectedParts = await evidenceSet(input.project, qa.selected, input.videoPath, input.videoSha256, input.verifier, input.staged)
+  const patch = input.localDialoguePatch
+  if (patch !== undefined && (input.staged !== undefined || input.review.subtitle_cleanup !== 'not_required'
+    || fileKey(patch.project) !== fileKey(await realpath(input.project))
+    || fileKey(patch.output) !== fileKey(resolve(input.project, input.videoPath))
+    || fileKey(patch.output) !== fileKey(resolve(input.project, input.originalPath))
+    || patch.sha256 !== input.videoSha256 || patch.sha256 !== input.originalSha256)) {
+    fail('局部修音必须在原制作会话核验当前修音 MOV 的画面和原声。')
+  }
+  const selectedParts = await evidenceSet(input.project, qa.selected, input.videoPath, input.videoSha256,
+    input.verifier, input.staged, patch)
   const [selected] = selectedParts
   const files = selectedParts.flatMap(part => part.files)
   let originalParts: readonly [Evidence, ...Evidence[]] | undefined

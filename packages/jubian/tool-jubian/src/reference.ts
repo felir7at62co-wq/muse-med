@@ -20,7 +20,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { JubianError, type JubianClient } from '@deepseek-ai/dsh-jubian'
 import {
   alignedReferenceSize, buildReferenceObjectKey, extractAppScriptUrl, extractTosUploadConfig,
   readReferenceAudio, readReferenceImage, referenceMaterialItem, signTosObjectPut,
@@ -126,10 +126,13 @@ export async function scaleImageWithFfmpeg(request: ScaleRequest, explicitPath?:
 
 /**
  * Read the upload destination from the live frontend bundle.
+ * @param client - Existing Jubian client whose history policy controls object uploads.
  * @param transport - HTTP transport used for frontend discovery.
  * @returns Current object-storage configuration; credentials remain Host-local.
  */
-export async function loadTosConfig(transport: typeof fetch): Promise<TosUploadConfig> {
+export async function loadTosConfig(client: Pick<JubianClient, 'assertHistoryWritable'>,
+  transport: typeof fetch): Promise<TosUploadConfig> {
+  client.assertHistoryWritable()
   let html: string
   let appJs: string
   try {
@@ -155,14 +158,17 @@ function asBody(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
 
 /**
  * Put one object and confirm the provider accepted it.
+ * @param client - Existing Jubian client whose history policy controls object uploads.
  * @param transport - Object-upload HTTP transport.
  * @param url - Signed object destination.
  * @param headers - Host-local signing headers.
  * @param payload - Unchanged upload bytes.
  * @returns Accepted object-storage HTTP status.
  */
-export async function putObject(transport: typeof fetch, url: string, headers: Record<string, string>,
+export async function putObject(client: Pick<JubianClient, 'assertHistoryWritable'>,
+  transport: typeof fetch, url: string, headers: Record<string, string>,
   payload: Uint8Array): Promise<number> {
+  client.assertHistoryWritable()
   let response: Response
   try {
     response = await transport(url, { method: 'PUT', headers, body: asBody(payload) })
@@ -198,6 +204,7 @@ function alignmentRefusal(image: ReferenceImage, size: { width: number; height: 
  * generation's `references` must use. The call is free and creates no task, but
  * it does write one object into the provider's bucket, so a caller that only
  * needs a URL it already has should not call it.
+ * @param client - Existing Jubian client whose history policy controls object uploads.
  * @param args - `image_path`, the local file to upload.
  * @param deps - Optional transport, re-encode, clock and `ffmpeg` path overrides.
  * @returns The uploaded URL and its material item, or an `alignment_required` refusal.
@@ -205,7 +212,8 @@ function alignmentRefusal(image: ReferenceImage, size: { width: number; height: 
  *   `CONTRACT_CHANGED` when its format or the bundle layout cannot be used, or `NETWORK_ERROR`
  *   when the frontend or the bucket could not be reached.
  */
-export async function uploadReferenceMethod(args: { image_path?: string | undefined },
+export async function uploadReferenceMethod(client: Pick<JubianClient, 'assertHistoryWritable'>,
+  args: { image_path?: string | undefined },
   deps: ReferenceUploadDeps = {}): Promise<Record<string, unknown>> {
   const path = args.image_path
   if (path === undefined || !path.trim()) {
@@ -223,16 +231,17 @@ export async function uploadReferenceMethod(args: { image_path?: string | undefi
     throw new JubianError('INVALID_ARGUMENT',
       'image_path could not be read as a local file; check the path and file permissions; no upload was attempted')
   }
-  return await uploadReferenceBytes(bytes, deps)
+  return await uploadReferenceBytes(client, bytes, deps)
 }
 
 /**
  * Upload Host-verified image bytes without accepting a model-supplied file path.
+ * @param client - Existing Jubian client whose history policy controls object uploads.
  * @param bytes - Exact bytes read by a trusted Host service.
  * @param deps - Optional transport, re-encode, clock and `ffmpeg` path overrides.
  * @returns The uploaded URL and measured image identity, or an alignment refusal.
  */
-export async function uploadReferenceBytes(bytes: Uint8Array,
+export async function uploadReferenceBytes(client: Pick<JubianClient, 'assertHistoryWritable'>, bytes: Uint8Array,
   deps: ReferenceUploadDeps = {}): Promise<Record<string, unknown>> {
   const image: ReferenceImage = readReferenceImage(bytes)
   const size = alignedReferenceSize(image)
@@ -250,9 +259,9 @@ export async function uploadReferenceBytes(bytes: Uint8Array,
     }
   }
   const key = buildReferenceObjectKey(now, randomBytes(16).toString('hex'), image.extension)
-  const config = await loadTosConfig(transport)
+  const config = await loadTosConfig(client, transport)
   const signed = signTosObjectPut({ config, key, payload, content_type: image.content_type, now })
-  await putObject(transport, signed.url, signed.headers, payload)
+  await putObject(client, transport, signed.url, signed.headers, payload)
   return { ...referenceMaterialItem(signed.url, 1),
     format: image.format,
     source_width: image.width,
@@ -268,11 +277,13 @@ export async function uploadReferenceBytes(bytes: Uint8Array,
 
 /**
  * Upload one measured PCM voice reference using the workbench's media-object directory.
+ * @param client - Existing Jubian client whose history policy controls object uploads.
  * @param args - Local audio_path of a complete PCM WAV no longer than 15 seconds.
  * @param deps - Optional workbench/object transport and clock.
  * @returns The HTTPS audio item, measured duration and digest; no character asset or task is created.
  */
-export async function uploadAudioReferenceMethod(args: { audio_path?: string | undefined },
+export async function uploadAudioReferenceMethod(client: Pick<JubianClient, 'assertHistoryWritable'>,
+  args: { audio_path?: string | undefined },
   deps: ReferenceUploadDeps = {}): Promise<Record<string, unknown>> {
   if (!args.audio_path?.trim()) throw new JubianError('INVALID_ARGUMENT', 'upload_audio requires audio_path')
   const bytes = await readFile(resolve(args.audio_path))
@@ -281,9 +292,9 @@ export async function uploadAudioReferenceMethod(args: { audio_path?: string | u
   const now = deps.now?.() ?? new Date()
   const key = buildReferenceObjectKey(now, randomBytes(16).toString('hex'), audio.extension)
     .replace('prod/sys-material-image/', 'prod/sys-material-video/')
-  const config = await loadTosConfig(transport)
+  const config = await loadTosConfig(client, transport)
   const signed = signTosObjectPut({ config, key, payload: bytes, content_type: audio.content_type, now })
-  await putObject(transport, signed.url, signed.headers, bytes)
+  await putObject(client, transport, signed.url, signed.headers, bytes)
   return { materialType: 'audio', materialUrl: signed.url, sortOrder: 1, audioDuration: audio.duration_seconds,
     duration_verified: true, bytes: bytes.byteLength, paidRequests: 0,
     sha256: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,

@@ -1,7 +1,7 @@
 /** Host-only bridge from an authorized Catalog image to one private or QA generation. */
 import { createHash } from 'node:crypto'
 import { alignedReferenceSize, readReferenceImage, stableSha256 } from '@deepseek-ai/dsh-jubian-api'
-import type { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {
   AuthoritativeCharacterReference,
@@ -165,11 +165,12 @@ export async function authorizeCharacterReferenceQaPreDispatchRecovery(
 
 /** Dependencies for one-shot private or isolated QA reference use. */
 export interface CharacterReferenceQaBridgeOptions {
+  readonly client: Pick<JubianClient, 'assertHistoryWritable'>
   readonly authority: CharacterReferenceAuthority
   readonly store: CharacterReferenceQaAuthorizationStore
   /** Recheck the signed-in Muse account before every project-private upload or paid claim. */
   readonly ownerIdentity?: (session: Session) => Promise<string>
-  readonly upload?: typeof uploadReferenceBytes
+  readonly upload?: (bytes: Uint8Array, deps?: ReferenceUploadDeps) => Promise<Record<string, unknown>>
   readonly referenceUploadDeps?: ReferenceUploadDeps
   readonly now?: () => Date
 }
@@ -243,7 +244,7 @@ function uploadEvidence(result: Record<string, unknown>, expectedSha256: string)
  */
 export function createCharacterReferenceQaBridge(options: CharacterReferenceQaBridgeOptions): CharacterReferenceQaBridge {
   const now = options.now ?? (() => new Date())
-  const uploadBytes = options.upload ?? uploadReferenceBytes
+  const uploadBytes = options.upload ?? ((bytes, deps) => uploadReferenceBytes(options.client, bytes, deps))
 
   const readAuthorized = async (
     session: Session,

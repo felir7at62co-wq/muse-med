@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -106,12 +107,12 @@ describe('project-private owner attestation', () => {
 
     const upload = vi.fn(async () => ({ materialUrl: 'https://example.invalid/private.png',
       reencoded: false, sha256: `sha256:${sha}` }))
-    const bridge = createCharacterReferenceQaBridge({ authority, store, upload,
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), authority, store, upload,
       ownerIdentity: async session => JSON.stringify(['muse-owner', session.id]) })
     const uploadRequest = { ...request, authorizationId: result.authorization_id,
       authorizationVersion: 1, idempotencyKey: 'private-upload-1' }
     await expect(bridge.upload(other, uploadRequest)).rejects.toThrow('another Muse account or conversation')
-    const differentAccount = createCharacterReferenceQaBridge({ authority, store, upload,
+    const differentAccount = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), authority, store, upload,
       ownerIdentity: async session => JSON.stringify(['different-account', session.id]) })
     await expect(differentAccount.upload(owner.session, uploadRequest)).rejects.toThrow('another Muse account')
     await expect(bridge.upload(owner.session, { ...uploadRequest, scriptId: 4609 })).rejects.toThrow()

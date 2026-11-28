@@ -4,18 +4,22 @@ import { readFile, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import { DEFAULT_DELIVERY } from './delivery.ts'
+import { offlineWordReceipt, type OfflineWordReceiptVerifier } from './offline-word-evidence.ts'
 import { parseSrtDocument } from './subtitles.ts'
 import type { SubtitleCue, Timeline } from './types.ts'
 
-/** Exact selected clips, final subtitles and the existing cloud-receipt mapping. */
-export interface SpeechCoverageInput {
+/** Exact selected clips, final subtitles and the existing transcription receipt mapping. */
+export type SpeechCoverageInput = {
   readonly project: string
   readonly timeline: Timeline
   readonly sources: ReadonlyMap<number, string>
   readonly subtitleSrt: string
-  readonly transcriptsPath: string
   readonly decisionsPath?: string
-}
+  readonly verifyOfflineWords?: OfflineWordReceiptVerifier
+} & ({ readonly transcriptsPath: string } | {
+  readonly offlineReceiptPath: string
+  readonly verifyOfflineWords: OfflineWordReceiptVerifier
+})
 
 /** One original recognition token; character matching never invents times inside it. */
 export interface SpeechCoverageWord {
@@ -92,7 +96,15 @@ function nonblank(value: unknown): string {
 }
 
 const digest = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex')
-const textKey = (text: string): string => text.normalize('NFKC').replace(/[\p{P}\p{Z}\s]/gu, '')
+/**
+ * Compare literal subtitle and recognized text while ignoring display separators.
+ * @param text - Subtitle or recognized speech text to normalize.
+ * @returns The normalized text key used for comparison.
+ */
+export function speechCoverageTextKey(text: string): string {
+  return text.normalize('NFKC').replace(/[\p{P}\p{Z}\s]/gu, '')
+}
+const textKey = speechCoverageTextKey
 const seconds = (value: number): number => Math.round(value * 1_000_000) / 1_000_000
 const overlaps = (left: { start_seconds: number; end_seconds: number }, cue: SubtitleCue): boolean =>
   left.start_seconds < cue.endSeconds && left.end_seconds > cue.startSeconds
@@ -203,6 +215,7 @@ function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCu
   }
   const shifted = shiftedCueCandidates(words, cues, heard, printed, pairs)
   const claims = new Map<number, number>()
+  const shiftedCueIndexes = new Set<number>()
   for (const candidate of shifted) {
     for (const index of candidate.heard) claims.set(index, (claims.get(index) ?? 0) + 1)
   }
@@ -212,6 +225,7 @@ function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCu
     // timing evidence without pretending the displayed cue covered those words.
     candidate.heard.forEach(index => matchedHeard.add(index))
     candidate.printed.forEach(index => matchedPrinted.add(index))
+    for (const index of candidate.finding.cue_indexes) shiftedCueIndexes.add(index)
     add(candidate.finding)
   }
   const missing = (characters: readonly Character[], matched: ReadonlySet<number>, side: 'word' | 'cue') => {
@@ -237,15 +251,32 @@ function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCu
   missing(heard, matchedHeard, 'word'); missing(printed, matchedPrinted, 'cue')
   // SRT rounds cue edges to milliseconds; a half millisecond accounts for that rounding.
   const frameToleranceUs = 1_000_000 / fps + 500
+  const beyondFrame = (difference: number): boolean => Math.round(difference * 1_000_000) > frameToleranceUs
+  const cueCounts = new Map<string, number>()
+  for (const match of matches.values()) cueCounts.set(match.word_id, (cueCounts.get(match.word_id) ?? 0) + 1)
   for (const cue of cues) {
     const selected = [...matches.values()].filter(match => match.cue_index === cue.index)
-    if (selected.map(match => match.text).join('') !== textKey(cue.text) || selected.length === 0) continue
+    if (selected.length === 0) continue
     const selectedWords = new Map(selected.map(match => [match.word_id, match.text]))
     const spans = words.filter(word => selectedWords.has(word.id))
+    if (selected.map(match => match.text).join('') !== textKey(cue.text)) {
+      if (shiftedCueIndexes.has(cue.index)) continue
+      // A written-word disagreement need not erase the timing of other, fully matched words.
+      const anchored = spans.filter(word => cueCounts.get(word.id) === 1 && selectedWords.get(word.id) === textKey(word.text))
+      if (anchored.length < 2) continue
+      for (const word of anchored) {
+        const outside = [{ start: word.start_seconds, end: cue.startSeconds }, { start: cue.endSeconds, end: word.end_seconds }]
+        for (const { start, end } of outside) if (beyondFrame(end - start)) {
+          add({ kind: 'timing_mismatch', text: word.text, start_seconds: start, end_seconds: end,
+            word_ids: [word.id], cue_indexes: [cue.index] })
+        }
+      }
+      continue
+    }
     const start = Math.min(...spans.map(word => word.start_seconds)), end = Math.max(...spans.map(word => word.end_seconds))
     const wholeWords = spans.every(word => selectedWords.get(word.id) === textKey(word.text))
     const edgeDiffers = (measured: number, displayed: number) => wholeWords
-      ? Math.round(Math.abs(measured - displayed) * 1_000_000) > frameToleranceUs
+      ? beyondFrame(Math.abs(measured - displayed))
       : Math.round(measured * 1000) !== Math.round(displayed * 1000)
     if (edgeDiffers(start, cue.startSeconds) || edgeDiffers(end, cue.endSeconds)) {
       add({ kind: 'timing_mismatch', text: cue.text, start_seconds: Math.min(start, cue.startSeconds), end_seconds: Math.max(end, cue.endSeconds),
@@ -277,13 +308,21 @@ export async function reviewSpeechCoverage(input: SpeechCoverageInput): Promise<
   }
   const mapping = new Map<number, string>()
   try {
-    const document = object(JSON.parse((await capture(input.transcriptsPath)).bytes.toString('utf8')))
-    if (!Array.isArray(document.shots)) throw new Error('云转写映射需要 shots 数组。')
-    for (const entry of document.shots) {
-      const row = object(entry)
-      if (typeof row.shot !== 'number' || !Number.isSafeInteger(row.shot) || row.shot < 1
-        || typeof row.receipt !== 'string' || !row.receipt || mapping.has(row.shot)) throw new Error('云转写映射含无效或重复镜头。')
-      mapping.set(row.shot, resolve(dirname(resolve(projectPath, input.transcriptsPath)), row.receipt))
+    if ('offlineReceiptPath' in input) {
+      const clip = input.timeline.clips[0]
+      if (clip?.shot !== 1 || clip.startUs !== 0 || input.timeline.clips.length !== 1 || input.sources.size !== 1) {
+        throw new Error('整集本机词证据只能对应从零开始的同版完整声音。')
+      }
+      mapping.set(clip.shot, input.offlineReceiptPath)
+    } else {
+      const document = object(JSON.parse((await capture(input.transcriptsPath)).bytes.toString('utf8')))
+      if (!Array.isArray(document.shots)) throw new Error('转写映射需要 shots 数组。')
+      for (const entry of document.shots) {
+        const row = object(entry)
+        if (typeof row.shot !== 'number' || !Number.isSafeInteger(row.shot) || row.shot < 1
+          || typeof row.receipt !== 'string' || !row.receipt || mapping.has(row.shot)) throw new Error('转写映射含无效或重复镜头。')
+        mapping.set(row.shot, resolve(dirname(resolve(projectPath, input.transcriptsPath)), row.receipt))
+      }
     }
   } catch (error) {
     mapping.clear()
@@ -293,20 +332,36 @@ export async function reviewSpeechCoverage(input: SpeechCoverageInput): Promise<
   for (const [clipIndex, clip] of input.timeline.clips.entries()) {
     try {
       const selected = input.sources.get(clip.shot), receiptFile = mapping.get(clip.shot)
-      if (selected === undefined || receiptFile === undefined) throw new Error('缺少选定源文件或云转写收据。')
+      if (selected === undefined || receiptFile === undefined) throw new Error('缺少选定源文件或转写收据。')
       const source = await ownedPath(projectPath, project, selected), sha256 = await fileSha256(source)
       fingerprints.set(source, sha256)
       const receipt = await capture(receiptFile), row = object(JSON.parse(receipt.bytes.toString('utf8')))
-      if (typeof row.source !== 'string' || await ownedPath(projectPath, project, row.source) !== source || row.sourceSha256 !== sha256) throw new Error('收据源路径或 SHA-256 与当前镜头不一致。')
-      if (row.status !== 'complete' && row.status !== 'silent') throw new Error('转写未完成，不能认定无发声。')
-      if (typeof row.stem !== 'string' || !/^[\w.-]+$/u.test(row.stem) || typeof row.version !== 'number'
-        || !Number.isSafeInteger(row.version) || row.version < 1
-        || receipt.path !== resolve(project, 'transcript', 'jobs', `${row.stem}-v${String(row.version)}.json`)) throw new Error('请使用当前项目原始转写收据路径及版本。')
-      let transcriptPath = '', transcriptHash = ''
+      let transcript: Awaited<ReturnType<typeof capture>> | undefined
+      if (row.kind === 'muse_offline_word_timing') {
+        const local = offlineWordReceipt.parse(row)
+        const folder = relative(resolve(project, 'transcript', 'offline'), dirname(receipt.path))
+        if (!/^local-[a-z0-9]{6}$/iu.test(folder) || receipt.path !== resolve(dirname(receipt.path), 'receipt.json')
+          || relative(receipt.path, local.receipt) !== '' || relative(project, local.project) !== ''
+          || await ownedPath(projectPath, project, local.source.path) !== source || local.source.sha256 !== sha256
+          || relative(resolve(dirname(receipt.path), 'words.json'), local.transcript.path) !== '') {
+          throw new Error('本地转写回执与当前选定声音或原始路径不一致。')
+        }
+        if (input.verifyOfflineWords === undefined) throw new Error('当前入口无法复验本会话本地转写回执。')
+        input.verifyOfflineWords(local)
+        if (local.recognition === 'no_reliable_words') throw new Error('本地未识别到可靠字词，本段实际声音仍待核听。')
+        transcript = await capture(local.transcript.path)
+        if (transcript.sha256 !== local.transcript.sha256) throw new Error('本地逐词时间已变化，请重新转写。')
+      } else {
+        if ('offlineReceiptPath' in input) throw new Error('整集本机词证据须来自当前会话的 audio_transcribe offline。')
+        if (typeof row.source !== 'string' || await ownedPath(projectPath, project, row.source) !== source || row.sourceSha256 !== sha256) throw new Error('收据源路径或 SHA-256 与当前镜头不一致。')
+        if (row.status !== 'complete' && row.status !== 'silent') throw new Error('转写未完成，不能认定无发声。')
+        if (typeof row.stem !== 'string' || !/^[\w.-]+$/u.test(row.stem) || typeof row.version !== 'number'
+          || !Number.isSafeInteger(row.version) || row.version < 1
+          || receipt.path !== resolve(project, 'transcript', 'jobs', `${row.stem}-v${String(row.version)}.json`)) throw new Error('请使用当前项目原始转写收据路径及版本。')
+        if (row.status === 'complete') transcript = await capture(resolve(projectPath, 'transcript', 'raw', `${row.stem}-v${String(row.version)}.json`))
+      }
       const shotWords: SpeechCoverageWord[] = []
-      if (row.status === 'complete') {
-        const transcript = await capture(resolve(projectPath, 'transcript', 'raw', `${row.stem}-v${String(row.version)}.json`))
-        transcriptPath = transcript.path; transcriptHash = transcript.sha256
+      if (transcript !== undefined) {
         const segments: unknown = JSON.parse(transcript.bytes.toString('utf8'))
         if (!Array.isArray(segments) || segments.length === 0) throw new Error('转写缺少原始语音片段。')
         let previous = 0
@@ -326,7 +381,7 @@ export async function reviewSpeechCoverage(input: SpeechCoverageInput): Promise<
         }
       }
       sources.push({ shot: clip.shot, clip_index: clipIndex + 1, path: source, sha256, receipt_path: receipt.path,
-        receipt_sha256: receipt.sha256, transcript_path: transcriptPath, transcript_sha256: transcriptHash })
+        receipt_sha256: receipt.sha256, transcript_path: transcript?.path ?? '', transcript_sha256: transcript?.sha256 ?? '' })
       words.push(...shotWords)
     } catch (error) {
       warnings.push(`镜头 ${String(clip.shot)} 声文证据未核实：${String(error)}`)

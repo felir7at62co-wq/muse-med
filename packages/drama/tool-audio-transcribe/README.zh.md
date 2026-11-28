@@ -24,6 +24,10 @@ Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频�
 
 桌面在标准、PTC、创造、编辑与短剧模式中装载此工具，极简模式除外。开始前须登录 Muse 账号，云端网关还须单独启用转写。模型不能提供服务商凭据。
 
+部署可通过 `pronunciation.pythonPath`、`libraryDir`、`librarySha256`、`modelDir` 和可选的 `minimumMargin` 启用本地读音检查。该方法在项目内一份素材的两个或三个重叠时段中，对照同一个普通话短句的两种带调读音。工具先核验本地模型文件，再返回来源摘要、实测时段和值得核听的结果编号。整个过程无需登录 Muse 账号或上传音轨。`uncertain` 保留待核项，所有结果的 `listening_verified` 均为 `false`。可先用结果定位和复查短句读音，再单独核听说话人、声线衔接和整段混音。
+
+部署可通过 `offline.pythonPath`、`libraryDir`、`librarySha256` 和 `modelDir` 单独启用本地逐词转写。用 `{"method":"offline","project":"<项目根目录>","input":"<本地素材>"}` 处理会话工作区内单个项目文件。工具核验本地普通话模型后，处理最多 120 秒的解码音频，无需登录 Muse 账号或上传音轨。逐词时间和收据保存在 `transcript/offline/`，收据记录源文件与转写摘要、解码音频的时间基准和模型版本。`no_reliable_words` 表示转写结果为空。每份收据的 `listening_verified` 均为 `false`，时间信息可供后续核听参考。
+
 ```json
 {"method":"start","project":"<project root>","input":"<authorized local audio or video>","language":"zh","purpose":"screenplay"}
 {"method":"start","project":"<project root>","inputs":["<episode 1 media>","<episode 2 media>"],"language":"zh","purpose":"screenplay"}
@@ -83,7 +87,7 @@ Host 账号服务读取绑定网关源地址的已保存会话，把音频发送
 
 #### Token 影响
 
-可选用途枚举、`inputs` 参数和描述中关于批次的一句话增加有限的请求开销；每次结果增加简短状态、收据已有的用途和本地路径；完成回读另附固定大小的说话人计数与提示，队列拒绝或本地超时另增加一句解释。批次为每个已处理文件返回一个状态标签和结果，`not_started` 只列出未处理路径，轮询说明只附一条，总量受 `maxBatchInputs` 限制。展示批次分支的结果类型（如 PTC 提示）会在 `items` 内再列出一次结果字段。
+可选用途枚举、`inputs` 参数和描述中关于批次的一句话增加有限的请求开销。每次结果增加简短状态、收据已有的用途和本地路径。完成回读另附固定大小的说话人计数与提示。队列拒绝或本地超时另增加一句解释。批次为每个已处理文件返回一个状态标签和结果，`not_started` 只列出未处理路径，轮询说明只附一条，总量受 `maxBatchInputs` 限制。展示批次分支的结果类型（如 PTC 提示）会在 `items` 内再列出一次结果字段。启用 `pronunciation` 会增加短句和时段字段，本地结果包含源文件摘要和最多三个实测时段。启用 `offline` 会增加收据字段。结果记录收据和转写路径，逐词时间保存在本地转写文件中。
 
 #### KV Cache 影响
 

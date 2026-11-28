@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
-import { uploadDocumentMethod, readDocumentUploadReceipt } from '../src/document-upload.ts'
+import { uploadDocumentMethod, readDocumentUploadReceipt, type DocumentUploadDeps, type DocumentUploadOptions } from '../src/document-upload.ts'
 
 const HTML = '<html><script src="/static/js/app.fixture.js"></script></html>'
 const APP = 'var modules={{"6c3d":function(e,t,n){var o=(t.default,"AKIDEXAMPLE");'
@@ -35,9 +36,9 @@ async function file(name: string, bytes: Uint8Array): Promise<string> {
   return path
 }
 
-function upload(args: { document_path?: string; idempotency_key?: string }, options = LIMIT,
-  deps: Parameters<typeof uploadDocumentMethod>[3] = {}) {
-  return uploadDocumentMethod(new JubianLedger({ root }), { idempotency_key: 'upload-test', ...args }, options, deps)
+function upload(args: { document_path?: string; idempotency_key?: string }, options: DocumentUploadOptions = LIMIT,
+  deps: DocumentUploadDeps = {}) {
+  return uploadDocumentMethod(fixtureHistoryClient(), new JubianLedger({ root }), { idempotency_key: 'upload-test', ...args }, options, deps)
 }
 
 describe('upload_document', () => {
@@ -165,7 +166,7 @@ describe('upload_document', () => {
 
   it('requires an upload key before loading the source or sending network requests', async () => {
     const stub = transport()
-    await expect(uploadDocumentMethod(new JubianLedger({ root }), { document_path: '/missing.txt' }, LIMIT, { fetch: stub.fetch }))
+    await expect(uploadDocumentMethod(fixtureHistoryClient(), new JubianLedger({ root }), { document_path: '/missing.txt' }, LIMIT, { fetch: stub.fetch }))
       .rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
     expect(stub.calls).toHaveLength(0)
   })
@@ -196,9 +197,9 @@ describe('upload_document', () => {
     const stub = transport(), path = await file('settlement.txt', Buffer.from('剧本'))
     const ledger = new JubianLedger({ root })
     vi.spyOn(ledger, 'settle').mockRejectedValueOnce(new Error('settlement interrupted'))
-    await expect(uploadDocumentMethod(ledger, { document_path: path, idempotency_key: 'settlement' }, LIMIT,
+    await expect(uploadDocumentMethod(fixtureHistoryClient(), ledger, { document_path: path, idempotency_key: 'settlement' }, LIMIT,
       { fetch: stub.fetch })).rejects.toThrow('settlement interrupted')
-    expect(await uploadDocumentMethod(new JubianLedger({ root }), { document_path: path, idempotency_key: 'settlement' }, LIMIT,
+    expect(await uploadDocumentMethod(fixtureHistoryClient(), new JubianLedger({ root }), { document_path: path, idempotency_key: 'settlement' }, LIMIT,
       { fetch: stub.fetch })).toMatchObject({ uploaded: true, replayed: true, outcome: 'accepted', settlement_pending: true })
     expect(stub.calls).toHaveLength(3)
   })
@@ -222,7 +223,7 @@ describe('upload_document', () => {
   it('stops before configuration lookup when the caller already cancelled', async () => {
     const stub = transport(), controller = new AbortController()
     controller.abort(new Error('user cancelled'))
-    await expect(uploadDocumentMethod(new JubianLedger({ root }), { document_path: join(root, 'missing.txt'), idempotency_key: 'cancelled' },
+    await expect(uploadDocumentMethod(fixtureHistoryClient(), new JubianLedger({ root }), { document_path: join(root, 'missing.txt'), idempotency_key: 'cancelled' },
       { ...LIMIT, signal: controller.signal }, { fetch: stub.fetch })).rejects.toThrow('user cancelled')
     expect(stub.calls).toHaveLength(0)
   })
@@ -235,7 +236,7 @@ describe('upload_document', () => {
       controller.abort(new Error('user cancelled'))
       return response
     }
-    await expect(uploadDocumentMethod(new JubianLedger({ root }), { document_path: path, idempotency_key: 'cancel-config' },
+    await expect(uploadDocumentMethod(fixtureHistoryClient(), new JubianLedger({ root }), { document_path: path, idempotency_key: 'cancel-config' },
       { ...LIMIT, signal: controller.signal }, { fetch: fetcher })).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
     expect(stub.calls).toHaveLength(1)
     expect(stub.calls.some(call => call.init?.method === 'PUT')).toBe(false)
@@ -262,7 +263,7 @@ describe('upload_document', () => {
       })
     }
     const ledger = new JubianLedger({ root }), args = { document_path: path, idempotency_key: 'abort-put' }
-    const pending = uploadDocumentMethod(ledger, args,
+    const pending = uploadDocumentMethod(fixtureHistoryClient(), ledger, args,
       { ...LIMIT, signal: controller.signal, ...(kind === 'timeout' ? { timeoutMs: 100 } : {}) }, { fetch: fetcher })
     const rejected = expect(pending).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
     await started.promise
@@ -270,7 +271,7 @@ describe('upload_document', () => {
     else timeoutController.abort(new DOMException('Upload timed out', 'TimeoutError'))
     await rejected
     if (kind === 'timeout') expect(timeoutSpy).toHaveBeenCalledWith(100)
-    expect(await uploadDocumentMethod(new JubianLedger({ root }), args, LIMIT, { fetch: fetcher }))
+    expect(await uploadDocumentMethod(fixtureHistoryClient(), new JubianLedger({ root }), args, LIMIT, { fetch: fetcher }))
       .toMatchObject({ uploaded: false, outcome: 'unknown', replayed: true })
     expect(stub.calls).toHaveLength(3)
   })
@@ -295,7 +296,7 @@ describe('upload_document', () => {
 
   it.each([0, -1, 1.5, Number.NaN, 2147483648])('rejects timeoutMs %s before reading the source or sending requests', async (timeoutMs) => {
     const stub = transport()
-    await expect(uploadDocumentMethod(new JubianLedger({ root }), { document_path: join(root, 'missing.txt'),
+    await expect(uploadDocumentMethod(fixtureHistoryClient(), new JubianLedger({ root }), { document_path: join(root, 'missing.txt'),
       idempotency_key: 'invalid-timeout' }, { ...LIMIT, timeoutMs }, { fetch: stub.fetch }))
       .rejects.toMatchObject({ code: 'INVALID_ARGUMENT', detail: 'document upload timeoutMs must be an integer within 1..2147483647' })
     expect(stub.calls).toHaveLength(0)
@@ -312,11 +313,11 @@ describe('upload_document', () => {
   it('refuses a replay whose ledger record has a different request hash than the saved receipt', async () => {
     const stub = transport(), path = await file('mismatch.txt', Buffer.from('剧本')), ledger = new JubianLedger({ root })
     const args = { document_path: path, idempotency_key: 'ledger-mismatch' }
-    await uploadDocumentMethod(ledger, args, LIMIT, { fetch: stub.fetch })
+    await uploadDocumentMethod(fixtureHistoryClient(), ledger, args, LIMIT, { fetch: stub.fetch })
     const record = await ledger.find('ledger-mismatch')
     if (record === undefined) throw new Error('Fixture upload did not create a ledger record')
     vi.spyOn(ledger, 'find').mockResolvedValue({ ...record, request_sha256: 'sha256:another-request' })
-    await expect(uploadDocumentMethod(ledger, args, LIMIT, { fetch: stub.fetch }))
+    await expect(uploadDocumentMethod(fixtureHistoryClient(), ledger, args, LIMIT, { fetch: stub.fetch }))
       .rejects.toMatchObject({ code: 'CONTRACT_CHANGED', detail: 'Document upload receipt differs from the ledger' })
     expect(stub.calls).toHaveLength(3)
   })
@@ -328,7 +329,7 @@ describe('upload_document', () => {
       await begin(intent)
       return await begin(intent)
     })
-    expect(await uploadDocumentMethod(ledger, { document_path: path, idempotency_key: 'raced-key' }, LIMIT,
+    expect(await uploadDocumentMethod(fixtureHistoryClient(), ledger, { document_path: path, idempotency_key: 'raced-key' }, LIMIT,
       { fetch: stub.fetch })).toMatchObject({ uploaded: false, outcome: 'unknown', replayed: true, receipt_status: 'recorded' })
     expect(stub.calls.some(call => call.init?.method === 'PUT')).toBe(false)
   })

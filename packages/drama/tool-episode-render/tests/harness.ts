@@ -7,7 +7,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 
 import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ToolExecutionToken, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { MediaCommandOutcome, ProcessChannel } from '../src/types.ts'
@@ -111,6 +111,28 @@ export function outputPath(call: ChannelCall): string {
 /** Whether one call is the ffprobe invocation for a path. */
 export function isProbe(call: ChannelCall): boolean {
   return call.command === 'ffprobe'
+}
+
+/**
+ * Stub the readback of the silent picture written by the subtitle burn.
+ * @param adjustment - Difference between the scheduled length and actual frames.
+ * @returns A handler observing the burn and answering its picture-clock probe.
+ */
+export function renderedPictureProbe(adjustment = 0): StubHandler {
+  const pictures = new Map<string, ProbeSpec>()
+  return (call) => {
+    const path = outputPath(call)
+    if (basename(path) !== 'subtitled.mp4') return undefined
+    if (call.command === 'ffmpeg') {
+      const fps = Number(call.args[call.args.indexOf('-r') + 1])
+      const seconds = Number(call.args[call.args.indexOf('-t') + 1])
+      const frames = Math.round(seconds * fps) + adjustment
+      const durationSeconds = Number((frames / fps).toFixed(6))
+      pictures.set(path, { durationSeconds, video: { fps, startSeconds: 0, durationSeconds, frameCount: frames }, audio: false })
+    }
+    const picture = pictures.get(path)
+    return isProbe(call) && picture !== undefined ? { stdout: probeJson(picture) } : undefined
+  }
 }
 
 /** Whether one call reads a `-f framemd5` report. */

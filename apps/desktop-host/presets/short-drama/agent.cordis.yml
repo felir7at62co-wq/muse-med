@@ -125,39 +125,45 @@
 
 - id: tool-drama-assets
   name: '@deepseek-ai/dsh-tool-drama-assets'
-- id: tool-shot-script
-  name: '@deepseek-ai/dsh-tool-shot-script'
+- id: local-episode-tools
+  name: cordis:group
+  group: true
+  isolate:
+    shotScriptVoice: true
   config:
-    reviewMode: advisory
-    sessionVideoSelection: true
-    productionPackaging: true
-    speechCharsPerSecond: 5
-- id: tool-bgm-compose
-  name: '@deepseek-ai/dsh-tool-bgm-compose'
-  config:
-    maxSourceGainDb: -10
-    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
-    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
-- id: tool-episode-render
-  name: '@deepseek-ai/dsh-tool-episode-render'
-  config:
-    defaultEndingEffectFit: !!js process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT || 'stretch_to_window'
-    normalizeSubtitleText: true
-    enforceSubtitleVisual: true
-    defaultSubtitleVisual:
-      schema_version: 1
-      reference_width: 480
-      reference_height: 854
-      font_size_px: 46
-      outline_px: 1.25
-      center_y_ratio: 0.736747073
-      max_width_ratio: 0.9
-    maxBgmVolume: 1
-    ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
-    ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
-    fontsDir: !!js process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts'
-    subtitleFontFamily: !!js process.env.MUSE_SUBTITLE_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'SimHei'
-    watermarkFontFamily: !!js process.env.MUSE_WATERMARK_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'
+    - id: tool-shot-script
+      name: '@deepseek-ai/dsh-tool-shot-script'
+      config:
+        reviewMode: advisory
+        sessionVideoSelection: true
+        productionPackaging: true
+        speechCharsPerSecond: 5
+    - id: tool-bgm-compose
+      name: '@deepseek-ai/dsh-tool-bgm-compose'
+      config:
+        maxSourceGainDb: -10
+        ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+        ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+    - id: tool-episode-render
+      name: '@deepseek-ai/dsh-tool-episode-render'
+      config:
+        defaultEndingEffectFit: !!js process.env.MUSE_DEFAULT_ENDING_EFFECT_FIT || 'stretch_to_window'
+        normalizeSubtitleText: true
+        enforceSubtitleVisual: true
+        defaultSubtitleVisual:
+          schema_version: 1
+          reference_width: 480
+          reference_height: 854
+          font_size_px: 46
+          outline_px: 1.25
+          center_y_ratio: 0.736747073
+          max_width_ratio: 0.9
+        maxBgmVolume: 1
+        ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+        ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
+        fontsDir: !!js process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts'
+        subtitleFontFamily: !!js process.env.MUSE_SUBTITLE_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'SimHei'
+        watermarkFontFamily: !!js process.env.MUSE_WATERMARK_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'
 - id: perception-bgm
   name: '@deepseek-ai/dsh-perception-bgm'
   config:

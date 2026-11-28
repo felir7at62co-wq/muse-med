@@ -128,6 +128,12 @@ Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，�
 
 ### 显式音频配置与试听
 
+部署配置本地读音检查后，可以通过 `enableLocalDialoguePatch` 启用 `drama_patch_dialogue`。工具使用当前普通会话对同一句话得出的两份读音结果，目标片须有疑似错读，供体片须匹配原定读音。指定两段等长的 80–600 毫秒区间。工具保留目标画面数据及区间之外的原声，写完后回读 MOV，再返回路径与摘要。输出是待验候选，说话人、整段试听和正式选源仍待核。先复查新原声和时间，再重新制作字幕或申请正式采用。
+
+部署启用 `enableContentListeningReview` 后可调用 `drama_review_audio`。`prepare` 为当前 MP4 留存同版整集混音。`preflight` 用本机对照绑定母轨和实际成片，标记弱声、掉声和错位区间，提供同版字幕时也可定位末条字幕后的同源信号。`review` 使用一个明确配置的专用音频线路，并核对同版字幕和已绑定原稿。盲听先收集实际听到的对白，再在本地对照原稿。说话人核对使用同次制作分包中已批准的声线，缺失时保留不确定。`review_status` 对同版成片回读原尝试，即使评审报告生成失败也能查看已记录的服务响应编号和模型用量。金额对账和正式听校仍需各自完成。
+
+正式采用前，同一普通会话须核对当前分包同一剧变卡片的两条不同原始结果与本次下载回执。保留修音工具输出的原路径 MOV，画面与声音均使用它。所选分包审核中的 `local_dialogue_patch` 绑定两份原片回执，以及对该 MOV 实际完成的读音复测。按该文件字节对应的逐词时间重建字幕。仍需完成 OCR、画面审核与完整声文和内容检查。在执行修音的同一会话调用 `drama_render` 完成正式渲染与归档。
+
 显式传入 `mix_profile`，选择项目内 JSON 文件。`schema_version` 为 `1`；`mode` 为 `legacy`、`no_bgm` 或 `ducking`；`analysis_window_ms` 为 10–1000。可选 `original_gain` 与 `music_gain` 接受 0–8，省略时记录现有部署增益。`ducking` 模式要求在同名对象中显式给出 `threshold_db`（−60–0）、`ratio`（1–20）、`attack_ms`（0.01–2000）、`release_ms`（0.01–9000）与 `knee`（1–8）。未传配置时沿用原固定增益渲染，不增加报告字段。
 
 `no_bgm` 不要求或打开 BGM 音轨或合成收据。严格归档仍须通过 `bgm_plan` 记录明确决定。该模式保留源内声音，包括已有音乐和音效，不做语音分离或移除内嵌音乐。`ducking` 用原声 RMS 能量驱动侧链，不是语义语音活动检测。Attack 与 release 平滑调整新增音乐增益，原声只进入混音一次。显式配置渲染要求项目内新输出路径；启用音乐时另发布已应用增益的纯音乐 `<output-name>.music-stem.wav`，不替换已有输出。
@@ -186,7 +192,11 @@ Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，�
 
 调用 `speech_coverage`，提供 `shots`、`timeline`、最终完整显示的 `subtitle_srt` 与 `speech_transcripts`，比对每个已有同源词时码，包括一两个字及剧本外额外发声。只读报告区分识别有字而字幕缺失、字幕无对应识别及时间不匹配。整条字幕与完整识别词匹配时，首尾各允许一帧交付时长和 SRT 毫秒取整误差。源字节、转写收据及原始结果必须匹配。操作使用已有 ASR 证据，全程离线。
 
+映射可引用本会话的 `audio_transcribe offline` 收据。`align_subtitles.py --speech-transcripts` 使用收据绑定的实际逐词文件生成字幕候选。严格声文检查另核验本次工具记录、当前源文件和逐词文件摘要。即使剧本没有台词，本地未识别到可靠字词也只保留待核。
+
 同一片段里，字幕与完整同文短句部分重叠，且相邻首词或尾词落在字幕窗口外时，可用实测词的 ID 归为一条时序疑点。实际重叠匹配保持原样。词已匹配其他字幕、归属有歧义，或漏掉的词与相邻词间隔超过 300 毫秒时，仍分别报告。
+
+同一字幕内若仍有文字差异，当至少两个完整识别词只匹配该条字幕，且实测词时超出显示范围超过帧容差时，另记录时序疑点。保留文字差异和原字幕。
 
 可选 `speech_decisions` 将调用方声明的核听决定绑定到完整证据哈希。源、转写、时间线、字幕或映射变化都会使绑定失效。先核听再补字、调整或明确保留不加字幕的决定，MP4与草稿核查复用同一份完整显示SRT。保留在原画面中的文字也属于该完整SRT，即使仅后加字幕的SRT已省略它。发现仍是建议；`listening_verified: false` 不会变成Host签发的人工验收声明。
 
@@ -255,7 +265,7 @@ Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，�
 
 短剧项目及明确要求源审查的流程，归档还读取 `_probe/delivery-config/film-reviews.json`。`films` 中对应记录须绑定当前成片路径和 SHA-256，设置 `reviewed: true`，`picture`、`audio`、`subtitle`、`spec` 均为 `ok`，且没有未决 `issues`。技术 `verify` 结果不能提供这项审查。
 
-`content_review.version: 1` 包含按选片顺序排列的 `sources`、最终 `output` 及 `audio`。每项画面记录当前 `source`、`sha256`、原片适用的 `shot`，以及实际完整视频观察工具给出的 `inspection: {path, sha256, session_id, review_id}`。`checks` 须用 `start_seconds`、`end_seconds`、`status: "ok"`、依据剧本的 `expected`、实际观察 `reason` 和至少两个不同的 `frame_ids`，覆盖完整时长的 `physical_logic` 与 `continuity`。每个检测到的观察帧都须在两项判断中被处理，最终分包接缝两侧均须有观察。物理逻辑依据所选剧情和媒介判断，包括有意安排的特效，不套用统一写实规则。Host 核对当前会话的真实工具发行、已展示图片、当前文件及未决观察疑点；这些记录支持判断，不证明语义检测绝对正确。
+`content_review.version: 1` 包含按选片顺序排列的 `sources`、最终 `output` 及 `audio`。每项画面记录当前 `source`、`sha256`、原片适用的 `shot`，以及实际完整视频观察工具给出的 `inspection: {path, sha256, session_id, review_id}`。`checks` 须用 `start_seconds`、`end_seconds`、`status: "ok"`、依据剧本的 `expected`、实际观察 `reason` 和至少两个不同的 `frame_ids`，覆盖完整时长的 `physical_logic` 与 `continuity`。每个检测到的观察帧都须在两项判断中被处理。最终成片的每个分包接缝都须由同一条连续性判断引用切点两侧各一张 0.5 秒内的解码帧。该判断可与相邻判断重叠。对照剧本检查实际看见的服装、道具或动作变化，包括剧情安排的变化。物理逻辑依据所选剧情和媒介判断，包括有意安排的特效，不套用统一写实规则。Host 核对当前会话的真实工具发行、已展示图片、当前文件及未决观察疑点；这些记录支持判断，不证明语义检测绝对正确。
 
 `audio` 包含 `status: "ok"`、`session_id`、`question_call_id`，以及覆盖完整时长、状态为 `ok` 且有非空理由的 `pronunciation` 区间。回答必须来自实际 `ask_user_question` 调用，使用 `contentListeningQuestion` 返回的当前输出专属问题；只有明确选择已完成试听的选项才通过。ASR吻合、模型自写通过、待回答和带未决自定义备注的回答均不能替代。核验只读取已有回答，不自动提问或购买转写。只接受本会话继承前缀之后自行发出的问题和回答；恢复同一会话仍可使用原回答。Host 初始化须等待观察及试听读取器就绪并持有它们，才发布此核验。未绑定的普通编辑保留原行为。既有 `speech_coverage` 继续标出 ASR 与文本差异；声明某项为 `asr_error` 不能替代实际听校。当前短剧声音验收仍需实际听校证据，这项检查不是无人声学审查器，也不能证明已实现无人值守发音修复。
 

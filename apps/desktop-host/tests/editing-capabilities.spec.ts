@@ -29,9 +29,16 @@ function rows(id: string): readonly PresetRow[] {
 it('combines editing delivery guidance with the short-drama production tools', () => {
   const combined = rows('short-drama')
   expect(combined.find(row => row.id === 'tool-skill')?.config).toEqual({ scopedCatalogOwner: true })
-  for (const id of ['editing-policy', 'tool-drama-assets', 'tool-bgm-compose', 'tool-episode-render',
+  for (const id of ['editing-policy', 'tool-drama-assets',
     'tool-fs', 'tool-skill', 'tool-audio-transcribe', 'tool-video-inspect', 'present']) {
     expect(combined.some(row => row.id === id), id).toBe(true)
+  }
+  for (const preset of ['short-drama', 'creation']) {
+    const local = rows(preset).find(row => row.id === 'local-episode-tools')
+    expect(local).toMatchObject({ group: true, isolate: { shotScriptVoice: true } })
+    const tools = local?.config as readonly PresetRow[]
+    expect(tools.map(row => row.id)).toEqual(['tool-shot-script', 'tool-bgm-compose', 'tool-episode-render'])
+    expect(tools[2]?.config).not.toHaveProperty('enableContentListeningReview')
   }
 })
 

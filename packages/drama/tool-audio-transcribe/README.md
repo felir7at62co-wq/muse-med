@@ -23,6 +23,10 @@ The Host tool `audio_transcribe` turns a local audio or video file into a timed 
 
 Desktop mounts this tool in Standard, PTC, Creative, Editing, and Short Drama presets, excluding Minimal. Sign in to Muse Account before starting a task; the gateway separately enables transcription. The model cannot supply provider credentials.
 
+A deployment can enable the local `pronunciation` method with `pronunciation.pythonPath`, `libraryDir`, `librarySha256`, and `modelDir`, plus an optional `minimumMargin`. The method compares two tone-labelled readings of a Mandarin syllable in a short phrase across two or three overlapping windows of one project-owned source. It verifies pinned local assets and returns the source digest, measured windows, and a result ID. It runs without the Muse account or an audio upload. `uncertain` preserves an unresolved finding, and every result leaves `listening_verified` false. Use the result to locate and recheck a short pronunciation issue before separately listening for speaker identity, voice continuity, and the full mix.
+
+A deployment can separately enable `offline` with `offline.pythonPath`, `libraryDir`, `librarySha256`, and `modelDir`. Call `{"method":"offline","project":"<project root>","input":"<local media>"}` for one file within a Session-owned project. The verified on-device Mandarin engine works with up to 120 seconds of decoded audio without a Muse account or upload. It writes word intervals and a receipt under `transcript/offline/`; the receipt binds the source and transcript digests, decoded audio clock, and model revision. `no_reliable_words` records an empty recognition result. Every receipt sets `listening_verified` to `false`, so timing can support a separate listening review.
+
 ```json
 {"method":"start","project":"<project root>","input":"<authorized local audio or video>","language":"zh","purpose":"screenplay"}
 {"method":"start","project":"<project root>","inputs":["<episode 1 media>","<episode 2 media>"],"language":"zh","purpose":"screenplay"}
@@ -80,7 +84,7 @@ The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-audio-trans
 
 #### Token effect
 
-The optional purpose enum, the `inputs` parameter, and one description sentence about batches add a bounded request cost. Each result adds a short status, its receipt-bound purpose when present, and local paths; completed readback adds fixed-size speaker counts and an advisory, while a queue refusal or deadline adds one explanatory sentence. A batch returns a status label and result per processed file, the untouched paths in `not_started`, and one shared polling note, bounded by `maxBatchInputs`. Result typing that shows the batch branch, such as a PTC prompt, lists the result fields a second time inside `items`.
+The optional purpose enum, the `inputs` parameter, and one description sentence about batches add a bounded request cost. Each result adds a short status, its receipt-bound purpose when present, and local paths. Completed readback adds fixed-size speaker counts and an advisory. A queue refusal or deadline adds one explanatory sentence. A batch returns a status label and result per processed file, the untouched paths in `not_started`, and one shared polling note, bounded by `maxBatchInputs`. Result typing that shows the batch branch, such as a PTC prompt, lists the result fields a second time inside `items`. Enabling `pronunciation` adds phrase and window fields to the tool schema. A local result includes the source digest and up to three measured windows. Enabling `offline` adds receipt fields. Results record receipt and transcript paths, and the timed words stay in the local transcript file.
 
 #### KV Cache effect
 

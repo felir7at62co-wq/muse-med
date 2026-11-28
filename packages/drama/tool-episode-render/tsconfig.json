@@ -34,6 +34,15 @@
     },
     {
       "path": "../bgm-license-info"
+    },
+    {
+      "path": "../tool-shot-script"
+    },
+    {
+      "path": "../../fs/fs"
+    },
+    {
+      "path": "../../sandbox/sandbox-policy"
     }
   ]
 }

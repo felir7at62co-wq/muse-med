@@ -697,6 +697,11 @@ export interface AudioMixSpec {
   readonly musicStem?: boolean
   /** Shared timeline offset for a bounded audio preview. */
   readonly startSeconds?: number
+  /** Body cut and exact length of the rendered picture, expressed in 48 kHz audio samples. */
+  readonly deliverySampleClock?: {
+    readonly bodyEndSample: number
+    readonly endSample: number
+  }
 }
 
 /** Explicit, versioned choices for added music; original sound is not speech-separated. */

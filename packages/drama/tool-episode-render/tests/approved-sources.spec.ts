@@ -1,17 +1,154 @@
-import { join } from 'node:path'
-import { appendFile, copyFile, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { appendFile, copyFile, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
-import { createSourceQaStagedAccess } from '../src/source-qa.ts'
+import { createSourceQaStagedAccess, verifySourceQa, type SourceQaEvidenceBinding } from '../src/source-qa.ts'
 import * as Cache from '../src/cache.ts'
 import { episodePaths } from '../src/paths.ts'
-import { cleanup, tempProject, writePlaceholder } from './harness.ts'
+import { prepareEpisode } from '../src/prepare.ts'
+import { writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { cleanup, placeholderHandler, probeJson, stubChannel, tempProject, writePlaceholder } from './harness.ts'
 import { sourceQaFixture, verifiedSourceQaFixture } from './source-qa-fixture.ts'
 
 const projects: string[] = []
 const fileSha256 = Cache.fileSha256
 afterEach(async () => { await Promise.all(projects.splice(0).map(cleanup)) })
+
+it('requires both original downloads and current repaired-MOV evidence for a local dialogue repair', async () => {
+  const project = await realpath(await tempProject()); projects.push(project)
+  const paths = episodePaths(project, '24')
+  const video = join(project, 'editing', 'dialogue-patch-24-ABC123', 'clip.mov')
+  const packagePath = join(project, 'episode_packages', '24', 'package.json')
+  const reviewPath = join(project, 'reviews', 'ep24-p01.json')
+  const config = join(project, 'project_config.json'), frame = join(project, 'frame.png')
+  const packageDocument = { episode: '24', script_id: 6613, episode_id: 154534,
+    video_tasks: [{ shots: [1], index: 1, storyboard_id: 2711188 }] }
+  await Promise.all([writePlaceholder(video, 'native repair bytes'), writePlaceholder(frame, 'reviewed image'),
+    writePlaceholder(config, JSON.stringify({ jubian_script_id: 6613 })),
+    writePlaceholder(packagePath, JSON.stringify(packageDocument))])
+  const videoSha256 = await fileSha256(video), qa = await sourceQaFixture(project, video)
+  const original = async (name: string, id: number, urlHash: string) => {
+    const path = join(project, `${name}.mp4`), receiptPath = join(project, `${name}-download.json`)
+    await writePlaceholder(path, name)
+    const sha256 = await fileSha256(path)
+    await writePlaceholder(receiptPath, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
+      path, sha256: `sha256:${sha256}`, source_sha256: urlHash }))
+    const identity = { task_id: id, subtask_id: id + 10, first_result_id: id + 20 }
+    return {
+      declaration: { ...identity, source_path: path, source_sha256: sha256, download_receipt_path: receiptPath },
+      binding: { ...identity, path, sha256, receiptPath, urlSha256: urlHash },
+    }
+  }
+  const [target, donor] = await Promise.all([original('target', 966450, 'a'.repeat(64)), original('donor', 887973, 'b'.repeat(64))])
+  const checks = Object.fromEntries(['identity', 'wardrobe', 'scene', 'prop', 'action_and_dialogue', 'visible_artifacts',
+    'continuity', 'voice_and_speaker', 'av_sync', 'sensitive_content'].map(key => [key, 'pass']))
+  const id = '5496c6b5-a416-4932-acc7-7d2baa03a932'
+  const localPatch = { target: target.declaration, donor: donor.declaration, recheck_evidence_id: id }
+  const review = { episode: '24', package: 1, status: 'approved', subtitle_cleanup: 'not_required',
+    package_sha256: await fileSha256(packagePath), storyboard_id: 2711188, video_path: video, video_sha256: videoSha256,
+    audio_path: video, audio_sha256: videoSha256, local_dialogue_patch: localPatch,
+    content_review: { ...checks, embedded_subtitles: 'absent' }, review_frames: [frame],
+    source_qa: { version: 1, selected: qa.declaration } }
+  const rows = [{ shot: 1, package: 1, video, audio: video }]
+  const saveReview = async (updates: object = {}) => {
+    await writePlaceholder(reviewPath, JSON.stringify({ ...review, ...updates }))
+  }
+  const delivered = (verifier?: (binding: SourceQaEvidenceBinding) => Promise<void>) =>
+    verifySelectedSourceReviews(paths, rows, true, true, verifier)
+  await saveReview({ status: 'needs_review' })
+  await expect(verifySelectedSourceReviews(paths, rows)).resolves.toEqual([])
+  await expect(delivered(verifiedSourceQaFixture)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  await saveReview()
+  await expect(verifySelectedSourceReviews(paths, rows, true)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  await expect(delivered()).rejects.toThrow('缺少真实OCR')
+  await expect(delivered(async () => { throw new Error('missing current Session patch') })).rejects.toThrow('missing current Session patch')
+  await expect(verifySourceQa({ project, review, videoPath: video, videoSha256, originalPath: video, originalSha256: videoSha256,
+    verifier: verifiedSourceQaFixture })).rejects.toThrow('缺少当前会话的正式修音证据')
+
+  const bindings: SourceQaEvidenceBinding[] = []
+  const result = await delivered(async (binding) => { bindings.push(binding) })
+  expect(bindings.map(binding => binding.localDialoguePatch)).toEqual([{
+    project, episode: '24', output: video, sha256: videoSha256, scriptId: 6613, episodeId: 154534,
+    storyboardId: 2711188, recheckEvidenceId: id, originals: { target: target.binding, donor: donor.binding },
+  }])
+  expect(result[0]?.requiresLocalDialoguePatch).toBe(true)
+  const files = [video, config, packagePath, target.binding.path, target.binding.receiptPath, donor.binding.path, donor.binding.receiptPath]
+  for (const path of files) {
+    expect(result[0]?.sourceQa?.files).toContainEqual({ path, sha256: await fileSha256(path) })
+  }
+  const stage = join(project, 'captured-source')
+  await mkdir(stage)
+  const archiveInputs = [...new Set([...files, ...result.flatMap(shot => shot.sourceQa?.files.map(file => file.path) ?? [])])]
+  const copies = await Promise.all(archiveInputs.map(async (originalPath, index) => {
+    const stagedPath = join(stage, String(index))
+    const bytes = await readFile(originalPath)
+    await copyFile(originalPath, stagedPath)
+    return { originalPath, stagedPath, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }
+  }))
+  const captured = createSourceQaStagedAccess(project, stage, copies, new AbortController().signal,
+    [{ originalPath: join(project, 'reviews'), entries: ['ep24-p01.json'] }])
+  await expect(verifySelectedSourceReviews(paths, rows, true, true, verifiedSourceQaFixture, captured))
+    .rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  const alias = join(project, 'editing', 'dialogue-patch-24-DEF456', 'clip.mov')
+  await symlink(dirname(video), dirname(alias), 'junction')
+  await saveReview({ video_path: alias, audio_path: alias })
+  await expect(verifySelectedSourceReviews(paths, [{ ...rows[0]!, video: alias, audio: alias }], true, true, verifiedSourceQaFixture))
+    .rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  await saveReview()
+  const subtitle = join(project, 'source.srt')
+  const shotsPath = join(project, 'shots.json')
+  const subtitleText = '1\n00:00:00,000 --> 00:00:00,500\n当前对白\n'
+  await writeFile(subtitle, subtitleText)
+  await writeFile(shotsPath, JSON.stringify({ shots: rows }))
+  let changeOriginal = false
+  const { channel } = stubChannel([
+    ({ command }) => command === 'ffprobe' ? {
+      stdout: probeJson({ durationSeconds: 1, video: { width: 480, height: 854, fps: 24 }, audio: {} }),
+      after: async () => { if (changeOriginal) await appendFile(target.binding.path, 'new original bytes') },
+    } : undefined,
+    placeholderHandler(),
+  ])
+  const prepare = () => prepareEpisode({
+    project, episode: '24', shotsPath, subtitleSrt: subtitle, toolkit: { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel },
+    sourceQaVerifier: verifiedSourceQaFixture,
+  })
+  await expect(prepare()).rejects.toThrow('局部修音')
+  await writeSubtitleClock(subtitle, subtitleText, '24', [
+    { source: { shot: 1, package: 1, video, audio: video }, video, audio: video, durationUs: 1_000_000 },
+  ])
+  changeOriginal = true
+  await expect(prepare()).rejects.toThrow('修音来源或审看证据变化')
+  await writeFile(target.binding.path, 'target')
+  changeOriginal = false
+  await expect(prepare()).resolves.toMatchObject({ timeline: { bodyEndSeconds: 1 } })
+  for (const invalid of [{ local_dialogue_patch: undefined }, { storyboard_id: 2711187 }, { subtitle_cleanup: 'clean' },
+    { local_dialogue_patch: { ...localPatch, recheck_evidence_id: undefined } },
+    { local_dialogue_patch: { ...localPatch, donor: target.declaration } }]) {
+    await saveReview(invalid)
+    await expect(delivered(verifiedSourceQaFixture)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  }
+  await saveReview()
+  await writeFile(packagePath, JSON.stringify({ ...packageDocument, script_id: undefined }))
+  await saveReview({ package_sha256: await fileSha256(packagePath) })
+  await expect(delivered(verifiedSourceQaFixture)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  await writeFile(packagePath, JSON.stringify(packageDocument))
+  await saveReview()
+  await writeFile(config, JSON.stringify({ jubian_script_id: packageDocument.script_id + 1 }))
+  await expect(delivered(verifiedSourceQaFixture)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  await writeFile(config, JSON.stringify({ jubian_script_id: packageDocument.script_id }))
+  await appendFile(target.binding.path, 'changed after selection')
+  await expect(delivered(verifiedSourceQaFixture)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  await writeFile(target.binding.path, 'target')
+  await writeFile(donor.binding.receiptPath, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
+    path: donor.binding.path, sha256: `sha256:${target.binding.sha256}`, source_sha256: donor.binding.urlSha256 }))
+  await expect(delivered(verifiedSourceQaFixture)).rejects.toThrow('正式下载回执')
+  const binding = bindings[0]?.localDialoguePatch
+  if (binding === undefined) throw new Error('Expected reviewed repair binding')
+  await expect(verifySourceQa({ project, review, videoPath: video, videoSha256, originalPath: target.binding.path,
+    originalSha256: target.binding.sha256, localDialoguePatch: binding, verifier: verifiedSourceQaFixture }))
+    .rejects.toThrow('局部修音必须在原制作会话')
+})
 
 it('rechecks complete package and original evidence through supplied staged file facts', async () => {
   const project = await realpath(await tempProject()); projects.push(project)

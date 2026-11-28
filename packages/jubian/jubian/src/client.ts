@@ -20,6 +20,7 @@ import { isUsableBearerToken, trimBearerToken } from './credential.ts'
 import { JubianDebugDump } from './debug-dump.ts'
 import { describeBodyRejection, describeRejection, describeUnparsed, redactForDump } from './diagnostic.ts'
 import { JubianError, codeForHttpStatus, failureForEnvelopeCode } from './error.ts'
+import { historicalJubianRequest, jubianHistoryReadOnly, refuseJubianHistoryRequest } from './history-read-only.ts'
 
 /** Default provider origin; the path after it is the caller's. */
 export const JUBIAN_DEFAULT_BASE_URL = 'https://web.jubianai.net/prod-api'
@@ -229,6 +230,7 @@ export class JubianClient {
   private readonly timeoutMs: number
   private readonly maximum: number
   private readonly transport: typeof fetch
+  private historyReadOnly = jubianHistoryReadOnly()
 
   constructor(options: JubianClientOptions) {
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
@@ -247,13 +249,30 @@ export class JubianClient {
   }
 
   /**
+   * Read the write policy bound to this client and the current replay process.
+   * @returns Whether requests are limited to verified historical queries.
+   */
+  isHistoryReadOnly(): boolean {
+    return this.historyReadOnly || jubianHistoryReadOnly()
+  }
+
+  /** Refuse a new write or raw object upload before it reaches its transport. */
+  assertHistoryWritable(): void {
+    if (this.isHistoryReadOnly()) refuseJubianHistoryRequest()
+  }
+
+  /**
    * Resolve the current credential once for one operation's related requests.
    * @returns A client with the same origin, transport and limits whose credential remains private in a closure.
    */
   async snapshotCredential(): Promise<JubianClient> {
+    const historyReadOnly = this.isHistoryReadOnly()
+    if (historyReadOnly && this.baseUrl !== JUBIAN_DEFAULT_BASE_URL) return refuseJubianHistoryRequest()
     const token = await this.resolveToken()
-    return new JubianClient({ credential: () => Promise.resolve(token), baseUrl: this.baseUrl,
+    const snapshot = new JubianClient({ credential: () => Promise.resolve(token), baseUrl: this.baseUrl,
       timeoutMs: this.timeoutMs, maxResponseBytes: this.maximum, fetch: this.transport })
+    snapshot.historyReadOnly ||= historyReadOnly
+    return snapshot
   }
 
   /**
@@ -274,14 +293,17 @@ export class JubianClient {
    *   tokens and original causes are never attached. Failures are not retried.
    */
   async request(request: JubianRequest): Promise<JubianResponse> {
+    const historyReadOnly = this.isHistoryReadOnly()
+    if (historyReadOnly && this.baseUrl !== JUBIAN_DEFAULT_BASE_URL) return refuseJubianHistoryRequest()
+    const admitted = historyReadOnly ? historicalJubianRequest(request) : request
     const token = await this.resolveToken()
-    const body = request.body === undefined ? undefined : JSON.stringify(request.body)
+    const body = admitted.body === undefined ? undefined : JSON.stringify(admitted.body)
     const timeout = AbortSignal.timeout(this.timeoutMs)
-    const signal = request.signal === undefined ? timeout : AbortSignal.any([request.signal, timeout])
+    const signal = admitted.signal === undefined ? timeout : AbortSignal.any([admitted.signal, timeout])
     let response: Response
     try {
-      response = await this.transport(`${this.baseUrl}${request.path}`, {
-        method: request.method,
+      response = await this.transport(`${this.baseUrl}${admitted.path}`, {
+        method: admitted.method,
         headers: { Accept: 'application/json', Authorization: `Bearer ${token}`,
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         redirect: 'error',
@@ -299,9 +321,9 @@ export class JubianClient {
     const text = decodeStrict(bytes)
     const parsed = text === null ? undefined : parseJson(text)
     const reading = readEnvelope(parsed, text, bytes)
-    const dump = JubianDebugDump.fromEnvironment()
+    const dump = historyReadOnly ? null : JubianDebugDump.fromEnvironment()
     if (dump !== null) {
-      await dump.record({ method: request.method, path: request.path, http_status: response.status,
+      await dump.record({ method: admitted.method, path: admitted.path, http_status: response.status,
         application_code: reading.code, envelope_layout: reading.layout, response_sha256,
         bytes: bytes.byteLength,
         body: parsed === undefined ? describeUnparsed(text, bytes) : redactForDump(parsed) })

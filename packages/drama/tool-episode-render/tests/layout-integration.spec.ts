@@ -15,7 +15,7 @@ import * as Media from '../src/ffmpeg.ts'
 import * as Layout from '../src/subtitle-layout.ts'
 import type { DramaRenderReport, DeliverySubtitleVisual, MediaToolkit } from '../src/types.ts'
 import type { SubtitleLayoutReport } from '../src/subtitle-layout.ts'
-import { decodeHandler, placeholderHandler, probeHandler, runContext, stubChannel } from './harness.ts'
+import { decodeHandler, placeholderHandler, probeHandler, renderedPictureProbe, runContext, stubChannel } from './harness.ts'
 import { createMediaRunner } from './audio-ffmpeg-harness.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord } from '../src/source-record.ts'
@@ -86,6 +86,7 @@ async function invoke(tool: ToolDefinition, args: Record<string, string | number
 
 function externalStub(output: string, layoutCode = 0, layoutStderr?: string) {
   return stubChannel([
+    renderedPictureProbe(),
     probeHandler({
       [join(output, '..', '..', 'video', '01', 'shot_001.mp4')]: { durationSeconds: 1, video: { fps: 12 } },
       [output]: { durationSeconds: 1, sizeBytes: 1_000_000, bitRateBps: 8_000_000,

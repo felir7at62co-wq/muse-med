@@ -17,8 +17,9 @@
  * @module @deepseek-ai/dsh-tool-episode-render/render
  */
 
-import { appendFile, link, lstat, mkdir, mkdtemp, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { dirname, resolve } from 'node:path'
 import { audioMixReport, loadAudioMixProfile, requireNewAudioOutput, requireProjectAudioFile } from './audio.ts'
 import { readBgmPlan } from './bgm.ts'
@@ -26,6 +27,7 @@ import { fileSha256, readCacheIdentity } from './cache.ts'
 import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from './source-record.ts'
 import {
   audioMixFilter,
+  DELIVERY_AUDIO_SAMPLE_RATE,
   deliveryRenderSettings,
   deliveryScaleFilter,
   ENDING_AUDIO_ASSET,
@@ -46,9 +48,10 @@ import {
 } from './ending.ts'
 import { firstStreamOfType, mediaFactsOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
+import { planDeliveryPictureClock, requirePictureFrameGrid, requireRenderedPicturePts } from './picture-clock.ts'
 import { parseShotManifest, readJsonDocument, pictureClockFrames, verifyPreparedSubtitleClock } from './prepare.ts'
 import { verifySelectedSourceReviews } from './approved-sources.ts'
-import { summarizeSourceQa, type SourceQaVerifier, type SourceQaStagedAccess } from './source-qa.ts'
+import { isLocalDialoguePatchOutput, summarizeSourceQa, type SourceQaVerifier, type SourceQaStagedAccess } from './source-qa.ts'
 import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
 import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues, buildAssDocument, formatSrtDocument, normalizeSubtitleDisplay, subtitleDisplayWarnings } from './subtitles.ts'
@@ -57,7 +60,7 @@ import type { DramaRenderReport, MediaFacts, MediaToolkit, RenderCheck, RenderSe
 import { deliveryChecks } from './verify.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
 import { resolveSubtitleOverlay } from './subtitle-plan.ts'
-import { writeDerivedSubtitleClock } from './subtitle-clock.ts'
+import { subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
 import type { EndingEffectTiming } from './types.ts'
 import { measureSubtitleLayout, subtitleVisualChecks } from './subtitle-layout.ts'
 import { assertRenderResumeDirectory, assertRenderResumeInputs, findRenderResumeCandidate, readRenderResumeFile,
@@ -150,6 +153,19 @@ function logCheck(check: RenderCheck): string {
 }
 
 /**
+ * Pick the exact body tail that the ending should freeze.
+ * @param preparedShot - Last prepared source shot for a render without a proved frame grid.
+ * @param encodedSegments - Verified body segments in delivery order.
+ * @param exactPictureClock - Whether the ending must start at the measured body boundary.
+ * @returns The media path from which to extract the last frame.
+ */
+export function endingTailSource(preparedShot: string, encodedSegments: readonly string[], exactPictureClock: boolean): string {
+  const source = exactPictureClock ? encodedSegments.at(-1) : preparedShot
+  if (source === undefined) throw new HarnessError('缺少最后一段已编码正文，不能添加片尾。', 'RENDER_FRAME_CLOCK')
+  return source
+}
+
+/**
  * Encode one episode into the delivered file and judge the result.
  * @param input - The resolved call.
  * @returns The canonical result; `ok` is false when a delivery check failed.
@@ -166,12 +182,29 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   ]) : undefined
   const subtitleWarnings = await subtitleReviewWarnings(input.subtitleSrt)
   const timeline = await readTimeline(input.timelinePath, settings.enforceSubtitleVisual)
-  await verifyPreparedSubtitleClock(input.subtitleSrt, paths, timeline, input.stagedSubtitleAudio)
   const endingEffectFit = timeline.endingEffectFit ?? settings.defaultEndingEffectFit
   const policy = await resolveDeliveryPolicy(
     input.project, timeline.delivery, settings.defaultSubtitleVisual, settings.enforceSubtitleVisual,
   )
   const effectiveSettings = deliveryRenderSettings(settings, policy.delivery)
+  const strictSpeech = policy.delivery.subtitle?.require_speech_coverage === true
+  const strictSources = policy.delivery.require_source_review === true
+  const document = strictSources || await pathExists(paths.sources) ? await readJsonDocument(paths.sources, '已准备选源') : undefined
+  const selections: readonly unknown[] = document !== null && typeof document === 'object' && 'shots' in document
+    && Array.isArray(document.shots) ? document.shots : []
+  const originalProject = input.sourceQaStage?.project ?? input.project
+  const localDialoguePatch = selections.some((row) => {
+    if (row === null || typeof row !== 'object') return false
+    return (['audio', 'video'] as const).some((field) => {
+      const path = (row as Record<string, unknown>)[field]
+      return typeof path === 'string' && isLocalDialoguePatchOutput(originalProject, path)
+    })
+  })
+  if (localDialoguePatch && (!strictSources || !strictSpeech || input.sourceQaStage !== undefined)) {
+    throw new HarnessError('局部修音须在原制作会话完成严格源片复验和完整声文检查。', 'SOURCE_DIALOGUE_PATCH_PENDING')
+  }
+  await verifyPreparedSubtitleClock(input.subtitleSrt, paths, timeline, input.stagedSubtitleAudio,
+    undefined, document, localDialoguePatch)
   assertBodyOnlyAnimation(timeline, policy)
   const endingAssets = policy.endingSeconds === 0 ? undefined : requiredEndingPaths(input)
   const clips = selectBodyClips(timeline, input.lastShot)
@@ -179,8 +212,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     throw new Error('drama_render render 的 resume 只支持完整单集时间线。')
   }
   const selectedVideos = clips.map(clip => resolve(paths.videoDir, shotFileName(clip.shot)))
-  const sourceQa = policy.delivery.require_source_review !== true ? undefined : await (async () => {
-    const document = await readJsonDocument(paths.sources, '已准备选源')
+  const sourceQa = !strictSources || document === undefined ? undefined : await (async () => {
     const rows = parseShotManifest(document, paths.sources)
     const reviewPaths = input.sourceQaStage === undefined ? paths : episodePaths(input.sourceQaStage.project, input.episode)
     const reviews = await verifySelectedSourceReviews(reviewPaths, rows, true, true, input.sourceQaVerifier, input.sourceQaStage)
@@ -232,7 +264,9 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const bgmPlan = await readBgmPlan(bgm === undefined ? undefined : input.bgmPlan,
     input.episode, bodyEndSeconds, bgm ?? '', input.project)
   const fps = policy.delivery.fps
-  for (const clip of clips) {
+  const plannedClock = captured === undefined ? undefined : planDeliveryPictureClock(clips, fps, policy.endingSeconds)
+  let sourcesSupportClock = plannedClock !== undefined
+  for (const [index, clip] of clips.entries()) {
     const source = resolve(paths.videoDir, shotFileName(clip.shot))
     await requireFile(source, `镜头 ${String(clip.shot)} 的渲染输入`,
       `请先跑 prepare，把该镜的成片放进 video/${input.episode}/。`)
@@ -244,10 +278,14 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
       throw new Error(`镜头 ${clip.shot} 的时间线需要 ${requested} 帧，实际画面只有 ${available} 帧，可能在剪口重复末帧。请用同版素材重跑 prepare，`
         + '已生成字幕需要先以当前切点和同源对齐重建，再使用新时间线、整集原声和字幕渲染。')
     }
+    const plannedClip = plannedClock?.clips[index]
+    if (plannedClip !== undefined && (picture?.startSeconds !== 0 || picture.frameCount === undefined || picture.frameCount <= 0
+      || picture.avgFrameRate === undefined || picture.avgFrameRate !== picture.rFrameRate
+      || (available !== undefined && plannedClip.end_frame - plannedClip.start_frame > available))) sourcesSupportClock = false
   }
+  const expectedPictureClock = sourcesSupportClock ? plannedClock : undefined
 
   let resumeRequest: RenderResumeRequest | undefined
-  const strictSpeech = policy.delivery.subtitle?.require_speech_coverage === true
   const strictMusic = policy.delivery.audio?.require_music_decision === true
   const music = !strictMusic ? undefined : {
     mode: bgm === undefined ? 'none' as const : 'music' as const,
@@ -257,9 +295,17 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
       ...(input.bgmGeneration === undefined ? {} : { generation_path: input.bgmGeneration }) }),
   }
   const emitsStem = profile !== undefined && bgm !== undefined
+  const mix = { bodyEndSeconds, totalSeconds, endingSeconds: policy.endingSeconds,
+    masterVolume: effectiveSettings.masterVolume, bgmVolume: effectiveSettings.bgmVolume,
+    ...(profile === undefined ? {} : { profile, musicStem: emitsStem, endingInput: bgm === undefined ? 2 : 3 }) }
+  const bodyEndFrame = expectedPictureClock?.body_end_frame ?? Math.round(bodyEndSeconds * fps)
+  const bodyEndSample = Math.round(bodyEndFrame * DELIVERY_AUDIO_SAMPLE_RATE / fps)
+  const plannedFrames = expectedPictureClock?.total_frames ?? Math.round(totalSeconds * fps)
+  const plannedAudioEndSample = Math.round(plannedFrames * DELIVERY_AUDIO_SAMPLE_RATE / fps)
   let output = input.output
   if (captured !== undefined) {
     const more = [paths.masterAudio, ...selectedVideos, ...(strictSpeech || sourceQa !== undefined ? [paths.sources] : []),
+      ...(localDialoguePatch ? [subtitleClockPath(input.subtitleSrt)] : []),
       ...(sourceQa?.files.map(file => input.sourceQaStage?.stagedPath(file.path) ?? file.path) ?? []),
       ...(bgm === undefined ? [] : [bgm]),
       ...((strictMusic || bgm !== undefined) && input.bgmPlan !== undefined ? [input.bgmPlan] : []),
@@ -274,7 +320,10 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     }
     const { channel: _channel, ...effective } = effectiveSettings
     resumeRequest = renderResumeRequest(files, [input.project, input.episode, input.lastShot, effective, policy.delivery,
-      policy.endingSeconds, policy.addWatermark, endingEffectFit, profile, input.subtitlePlan ?? null,
+      policy.endingSeconds, policy.addWatermark, endingEffectFit,
+      audioMixFilter({ ...mix, deliverySampleClock: { bodyEndSample, endSample: plannedAudioEndSample } }),
+      ...(expectedPictureClock === undefined ? [] : [expectedPictureClock]),
+      input.subtitlePlan ?? null,
       input.mixProfile ?? null, bgm ?? null, bgm === undefined ? null : input.bgmPlan ?? null, ...(music === undefined ? [] : [music]),
       ...(sourceQa === undefined ? [] : [sourceQa.sha256]),
       endingAssets?.audio ?? null, endingAssets?.effect ?? null])
@@ -295,20 +344,33 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const cues = settings.normalizeSubtitleText ? normalizeSubtitleDisplay(originalCues) : originalCues
   let displaySubtitle = overlay?.report.resolved_srt ?? input.subtitleSrt
   const displayWritten: string[] = []
+  const deriveSubtitleClock = async (target: string, text: string) => {
+    const clock = await writeDerivedSubtitleClock(input.subtitleSrt, target, text)
+    if (clock === undefined && localDialoguePatch) {
+      throw new HarnessError(`EP${input.episode} 局部修音的字幕来源时钟已丢失，请用当前原声重新对齐并运行 prepare。`,
+        'SOURCE_DIALOGUE_PATCH_SUBTITLE_CLOCK_REQUIRED')
+    }
+    return clock
+  }
+  let displayClock: string | undefined
   if (settings.normalizeSubtitleText && overlay === undefined) {
     await mkdir(paths.cacheDir, { recursive: true })
     const directory = await mkdtemp(resolve(paths.cacheDir, 'subtitle-display-'))
     displaySubtitle = resolve(directory, `${input.episode}.srt`)
     const displayText = formatSrtDocument(cues)
-    const clock = await writeDerivedSubtitleClock(input.subtitleSrt, displaySubtitle, displayText)
+    displayClock = await deriveSubtitleClock(displaySubtitle, displayText)
     await writeFile(displaySubtitle, displayText, 'utf8')
     displayWritten.push(displaySubtitle)
-    if (clock !== undefined) displayWritten.push(clock)
+  } else if (localDialoguePatch && overlay !== undefined) {
+    displayClock = await deriveSubtitleClock(displaySubtitle, await readFile(displaySubtitle, 'utf8'))
   }
+  if (displayClock !== undefined) displayWritten.push(displayClock)
   const renderedSubtitle = displaySubtitle
+  const renderedSubtitleFiles = renderedSubtitle === input.subtitleSrt ? [] : [renderedSubtitle,
+    ...(localDialoguePatch ? [subtitleClockPath(renderedSubtitle)] : [])]
   let publicationRequest = resumeRequest === undefined || renderedSubtitle === input.subtitleSrt ? resumeRequest : {
     ...resumeRequest,
-    files: [...resumeRequest.files, await readRenderResumeFile(renderedSubtitle)],
+    files: [...resumeRequest.files, ...await Promise.all(renderedSubtitleFiles.map(file => readRenderResumeFile(file)))],
   }
   const preview = buildRenderPreview({ settings: effectiveSettings, delivery: profile === undefined ? policy.delivery
     : { ...policy.delivery, audio: { master_gain: profile.original_gain, bgm_gain: profile.music_gain } },
@@ -353,7 +415,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   if (publicationRequest !== undefined) {
     const candidate = await findRenderResumeCandidate({ toolkit, settings: effectiveSettings,
       project: input.project, episode: input.episode, timelinePath: input.timelinePath,
-      subtitleSrt: renderedSubtitle, output, requireSubtitleVisualVerification: visualVerification !== undefined },
+      subtitleSrt: renderedSubtitle, output, requireSubtitleVisualVerification: visualVerification !== undefined,
+      ...(expectedPictureClock === undefined ? {} : { expectedPictureClock }) },
     publicationRequest, emitsStem)
     await assertRenderResumeInputs(publicationRequest)
     if (candidate.verified !== undefined) {
@@ -411,12 +474,14 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const reusedShots: number[] = []
   const segments: string[] = []
   const consumedHashes: string[] = endingAssets === undefined ? [] : [await fileSha256(endingAssets.effect)]
-  for (const clip of clips) {
+  for (const [index, clip] of clips.entries()) {
     const source = resolve(paths.videoDir, shotFileName(clip.shot))
     const target = resolve(cacheDir, shotFileName(clip.shot))
+    const cut = expectedPictureClock?.clips[index]
+    const frames = cut === undefined ? undefined : cut.end_frame - cut.start_frame
     const args = [
       '-y', '-v', 'error', '-i', source,
-      '-t', (clip.durationUs / MICROSECONDS_PER_SECOND).toFixed(6),
+      ...(frames === undefined ? ['-t', (clip.durationUs / MICROSECONDS_PER_SECOND).toFixed(6)] : ['-frames:v', String(frames)]),
       '-vf', scaleFilter, '-an', '-r', String(policy.delivery.fps), '-c:v', choice.encoder, ...choice.args, target,
     ]
     const sourceHash = await fileSha256(source)
@@ -434,6 +499,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
       await writeFile(sidecar, identity, 'utf8')
       encodedShots.push(clip.shot)
     }
+    if (frames !== undefined) await requirePictureFrameGrid(toolkit, target, fps, frames)
     await assertVideosAllowed(input.project, [target])
     consumedHashes.push(await fileSha256(target))
     segments.push(target)
@@ -442,9 +508,10 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   let tailFrame = NO_TAIL_FRAME
   if (endingAssets !== undefined) {
+    const tailSource = endingTailSource(resolve(paths.videoDir, shotFileName(input.lastShot)), segments, expectedPictureClock !== undefined)
     tailFrame = await extractTailFrame(
       toolkit,
-      resolve(paths.videoDir, shotFileName(input.lastShot)),
+      tailSource,
       resolve(cacheDir, 'last_video_tail_frame.png'),
     )
     log.push(`tail_frame=${tailFrame.path} frame_md5=${tailFrame.frameMd5} `
@@ -452,25 +519,49 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
       + `from_sequential_decode=${String(tailFrame.fromSequentialDecode)}`)
     const ending = resolve(cacheDir, 'ending.mp4')
     await buildEndingClip(toolkit, tailFrame.path, endingAssets.effect, ending, choice.encoder, choice.args, policy.delivery, endingTiming)
+    if (expectedPictureClock !== undefined) {
+      await requirePictureFrameGrid(toolkit, ending, fps, expectedPictureClock.total_frames - expectedPictureClock.body_end_frame)
+    }
     consumedHashes.push(await fileSha256(ending))
     await assertVideoHashesAllowed(input.project, consumedHashes)
     segments.push(ending)
   }
 
   const concatFile = resolve(cacheDir, 'concat.txt')
-  await writeFile(concatFile, `${segments.map(concatLine).join('\n')}\n`, 'utf8')
+  const concatEntries = segments.flatMap((path, index) => {
+    const cut = expectedPictureClock?.clips[index]
+    // The concat demuxer's default container duration is rounded to milliseconds.
+    // Supply successive absolute-frame boundary differences, so that rounding cannot accumulate at cuts.
+    return cut === undefined ? [concatLine(path)] : [concatLine(path),
+      `duration ${(cut.duration_us / MICROSECONDS_PER_SECOND).toFixed(6)}`]
+  })
+  await writeFile(concatFile, `${concatEntries.join('\n')}\n`, 'utf8')
   const base = resolve(cacheDir, 'base.mp4')
   await runFfmpeg(toolkit, ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', concatFile, '-c', 'copy', base])
+  if (expectedPictureClock !== undefined) await requireRenderedPicturePts(toolkit, base, expectedPictureClock)
 
   const ass = resolve(cacheDir, 'display.ass')
   await writeFile(ass, `\ufeff${buildAssDocument(cues, settings, policy)}`, 'utf8')
   const subtitled = resolve(cacheDir, 'subtitled.mp4')
   await runFfmpeg(toolkit, [
-    '-y', '-v', 'error', '-i', base, '-t', totalSeconds.toFixed(6),
+    '-y', '-v', 'error', '-i', base,
+    ...(expectedPictureClock === undefined ? ['-t', totalSeconds.toFixed(6)] : ['-frames:v', String(expectedPictureClock.total_frames)]),
     '-vf', subtitleBurnFilter(ass, settings.fontsDir, policy.delivery),
     '-an', '-r', String(policy.delivery.fps), '-c:v', choice.encoder, ...choice.args, subtitled,
   ])
 
+  const silentPicture = await probeMedia(toolkit, subtitled)
+  const pictureTrack = firstStreamOfType(silentPicture, 'video')
+  const pictureFrames = pictureTrack === undefined ? undefined : pictureClockFrames(silentPicture, pictureTrack, fps)
+  if (pictureFrames === undefined || (policy.endingSeconds > 0 && pictureFrames <= bodyEndFrame)) {
+    throw new HarnessError('烧录后的画面缺少可核对的帧时钟或完整片尾，请用当前时间线重新渲染。', 'RENDER_AUDIO_CLOCK')
+  }
+  if (expectedPictureClock !== undefined && pictureFrames !== expectedPictureClock.total_frames) {
+    throw new HarnessError('烧录后的画面帧数与已核对的正文和片尾不符，请重新渲染。', 'RENDER_FRAME_CLOCK')
+  }
+  const endSample = Math.round(pictureFrames * DELIVERY_AUDIO_SAMPLE_RATE / fps)
+  const deliverySampleClock = { bodyEndSample: policy.endingSeconds === 0 ? endSample : bodyEndSample, endSample }
+  log.push(`audio_sample_clock=${JSON.stringify({ sampleRate: DELIVERY_AUDIO_SAMPLE_RATE, ...deliverySampleClock })}`)
   consumedHashes.push(await fileSha256(subtitled))
   await assertVideoHashesAllowed(input.project, consumedHashes)
   await assertVideosAllowed(input.project, [
@@ -496,6 +587,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
         deliveryInputs: {
           timeline_sha256: deliveryDigest(request, input.timelinePath),
           subtitle_sha256: deliveryDigest(request, renderedSubtitle),
+          ...(expectedPictureClock === undefined ? {} : { picture_clock: expectedPictureClock }),
           ...(sourceQa === undefined ? {} : { source_qa_sha256: sourceQa.sha256 }),
           ...(visualVerification === undefined ? {} : { subtitle_visual_verification: visualVerification }),
           ...(strictSpeech ? { subtitle_display: overlay === undefined ? 'external' as const : 'overlay' as const } : {}),
@@ -515,19 +607,19 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
       '-y', '-v', 'error', '-i', subtitled, '-i', paths.masterAudio,
       ...(bgm === undefined ? [] : ['-stream_loop', '-1', '-i', bgm]),
       ...(endingAssets === undefined ? [] : ['-i', endingAssets.audio]),
-      '-filter_complex', audioMixFilter({
-        bodyEndSeconds,
-        totalSeconds,
-        endingSeconds: policy.endingSeconds,
-        masterVolume: effectiveSettings.masterVolume,
-        bgmVolume: effectiveSettings.bgmVolume,
-        ...(profile === undefined ? {} : { profile, musicStem: Boolean(musicStem), endingInput: bgm === undefined ? 2 : 3 }),
-      }),
+      '-filter_complex', audioMixFilter({ ...mix, deliverySampleClock }),
       '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy',
-      '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', stagedOutput,
-      ...(musicStem ? ['-map', '[musicstem]', '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', stagedStem] : []),
+      '-c:a', 'aac', '-b:a', '192k', '-ar', String(DELIVERY_AUDIO_SAMPLE_RATE),
+      '-movie_timescale', String(DELIVERY_AUDIO_SAMPLE_RATE), '-movflags', '+faststart', stagedOutput,
+      ...(musicStem ? ['-map', '[musicstem]', '-c:a', 'pcm_s16le', '-ar', String(DELIVERY_AUDIO_SAMPLE_RATE), '-ac', '2', stagedStem] : []),
     ])
     const outputSha256 = await fileSha256(stagedOutput)
+    if (expectedPictureClock !== undefined) {
+      await requireRenderedPicturePts(toolkit, stagedOutput, expectedPictureClock)
+      if (await fileSha256(stagedOutput) !== outputSha256) {
+        throw new HarnessError('核对画面时间戳时成片已变化，请重新渲染。', 'RENDER_FRAME_CLOCK')
+      }
+    }
     consumedHashes.push(outputSha256)
     if (resumeRequest !== undefined) {
       const media = await measure(toolkit, stagedOutput)

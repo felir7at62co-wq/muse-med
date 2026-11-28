@@ -2376,7 +2376,7 @@ export interface Config extends ProtocolConfig, ModelListingConfig {
 
 - `inject`: `llm`
 - `refs`: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`) · `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/llm/llm-pi-ai/src/config.ts:253`](../packages/llm/llm-pi-ai/src/config.ts)
+- `source`: [`packages/llm/llm-pi-ai/src/config.ts:255`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ```ts config-catalog
 /** Plugin configuration: the provider routes this instance owns. */
@@ -2403,6 +2403,8 @@ export interface PiAiProviderProfile {
   api?: string
   /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /** Exact direct Google Generative Language model enabled for Host audio review. */
+  geminiAudioModel?: string
   /**
    * This route's model catalog. Omission serves the installed catalog for the
    * route unchanged; an explicit list replaces it, each entry defaulting its
@@ -4935,7 +4937,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-audio-transcribe`
 
 - `inject`: `tools` · `museAccount`
-- `source`: [`packages/drama/tool-audio-transcribe/src/index.ts:17`](../packages/drama/tool-audio-transcribe/src/index.ts)
+- `source`: [`packages/drama/tool-audio-transcribe/src/index.ts:21`](../packages/drama/tool-audio-transcribe/src/index.ts)
 
 ```ts config-catalog
 /** Deployment media executables and bounded local staging. */
@@ -4961,6 +4963,28 @@ export interface Config {
   readonly uploadRetryBudgetMs: number
   /** Largest number of files one batch start accepts. */
   readonly maxBatchInputs: number
+  /** Host-provisioned local assets for advisory Mandarin word timing. */
+  readonly offline?: OfflineSpeechConfig
+  /** Host-provisioned local assets for advisory Mandarin pronunciation checks. */
+  readonly pronunciation?: PronunciationConfig
+}
+
+/** Provisioned assets. The model never supplies executable or package paths. */
+export interface OfflineSpeechConfig {
+  /** Absolute path to the deployment-provisioned Python executable. */
+  readonly pythonPath: string
+  /** Absolute path to the verified directory containing the local speech runtime dependencies. */
+  readonly libraryDir: string
+  /** Lowercase SHA-256 digest of the dependency tree, ordered by relative file path. */
+  readonly librarySha256: string
+  /** Absolute path to the local model directory containing the pinned model files. */
+  readonly modelDir: string
+}
+
+/** Trusted host assets and minimum separation for the pilot comparison. */
+export interface PronunciationConfig extends OfflineSpeechConfig {
+  /** Minimum score separation required for consistent pinyin windows, from 8 to 50. Defaults to 8. */
+  readonly minimumMargin?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-audio-transcribe -->
@@ -5187,7 +5211,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:93`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:98`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -5198,6 +5222,10 @@ export interface Config {
  * ending and watermark treatment are selected by the explicit visual medium.
  */
 export interface Config {
+  /** Expose the audio review tool where deployment explicitly provisions it. */
+  enableContentListeningReview?: boolean
+  /** Expose local dialogue repair when the deployment provisions local pronunciation checks. */
+  enableLocalDialoguePatch?: boolean
   /** Optional deployment fallback for timelines without an ending-effect fit. */
   defaultEndingEffectFit?: EndingEffectFit
   /** Optional deployment fallback for projects without an explicit subtitle style. */
@@ -5433,11 +5461,13 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:101`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:106`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDeliveryConfig {
+  /** Opt in to same-Session original video proof for local dialogue repairs. Defaults to false. */
+  historicalVideoSourceVerification?: boolean
   /** Browser pending-episode polling interval; integer 100..60000ms, default 1000. */
   episodePollIntervalMs?: number
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
@@ -5815,7 +5845,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-shot-script`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-shot-script/src/index.ts:47`](../packages/drama/tool-shot-script/src/index.ts)
+- `source`: [`packages/drama/tool-shot-script/src/index.ts:69`](../packages/drama/tool-shot-script/src/index.ts)
 
 ```ts config-catalog
 /**

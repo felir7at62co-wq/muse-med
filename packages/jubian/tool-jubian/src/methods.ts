@@ -58,7 +58,7 @@ import { readSubtitleEraseQuote } from './subtitle-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
 import type { SelectedVideoOption } from './native.ts'
 import { readVideoSources, resolveVideoSourceOptions } from './video-sources.ts'
-import type { VideoSourceOptions } from './video-sources.ts'
+import type { HistoricalVideoSourceEvidence, VideoSourceOptions } from './video-sources.ts'
 import { createImageReferenceResolver, resolveImageReferenceScanOptions, unknownIdentityReference } from './image-continuity.ts'
 import type { ImageReferenceResolution, ImageReferenceScanOptions } from './image-continuity.ts'
 import type { CharacterReferenceQaGenerationPreparation } from './character-reference-qa-bridge.ts'
@@ -332,6 +332,7 @@ export interface MethodDeps {
   creationWorkspaceDir?: string | undefined
   /** Bounded read-only discovery of existing sources on an original card. */
   videoSources?: VideoSourceOptions
+  recordHistoricalVideoSources?: (rows: readonly HistoricalVideoSourceEvidence[]) => void
   /** Shared project inventory bounds for complete free-storyboard creation readback. */
   projectInventoryLimits?: { pageSize: number; pageLimit: number }
   /** Foreground cancellation for provider reads and reservation. */
@@ -941,7 +942,7 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
     case 'confirm_casting': {
       requireKey(args.idempotency_key)
       const materialId = need(args.material_id)
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'confirm_casting', () => undefined,
+      const result = await writeUnderLedger(client, ledger, args.idempotency_key, 'confirm_casting', () => undefined,
         () => client.request({ method: 'GET', path: `/aigc/material/confirm/${materialId}` }))
       return { ...result }
     }
@@ -964,7 +965,7 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
       // Captured from the workbench: a DELETE with no body, and two query
       // parameters the contract does not mention. `isParent=1` scopes the removal
       // to the parent asset, which is what removing a subject-setting entry is.
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'asset_remove', () => undefined,
+      const result = await writeUnderLedger(client, ledger, args.idempotency_key, 'asset_remove', () => undefined,
         () => client.request({ method: 'DELETE',
           path: `/aigc/asset/removeAsset/${assetId}?scriptId=${scriptId}&isParent=1` }))
       return { ...result,
@@ -992,9 +993,9 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
     case 'upload_reference':
       // Free and task-free, but it does write one object into the provider's
       // bucket: the URL it returns is the only shape `gpt-image-2` accepts.
-      return await uploadReferenceMethod({ image_path: args.image_path }, deps.reference)
+      return await uploadReferenceMethod(client, { image_path: args.image_path }, deps.reference)
     case 'upload_audio':
-      return await uploadAudioReferenceMethod({ audio_path: args.audio_path }, deps.reference)
+      return await uploadAudioReferenceMethod(client, { audio_path: args.audio_path }, deps.reference)
     case 'create_folder':
       return await createFolderMethod(client, ledger, args)
     case 'move':
@@ -1025,7 +1026,7 @@ function videoPageEvidence(data: unknown, total: number, returned: number, num: 
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger, used by every state-changing method here.
  * @param args - Dispatched on `method`.
- * @param deps - Optional seams for the paid image path: the pinned catalogue row and the readback budget.
+ * @param deps - History scan bounds, cancellation, and operation-specific dependencies.
  * @returns The requested video view, keyed by the `method` that asked for it.
  */
 export async function videoMethod(client: JubianClient, ledger: JubianLedger,
@@ -1061,7 +1062,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     }
     case 'sources':
       return { sources: await readVideoSources(client, { script_id: need(args.script_id),
-        storyboard_id: need(args.storyboard_id) }, deps.videoSources ?? resolveVideoSourceOptions(), deps.signal) }
+        storyboard_id: need(args.storyboard_id) }, deps.videoSources ?? resolveVideoSourceOptions(), deps.signal,
+      deps.recordHistoricalVideoSources) }
     case 'tasks': {
       const scriptId = need(args.script_id)
       const { num, size } = pageSelection(args)
@@ -1069,13 +1071,56 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       if (taskType !== undefined && (!Number.isSafeInteger(taskType) || taskType < 1)) {
         throw new JubianError('INVALID_ARGUMENT', 'task_type must be a positive integer when filtering tasks')
       }
-      const result = await client.request({
-        method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}`
-          + (taskType === undefined ? '' : `&taskType=${taskType}`) + `&pageNum=${num}&pageSize=${size}`,
-        ...(deps.signal === undefined ? {} : { signal: deps.signal }) })
-      const tasks = readTaskList(result.data)
-      const evidence = videoPageEvidence(result.data, tasks.total, tasks.rows.length, num, size)
+      const readPage = async (page: number) => {
+        const result = await client.request({
+          method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}`
+            + (taskType === undefined ? '' : `&taskType=${taskType}`) + `&pageNum=${page}&pageSize=${size}`,
+          ...(deps.signal === undefined ? {} : { signal: deps.signal }) })
+        const tasks = readTaskList(result.data)
+        return { tasks, evidence: videoPageEvidence(result.data, tasks.total, tasks.rows.length, page, size) }
+      }
       const scope = { script_id: scriptId, task_type: taskType ?? null }
+      const parentResultId = args.parent_result_id
+      if (parentResultId !== undefined) {
+        if (!Number.isSafeInteger(parentResultId) || parentResultId < 1 || num !== 1
+          || (taskType !== 10 && taskType !== 20)) {
+          throw new JubianError('INVALID_ARGUMENT', 'parent_result_id requires a positive original result ID, task_type 10 or 20, and page 1')
+        }
+        const { pageLimit, resultLimit } = deps.videoSources ?? resolveVideoSourceOptions()
+        const rows: ReturnType<typeof readTaskList>['rows'] = []
+        const seen = new Set<number>()
+        let remoteTotal: number | undefined
+        let complete = false
+        let parentIdsKnown = true
+        let pagesRead = 0
+        for (let page = 1; page <= pageLimit; page++) {
+          deps.signal?.throwIfAborted()
+          const { tasks, evidence } = await readPage(page)
+          pagesRead++
+          const ids = tasks.rows.map(row => row.task_id)
+          if (ids.length > size || new Set(ids).size !== ids.length || ids.some(id => seen.has(id))
+            || tasks.rows.some(row => row.script_id !== scriptId || row.task_type !== taskType)
+            || (remoteTotal !== undefined && remoteTotal !== tasks.total)) break
+          for (const id of ids) seen.add(id)
+          const matches = tasks.rows.filter(row => row.parent_result_id === parentResultId)
+          const remaining = resultLimit - rows.length
+          rows.push(...matches.slice(0, remaining))
+          if (matches.length > remaining || !evidence.total_verified) break
+          parentIdsKnown &&= tasks.rows.every(row => row.parent_result_id !== null)
+          remoteTotal = tasks.total
+          if (seen.size === remoteTotal) { complete = parentIdsKnown; break }
+          if (seen.size > remoteTotal || ids.length === 0) break
+        }
+        return {
+          tasks: { scope: { ...scope, parent_result_id: parentResultId }, rows, total: rows.length,
+            returned: rows.length, queried_at: new Date().toISOString(), page_num: 1, page_size: size,
+            pages_read: pagesRead, total_verified: complete, complete, has_more: complete ? false : null,
+            next_page: null, project_complete: false },
+          guidance: '只列出与该原视频结果精确匹配的历史处理任务。用 task 和 subtasks 回读所属集、原结果、任务状态与输出。'
+            + 'complete=false 时，尚不能确定有无其他匹配任务。查询不发单。',
+        }
+      }
+      const { tasks, evidence } = await readPage(num)
       return { tasks: { ...tasks, ...evidence, scope, project_complete: taskType === undefined && evidence.complete },
         guidance: 'tasks.rows 仅是本页；scope.task_type=null 表示没有按任务类型筛选。'
           + 'total_verified 和 complete 仅说明 scope 范围内的提供方列表；按类型筛选时 project_complete 恒为 false，'
@@ -1272,7 +1317,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       let selectors: ImageModelSelectors | undefined
       let result: Awaited<ReturnType<typeof writeUnderLedger>>
       try {
-        result = await writeUnderLedger(ledger, args.idempotency_key, 'image_generate',
+        result = await writeUnderLedger(client, ledger, args.idempotency_key, 'image_generate',
           async () => {
             const style = imageStyle ??= await readProjectImageStyle(client, scriptId, deps.signal)
             const rows = deps.imageCatalogue !== undefined ? deps.imageCatalogue : (await client.request({
@@ -1393,7 +1438,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
           && (args.model_id === undefined || args.model_id === MEDIAKIT_UPSCALE_MODEL.modelId)
           && (args.platform_id === undefined || args.platform_id === MEDIAKIT_UPSCALE_MODEL.platformId)
           ? deps.postprocess : undefined
-        const route = await routeMediaPostprocess(ledger, key, 'upscale', taskId, gateway, async () => {
+        const route = await routeMediaPostprocess(client, ledger, key, 'upscale', taskId, gateway, async () => {
           const { media } = await readSource()
           return { operation: 'upscale', scriptId: media.scriptId, taskId, videoUrl: media.videoUrl,
             resolution: resolution === '720p' ? '720p' : '1080p' }
@@ -1401,7 +1446,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
         if (route.route === 'mediakit') return route.result
         let projectId: number | undefined
         let quote: ReturnType<typeof readUpscaleQuote> & { standardId: number; observedAt: string } | undefined
-        const result = await writeUnderLedger(ledger, route.route === 'backup' ? route.ledgerKey : key, 'video_upscale',
+        const result = await writeUnderLedger(client, ledger, route.route === 'backup' ? route.ledgerKey : key, 'video_upscale',
           async () => {
           // The upscale body needs identities the provider splits across two
           // reads: the parent task carries the episode, the child result carries
@@ -1440,7 +1485,7 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     case 'retry': {
       requireKey(args.idempotency_key)
       const taskId = need(args.task_id)
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'video_task_retry',
+      const result = await writeUnderLedger(client, ledger, args.idempotency_key, 'video_task_retry',
         async () => {
           // The retry service can change a child result's state before it answers
           // (`NoClassDefFoundError` after a successful re-submit), so the gate is
@@ -1595,7 +1640,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         const identity = { index, idempotency_key: item.key, script_id: scriptId,
           episode_id: Number(item.body.episodeId), storyboard_name: item.body.storyboardName, sort_order: item.body.sortOrder }
         try {
-          const result = await writeUnderLedger(ledger, item.key, 'storyboard_create', () => item.body,
+          const result = await writeUnderLedger(client, ledger, item.key, 'storyboard_create', () => item.body,
             body => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(body) }),
             undefined, { scriptId, verifyReplayBody: true })
           const id = result.data
@@ -1660,13 +1705,13 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         }
         if (projectDir !== undefined) await validateProjectBinding(projectDir, scriptId)
       }
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_create', () => ({ ...request, isGenerate: 0 }),
+      const result = await writeUnderLedger(client, ledger, args.idempotency_key, 'storyboard_create', () => ({ ...request, isGenerate: 0 }),
         sent => client.request({ method: 'POST', path: '/aigc/storyboard', body: need(sent) }))
       return { ...result }
     }
     case 'save': {
       requireKey(args.idempotency_key)
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'storyboard_save',
+      const result = await writeUnderLedger(client, ledger, args.idempotency_key, 'storyboard_save',
         () => undefined,
         async () => {
           const current = await client.request({ method: 'GET', path: `/aigc/storyboard/${storyboardId()}` })
@@ -1741,7 +1786,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
       return await withMediaPostprocessLock(ledger, key, async () => {
         let source: ReturnType<typeof taskMediaRequest> | undefined
         const readSource = () => source ??= taskMediaRequest(client, taskId, args.script_id, 'original')
-        const route = await routeMediaPostprocess(ledger, key, 'erase_subtitle', taskId, gateway, async () => {
+        const route = await routeMediaPostprocess(client, ledger, key, 'erase_subtitle', taskId, gateway, async () => {
           const { media } = await readSource()
           return { operation: 'erase_subtitle', scriptId: media.scriptId, taskId, videoUrl: media.videoUrl }
         }, deps.signal, deps.readJubianCredential)
@@ -1752,7 +1797,7 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         let projectId: number | undefined
         let estimate: ReturnType<typeof estimatedCostReservation>
         let catalogueQuote: ReturnType<typeof readSubtitleEraseQuote> | undefined
-        const result = await writeUnderLedger(ledger, route.route === 'backup' ? route.ledgerKey : key, 'erase_subtitle',
+        const result = await writeUnderLedger(client, ledger, route.route === 'backup' ? route.ledgerKey : key, 'erase_subtitle',
           async () => {
           // Identities come from the provider, split across two reads. The
           // rectangle is derived from the source frame rather than drawn by the

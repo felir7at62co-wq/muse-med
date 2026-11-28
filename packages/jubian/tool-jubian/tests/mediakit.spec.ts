@@ -1,5 +1,6 @@
 /** Original-key recovery and fail-closed reads for the MediaKit pilot. */
 import { createHash } from 'node:crypto'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -35,7 +36,7 @@ function gatewayFixture() {
 
 function route(ledger: JubianLedger, gateway: MediaPostprocessClient, source: MuseMediaPostprocessInput = input,
   signal?: AbortSignal, readJubianCredential?: () => Promise<string | undefined>) {
-  return withMediaPostprocessLock(ledger, key, () => routeMediaPostprocess(
+  return withMediaPostprocessLock(ledger, key, () => routeMediaPostprocess(fixtureHistoryClient(),
     ledger, key, source.operation, source.taskId, gateway, async () => source, signal, readJubianCredential,
   ), signal)
 }

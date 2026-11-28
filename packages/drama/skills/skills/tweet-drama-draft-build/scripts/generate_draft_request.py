@@ -3,10 +3,13 @@ import contextlib
 import hashlib
 import importlib.metadata
 import json
+import os
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
+import wave
 
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
@@ -16,6 +19,8 @@ from draft_inputs import verify_draft_episode_scope
 
 EPISODE_DRAFTS = '02_剪映草稿'
 EPISODE_MATERIALS = Path('制作资料') / '剪映素材'
+RENDERED_MIX_FILE = Path('07_rendered_mix/rendered_mix.wav')
+RENDERED_MIX_DIGESTS = ('sha256', 'source_mp4_sha256', 'pcm_sha256')
 
 
 def file_sha256(path):
@@ -23,13 +28,55 @@ def file_sha256(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def verify_independent_tracks(saved, tracks, groups, materials, master_path, videos, subtitle):
+def verify_rendered_mix_wav(path, plan):
+    if file_sha256(path) != plan['sha256']:
+        raise ValueError('成片混音 WAV 与 Host 回执不一致。')
+    pcm = hashlib.sha256()
+    frame_bytes = 0
+    try:
+        with wave.open(str(path), 'rb') as stream:
+            if (stream.getnchannels(), stream.getsampwidth(), stream.getframerate(), stream.getnframes()) != (
+                    2, 2, 48000, plan['sample_count']):
+                raise ValueError('成片混音 WAV 的声道、采样格式或帧数与 Host 回执不一致。')
+            while chunk := stream.readframes(65536):
+                frame_bytes += len(chunk)
+                pcm.update(chunk)
+    except (EOFError, wave.Error) as error:
+        raise ValueError('成片混音须使用有效的 48 kHz 双声道 PCM WAV。') from error
+    if frame_bytes != plan['sample_count'] * 4 or pcm.hexdigest() != plan['pcm_sha256']:
+        raise ValueError('成片混音 WAV 的实际 PCM 样本与 Host 回执不一致。')
+
+
+def read_prepared_rendered_mix(input_paths):
+    """Use only the Host-issued mix, with the WAV and decoded samples verified."""
+    raw = os.environ.get('MUSE_PREPARED_DRAFT_MIX')
+    if raw is None:
+        return None
+    plan = json.loads(raw)
+    fields = {'schema_version', 'path', 'sample_count', 'duration_us', 'sample_rate', 'channels', *RENDERED_MIX_DIGESTS}
+    if (not isinstance(plan, dict) or set(plan) != fields or not isinstance(plan['path'], str)
+            or any(type(plan[key]) is not int or plan[key] < 1
+                   for key in ('schema_version', 'sample_count', 'duration_us', 'sample_rate', 'channels'))
+            or (plan['schema_version'], plan['sample_rate'], plan['channels']) != (1, 48000, 2)
+            or plan['duration_us'] != (plan['sample_count'] * 125 + 3) // 6
+            or any(not isinstance(plan[key], str) or not re.fullmatch('[0-9a-f]{64}', plan[key])
+                   for key in RENDERED_MIX_DIGESTS)):
+        raise ValueError('成片混音的 Host 回执无效。')
+    path = Path(plan['path'])
+    if (not path.is_absolute() or path.is_symlink() or not path.is_file()
+            or any(path.samefile(source) for source in input_paths)):
+        raise ValueError('成片混音必须与剧集原始素材分开，使用有效的本地 WAV。')
+    verify_rendered_mix_wav(path, plan)
+    return plan
+
+
+def verify_independent_tracks(saved, tracks, groups, materials, master_path, videos, subtitle, mix_path=None):
     """Require the saved master, muted ordered body videos, and selected caption timing."""
     primary = [row for row in saved['audio'] if row[0] == '主音频轨道']
     if len(primary) != 1 or primary[0][3] != master_path:
         raise ValueError('主音频轨道必须仅使用本集保留的整集原声。')
     master_hash = materials[master_path]
-    if sum(materials[path] == master_hash for _, _, _, path in saved['audio']) != 1:
+    if sum(materials[path] == master_hash for _, _, _, path in saved['audio'] if path != mix_path) != 1:
         raise ValueError('本集整集原声在多个片段中使用，可能叠播。')
     _, segment, material, _ = primary[0]
     duration = material.get('duration')
@@ -59,7 +106,8 @@ def verify_independent_tracks(saved, tracks, groups, materials, master_path, vid
 
 
 def write_episode_source_receipt(draft, stage, episode, retained, timeline, subtitle, videos,
-                                 master_audio=None, native_sources=None, path_decoder=Path):
+                                 master_audio=None, native_sources=None, path_decoder=Path, rendered_mix=None,
+                                 rendered_picture_clock=None):
     """Bind saved draft files and their relinkable local media to the retained episode inputs."""
     draft, stage = draft.resolve(strict=True), stage.resolve(strict=True)
 
@@ -123,9 +171,17 @@ def write_episode_source_receipt(draft, stage, episode, retained, timeline, subt
     master = retained_hash(master_audio) if master_audio is not None else None
     if any(row['sha256'] not in references for row in video_rows) or (master is not None and master not in references):
         raise ValueError('Saved draft media do not reference all selected body videos and master audio')
+    mix_path = None
+    if rendered_mix is not None:
+        from jianying_draft import verify_rendered_mix_track
+        mix_path = local_file(Path(rendered_mix['path']), (stage,))
+        if mix_path != stage / RENDERED_MIX_FILE or materials.get(mix_path) != rendered_mix['sha256']:
+            raise ValueError('成片混音须引用本集留存的 WAV。')
+        verify_rendered_mix_wav(mix_path, rendered_mix)
+        verify_rendered_mix_track(content, rendered_mix)
     if master_audio is not None:
         verify_independent_tracks(saved, tracks, groups, materials, local_file(master_audio, (stage,)),
-                                  [local_file(path, (stage,)) for _, path in sorted(videos.items())], subtitle)
+                                  [local_file(path, (stage,)) for _, path in sorted(videos.items())], subtitle, mix_path)
     font_proof = None
     review_path = draft / 'muse-review.json'
     if review_path.is_file():
@@ -160,6 +216,8 @@ def write_episode_source_receipt(draft, stage, episode, retained, timeline, subt
         'materials': [{'path': str(path), 'sha256': digest} for path, digest in sorted(materials.items())],
         **({'subtitle_font': font_proof} if font_proof is not None else {}),
         **({'master_audio_sha256': master, 'track_verification': 'independent-v1'} if master is not None else {}),
+        **({'rendered_mix': {**rendered_mix, 'path': str(mix_path)}} if rendered_mix is not None else {}),
+        **({'picture_clock': rendered_picture_clock} if rendered_picture_clock is not None else {}),
     }
     if master is not None and draft.parent.name == EPISODE_DRAFTS and stage.parent == draft.parent.parent / EPISODE_MATERIALS:
         receipt['material_scope'] = 'episode'
@@ -179,7 +237,8 @@ def write_episode_source_receipt(draft, stage, episode, retained, timeline, subt
 
 
 def attach_episode_source_receipt(candidate, draft, drafts_root, stage, episode, retained, timeline, subtitle, videos,
-                                  master_audio=None, native_sources=None, path_decoder=Path):
+                                  master_audio=None, native_sources=None, path_decoder=Path, rendered_mix=None,
+                                  rendered_picture_clock=None):
     """A legacy draft remains usable when its separate episode-delivery proof is unavailable."""
     try:
         candidate_path = Path(candidate['path'])
@@ -187,7 +246,8 @@ def attach_episode_source_receipt(candidate, draft, drafts_root, stage, episode,
                 or candidate_path.parent.resolve(strict=True) != drafts_root.resolve(strict=True)):
             raise ValueError('Saved draft path does not match the requested candidate directory')
         candidate['episode_source_path'] = write_episode_source_receipt(
-            draft, stage, episode, retained, timeline, subtitle, videos, master_audio, native_sources, path_decoder)
+            draft, stage, episode, retained, timeline, subtitle, videos, master_audio, native_sources, path_decoder,
+            rendered_mix, rendered_picture_clock)
         return None
     except (OSError, ValueError, TypeError, KeyError) as error:
         warning = f'草稿已保存，但无法核对本集的交付凭据，暂不能归入交付目录：{error}'
@@ -355,6 +415,11 @@ def generate_request(request, drafts_dir):
     for path in [*paths.values(), *video_paths]:
         if not path.is_absolute() or not path.is_file():
             raise ValueError(f'Input must be an existing absolute file: {path}')
+    rendered_mix = read_prepared_rendered_mix([*paths.values(), *video_paths])
+    clock_json = os.environ.get('MUSE_PREPARED_DRAFT_PICTURE_CLOCK')
+    rendered_picture_clock = json.loads(clock_json) if clock_json is not None else None
+    if clock_json is not None and (rendered_mix is None or not isinstance(rendered_picture_clock, dict)):
+        raise ValueError('同版画面时钟须由 Host 提供并绑定到同一份成片混音。')
     timeline = json.loads(paths['timeline'].read_text(encoding='utf-8-sig'))
     clips = timeline.get('clips') if isinstance(timeline, dict) else None
     if not isinstance(clips, list):
@@ -394,6 +459,8 @@ def generate_request(request, drafts_dir):
         parent = actual_root.parent / EPISODE_MATERIALS
         if parent.resolve() != parent:
             raise ValueError('本集剪映素材留存目录不得指向其他目录。')
+    elif rendered_mix is not None:
+        raise ValueError('绑定成片混音的草稿须保存到当前剧集的 02_剪映草稿。')
     parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f'ep{seq}-', dir=parent))
     retained = []
@@ -425,8 +492,14 @@ def generate_request(request, drafts_dir):
                             ('ending_effect', '06_ending/ending_effect.mp4')]:
         if field in paths:
             retain(paths[field], relative + paths[field].suffix if field == 'bgm' else relative)
+    if rendered_mix is not None:
+        retained_mix = retain(Path(rendered_mix['path']), RENDERED_MIX_FILE)
+        verify_rendered_mix_wav(retained_mix, rendered_mix)
+        rendered_mix = {**rendered_mix, 'path': str(retained_mix)}
     result = generate_draft(str(root), str(stage), name_prefix=prefix, seq=seq, project=str(project),
                             bgm_role=request.get('bgm_role'),
+                            **({'rendered_mix': rendered_mix} if rendered_mix is not None else {}),
+                            **({'rendered_picture_clock': rendered_picture_clock} if rendered_picture_clock is not None else {}),
                             **({'allow_empty_subtitle_seq': seq} if empty_overlay else {}))
     if overlay is not None:
         summary = {key: value for key, value in overlay.items() if key not in ('source_path', 'report')}
@@ -446,9 +519,14 @@ def generate_request(request, drafts_dir):
     for candidate in result.get('drafts', []):
         if candidate.get('success'):
             warning = attach_episode_source_receipt(candidate, root / f'{prefix}{seq}', root, stage, episode, retained,
-                                                     staged_timeline, staged_subtitle, staged_videos, staged_audio)
+                                                      staged_timeline, staged_subtitle, staged_videos, staged_audio,
+                                                      rendered_mix=rendered_mix,
+                                                      rendered_picture_clock=rendered_picture_clock)
             if warning is not None:
                 result['warnings'] = list(dict.fromkeys([*result.get('warnings', []), warning]))
+                if rendered_mix is not None:
+                    result.update(success=False, quality='needs_repair', error=warning, drafts_created=0)
+                    candidate.update(success=False, quality='needs_repair', error=warning)
     return {**result, 'materials_dir': str(stage),
             'library': {'name': 'pyJianYingDraft', 'version': importlib.metadata.version('pyJianYingDraft')},
             'editor_open_verified': False}

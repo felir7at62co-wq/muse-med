@@ -4419,7 +4419,7 @@ SHA-256: `39cf2d3ff8bac81c62d49ac2ba38a095b18e80f3ad700819fa1f650a4e60197f`
 
 SHA-256: `c592ce75aab73fcab19c1d7845684c72cf402b78d2e1f2833a58ecf9f3598ed6`
 
-来源：[`packages/util/values/src/index.ts:4`](../packages/util/values/src/index.ts)
+来源：[`packages/util/values/src/index.ts:6`](../packages/util/values/src/index.ts)
 
 以下类型之一：
 
@@ -11072,7 +11072,7 @@ SHA-256: `0aa62ab51b36c0e64b134bd03ba8725d758744180a1a447da49beaad194f219f`
 
 SHA-256: `529e0ccd0e34079ab4ff21ed87f810cee0388246263bf22e8aba5986b56fae05`
 
-来源：[`packages/util/values/src/index.ts:4`](../packages/util/values/src/index.ts)
+来源：[`packages/util/values/src/index.ts:6`](../packages/util/values/src/index.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

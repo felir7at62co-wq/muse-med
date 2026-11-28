@@ -160,6 +160,14 @@ hasActiveWork(): boolean
 
 Source: [`packages/jubian/tool-jubian/src/episode-delivery-service.ts`](../../packages/jubian/tool-jubian/src/episode-delivery-service.ts)
 
+<a id="ctxjubianhistoricalvideosource--historicalvideosourceverifier"></a>
+
+### `ctx.jubianHistoricalVideoSource` — `HistoricalVideoSourceVerifier`
+
+Read native history and a fresh download proved by the same ordinary Session.
+
+Source: [`packages/jubian/tool-jubian/src/prior-video-source.ts`](../../packages/jubian/tool-jubian/src/prior-video-source.ts)
+
 <a id="ctxjubianimage--jubianimageroutes"></a>
 
 ### `ctx.jubianImage` — `JubianImageRoutes`
@@ -462,6 +470,14 @@ Host service backing the generated `ctx.remote.settings` namespace. Every remote
 ```
 
 Source: [`packages/api/settings-controller/src/index.ts`](../../packages/api/settings-controller/src/index.ts)
+
+<a id="ctxshotscriptvoice--shotscriptvoiceparser"></a>
+
+### `ctx.shotScriptVoice` — `ShotScriptVoiceParser`
+
+Parse authored dialogue from the exact script bytes supplied by the Host caller.
+
+Source: [`packages/drama/tool-shot-script/src/index.ts`](../../packages/drama/tool-shot-script/src/index.ts)
 
 <a id="settings-events"></a>
 

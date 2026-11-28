@@ -150,6 +150,9 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
     const sessions = new Map<string, EpisodeSourceQaAuthority['binding']>()
     const review = await captureEpisodeSourceReview(input.projectDir, String(input.episode).padStart(2, '0'), input.timelinePath,
       resolveSettings(config), async (binding) => {
+        if (binding.localDialoguePatch !== undefined) {
+          throw new Error('SOURCE_DIALOGUE_PATCH_BACKGROUND_UNAVAILABLE: 局部修音的审核和正式渲染需要同一 Muse 制作会话。请在执行修音并复测的会话运行 drama_render render。')
+        }
         const factory = this.options.sourceAuthority
         if (factory === undefined) throw new Error('Strict source review requires the original native Session authority')
         const existing = held?.get(binding.sessionId)
@@ -610,11 +613,20 @@ export const Config = z.strictObject({
 })
 
 const jsExpressionTag = { tag: 'tag:yaml.org,2002:js', resolve: (value: string) => ({ __jsExpr: value }) }
+const presetEntryList = z.array(z.looseObject({ id: z.string().optional(), name: z.string(),
+  group: z.boolean().optional(), config: z.unknown().optional() }))
+
+function findEpisodeRenderers(entries: unknown): z.infer<typeof presetEntryList> {
+  return presetEntryList.parse(entries).flatMap((row) => {
+    if (row.group === true) return findEpisodeRenderers(row.config)
+    return row.id === 'tool-episode-render' && row.name === '@deepseek-ai/dsh-tool-episode-render' ? [row] : []
+  })
+}
+
 async function selectedRendererConfig(ctx: Context, preset: string): Promise<{ document: string; config: RendererConfig }> {
   const document = await ctx.agentPresets.readDocument(preset)
   const parsed: unknown = parseYaml(document.content, { customTags: [jsExpressionTag] })
-  const rows = z.array(z.looseObject({ id: z.string().optional(), name: z.string(), config: z.unknown().optional() })).parse(parsed)
-  const renderer = rows.filter(row => row.id === 'tool-episode-render' && row.name === '@deepseek-ai/dsh-tool-episode-render')
+  const renderer = findEpisodeRenderers(parsed)
   if (renderer.length !== 1) throw new Error('The selected Desktop preset must declare exactly one episode renderer')
   const evaluated: unknown = interpolate(ctx, renderer[0]?.config)
   return { document: document.content, config: parseEpisodeRendererConfig(evaluated) }

@@ -1201,6 +1201,65 @@ describe('jubian_video', () => {
     expect(task.calls[0]?.path).toContain('pageNum=1')
   })
 
+  it('finds the exact original video result on a later upscale task page', async () => {
+    const task = { id: 43, scriptId: 2708, episodeId: 201, taskType: 20, taskStatus: 'succeeded', parentResultId: 71 }
+    const { client, calls } = stubClient(({ path }) => ({ total: 2, rows: new URL(path).searchParams.get('pageNum') === '1'
+      ? [{ ...task, id: 42, parentResultId: 70 }]
+      : [task] }))
+    const result = await videoMethod(client, ledger, { method: 'tasks', script_id: 2708, task_type: 20,
+      parent_result_id: 71, page_size: 1 })
+    expect(result).toMatchObject({ tasks: { scope: { script_id: 2708, task_type: 20, parent_result_id: 71 },
+      pages_read: 2, total: 1, returned: 1, complete: true, total_verified: true, project_complete: false,
+      rows: [{ task_id: 43, episode_id: 201, parent_result_id: 71 }] } })
+    expect(calls).toEqual([1, 2].map(page => ({ method: 'GET',
+      path: `https://web.jubianai.net/prod-api/admin/aigc/video/task/list?scriptId=2708&taskType=20&pageNum=${page}&pageSize=1` })))
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([
+    { problem: 'a repeated task', total: 2, id: 42, parent: 71, script: 2708 },
+    { problem: 'a changed total', total: 3, id: 43, parent: 71, script: 2708 },
+    { problem: 'missing parent identity', total: 2, id: 43, parent: null, script: 2708 },
+    { problem: 'another project', total: 2, id: 43, parent: 71, script: 2709 },
+  ])('keeps the exact parent search incomplete with $problem', async ({ total, id, parent, script }) => {
+    const row = { id: 42, scriptId: 2708, episodeId: 201, taskType: 20, parentResultId: 70 }
+    const { client, calls } = stubClient(({ path }) => new URL(path).searchParams.get('pageNum') === '1'
+      ? { total: 2, rows: [row] }
+      : { total, rows: [{ ...row, id, scriptId: script, parentResultId: parent }] })
+    const result = await videoMethod(client, ledger, { method: 'tasks', script_id: 2708, task_type: 20,
+      parent_result_id: 71, page_size: 1 })
+    expect(result).toMatchObject({ tasks: { pages_read: 2, rows: [], total: 0, complete: false,
+      total_verified: false, project_complete: false } })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'GET'])
+  })
+
+  it('requires the first page and a processing type for an exact parent lookup', async () => {
+    const { client, calls } = stubClient(() => ({ total: 0, rows: [] }))
+    const args = { method: 'tasks', script_id: 2708, parent_result_id: 71 }
+    await expect(videoMethod(client, ledger, { ...args, task_type: 1 })).rejects.toThrow('task_type 10 or 20')
+    await expect(videoMethod(client, ledger, { ...args, task_type: 20, page_num: 2 })).rejects.toThrow('page 1')
+    expect(calls).toEqual([])
+  })
+
+  it.each([
+    { reason: 'an unreported total', reported: undefined, secondPage: false },
+    { reason: 'an early empty page', reported: 3, secondPage: true },
+    { reason: 'the configured result cap', reported: 3, secondPage: true, nextMatch: true },
+  ])('retains proven matches and stops an exact parent scan at $reason', async ({ reported, secondPage, nextMatch }) => {
+    const first = { id: 42, scriptId: 2708, episodeId: 201, taskType: 20, parentResultId: 71 }
+    const { client, calls } = stubClient(({ path }) => {
+      const page = new URL(path).searchParams.get('pageNum')
+      return { total: reported, rows: page === '1' ? [first] : nextMatch ? [{ ...first, id: 43 }] : [] }
+    })
+    const result = await videoMethod(client, ledger, { method: 'tasks', script_id: 2708, task_type: 20,
+      parent_result_id: 71, page_size: 1 }, { videoSources: { pageLimit: 5, resultLimit: 1,
+      pageSize: 1, taskLimit: 1, maxResultChars: 2048 } })
+    expect(result).toMatchObject({ tasks: { rows: [{ task_id: 42, parent_result_id: 71 }], returned: 1, total: 1,
+      total_verified: false, complete: false, project_complete: false, pages_read: secondPage ? 2 : 1 } })
+    expect(calls.map(call => call.method)).toEqual(secondPage ? ['GET', 'GET'] : ['GET'])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('rejects a missing episode identity and unknown retry statuses before a remote write', async () => {
     const { client, calls } = stubClient(request => request.path.includes('sub/list')
       ? { rows: [{ id: 99, duration: 8, resultList: [{ tosVideoUrl: 'https://media.example/source.mp4' }] }] }

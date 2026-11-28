@@ -62,7 +62,7 @@ description: Use when 剧变生成视频需要转高清（默认 MediaKit），�
 
 选用去字幕后的画面并保留原片声音时，审核记录同时保存所选画面的 `video_path`、`video_sha256` 和独立原声的 `audio_path`、`audio_sha256`，再在 `prepare` 的分包来源中显式填入两条路径。剪映草稿应使用 `prepare` 生成的同一份独立主音轨。无审核记录可先做工作预览，另用原声但缺来源审核时停止归档。技术复验仍需配合内容听看。
 
-启用 `delivery.require_source_review` 的新整剧，在正式归档前逐包保留实际选片的 `review_frames`，并在 `content_review` 记录人物身份、服装、场景、道具、动作和对白、可见损伤、镜头衔接、角色声线和说话人、音画同步、敏感画面。分别对应 `identity`、`wardrobe`、`scene`、`prop`、`action_and_dialogue`、`visible_artifacts`、`continuity`、`voice_and_speaker`、`av_sync`、`sensitive_content`，已逐项通过才写 `pass`。原片烧录对白已确认无残留才写 `embedded_subtitles: "absent"`。跨包衔接、人物口型和敏感动作区间看连续画面与原声，仅抽一帧或任务成功不够。发现可定位的缺陷只修受影响片段，回看切点和字幕后再归档。
+启用 `delivery.require_source_review` 的新整剧，在正式归档前逐包保留实际选片的 `review_frames`，并在 `content_review` 记录人物身份、服装、场景、道具、动作和对白、可见损伤、镜头衔接、角色声线和说话人、音画同步、敏感画面。分别对应 `identity`、`wardrobe`、`scene`、`prop`、`action_and_dialogue`、`visible_artifacts`、`continuity`、`voice_and_speaker`、`av_sync`、`sensitive_content`，已逐项通过才写 `pass`。原片烧录对白已确认无残留才写 `embedded_subtitles: "absent"`。跨包衔接、人物口型和敏感动作区间看连续画面与原声，仅抽一帧或任务成功不够。局部被挡住或颜色接近时，按[审片证据与返工](../tweet-drama-core/references/production-quality.md#审片证据与返工)补看后再判断。发现可定位的缺陷只修受影响片段，回看切点和字幕后再归档。
 
 严格制作的 `source_qa` 绑定实际选片及原片哈希、完整OCR文件与摘要、同会话完整审看报告的路径、摘要和身份。按 `drama_render` 当前说明填写来源审核，不能用自写JSON、假抽帧或一句“已检查”代替工具执行。先 `video_inspect scan`，再按 `next` 实际查看图片并 `observe`；OCR文字时段或去字幕处理区间缺图时，用 `scan.timestamps_seconds` 免费补采，再完成新增帧的查看和观察。合法场景字逐OCR时段登记判定、理由与已观察帧；处理片同时保留原片及各处理区间的前后观察，检查残字、人物和纹理。缺证据时自动补齐这些免费步骤后重试，费用和范围仍沿用既有授权；无需再次询问用户是否继续。工具不可用则记录具体缺口并推进独立工作，不伪造通过。换片、换包或证据变化后重新核验，旧回执不能沿用。
 
@@ -142,4 +142,8 @@ FFmpeg 的许可取决于安装构建的组件；音乐和字体各自需要使�
 
 ## 交付两份
 
-每集默认留两份交付物：`exports/<episode>.mp4` 直出成片，以及剪映专业版草稿目录。剪映草稿目录由用户明确指定，或从已配置的 `DSH_JIANYING_DRAFTS_DIR` 读取，同时在项目内保留归档副本。渲染前用 ffprobe 逐段核对真实时长，成片与草稿使用同一套镜头顺序和字幕时间。
+每集默认准备两份交付物：`exports/<episode>.mp4` 工作成片和本集项目内 `02_剪映草稿` 下的可编辑草稿。两份一起归档时，首次调用 `jianying_draft` 就使用 `audio_mode: "independent"`，将本次 `prepare` 的 `render_preview.audio.master_path` 作为 `audio`，将本集 `02_剪映草稿` 的绝对路径作为 `drafts_dir`。渲染前用 ffprobe 逐段核对真实时长，成片和草稿复用同一份选片、时间线、实际字幕、配乐及适用的片尾。仅制作草稿时才用 `drama_draft_dir` 获取编辑器根目录。
+
+正式工作成片用 `drama_render render resume=true`，沿用本集工作输出路径并以实际返回的 `output` 为准，保留与该文件对应的 `.source-record.json`。用 `drama_render verify` 复验同一成片，再向 `drama_render stage_delivery` 传入实际成片、时间线、字幕和同版草稿。归档后从交付位置重开草稿并播放。Shell 或 Python 渲染的预览可保留为待验工作候选。正式归档采用带原生渲染回执的成片，原生流程遇到缺项就按返回结果补齐后续跑。
+
+当前会话提供 `drama_review_audio` 时，同版成片校验后先调用 `preflight`，有同版完整显示字幕时一并传入 `subtitle_srt`。按返回时段复查掉声、错位和末字幕后仍有信号的位置，并在修复后复测。台词、发音、说话人和正式交付仍须用各自的实测证据核对。若专用听校中断，先用 `review_status` 按原尝试回读已有结果及用量，确认费用后再考虑下一次请求。
