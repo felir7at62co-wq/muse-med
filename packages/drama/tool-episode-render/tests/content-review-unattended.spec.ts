@@ -95,22 +95,32 @@ describe('unattended content review', () => {
     await f.save()
     const receipt = await verifyEpisodeContentReview({ ...f.input, unattended: true })
     expect(receipt.pending).toHaveLength(UNATTENDED_PICTURE_PENDING_LIMIT + 1)
-    issues.push('第9镜手套消失')
+    issues.push({ item: 'prop_continuity', detail: '第9镜手套消失' })
     await f.save()
     await expect(verifyEpisodeContentReview({ ...f.input, unattended: true })).rejects.toThrow('超过上限')
   })
 
-  it('does not count sound findings toward the picture limit', async () => {
+  it('keeps sound issues pending without counting them toward the picture limit', async () => {
     const f = await fixture()
     unlistened(f)
     f.saved.entry.audio = 'unverified'
     const issues = f.saved.entry.issues as unknown[]
-    for (let index = 1; index <= UNATTENDED_PICTURE_PENDING_LIMIT; index++) issues.push(`第${index}镜构图偏移`)
+    const audioIssues = [
+      { item: 'bgm_volume', detail: '对白被音乐盖住' },
+      { item: 'bgm_fit', detail: '音乐与剧情情绪不符' },
+      { item: 'bgm_adjacent_repeat', detail: '与上一集重复使用同一首曲目' },
+      { item: 'bgm_volume', detail: '片尾音乐音量过低' },
+    ]
+    issues.push(...audioIssues)
     await f.save()
+    await expect(verifyEpisodeContentReview(f.input)).rejects.toThrow('成片审查仍有issues或unverified')
     const receipt = await verifyEpisodeContentReview({ ...f.input, unattended: true })
-    expect(receipt.pending?.some(item => item.includes('声音'))).toBe(true)
+    expect(receipt.pending).toEqual([
+      LISTENING_PENDING,
+      expect.stringContaining('声音审查为unverified'),
+      ...audioIssues.map(issue => `成片审查问题：${JSON.stringify(issue)}`),
+    ])
   })
-
 
   it.each(['absent audio evidence', 'empty machine ranges'] as const)('leaves listening pending with %s', async (kind) => {
     const f = await fixture()

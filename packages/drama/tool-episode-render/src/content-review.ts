@@ -86,6 +86,8 @@ export function unattendedReviewMode(ctx: Pick<Context, 'get'>): boolean {
 
 type Row = Record<string, unknown>
 const dimensions = ['physical_logic', 'continuity'] as const
+/** Audio issue tags in the built-in video-review skill's film review register. */
+const audioIssueItems = new Set<unknown>(['bgm_volume', 'bgm_fit', 'bgm_adjacent_repeat'])
 function fail(reason: string): never { throw Error(`CONTENT_REVIEW_PENDING: ${reason} 保留工作候选，修复对应时段并复验后再交付；不自动购买转写。`) }
 const object = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
@@ -166,7 +168,10 @@ export async function verifyEpisodeContentReview(input: {
   } else {
     if (['subtitle', 'spec'].some(key => film[key] !== 'ok')) fail('成片字幕或规格审查未通过，无人值守也不能放行。')
     for (const key of ['picture', 'audio'] as const) if (film[key] !== 'ok') concern(`成片${key === 'picture' ? '画面' : '声音'}审查为${String(film[key])}，待人工复核。`, key === 'audio')
-    for (const issue of film.issues) concern(`成片审查问题：${typeof issue === 'string' ? issue : JSON.stringify(issue)}`)
+    for (const issue of film.issues) {
+      const audio = object(issue) && audioIssueItems.has(issue.item)
+      concern(`成片审查问题：${typeof issue === 'string' ? issue : JSON.stringify(issue)}`, audio)
+    }
   }
   const content = film.content_review
   if (!object(content) || content.version !== 1 || !object(content.output)) fail('缺少分包和成片的内容证据。')
