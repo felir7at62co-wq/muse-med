@@ -1,10 +1,11 @@
 /** Prepare the actual final audio for a separate listening review without scoring it. */
 import { chmod, lstat, mkdir, mkdtemp, realpath, rm, rmdir, writeFile } from 'node:fs/promises'
-import { extname, isAbsolute, join, relative } from 'node:path'
+import { extname, join, relative } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { z } from 'zod'
 import { requireProjectAudioFile } from './audio.ts'
 import { fileSha256 } from './cache.ts'
+import { matchesListeningSourcePath, type ContentListeningProject } from './content-listening-source.ts'
 import { prepareRenderedDraftMix } from './draft-playback-mix.ts'
 import { readSourceRecord, sourceRecordPathFor } from './source-record.ts'
 import type { MediaToolkit } from './types.ts'
@@ -64,9 +65,8 @@ export async function pictureDurationUs(toolkit: MediaToolkit, output: string): 
  * @param input - Current episode render, project and owned media execution range. An optional signal also cancels file operations.
  * @returns A new local WAV and its digest receipt. No listening or delivery decision is made.
  */
-export async function prepareContentListeningAudio(input: {
+export async function prepareContentListeningAudio(input: ContentListeningProject & {
   readonly toolkit: MediaToolkit
-  readonly project: string
   readonly episode: string
   readonly output: string
   readonly signal?: AbortSignal
@@ -88,8 +88,7 @@ export async function prepareContentListeningAudio(input: {
   }
   const sourceRecordSha = await fileSha256(sourceRecord, signal)
   const record = await readSourceRecord(sourceRecord)
-  if (record === undefined || record.episode !== episode || typeof record.output.path !== 'string'
-    || !isAbsolute(record.output.path) || relative(output, record.output.path) !== ''
+  if (record === undefined || record.episode !== episode || !await matchesListeningSourcePath(input, output, record.output.path)
     || !/^[0-9a-f]{64}$/u.test(record.output.sha256) || record.output.size_bytes !== (await lstat(output)).size
     || !Number.isFinite(record.output.duration_seconds) || record.output.duration_seconds <= 0) {
     throw pending('成片来源回执里的集号、路径或文件信息不匹配。请选用当前同一集的原成片。')

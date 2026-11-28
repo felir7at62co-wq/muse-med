@@ -1,19 +1,19 @@
 /** Compare a render-bound body master with the playback of the current MP4, locally. */
 import { createHash } from 'node:crypto'
 import { lstat, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative } from 'node:path'
+import { dirname, join } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { requireProjectAudioFile } from './audio.ts'
 import { fileSha256 } from './cache.ts'
 import { acousticRate, measureAcousticWindow } from './content-listening-acoustic.ts'
 import { prepareContentListeningAudio } from './content-listening-audio.ts'
+import { findListeningSourceInput, matchesListeningSourcePath, type ContentListeningProject } from './content-listening-source.ts'
 import { verifyRenderedDraftMix } from './draft-playback-mix.ts'
 import { runFfmpeg } from './ffmpeg.ts'
 import { episodePaths } from './paths.ts'
 import { deliveryFrameTimeUs, deliveryPictureClockSchema } from './picture-clock.ts'
 import { renderMusicStem } from './render-resume.ts'
 import { readSourceRecord, sourceRecordPathFor } from './source-record.ts'
-import type { DeliverySourceRecord } from './source-record.ts'
 import { parseSrtDocument } from './subtitles.ts'
 import type { MediaToolkit } from './types.ts'
 
@@ -83,9 +83,8 @@ type ContentListeningPreflight = {
  * @param input - The current render, its project identity and optional displayed subtitles.
  * @returns The measured correspondence findings and the saved preflight receipt.
  */
-export async function preflightContentListening(input: {
+export async function preflightContentListening(input: ContentListeningProject & {
   readonly toolkit: MediaToolkit
-  readonly project: string
   readonly episode: string
   readonly output: string
   readonly subtitleSrt?: string
@@ -96,8 +95,7 @@ export async function preflightContentListening(input: {
   const recordPath = await requireProjectAudioFile(project, sourceRecordPathFor(output))
   requirePreflight((await lstat(recordPath)).size <= 8 * 1024 * 1024, '成片来源回执超过本机预检容量。')
   const recordSha = await fileSha256(recordPath, signal), record = await readSourceRecord(recordPath)
-  requirePreflight(record?.episode === input.episode && typeof record.output.path === 'string'
-    && isAbsolute(record.output.path) && relative(output, record.output.path) === ''
+  requirePreflight(record?.episode === input.episode && await matchesListeningSourcePath(input, output, record.output.path)
     && record.delivery_inputs !== undefined && Array.isArray(record.input_files),
   '本机声学预检需要当前集完整原生渲染来源回执。')
   const delivery = record.delivery_inputs, inputs = record.input_files
@@ -106,9 +104,8 @@ export async function preflightContentListening(input: {
   const totalUs = deliveryFrameTimeUs(clock.data.total_frames, clock.data.fps)
   requirePreflight(totalUs <= maxUs && clock.data.body_end_us <= totalUs, '成片超出本机预检的画面时钟范围。')
   const master = await requireProjectAudioFile(project, episodePaths(project, input.episode).masterAudio)
-  const hasInput = (path: string, digest: string) => inputs.some((file: NonNullable<DeliverySourceRecord['input_files']>[number]) =>
-    typeof file.path === 'string' && isAbsolute(file.path) && relative(path, file.path) === '' && file.sha256 === digest)
-  requirePreflight(hasInput(master, delivery.master_audio_sha256), '当前成片未绑定本集正文母轨。')
+  requirePreflight(await findListeningSourceInput(input, inputs, master, delivery.master_audio_sha256) !== undefined,
+    '当前成片未绑定本集正文母轨。')
   const music = delivery.music?.mode
   requirePreflight(music === 'none' || music === 'music',
     '当前成片缺少确定的音乐选择或同版独立音乐轨，无法可信区分背景声与正文。')
@@ -123,8 +120,9 @@ export async function preflightContentListening(input: {
   let lastSubtitleEndUs: number | undefined
   if (input.subtitleSrt !== undefined) {
     const subtitle = await requireProjectAudioFile(project, input.subtitleSrt)
-    requirePreflight((await lstat(subtitle)).size <= 256 * 1024 && hasInput(subtitle, delivery.subtitle_sha256),
-      '这份字幕与当前成片绑定的实际显示字幕不符。')
+    requirePreflight((await lstat(subtitle)).size <= 256 * 1024
+      && await findListeningSourceInput(input, inputs, subtitle, delivery.subtitle_sha256) !== undefined,
+    '这份字幕与当前成片绑定的实际显示字幕不符。')
     paths.push({ path: subtitle, sha256: delivery.subtitle_sha256 })
     if (delivery.subtitle_display === 'external') {
       const srt = await readFile(subtitle, { signal })

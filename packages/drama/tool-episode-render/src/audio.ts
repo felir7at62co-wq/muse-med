@@ -81,12 +81,15 @@ function assertOwned(project: string, candidate: string, alias = project): void 
 /** Resolve and require a nonempty project-owned input after link resolution.
  * @param project - Project root.
  * @param candidate - Project-relative or absolute input.
+ * @param projectAlias - An optional already selected path for the same project.
  * @returns The input's real path inside the real project.
  */
-export async function requireProjectAudioFile(project: string, candidate: string): Promise<string> {
+export async function requireProjectAudioFile(project: string, candidate: string, projectAlias?: string): Promise<string> {
   const root = await realpath(project)
   const file = resolve(project, candidate)
-  assertOwned(root, file, resolve(project))
+  const alias = projectAlias !== undefined && relative(root, await realpath(projectAlias)) === ''
+    ? resolve(projectAlias) : resolve(project)
+  assertOwned(root, file, alias)
   const actual = await realpath(file)
   assertOwned(root, actual)
   const info = await stat(actual)

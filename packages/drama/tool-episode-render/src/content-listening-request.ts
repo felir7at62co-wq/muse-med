@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto'
 import { mkdtemp, open, rm, rmdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { extname, isAbsolute, join, relative } from 'node:path'
+import { extname, join } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ShotScriptVoiceParser } from '@deepseek-ai/dsh-tool-shot-script'
 import { pcmWavDuration } from '@deepseek-ai/dsh-util-values'
@@ -11,6 +11,7 @@ import { requireProjectAudioFile } from './audio.ts'
 import { fileSha256 } from './cache.ts'
 import { pictureDurationUs, type ContentListeningPreparation } from './content-listening-audio.ts'
 import { validateBlindAuthoredDialogue } from './content-listening-blind.ts'
+import { findListeningSourceInput, matchesListeningSourcePath, type ContentListeningProject } from './content-listening-source.ts'
 import { resolveContentListeningVoices, type ContentListeningVoiceContext } from './content-listening-voices.ts'
 import { verifyRenderedDraftMix } from './draft-playback-mix.ts'
 import { runFfmpeg } from './ffmpeg.ts'
@@ -125,10 +126,9 @@ async function providerWav(toolkit: MediaToolkit, source: Buffer, preparation: C
  * @param input - Project-owned current render, its prepared stereo WAV receipt, displayed SRT and authored dialogue.
  * @returns Bounded WAV bytes, their measured time base, reference digests and a fixed review prompt.
  */
-export async function buildContentListeningRequest(input: {
+export async function buildContentListeningRequest(input: ContentListeningProject & {
   readonly toolkit: MediaToolkit
   readonly preparation: ContentListeningPreparation
-  readonly project: string
   readonly episode: string
   readonly subtitleSrt: string
   readonly authoredDialoguePath: string
@@ -172,7 +172,7 @@ export async function buildContentListeningRequest(input: {
     const subtitleSha256 = digest(subtitleBytes)
     const authoredDialogueSha256 = digest(authoredBytes)
     if (digest(recordBytes) !== preparation.source_record_sha256 || record.episode !== input.episode
-      || !isAbsolute(record.output.path) || relative(output, record.output.path) !== ''
+      || !await matchesListeningSourcePath(input, output, record.output.path)
       || record.output.sha256 !== preparation.source_sha256 || digest(sourceWav) !== preparation.wav_sha256) {
       throw invalid('试听音轨或成片回执与当前集不符。请重新准备本次实际渲染输出。')
     }
@@ -180,8 +180,8 @@ export async function buildContentListeningRequest(input: {
       throw invalid('字幕与本次成片实际烧录版本不符。请选用渲染结果返回的显示字幕。')
     }
     const renderedInputs = record.input_files
-    const recordedAuthored = renderedInputs?.find(file => isAbsolute(file.path) && relative(authoredPath, file.path) === '')
-    if (renderedInputs === undefined || recordedAuthored?.sha256 !== authoredDialogueSha256) {
+    if (renderedInputs === undefined
+      || (await findListeningSourceInput(input, renderedInputs, authoredPath))?.sha256 !== authoredDialogueSha256) {
       throw invalid('原稿对白计划与成片回执中的版本不符。请选用本次渲染使用的原稿。')
     }
     const plan = authoredDialogue.parse(JSON.parse(authoredBytes.toString('utf8').replace(/^\uFEFF/u, '')))
@@ -202,7 +202,7 @@ export async function buildContentListeningRequest(input: {
     if (input.voiceContext !== undefined) {
       if (input.parseVoiceScript === undefined) throw invalid('角色声线听校需要已加载的原分镜解析服务。')
       voice = await resolveContentListeningVoices({
-        project, episode: input.episode, context: input.voiceContext, authored: plan.shots, renderedShots,
+        ...input, context: input.voiceContext, authored: plan.shots, renderedShots,
         authoredPath, authoredSha256: authoredDialogueSha256, renderedInputs,
         parseVoiceScript: input.parseVoiceScript, read: (path, limit) => readBounded(path, limit, signal),
       })

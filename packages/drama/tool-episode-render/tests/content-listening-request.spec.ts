@@ -30,7 +30,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   } }
 })
 
-async function fixture(duration: number, material: { subtitle?: string; authored?: string; shots?: readonly number[] } = {}) {
+async function fixture(duration: number, material: {
+  subtitle?: string
+  authored?: string
+  shots?: readonly number[]
+  conflictingAuthoredDigest?: boolean
+} = {}) {
   const project = await realpath(await mkdtemp(join(tmpdir(), 'dsh-listening-request-test-')))
   const runner = createMediaRunner()
   const dispose = async () => {
@@ -60,7 +65,10 @@ async function fixture(duration: number, material: { subtitle?: string; authored
       inputs: [],
       delivery_inputs: { timeline_sha256: 'a'.repeat(64), master_audio_sha256: 'b'.repeat(64), subtitle_sha256: subtitleSha,
         videos: (material.shots ?? [1]).map(shot => ({ shot, sha256: 'c'.repeat(64) })) },
-      input_files: [{ path: authoredDialoguePath, sha256: authoredSha }], encoder: 'mpeg4', checks: [] })
+      input_files: [
+        ...(material.conflictingAuthoredDigest === true ? [{ path: authoredDialoguePath, sha256: 'd'.repeat(64) }] : []),
+        { path: authoredDialoguePath, sha256: authoredSha },
+      ], encoder: 'mpeg4', checks: [] })
     const preparation = await prepareContentListeningAudio({ toolkit, episode, project, output })
     return { request: { toolkit, episode, preparation, project, subtitleSrt, authoredDialoguePath }, output, dispose }
   } catch (error) {
@@ -112,6 +120,7 @@ it.skipIf(!hasFfmpeg).each([
   [{ subtitle: '1\n00:00:00,500 --> 00:00:08,000\n你好\n' }, '显示字幕含无效或越界时间'],
   [{ shots: [1, 1] }, '原稿对白计划须为当集每个实际选片提供一个镜号'],
   [{ authored: '{' }, '无法准备完整听校请求'],
+  [{ conflictingAuthoredDigest: true }, '原稿对白计划与成片回执中的版本不符'],
 ] as const)('rejects bound but invalid review material %j', async (material, expected) => {
   const f = await fixture(3, material)
   try {
