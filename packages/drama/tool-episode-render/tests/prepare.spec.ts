@@ -665,6 +665,8 @@ describe('prepared subtitle source clock', () => {
     const callsBefore = [...channel.calls]
     const capture = preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined)
     await expect(capture).rejects.toThrow('已准备分包清单不是合法 JSON')
+    await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, await readTimeline(paths.timeline)))
+      .rejects.toThrow('已准备分包清单不是合法 JSON')
     const cause = await capture.then(() => undefined, (error: unknown) => error instanceof Error ? error.cause : undefined)
     expect(cause).toBeInstanceOf(SyntaxError)
     for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
