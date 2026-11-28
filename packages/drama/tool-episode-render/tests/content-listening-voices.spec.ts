@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as ShotScript from '@deepseek-ai/dsh-tool-shot-script'
+import Tools from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveContentListeningVoices } from '../src/content-listening-voices.ts'
 
@@ -29,7 +33,9 @@ function testWav(id: number) {
 }
 
 const temporary: string[] = []
+const contexts: Context[] = []
 afterEach(async () => {
+  await Promise.all(contexts.splice(0).map(async (context) => { await context.fiber.dispose() }))
   await Promise.all(temporary.splice(0).map(async (project) => {
     await rm(project, { recursive: true, force: true })
   }))
@@ -48,6 +54,13 @@ async function fixture(options: {
 } = {}) {
   const project = await mkdtemp(join(tmpdir(), 'muse-voice-layout-'))
   temporary.push(project)
+  const context = new Context()
+  contexts.push(context)
+  await context.plugin(SystemPrompt)
+  await context.plugin(Tools)
+  await context.plugin(ShotScript)
+  const parseVoiceScript = context.get('shotScriptVoice')
+  if (parseVoiceScript === undefined) throw new Error('Shot-script plugin did not provide the Host parser')
   const episode = '21'
   const script = byShot.map((line, i) => {
     const header = `【镜头${String(i + 1)}】\n画面：房间。\n`
@@ -88,7 +101,7 @@ async function fixture(options: {
   const config = JSON.stringify({ jubian_script_id: 6613, project_bible: options.noRegistry ? {} : { characters } })
   await Promise.all([writeFile(scriptPath, script), writeFile(configPath, config), writeFile(productionPath, production),
     writeFile(authoredPath, authoredJson)])
-  const input = { project, episode, authored, authoredPath, authoredSha256: digest(authoredJson),
+  const input = { project, episode, authored, authoredPath, authoredSha256: digest(authoredJson), parseVoiceScript,
     renderedShots: options.render ?? (options.direct ? byShot : groups).map((_unused, i) => i + 1),
     context: { source_script: scriptPath, references },
     renderedInputs: [{ path: configPath, sha256: digest(config) }, { path: productionPath, sha256: digest(production) },
@@ -152,10 +165,17 @@ describe('formal voice review per-shot and grouped authorship', () => {
     ['no enrolled voice registry', { noRegistry: true }, '缺少本集角色及声线登记'],
     ['no approved voice asset', { noRegisteredAdult: true }, '已登记的批准 WAV'],
     ['unqualified narrator prefix', { propLine: '旁白：铜蛤蟆：听我说。' }, '实际对白'],
+    ['legacy voice with an absent speaker', { propLine: '台词：听我说。' }, '唯一对应'],
   ] as const)('cannot use layout proof to bypass %s', async (_label, options, reason) => {
     const { propAliases, ...rest } = options as typeof options & { readonly propAliases?: readonly string[] }
     const { input } = await fixture({ ...rest, ...(propAliases === undefined ? {} : { propAliases: [...propAliases] }) })
     await expect(resolveContentListeningVoices(input)).rejects.toThrow(reason)
+  })
+
+  it('refuses conflicting explicitly authored speakers identified by the native parser', async () => {
+    const { input, script } = await fixture({ propLine: '主体状态追踪：\n说话人：甲\n台词：乙：听我说。' })
+    expect(input.parseVoiceScript(script).issues.find(issue => issue.code === 'speaker_mismatch')?.severity).toBe('failure')
+    await expect(resolveContentListeningVoices(input)).rejects.toThrow('完整、可识别的逐镜说话人和对白')
   })
 
   it('rejects script bytes changed after the original render', async () => {

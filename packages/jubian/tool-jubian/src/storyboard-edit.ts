@@ -283,7 +283,7 @@ async function apply(client: JubianClient, ledger: JubianLedger, args: MethodArg
         body.modelConfig = typeof board.modelConfig === 'string' ? JSON.stringify(config) : config
         if (bodyHash(body) !== target.request_hash) fail('Preview request differs from the approved edit')
         if (target.selection_status === 'needs_reselect') await markReselection(ledger, scriptId, target.storyboard_id, config.prompt)
-        const result = await writeUnderLedger(ledger, `${key}:${target.storyboard_id}`, 'storyboard_save', () => body,
+        const result = await writeUnderLedger(client, ledger, `${key}:${target.storyboard_id}`, 'storyboard_save', () => body,
           (payload) => { send.started = true; return client.request({ method: 'PUT', path: '/aigc/storyboard', body: need(payload) }) },
           undefined, { scriptId })
         if (result.replayed || result.outcome !== 'accepted') { item.status = 'unknown'; state.stopped = true; return }

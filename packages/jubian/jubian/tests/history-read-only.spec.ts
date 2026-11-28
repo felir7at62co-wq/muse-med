@@ -97,8 +97,10 @@ describe('Jubian historical replay', () => {
     { method: 'POST', path: subTasks, body: { taskId: 456 } },
     { method: 'POST', path: subTasks, body: { aigcVideoTaskId: '456&privatefixture=1' } },
     { method: 'POST', path: subTasks, body: { aigcVideoTaskId: -456 } },
-    { method: 'POST', path: subTasks, body: null as unknown as Record<string, unknown> },
-    { method: 'POST', path: subTasks, body: [] as unknown as Record<string, unknown> },
+    // @ts-expect-error A JSON caller can supply a null body despite the typed client contract.
+    { method: 'POST', path: subTasks, body: null },
+    // @ts-expect-error A JSON caller can also supply an array outside the typed contract.
+    { method: 'POST', path: subTasks, body: [] },
     { method: 'POST', path: subTasks + '?pageNum=1', body: { aigcVideoTaskId: 456 } },
     { method: 'POST', path: subTasks + '?orderByColumn=createTime', body: { aigcVideoTaskId: 456 } },
   ]

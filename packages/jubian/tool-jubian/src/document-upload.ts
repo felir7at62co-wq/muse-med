@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, open, readFile } from 'node:fs/promises'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { basename, extname, isAbsolute, join, resolve } from 'node:path'
-import { JubianError, type JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JubianError, type JubianClient, type JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { buildDocumentObjectKey, signTosObjectPut } from '@deepseek-ai/dsh-jubian-api'
 import { loadTosConfig, putObject } from './reference.ts'
 import { requireKey } from './write.ts'
@@ -174,13 +174,14 @@ async function readDocument(source: string, options: DocumentUploadOptions): Pro
 
 /**
  * Upload unchanged document bytes once under a durable original-key receipt.
+ * @param client - Existing Jubian client whose history policy controls object uploads.
  * @param ledger - Account-scoped write ledger and local receipt directory.
  * @param args - Exact local document path and stable upload key; replay returns its original bytes hash without rereading the source.
  * @param options - Deployment-owned file-size limit, independent of provider limits.
  * @param deps - Optional HTTP transport and clock overrides.
  * @returns Uploaded public URL and file metadata, or unknown original-operation evidence; screenplay content remains unverified.
  */
-export async function uploadDocumentMethod(ledger: JubianLedger,
+export async function uploadDocumentMethod(client: Pick<JubianClient, 'assertHistoryWritable'>, ledger: JubianLedger,
   args: { document_path?: string | undefined; idempotency_key?: string | undefined }, options: DocumentUploadOptions,
   deps: DocumentUploadDeps = {}): Promise<Record<string, unknown>> {
   const key = requireKey(args.idempotency_key)
@@ -211,7 +212,7 @@ export async function uploadDocumentMethod(ledger: JubianLedger,
     }
     const now = deps.now?.() ?? new Date()
     const objectKey = buildDocumentObjectKey(now, randomBytes(16).toString('hex'), descriptor.extension)
-    const config = await loadTosConfig(transport)
+    const config = await loadTosConfig(client, transport)
     const signed = signTosObjectPut({ config, key: objectKey, payload: bytes, content_type: descriptor.contentType, now })
     const document = { material_url: signed.url, object_key: objectKey, file_name: basename(source),
       format: descriptor.format, content_type: descriptor.contentType, bytes: bytes.byteLength,
@@ -222,7 +223,7 @@ export async function uploadDocumentMethod(ledger: JubianLedger,
     const intent = await ledger.begin({ idempotencyKey: key, method: 'document_upload', requestSha256: receipt.request_sha256 })
     if (intent.replayed) return await readDocumentUploadReceipt(ledger, key)
     let httpStatus: number
-    try { httpStatus = await putObject(transport, signed.url, signed.headers, bytes) }
+    try { httpStatus = await putObject(client, transport, signed.url, signed.headers, bytes) }
     catch (error) {
       await ledger.settle(key, { httpStatus: null, applicationCode: null, responseSha256: null, outcome: 'unknown' })
       throw error

@@ -330,7 +330,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   const requiresLocalRepairClock = reviewed.some(shot => shot.requiresLocalRepairClock === true)
   const patchFiles = requiresLocalDialoguePatch
     ? (await verifySelectedSourceReviews(paths, rows, false, true, input.sourceQaVerifier))
-      .flatMap(shot => shot.sourceQa?.files ?? [])
+      .map(shot => shot.sourceQa).filter(qa => qa !== undefined).flatMap(qa => qa.files)
     : []
   const byShot = new Map(reviewed.map(row => [row.shot, row]))
   const recheckReviews = async () => {

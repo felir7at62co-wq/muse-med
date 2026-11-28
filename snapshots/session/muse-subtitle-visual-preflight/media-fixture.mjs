@@ -57,7 +57,8 @@ export async function apply(ctx) {
         try {
           if (command === 'visual-preflight-ffprobe') {
             writeSync(options.stdio[1], JSON.stringify({ streams: [
-              { codec_type: 'video', codec_name: 'h264', width: 480, height: 854, avg_frame_rate: '24/1', r_frame_rate: '24/1' },
+              { codec_type: 'video', codec_name: 'h264', width: 480, height: 854, avg_frame_rate: '24/1', r_frame_rate: '24/1',
+                start_time: '0', duration: '1', nb_frames: '24' },
               { codec_type: 'audio', codec_name: 'aac', sample_rate: '48000', channels: 2 },
             ], format: { duration: '1', size: '1000000', bit_rate: '8000000' } }))
           } else if (args.some(arg => arg.includes('bbox=min_val=1'))) {

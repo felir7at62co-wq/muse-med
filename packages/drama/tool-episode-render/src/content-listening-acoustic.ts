@@ -6,6 +6,7 @@ const maxLag = acousticRate / 4
 const minimumLag = acousticRate / 125
 const searchStep = 8
 
+/** Waveform match, signal failure, or an inconclusive comparison. */
 export type AcousticStatus = 'matching' | 'missing_reference_signal' | 'shifted_reference_signal'
   | 'uncertain_reference' | 'uncertain_correspondence'
 
@@ -74,7 +75,15 @@ function findShift(reference: Float32Array, signal: Float32Array, start: number,
     && best.correlation - (rival?.correlation ?? 0) >= 0.06 ? { lag: bestLag, measurement: best } : undefined
 }
 
-/** Compare one expected interval on the same picture clock. A quiet reference stays unresolved. */
+/**
+ * Compare one expected interval on the same picture clock. A quiet reference stays unresolved.
+ * @param reference - Interleaved stereo samples from the verified source.
+ * @param signal - Interleaved stereo samples from the rendered playback.
+ * @param start - Inclusive sample frame where the comparison starts.
+ * @param end - Exclusive sample frame where the comparison ends.
+ * @param ceiling - Exclusive sample frame beyond which alignment cannot search.
+ * @returns The nominal and, when available, aligned waveform measurements.
+ */
 export function measureAcousticWindow(reference: Float32Array, signal: Float32Array,
   start: number, end: number, ceiling: number): AcousticWindow {
   const nominal = measure(reference, signal, start, end)

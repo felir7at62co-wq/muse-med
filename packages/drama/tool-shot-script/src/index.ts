@@ -30,9 +30,29 @@ import { DEFAULT_SPEECH_CHARS_PER_SECOND, parseShotScript } from './script.ts'
 import { registerProductionTool } from './production.ts'
 import type { ProductionConfig } from './production.ts'
 import { installSessionReview, reviewPresentationMeta, sessionDurationBudget } from './session-video.ts'
-import type { CompiledShot, DramaShotMethod, DramaShotReport, DramaShotReviewMode, DurationBudget, ManifestAsset, PackedTask, ShotIssue } from './types.ts'
+import type { CompiledShot, DramaShotMethod, DramaShotReport, DramaShotReviewMode, DurationBudget, ManifestAsset, PackedTask, ParsedShot, ShotIssue } from './types.ts'
 
-export { parseShotScript } from './script.ts'
+/** Authored shot fields and syntax issues used by the optional Host voice review. */
+export interface ShotScriptVoiceParse {
+  readonly shots: readonly Pick<ParsedShot, 'shot' | 'speaker' | 'text' | 'voiceType' | 'directorFormat' | 'visual'>[]
+  readonly issues: readonly Pick<ShotIssue, 'code' | 'severity'>[]
+}
+
+/** Parse authored dialogue from the exact script bytes supplied by the Host caller. */
+export interface ShotScriptVoiceParser {
+  /**
+   * Read authored speaker and dialogue fields without binding assets or modifying the script.
+   * @param text - Decoded source script for one episode.
+   * @returns Shots in source order and the parser's syntax and dialogue findings.
+   */
+  (text: string): ShotScriptVoiceParse
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    shotScriptVoice: ShotScriptVoiceParser
+  }
+}
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-shot-script'
@@ -510,6 +530,7 @@ const ADVISORY_DESCRIPTION = '镜头脚本检查与分包建议；创作、格�
  * @param config - Review policy and the silent-shot duration estimate.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
+  ctx.provide('shotScriptVoice', text => parseShotScript(text, { actionShotSeconds: DEFAULT_ACTION_SHOT_SECONDS }))
   const resolved: ResolvedConfig = {
     actionShotSeconds: config.actionShotSeconds ?? DEFAULT_ACTION_SHOT_SECONDS,
     speechCharsPerSecond: config.speechCharsPerSecond ?? DEFAULT_SPEECH_CHARS_PER_SECOND,

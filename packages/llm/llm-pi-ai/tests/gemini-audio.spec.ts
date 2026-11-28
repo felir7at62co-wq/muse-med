@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { ToolCallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as PiAi from '../src/index.ts'
-import { isDirectGeminiAudioEndpoint } from '../src/gemini-audio.ts'
+import { geminiAudioPayload, isDirectGeminiAudioEndpoint, readGeminiAudioResponse } from '../src/gemini-audio.ts'
 import { memoryAuth } from './auth-double.ts'
 import { closeMockServers, mockServer } from './mock-server.ts'
 
@@ -212,13 +212,47 @@ it('rejects non-JSON output and does not replay an unsuccessful provider request
 })
 
 it.each([
+  undefined,
+  'not a URL',
   'http://generativelanguage.googleapis.com/v1beta',
   'https://generativelanguage.googleapis.com.attacker.invalid/v1beta',
   `${officialOrigin}:8443/v1beta`,
   'https://user@generativelanguage.googleapis.com/v1beta',
   `${officialOrigin}/v1beta?target=elsewhere`,
+  `${officialOrigin}/v1beta#extra`,
   `${officialOrigin}/alternate`,
   'http://127.0.0.1:12000/v1beta',
 ])('refuses a non-direct Gemini audio endpoint (%s)', (endpoint) => {
   expect(isDirectGeminiAudioEndpoint(endpoint)).toBe(false)
+})
+
+it.each([
+  null,
+  { contents: [], config: {} },
+  { contents: [{ role: 'user', parts: [] }], config: {} },
+  { contents: [{ role: 'model', parts: [{ text: 'fixture' }] }], config: {} },
+  { contents: [{ role: 'user', parts: [{ text: 'fixture' }] }] },
+])('rejects a mismatched SDK request before adding WAV bytes (%j)', (payload) => {
+  expect(() => geminiAudioPayload(payload, [])).toThrow('isolated Gemini audio payload')
+})
+
+async function* responseStream(chunks: readonly StreamChunk[]): AsyncGenerator<StreamChunk> {
+  yield* chunks
+}
+
+const finish: StreamChunk = { type: 'finish', reason: { kind: 'stop' } }
+const textBlock = (text: string, index = 0): StreamChunk => ({ type: 'block-end', index, block: { type: 'text', text } })
+
+it.each<readonly [string, readonly StreamChunk[]]>([
+  ['stream ended without a terminal message', [textBlock('{}')]],
+  ['stream returned data after the terminal message', [finish, textBlock('{}')]],
+  ['stream exceeded the reply budget', [{ type: 'reasoning-delta', index: 0, text: 'x'.repeat(65537) }, finish]],
+  ['stream tried a tool call', [{ type: 'tool-call-delta', index: 0, id: ToolCallId('fixture'), argumentsDelta: '{}' }, finish]],
+  ['stream exhausted its output tokens', [textBlock('{}'), { type: 'finish', reason: { kind: 'max-tokens' } }]],
+  ['stream ended without an answer block', [finish]],
+  ['stream only exceeded the budget in its final block', [textBlock('x'.repeat(65537)), finish]],
+  ['stream produced two answers', [textBlock('{}'), textBlock('{}', 1), finish]],
+  ['stream returned a JSON array', [textBlock('[]'), finish]],
+])('rejects the audio reply when %s', async (_label, chunks) => {
+  await expect(readGeminiAudioResponse(responseStream(chunks))).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
 })

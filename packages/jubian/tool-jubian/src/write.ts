@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto'
 import type { BudgetDecision, JubianLedger, JubianLedgerBegin, JubianLedgerMethod, JubianLedgerRecord } from '@deepseek-ai/dsh-jubian'
-import { JubianError, SPENDING_METHODS, assertJubianHistoryWritable, centsOf, checkBudget } from '@deepseek-ai/dsh-jubian'
+import { JubianError, SPENDING_METHODS, centsOf, checkBudget, type JubianClient } from '@deepseek-ai/dsh-jubian'
 
 /** Caller-calculated reservation, independent of the project spending limit. */
 export interface CostEstimate {
@@ -297,6 +297,7 @@ export function bodyHash(body: Record<string, unknown> | undefined): string {
  * recorded. Ordinary replays skip that read; verified image-batch replays allow
  * the read-only catalogue lookup needed to compare the current request. Awaiting
  * the body also lets the quote below observe what the catalogue returned.
+ * @param client - Existing Jubian client whose policy permits or refuses new writes.
  * @param ledger - The write-path ledger.
  * @param idempotencyKey - Caller-supplied key; required, never generated here.
  * @param method - Ledger method name.
@@ -308,6 +309,7 @@ export function bodyHash(body: Record<string, unknown> | undefined): string {
  * @throws {JubianError} `BUDGET_EXCEEDED` when a paid call is not covered by the authorization.
  */
 export async function writeUnderLedger(
+  client: Pick<JubianClient, 'assertHistoryWritable'>,
   ledger: JubianLedger,
   idempotencyKey: string | undefined,
   method: JubianLedgerMethod,
@@ -345,7 +347,7 @@ export async function writeUnderLedger(
     throw new JubianError('CONTRACT_CHANGED',
       'A proven pre-dispatch image abort requires matching Host recovery evidence')
   }
-  assertJubianHistoryWritable()
+  client.assertHistoryWritable()
   // Awaited on purpose: a body may be compiled from a provider read, and the
   // quote below observes what that read returned.
   const payload = await body()

@@ -8,19 +8,20 @@ const PROJECT_LIST = /^\/aigc\/(episode|storyboard|asset|material)\/list$/u
 const TASK_LIST = '/admin/aigc/video/task/list'
 const SUBTASK_LIST = '/admin/aigc/video/task/sub/list'
 
-/** The launcher sets this flag only in the isolated replay process. */
+/**
+ * Read the launcher-selected request policy for historical replay.
+ * @returns Whether this process permits only the known historical queries.
+ */
 export function jubianHistoryReadOnly(): boolean {
   return process.env.MUSE_JUBIAN_HISTORY_READ_ONLY === '1'
 }
 
-/** Reject with a local, redacted explanation independent of a provider or a request path. */
+/**
+ * Reject a request disallowed during historical replay.
+ * @returns Never. Throws a local permission error without provider details.
+ */
 export function refuseJubianHistoryRequest(): never {
   throw new JubianError('PERMISSION_DENIED', '历史素材只读验证仅允许明确核对过的查询，当前请求没有发送')
-}
-
-/** Require the same fence at the native object-upload boundary, which has no JubianClient. */
-export function assertJubianHistoryWritable(): void {
-  if (jubianHistoryReadOnly()) refuseJubianHistoryRequest()
 }
 
 function positive(value: string | null | undefined): value is string {
@@ -77,7 +78,11 @@ function knownGet(path: string, query: URLSearchParams): boolean {
   return false
 }
 
-/** Validate and retain the exact request values before an asynchronous credential lookup. */
+/**
+ * Validate and retain the exact request values before an asynchronous credential lookup.
+ * @param request - Original method, path, body and cancellation signal.
+ * @returns A detached allowed historical query ready for credential lookup and dispatch.
+ */
 export function historicalJubianRequest(request: JubianRequest): JubianRequest {
   const { method, path, signal } = request
   const body: unknown = request.body

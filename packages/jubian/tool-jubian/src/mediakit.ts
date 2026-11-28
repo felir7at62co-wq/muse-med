@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import type { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -65,6 +65,7 @@ function mediaKitResult(jobKey: MuseMediaPostprocessJobKey,
 
 /**
  * Reserve the approved MediaKit estimate in the project budget before dispatch.
+ * @param client - Existing Jubian client whose history policy controls submission.
  * @param ledger - Project spending ledger shared with the existing Jubian route.
  * @param key - Original caller idempotency key, retained on the legacy route.
  * @param stage - Requested operation.
@@ -75,7 +76,8 @@ function mediaKitResult(jobKey: MuseMediaPostprocessJobKey,
  * @param readJubianCredential - Host-only credential resolver for official provider requests.
  * @returns The persisted primary result, or permission to enter the existing separately budgeted backup.
  */
-export async function routeMediaPostprocess(ledger: JubianLedger, key: string, stage: PostprocessStage, taskId: number,
+export async function routeMediaPostprocess(client: Pick<JubianClient, 'assertHistoryWritable'>, ledger: JubianLedger,
+  key: string, stage: PostprocessStage, taskId: number,
   gateway: MediaPostprocessClient | undefined, readInput: () => Promise<MuseMediaPostprocessInput>,
   signal?: AbortSignal, readJubianCredential?: () => Promise<string | undefined>): Promise<Decision> {
   const primaryKey = 'muse-mediakit-' + createHash('sha256').update(key).digest('hex')
@@ -122,7 +124,7 @@ export async function routeMediaPostprocess(ledger: JubianLedger, key: string, s
 
   const request = { ...input, jobKey: preview.jobKey }
   let submitted: MuseMediaPostprocessSubmission = { state: 'unknown' }
-  const receipt = await writeUnderLedger(ledger, primaryKey, stage === 'upscale' ? 'video_upscale' : 'erase_subtitle',
+  const receipt = await writeUnderLedger(client, ledger, primaryKey, stage === 'upscale' ? 'video_upscale' : 'erase_subtitle',
     () => request, async () => {
       await writeFileAtomic(bindingPath(ledger, key),
         JSON.stringify({ stage, taskId, jobKey: preview.jobKey, requestDigest: bodyHash({ ...input }) }) + '\n', { mode: 0o600 })

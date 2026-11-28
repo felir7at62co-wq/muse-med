@@ -8,6 +8,7 @@ import { prepareContentListeningAudio } from './content-listening-audio.ts'
 import { preflightContentListening } from './content-listening-preflight.ts'
 import { readContentListeningAttempt, reviewContentListening } from './content-listening-review.ts'
 import { createFileCaptureChannel, createMediaToolkit } from './ffmpeg.ts'
+import { jsonEvidenceOutput } from './tool-json-output.ts'
 import type { RenderSettings } from './types.ts'
 
 /**
@@ -44,12 +45,7 @@ export function registerContentListeningTool(scope: Context, settings: RenderSet
         } }, description: '每位说话人一份当前版本的已核准声线，最多三份。' },
       }, description: '可选的当前正式分包及批准声线。' },
     },
-    output: {
-      schema: { type: 'object', additionalProperties: true },
-      preserveBodyMeta: true,
-      presentationMeta: (_args, result) => result,
-      render: (_args, result) => [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-    },
+    output: jsonEvidenceOutput,
     execute: async (args, exec) => {
       const session = exec.agent?.session
       if (session === undefined) throw new Error('请在当前 Muse 制作会话中准备或检查成片声音。')
@@ -111,9 +107,11 @@ export function registerContentListeningTool(scope: Context, settings: RenderSet
         }))),
       }
       const transport = scope.get('audioReviewTransport')
+      const parseVoiceScript = voiceContext === undefined ? undefined : scope.get('shotScriptVoice')
       const review = await reviewContentListening({ ...base, preparationPath, subtitleSrt, authoredDialoguePath,
         ...(args.mode === undefined ? {} : { mode: args.mode }),
         ...(voiceContext === undefined ? {} : { voiceContext }),
+        ...(parseVoiceScript === undefined ? {} : { parseVoiceScript }),
         ...(transport === undefined ? {} : { transport }) })
       return { ...review }
     },

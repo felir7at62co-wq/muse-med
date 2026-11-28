@@ -207,7 +207,7 @@ export async function storyboardDeleteMethod(client: JubianClient, ledger: Jubia
       if (stableSha256(await inspect(client, scriptId, target.storyboard_id, taskScan)) !== stableSha256(target)) {
         item.status = 'stale'; stopped = true
       } else {
-        const result = await writeUnderLedger(ledger, `${key}:${target.storyboard_id}`, 'storyboard_remove',
+        const result = await writeUnderLedger(client, ledger, `${key}:${target.storyboard_id}`, 'storyboard_remove',
           () => removalRequest(scriptId, target),
           () => { dispatch.started = true; return client.request({ method: 'DELETE', path: `/aigc/storyboard/${target.storyboard_id}` }) }, undefined,
           { scriptId, verifyReplayBody: true })

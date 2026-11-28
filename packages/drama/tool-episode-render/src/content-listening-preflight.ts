@@ -13,6 +13,7 @@ import { episodePaths } from './paths.ts'
 import { deliveryFrameTimeUs, deliveryPictureClockSchema } from './picture-clock.ts'
 import { renderMusicStem } from './render-resume.ts'
 import { readSourceRecord, sourceRecordPathFor } from './source-record.ts'
+import type { DeliverySourceRecord } from './source-record.ts'
 import { parseSrtDocument } from './subtitles.ts'
 import type { MediaToolkit } from './types.ts'
 
@@ -43,7 +44,45 @@ async function measureFile(toolkit: MediaToolkit, path: string, target: string, 
   return data
 }
 
-/** Run the advisory version-bound waveform preflight with no external calls. */
+type PreflightWindow = Omit<ReturnType<typeof measureAcousticWindow>, 'lagSamples'> & {
+  readonly shot: number
+  readonly start_us: number
+  readonly end_us: number
+  readonly lag_us?: number
+}
+type ContentListeningPreflight = {
+  readonly kind: 'muse_rendered_audio_preflight'
+  readonly version: number
+  readonly episode: string
+  readonly status: 'needs_review' | 'issues_found'
+  readonly listening_verified: boolean
+  readonly grants_approval: boolean
+  readonly source_sha256: string
+  readonly source_record_sha256: string
+  readonly pcm_sha256: string
+  readonly preparation: string
+  readonly comparison: string
+  readonly expected_body_end_us: number
+  readonly sample_rate: number
+  readonly reference_files: { readonly path: string; readonly sha256: string }[]
+  readonly source_music_mode: 'none' | 'music'
+  readonly external_requests: number
+  readonly matching_windows: number
+  readonly issue_count: number
+  readonly uncertain_windows: number
+  readonly last_subtitle_end_us?: number
+  readonly final_subtitle_following_signal?: PreflightWindow
+  readonly final_subtitle_signal_issue?: boolean
+  readonly limitations: string[]
+  readonly receipt_path: string
+  readonly findings: PreflightWindow[]
+}
+
+/**
+ * Run the advisory version-bound waveform preflight with no external calls.
+ * @param input - The current render, its project identity and optional displayed subtitles.
+ * @returns The measured correspondence findings and the saved preflight receipt.
+ */
 export async function preflightContentListening(input: {
   readonly toolkit: MediaToolkit
   readonly project: string
@@ -51,7 +90,7 @@ export async function preflightContentListening(input: {
   readonly output: string
   readonly subtitleSrt?: string
   readonly signal?: AbortSignal
-}) {
+}): Promise<ContentListeningPreflight> {
   const { project, toolkit, signal } = input
   const output = await requireProjectAudioFile(project, input.output)
   const recordPath = await requireProjectAudioFile(project, sourceRecordPathFor(output))
@@ -61,13 +100,14 @@ export async function preflightContentListening(input: {
     && isAbsolute(record.output.path) && relative(output, record.output.path) === ''
     && record.delivery_inputs !== undefined && Array.isArray(record.input_files),
   '本机声学预检需要当前集完整原生渲染来源回执。')
-  const delivery = record.delivery_inputs, clock = deliveryPictureClockSchema.safeParse(delivery.picture_clock)
+  const delivery = record.delivery_inputs, inputs = record.input_files
+  const clock = deliveryPictureClockSchema.safeParse(delivery.picture_clock)
   requirePreflight(clock.success, '当前成片缺少已核实的正文画面时间，声音错位留待核实。')
   const totalUs = deliveryFrameTimeUs(clock.data.total_frames, clock.data.fps)
   requirePreflight(totalUs <= maxUs && clock.data.body_end_us <= totalUs, '成片超出本机预检的画面时钟范围。')
   const master = await requireProjectAudioFile(project, episodePaths(project, input.episode).masterAudio)
-  const hasInput = (path: string, digest: string) => record.input_files?.some(file =>
-    typeof file.path === 'string' && isAbsolute(file.path) && relative(path, file.path) === '' && file.sha256 === digest) ?? false
+  const hasInput = (path: string, digest: string) => inputs.some((file: NonNullable<DeliverySourceRecord['input_files']>[number]) =>
+    typeof file.path === 'string' && isAbsolute(file.path) && relative(path, file.path) === '' && file.sha256 === digest)
   requirePreflight(hasInput(master, delivery.master_audio_sha256), '当前成片未绑定本集正文母轨。')
   const music = delivery.music?.mode
   requirePreflight(music === 'none' || music === 'music',
@@ -110,7 +150,11 @@ export async function preflightContentListening(input: {
     requirePreflight(playback.length === count * 2, '最终成片采样时钟与画面不一致。')
     if (stem !== undefined) {
       const bed = await measureFile(toolkit, stem, scratch[2], count, signal)
-      for (let i = 0; i < bed.length; i++) playback[i] = (playback[i] ?? 0) - (bed[i] ?? 0)
+      for (const [index, value] of playback.entries()) {
+        const musicSample = bed[index]
+        if (musicSample === undefined) break
+        playback[index] = value - musicSample
+      }
     }
     const bodyEnd = sample(clock.data.body_end_us)
     const window = (shot: number, start: number, end: number) => {
@@ -142,7 +186,7 @@ export async function preflightContentListening(input: {
     const issue = (row: ReturnType<typeof window>) => row.status === 'missing_reference_signal' || row.status === 'shifted_reference_signal'
     const issues = findings.filter(issue)
     const tailIssue = subtitleTail !== undefined && issue(subtitleTail)
-    const report = { kind: 'muse_rendered_audio_preflight' as const, version: 1, episode: input.episode,
+    const report = { kind: 'muse_rendered_audio_preflight', version: 1, episode: input.episode,
       status: issues.length === 0 && !tailIssue ? 'needs_review' : 'issues_found', listening_verified: false, grants_approval: false,
       source_sha256: prep.source_sha256, source_record_sha256: prep.source_record_sha256, pcm_sha256: prep.pcm_sha256,
       preparation: prep.receipt_path, comparison: 'body_master_to_rendered_playback', expected_body_end_us: clock.data.body_end_us,
@@ -152,7 +196,7 @@ export async function preflightContentListening(input: {
       ...(subtitleTail === undefined ? {} : { final_subtitle_following_signal: subtitleTail, final_subtitle_signal_issue: tailIssue }),
       limitations: ['声学匹配只证明绑定母轨信号保留，不能证明台词、发音、角色、口型或字幕覆盖。',
         '正文之外的片尾音、未写入母轨的原源片内容，以及不明确的弱声窗仍须核验。'],
-      receipt_path: receipt }
+      receipt_path: receipt } satisfies Omit<ContentListeningPreflight, 'findings'>
     await writeFile(receipt, `${JSON.stringify({ ...report, windows }, null, 2)}\n`, { flag: 'wx', mode: 0o600, signal })
     return { ...report, findings: [...issues, ...findings.filter(row => row.status.startsWith('uncertain'))].slice(0, 24) }
   } finally {

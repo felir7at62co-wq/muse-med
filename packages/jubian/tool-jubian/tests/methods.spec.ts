@@ -1025,6 +1025,25 @@ describe('jubian_video', () => {
     expect(calls).toEqual([])
   })
 
+  it.each([
+    { reason: 'an unreported total', reported: undefined, secondPage: false },
+    { reason: 'an early empty page', reported: 3, secondPage: true },
+    { reason: 'the configured result cap', reported: 3, secondPage: true, nextMatch: true },
+  ])('retains proven matches and stops an exact parent scan at $reason', async ({ reported, secondPage, nextMatch }) => {
+    const first = { id: 42, scriptId: 2708, episodeId: 201, taskType: 20, parentResultId: 71 }
+    const { client, calls } = stubClient(({ path }) => {
+      const page = new URL(path).searchParams.get('pageNum')
+      return { total: reported, rows: page === '1' ? [first] : nextMatch ? [{ ...first, id: 43 }] : [] }
+    })
+    const result = await videoMethod(client, ledger, { method: 'tasks', script_id: 2708, task_type: 20,
+      parent_result_id: 71, page_size: 1 }, { videoSources: { pageLimit: 5, resultLimit: 1,
+      pageSize: 1, taskLimit: 1, maxResultChars: 2048 } })
+    expect(result).toMatchObject({ tasks: { rows: [{ task_id: 42, parent_result_id: 71 }], returned: 1, total: 1,
+      total_verified: false, complete: false, project_complete: false, pages_read: secondPage ? 2 : 1 } })
+    expect(calls.map(call => call.method)).toEqual(secondPage ? ['GET', 'GET'] : ['GET'])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it('rejects a missing episode identity and unknown retry statuses before a remote write', async () => {
     const { client, calls } = stubClient(request => request.path.includes('sub/list')
       ? { rows: [{ id: 99, duration: 8, resultList: [{ tosVideoUrl: 'https://media.example/source.mp4' }] }] }

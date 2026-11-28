@@ -9,6 +9,7 @@ import type { AudioRunnerConfig } from './runner.ts'
 
 /** Trusted host assets and minimum separation for the pilot comparison. */
 export interface PronunciationConfig extends OfflineSpeechConfig {
+  /** Minimum score separation required for consistent pinyin windows, from 8 to 50. Defaults to 8. */
   readonly minimumMargin?: number
 }
 
@@ -65,6 +66,7 @@ const number = { type: 'number', required: true } as const
 const string = { type: 'string', required: true } as const
 const windowProperties = { start: number, end: number } as const
 
+/** Tool input schema for one target syllable and overlapping source windows. */
 export const pronunciationParameter = { type: 'object', additionalProperties: false,
   description: '仅供 pronunciation。给出完整普通话短句拼音、目标字位置和同一句的 2–3 个重叠时间窗。',
   properties: {
@@ -75,6 +77,7 @@ export const pronunciationParameter = { type: 'object', additionalProperties: fa
       description: '同一句的 2–3 个不同范围，使用原文件秒数，每个 0.7–8 秒。' },
   } } as const
 
+/** Tool result schema for advisory pronunciation evidence. */
 export const pronunciationResult = { type: 'object', additionalProperties: false, properties: {
   offline_pronunciation: { type: 'object', required: true, additionalProperties: false, properties: {
     version: { ...number, enum: [1] }, status: { ...string, enum: statuses }, project: string,
@@ -90,7 +93,12 @@ export const pronunciationResult = { type: 'object', additionalProperties: false
   } },
 } } as const
 
-/** Require multiple distinct views of the same phrase and a target with both neighbors. */
+/**
+ * Require multiple distinct views of the same phrase and a target with both neighbors.
+ * @param request - Pinyin tokens, alternative reading and source windows.
+ * @param maxSeconds - Maximum accepted end time on the source clock.
+ * @returns Expected pinyin syllable at the target index.
+ */
 export function validatePronunciationRequest(request: PronunciationRequest, maxSeconds: number): string {
   const { tokens, target_index, alternative, windows } = request
   const expected = tokens[target_index]
@@ -125,7 +133,14 @@ function parseEngine(data: unknown, duration: number, expected: string, alternat
   return { anchor: data.anchor, frame: data.frame, margin: data.margin }
 }
 
-/** Use the pilot margin only when two greedy phrase matches agree on the target sound and time. */
+/**
+ * Report a reading only when at least two windows agree on the target sound and time.
+ * @param windows - Observations and score differences on the same source clock.
+ * @param expected - Expected pinyin syllable.
+ * @param alternative - Pinyin syllable being checked against the expected reading.
+ * @param minimumMargin - Minimum separation between competing token scores.
+ * @returns Matching, suspected mismatch or uncertain status.
+ */
 export function pronunciationStatus(windows: readonly Pick<WindowResult, 'observed' | 'target_seconds' | 'alternative_minus_expected'>[],
   expected: string, alternative: string, minimumMargin: number): Status {
   const observed = new Set(windows.map(window => window.observed).filter(Boolean))
@@ -143,7 +158,17 @@ export function pronunciationStatus(windows: readonly Pick<WindowResult, 'observ
   return candidate === alternative ? 'suspected_mismatch' : 'matching_in_windows'
 }
 
-/** Inspect one registered local source. The output carries advisory evidence without changing media. */
+/**
+ * Inspect one registered local source without changing the media.
+ * @param workspace - Selected workspace root containing the project.
+ * @param projectPath - Project directory containing the source.
+ * @param input - Media path within the project.
+ * @param request - Expected phrase, alternative pronunciation and source windows.
+ * @param config - FFmpeg configuration and processing limits.
+ * @param runtime - Deployment-provisioned engine, model and scoring margin.
+ * @param signal - Cancels local media reads and processes.
+ * @returns Advisory comparison bound to the source and decoded audio digests.
+ */
 export async function inspectPronunciation(workspace: string, projectPath: string, input: string, request: PronunciationRequest,
   config: AudioRunnerConfig, runtime: PronunciationConfig, signal: AbortSignal): Promise<OfflinePronunciationResult> {
   signal.throwIfAborted()

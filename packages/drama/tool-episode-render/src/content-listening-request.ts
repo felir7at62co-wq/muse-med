@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto'
 import { mkdtemp, open, rm, rmdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, isAbsolute, join, relative } from 'node:path'
-import { audioReviewWavDuration, HarnessError } from '@deepseek-ai/dsh-llm'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { ShotScriptVoiceParser } from '@deepseek-ai/dsh-tool-shot-script'
+import { pcmWavDuration } from '@deepseek-ai/dsh-util-values'
 import { z } from 'zod'
 import { requireProjectAudioFile } from './audio.ts'
 import { fileSha256 } from './cache.ts'
@@ -132,6 +134,7 @@ export async function buildContentListeningRequest(input: {
   readonly authoredDialoguePath: string
   readonly mode?: 'blind_dialogue'
   readonly voiceContext?: ContentListeningVoiceContext
+  readonly parseVoiceScript?: ShotScriptVoiceParser
   readonly signal?: AbortSignal
 }): Promise<{
   wav: Uint8Array
@@ -176,26 +179,34 @@ export async function buildContentListeningRequest(input: {
     if (record.delivery_inputs.subtitle_sha256 !== subtitleSha256) {
       throw invalid('字幕与本次成片实际烧录版本不符。请选用渲染结果返回的显示字幕。')
     }
-    const recordedAuthored = record.input_files?.find(file => isAbsolute(file.path) && relative(authoredPath, file.path) === '')
-    if (recordedAuthored?.sha256 !== authoredDialogueSha256) {
+    const renderedInputs = record.input_files
+    const recordedAuthored = renderedInputs?.find(file => isAbsolute(file.path) && relative(authoredPath, file.path) === '')
+    if (renderedInputs === undefined || recordedAuthored?.sha256 !== authoredDialogueSha256) {
       throw invalid('原稿对白计划与成片回执中的版本不符。请选用本次渲染使用的原稿。')
     }
     const plan = authoredDialogue.parse(JSON.parse(authoredBytes.toString('utf8').replace(/^\uFEFF/u, '')))
     const renderedShots = record.delivery_inputs.videos.map(({ shot }) => shot)
-    const shots = new Set(renderedShots)
-    if (shots.size !== record.delivery_inputs.videos.length || shots.size !== plan.shots.length
-      || plan.shots.some(({ shot }) => !shots.delete(shot))) {
+    const remainingLines = new Map(plan.shots.map(({ shot, lines }) => [shot, lines]))
+    const hasDuplicateShots = remainingLines.size !== plan.shots.length
+    const orderedLines = renderedShots.map((shot) => {
+      const lines = remainingLines.get(shot)
+      remainingLines.delete(shot)
+      return lines
+    })
+    if (hasDuplicateShots || remainingLines.size !== 0 || !orderedLines.every(lines => lines !== undefined)) {
       throw invalid('原稿对白计划须为当集每个实际选片提供一个镜号。静默镜头的 lines 填空数组。')
     }
-    const linesByShot = blind ? new Map(plan.shots.map(({ shot, lines }) => [shot, lines])) : undefined
-    const blindLines = linesByShot === undefined ? undefined
-      : record.delivery_inputs.videos.flatMap(({ shot }) => linesByShot.get(shot) ?? [])
+    const blindLines = blind ? orderedLines.flat() : undefined
     if (blindLines !== undefined) validateBlindAuthoredDialogue(blindLines)
-    const voice = input.voiceContext === undefined ? undefined : await resolveContentListeningVoices({
-      project, episode: input.episode, context: input.voiceContext, authored: plan.shots, renderedShots,
-      authoredPath, authoredSha256: authoredDialogueSha256, renderedInputs: record.input_files ?? [],
-      read: (path, limit) => readBounded(path, limit, signal),
-    })
+    let voice: Awaited<ReturnType<typeof resolveContentListeningVoices>> | undefined
+    if (input.voiceContext !== undefined) {
+      if (input.parseVoiceScript === undefined) throw invalid('角色声线听校需要已加载的原分镜解析服务。')
+      voice = await resolveContentListeningVoices({
+        project, episode: input.episode, context: input.voiceContext, authored: plan.shots, renderedShots,
+        authoredPath, authoredSha256: authoredDialogueSha256, renderedInputs,
+        parseVoiceScript: input.parseVoiceScript, read: (path, limit) => readBounded(path, limit, signal),
+      })
+    }
     const grouped = voice?.evidence.clip_mapping !== undefined
     const authoredReference = grouped ? { ...plan, shots: [...plan.shots].sort((left, right) => left.shot - right.shot) } : plan
     const cues = parseSrtDocument(subtitleBytes.toString('utf8'), subtitlePath).map(cue => ({
@@ -243,7 +254,7 @@ export async function buildContentListeningRequest(input: {
     }
     const referenceBytes = voice?.wav.reduce((sum, wav) => sum + wav.byteLength, 0) ?? 0
     const converted = await providerWav(input.toolkit, sourceWav, preparation, MAX_AUDIO_BYTES - referenceBytes, signal)
-    if (voice !== undefined && audioReviewWavDuration(converted.wav) !== converted.sampleCount / converted.sampleRate) {
+    if (voice !== undefined && pcmWavDuration(converted.wav) !== converted.sampleCount / converted.sampleRate) {
       throw invalid('整集试听轨不是当前完整、可发送的 PCM WAV。')
     }
     const retained = [[output, preparation.source_sha256], [wavPath, preparation.wav_sha256],

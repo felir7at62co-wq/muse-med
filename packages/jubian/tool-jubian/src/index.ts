@@ -33,7 +33,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, jubianHistoryReadOnly,
+import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger,
   readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
@@ -762,7 +762,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       throw new Error('Managed character-reference use is not configured in this Host.')
     }
     const store = qaCharacterReferenceStore ?? await privateCharacterReferenceStore()
-    return createCharacterReferenceQaBridge({ authority, store,
+    return createCharacterReferenceQaBridge({ authority, store, client,
       ...(qaCharacterReferenceStore === undefined ? { ownerIdentity: projectPrivateOwnerIdentity } : {}) })
   }
   const registerJubianTool = (definition: ToolDefinition): (() => void) => {
@@ -1347,7 +1347,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     output: storyboardOutput(generationBindings),
     execute: async (args, exec) => {
       requireArguments('jubian_storyboard', args)
-      const historyReadOnly = jubianHistoryReadOnly()
+      const historyReadOnly = client.isHistoryReadOnly()
       if (!historyReadOnly && config.sessionVideoSelection && ['prepare_video', 'generate', 'submit_video', 'submit_video_batch'].includes(args.method)) {
         if (!exec.agent) throw new Error('Video generation requires a conversation-owned model selection')
         const service = ctx.get('jubianVideoSelection')

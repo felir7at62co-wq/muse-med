@@ -7,6 +7,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createFileCaptureChannel, createMediaToolkit } from './ffmpeg.ts'
 import { patchLocalDialogue } from './local-dialogue-patch.ts'
 import { measuredPronunciationCovers, type OfflinePronunciationEvidence, type OfflinePronunciationVerifier } from './offline-pronunciation-evidence.ts'
+import { jsonEvidenceOutput } from './tool-json-output.ts'
 import type { RenderSettings } from './types.ts'
 
 function samePath(left: string, right: string): boolean {
@@ -34,11 +35,7 @@ export function registerLocalDialoguePatchTool(scope: Context, settings: RenderS
       donor_start_ms: { type: 'integer', required: true, description: '供体片对应词音的起点，毫秒。' },
       duration_ms: { type: 'integer', required: true, description: '两份时间窗相同的长度，80–600 毫秒，不能拉伸。' },
     },
-    output: {
-      schema: { type: 'object', additionalProperties: true }, preserveBodyMeta: true,
-      presentationMeta: (_args, result) => result,
-      render: (_args, result) => [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-    },
+    output: jsonEvidenceOutput,
     execute: async ({ project, episode, target_evidence_id, donor_evidence_id, target_start_ms, donor_start_ms, duration_ms }, exec) => {
       const session = exec.agent?.session
       if (session === undefined || session.header.origin === 'subagent') throw new Error('请在持有本机读音记录的普通 Muse 会话制作修音候选。')

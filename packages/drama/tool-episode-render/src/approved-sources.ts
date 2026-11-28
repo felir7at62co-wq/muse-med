@@ -89,13 +89,12 @@ function localPatchPending(label: string): HarnessError {
 }
 
 async function verifyDialoguePatchFiles(paths: EpisodePaths, review: Record<string, unknown>, row: ShotSource,
-  plan: Record<string, unknown> | undefined, videoSha256: string, audioSha256: string | undefined, label: string,
+  plan: Record<string, unknown> | undefined, tasks: readonly unknown[], videoSha256: string, audioSha256: string | undefined, label: string,
   capture: (path: string, sha256: string) => void, staged?: SourceQaStagedAccess,
 ): Promise<LocalDialoguePatchSourceBinding> {
   const declaration = approvedDialoguePatchSchema.safeParse(review.local_dialogue_patch)
   const project = paths.project
-  const tasks: readonly unknown[] = Array.isArray(plan?.video_tasks) ? plan.video_tasks : []
-  const task = row.package === undefined ? undefined : tasks[row.package - 1]
+  const task = tasks[Number(row.package) - 1]
   if (!declaration.success || staged !== undefined || !positiveId(plan?.script_id) || !positiveId(plan.episode_id)
     || !record(task) || task.index !== row.package || !positiveId(task.storyboard_id) || review.storyboard_id !== task.storyboard_id
     || review.subtitle_cleanup !== 'not_required' || review.original_download_receipt_path !== undefined
@@ -270,6 +269,7 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
   }
   let packageSha256: string | undefined
   let plan: Record<string, unknown> | undefined
+  let videoTasks: readonly unknown[] = []
   let packageCount = 0
   if (approvedPackages.length > 0 || (delivering && reviews.size > 0)) {
     const file = resolve(paths.project, 'episode_packages', paths.episode, 'package.json')
@@ -282,6 +282,7 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
       throw new Error(`EP${paths.episode} 编译分包清单的集号或包内容无效。`)
     }
     packageCount = tasks.length
+    videoTasks = tasks
     packageSha256 = digest(bytes)
     const selected = new Set(rows.map(row => row.package))
     if (rows.some(row => row.package === undefined || row.package > packageCount)
@@ -341,7 +342,8 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
         contentFiles.set(path, sha256)
       }
       const verifyPatch = patchDeclared
-        ? () => verifyDialoguePatchFiles(paths, review, row, plan, videoSha256, audioSha256, label, capture, staged) : undefined
+        ? () => verifyDialoguePatchFiles(paths, review, row, plan, videoTasks, videoSha256, audioSha256, label, capture, staged)
+        : undefined
       const verifyClip = review.local_clip_repair !== undefined
         ? () => verifyLocalClipFiles(paths, review, row, videoSha256, audioSha256, label, capture, staged) : undefined
       const processing = await verifyContentEvidence(paths.project, review, row, videoSha256, audioSha256, label, capture, staged,

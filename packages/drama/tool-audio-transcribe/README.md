@@ -84,11 +84,7 @@ The [tool catalog](../../../docs/tool-catalog.md#deepseek-aidsh-tool-audio-trans
 
 #### Token effect
 
-Deployments that enable `pronunciation` add one method and its phrase and window fields to the tool schema. A local result contributes up to three measured windows and provenance without audio bytes.
-
-Deployments that enable `offline` add that method and its receipt fields. The tool returns the receipt and transcript path with provenance; the timed words stay in the local transcript file.
-
-The optional purpose enum, the `inputs` parameter, and one description sentence about batches add a bounded request cost. Each result adds a short status, its receipt-bound purpose when present, and local paths; completed readback adds fixed-size speaker counts and an advisory, while a queue refusal or deadline adds one explanatory sentence. A batch returns a status label and result per processed file, the untouched paths in `not_started`, and one shared polling note, bounded by `maxBatchInputs`. Result typing that shows the batch branch, such as a PTC prompt, lists the result fields a second time inside `items`.
+The optional purpose enum, the `inputs` parameter, and one description sentence about batches add a bounded request cost. Each result adds a short status, its receipt-bound purpose when present, and local paths. Completed readback adds fixed-size speaker counts and an advisory. A queue refusal or deadline adds one explanatory sentence. A batch returns a status label and result per processed file, the untouched paths in `not_started`, and one shared polling note, bounded by `maxBatchInputs`. Result typing that shows the batch branch, such as a PTC prompt, lists the result fields a second time inside `items`. Enabling `pronunciation` adds phrase and window fields to the tool schema. A local result includes the source digest and up to three measured windows. Enabling `offline` adds receipt fields. Results record receipt and transcript paths, and the timed words stay in the local transcript file.
 
 #### KV Cache effect
 

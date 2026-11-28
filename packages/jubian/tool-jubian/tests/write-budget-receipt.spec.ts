@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
@@ -33,7 +34,7 @@ it.each(['accepted', 'unknown'] as const)
     scriptId: 6611, requestSha256: 'pending', quotedAmount: '6.00', quoteUnit: 'CNY' })
   send.mockResolvedValue({ transport: { http_status: 200, application_code: outcome === 'accepted' ? 200 : 500 },
     response_sha256: null, data: { code: outcome === 'accepted' ? 200 : 500 } })
-  const result = await writeUnderLedger(ledger, 'current', 'storyboard_native_submit',
+  const result = await writeUnderLedger(fixtureHistoryClient(), ledger, 'current', 'storyboard_native_submit',
     () => ({ isGenerate: 1 }), send, () => ({ scriptId: 6611, amount: '13.36', unit: 'CNY' }))
   expect(result).toMatchObject({ replayed: false, outcome, budget: {
     status: 'authorized', reason: '',
@@ -58,7 +59,7 @@ it.each(['accepted', 'unknown', undefined] as const)
   const before = await ledger.records()
   const body = vi.fn(() => ({ isGenerate: 1 }))
   const quote = vi.fn(() => ({ scriptId: 6611, amount: '999.99', unit: 'CNY' }))
-  const result = await writeUnderLedger(ledger, 'original', 'storyboard_native_submit', body, send, quote)
+  const result = await writeUnderLedger(fixtureHistoryClient(), ledger, 'original', 'storyboard_native_submit', body, send, quote)
   expect(result).toMatchObject({ replayed: true, outcome: outcome ?? 'unknown', budget: {
     status: 'not_rechecked', reason: '', project_accounting: null,
     this_submission: { reservation: { status: 'recorded', amount: '13.36', unit: 'CNY', basis: 'quote_or_estimate' },
@@ -74,7 +75,7 @@ it.each(['accepted', undefined] as const)
 ('replays a competing claim using that recorded reservation without sending again: %s', async (outcome) => {
   const { ledger, send } = await fixture(0)
   const payload = { isGenerate: 1 }
-  const result = await writeUnderLedger(ledger, 'competing', 'storyboard_native_submit', async () => {
+  const result = await writeUnderLedger(fixtureHistoryClient(), ledger, 'competing', 'storyboard_native_submit', async () => {
     await record(ledger, { idempotencyKey: 'competing', method: 'storyboard_native_submit',
       scriptId: 6611, requestSha256: bodyHash(payload), quotedAmount: '2.25', quoteUnit: 'CNY' }, outcome)
     return payload
@@ -92,7 +93,7 @@ it.each([{}, { quotedAmount: '13.36' }, { quoteUnit: 'CNY' }])
   const { ledger, send } = await fixture()
   await record(ledger, { idempotencyKey: 'legacy', method: 'storyboard_native_submit',
     scriptId: 6611, requestSha256: 'legacy', ...quote }, 'accepted')
-  const result = await writeUnderLedger(ledger, 'legacy', 'storyboard_native_submit', () => ({}), send)
+  const result = await writeUnderLedger(fixtureHistoryClient(), ledger, 'legacy', 'storyboard_native_submit', () => ({}), send)
   expect(result.budget).toEqual({ status: 'not_rechecked', reason: '', project_accounting: null,
     this_submission: { reservation: { status: 'unavailable' }, provider_billing: 'not_observed' } })
   expect(send).not.toHaveBeenCalled()
@@ -100,17 +101,17 @@ it.each([{}, { quotedAmount: '13.36' }, { quoteUnit: 'CNY' }])
 
 it('reports no reservation requirement for a nonpaid write and its replay without implying a zero bill', async () => {
   const { ledger, send } = await fixture(0)
-  const result = await writeUnderLedger(ledger, 'save', 'storyboard_save', () => ({ name: 'ready' }), send)
+  const result = await writeUnderLedger(fixtureHistoryClient(), ledger, 'save', 'storyboard_save', () => ({ name: 'ready' }), send)
   expect(result.budget).toEqual({ status: 'authorized', reason: '', project_accounting: null,
     this_submission: { reservation: { status: 'not_required' }, provider_billing: 'not_observed' } })
-  const replay = await writeUnderLedger(ledger, 'save', 'storyboard_save', () => ({ name: 'ready' }), send)
+  const replay = await writeUnderLedger(fixtureHistoryClient(), ledger, 'save', 'storyboard_save', () => ({ name: 'ready' }), send)
   expect(replay.budget).toEqual({ ...result.budget, status: 'not_rechecked' })
   expect(send).toHaveBeenCalledOnce()
 })
 
 it('retains a verified zero reservation without reporting a provider bill or an unobserved project total', async () => {
   const { ledger, send } = await fixture(0)
-  const result = await writeUnderLedger(ledger, 'free', 'erase_subtitle', () => ({ taskId: 42 }), send,
+  const result = await writeUnderLedger(fixtureHistoryClient(), ledger, 'free', 'erase_subtitle', () => ({ taskId: 42 }), send,
     () => ({ scriptId: 6611, amount: '0.00', unit: 'CNY', verifiedFreeSubtitleErase: true }))
   expect(result.budget).toEqual({ status: 'authorized', reason: '', project_accounting: null,
     this_submission: { reservation: { status: 'recorded', amount: '0.00', unit: 'CNY', basis: 'quote_or_estimate' },
@@ -123,7 +124,7 @@ it.each([{ limitCents: 100, quote: { amount: '13.36', unit: 'CNY' } },
   { limitCents: 400_000, quote: undefined }])
 ('preserves budget refusal before writing or sending with %j', async ({ limitCents, quote }) => {
   const { ledger, send } = await fixture(limitCents)
-  await expect(writeUnderLedger(ledger, 'refused', 'storyboard_native_submit', () => ({ isGenerate: 1 }), send,
+  await expect(writeUnderLedger(fixtureHistoryClient(), ledger, 'refused', 'storyboard_native_submit', () => ({ isGenerate: 1 }), send,
     () => ({ scriptId: 6611, ...quote })))
     .rejects.toMatchObject({ name: 'JubianError', code: 'BUDGET_EXCEEDED' })
   expect(send).not.toHaveBeenCalled()

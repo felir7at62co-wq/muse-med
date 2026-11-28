@@ -50,12 +50,12 @@ import { fitSubtitleCues } from './subtitle-fit.ts'
 import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitleDisplayWarnings } from './subtitles.ts'
 import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
 import type { SourceQaEvidenceBinding, SourceQaVerifier } from './source-qa.ts'
-import { createContentReviewVerifier, type ContentReviewVerifier } from './content-review.ts'
+import { createContentReviewVerifier, unattendedReviewMode, type ContentReviewVerifier } from './content-review.ts'
 import { registerLocalDialoguePatchTool } from './local-dialogue-patch-tool.ts'
 import { registerLocalClipTool } from './local-clip-tool.ts'
 import { createLocalClipRepairVerifier } from './local-clip-evidence.ts'
 import { registerContentListeningTool } from './content-listening-tool.ts'
-import { createOfflinePronunciationVerifier } from './offline-pronunciation-evidence.ts'
+import { createOfflinePronunciationVerifier, type OfflinePronunciationVerifier } from './offline-pronunciation-evidence.ts'
 import { createLocalDialogueSourceVerifier, type LocalDialogueSourceVerifier } from './local-dialogue-patch-origin.ts'
 import { installOfflineWordEvidence, type OfflineWordReceiptVerifier } from './offline-word-evidence.ts'
 
@@ -1152,17 +1152,24 @@ export function apply(ctx: Context, config: Config = {}): void {
     const verify = await createVideoSourceQaVerifier(scope)
     const contentReview = await createContentReviewVerifier(scope)
     const offlineWords = await installOfflineWordEvidence(scope)
-    const pronunciation = config.enableLocalDialoguePatch === true ? await createOfflinePronunciationVerifier(scope) : undefined
-    const verifyDialogue = pronunciation === undefined ? undefined : await createLocalDialogueSourceVerifier(scope, pronunciation)
+    let dialogue: {
+      pronunciation: OfflinePronunciationVerifier
+      verify: LocalDialogueSourceVerifier
+    } | undefined
+    if (config.enableLocalDialoguePatch === true) {
+      const pronunciation = await createOfflinePronunciationVerifier(scope)
+      dialogue = { pronunciation, verify: await createLocalDialogueSourceVerifier(scope, pronunciation) }
+    }
     const verifyLocalClip = config.enableLocalClipRepair === true ? await createLocalClipRepairVerifier(scope) : undefined
     scope.fiber.assertActive()
     if (verifyLocalClip !== undefined) registerLocalClipTool(scope, settings)
-    if (pronunciation !== undefined) registerLocalDialoguePatchTool(scope, settings, pronunciation)
+    if (dialogue !== undefined) registerLocalDialoguePatchTool(scope, settings, dialogue.pronunciation)
     if (config.enableContentListeningReview === true) registerContentListeningTool(scope, settings)
     scope.effect(() => {
       const owner = new AbortController()
       const binding = { verify, contentReview, offlineWords, signal: owner.signal,
-        ...(verifyDialogue === undefined ? {} : { verifyDialogue }), ...(verifyLocalClip === undefined ? {} : { verifyLocalClip }) }
+        ...(dialogue === undefined ? {} : { verifyDialogue: dialogue.verify }),
+        ...(verifyLocalClip === undefined ? {} : { verifyLocalClip }) }
       sourceQaScope = binding
       return () => {
         owner.abort(Error('SOURCE_QA_HOST_UNAVAILABLE: 源片复验服务已卸载。'))
@@ -1287,7 +1294,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...(last_shot === undefined ? {} : { lastShot: last_shot }),
         ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
         ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),
-      }, settings, async (binding) => {
+      }, unattendedReviewMode(ctx) ? { ...settings, unattendedReview: true } : settings, async (binding) => {
         const scope = sourceQaScope
         if (scope === undefined) throw Error('SOURCE_QA_HOST_UNAVAILABLE: 当前会话缺少源片复验服务，请恢复文件、沙箱策略和会话审看服务后重试。')
         const signal = AbortSignal.any([exec.signal, scope.signal])

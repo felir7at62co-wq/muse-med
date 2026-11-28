@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -153,7 +154,7 @@ describe('character-reference isolated QA bridge', () => {
   it('authorizes an exact pre-dispatch abort and reconciles an accepted result after the QA claim', async () => {
     const store = await opened()
     const authority: CharacterReferenceAuthority = { read: async () => authoritative() }
-    const bridge = createCharacterReferenceQaBridge({
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(),
       authority,
       store,
       upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }),
@@ -287,7 +288,7 @@ describe('character-reference isolated QA bridge', () => {
       reencoded: false,
       sha256: `sha256:${IMAGE_SHA}`,
     }))
-    const bridge = createCharacterReferenceQaBridge({ authority, store, upload, now: clock() })
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), authority, store, upload, now: clock() })
     const untrusted = { ...request(), image_path: 'C:/private/forged.png', materialUrl: 'https://evil.invalid/image.png' }
 
     const result = await bridge.upload(session, untrusted)
@@ -341,7 +342,7 @@ describe('character-reference isolated QA bridge', () => {
       }
       const authority: CharacterReferenceAuthority = { read: async () => item.reference ?? authoritative() }
       const upload = vi.fn(async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }))
-      const bridge = createCharacterReferenceQaBridge({ authority, store, upload, now: clock() })
+      const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), authority, store, upload, now: clock() })
       await expect(bridge.upload(session, request()), item.name).rejects.toThrow()
       expect(upload, item.name).not.toHaveBeenCalled()
       expect(store.listEvents(binding()).some(event => event.type === 'upload_claim'), item.name).toBe(false)
@@ -353,7 +354,7 @@ describe('character-reference isolated QA bridge', () => {
     const store = await opened()
     const authority: CharacterReferenceAuthority = { read: async () => authoritative() }
     const upload = vi.fn(async () => { throw new Error('connection ended after request dispatch') })
-    const bridge = createCharacterReferenceQaBridge({ authority, store, upload, now: clock() })
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), authority, store, upload, now: clock() })
 
     await expect(bridge.upload(session, request())).rejects.toThrow('connection ended')
     expect(store.inspect(binding()).upload.state).toBe('unknown')
@@ -366,7 +367,7 @@ describe('character-reference isolated QA bridge', () => {
     const store = await opened()
     let current = authoritative()
     const authority: CharacterReferenceAuthority = { read: async () => current }
-    const bridge = createCharacterReferenceQaBridge({
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(),
       authority,
       store,
       upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }),
@@ -389,7 +390,7 @@ describe('character-reference isolated QA bridge', () => {
   it('records an unknown paid outcome and blocks every later key without another provider send', async () => {
     const store = await opened()
     const authority: CharacterReferenceAuthority = { read: async () => authoritative() }
-    const bridge = createCharacterReferenceQaBridge({
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(),
       authority,
       store,
       upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }),
@@ -418,7 +419,7 @@ describe('character-reference isolated QA bridge', () => {
   it('settles a claimed generation from the same-key accepted ledger replay', async () => {
     const store = await opened()
     const authority: CharacterReferenceAuthority = { read: async () => authoritative() }
-    const bridge = createCharacterReferenceQaBridge({
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(),
       authority,
       store,
       upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }),
@@ -451,7 +452,7 @@ describe('character-reference isolated QA bridge', () => {
   it('preserves unknown generation evidence instead of upgrading it from an accepted replay', async () => {
     const store = await opened()
     const authority: CharacterReferenceAuthority = { read: async () => authoritative() }
-    const bridge = createCharacterReferenceQaBridge({
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(),
       authority,
       store,
       upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }),
@@ -479,7 +480,7 @@ describe('character-reference isolated QA bridge', () => {
   it('preserves a failed default upload as unknown and blocks another send', async () => {
     const store = await opened()
     const fetcher = vi.fn<typeof fetch>(async () => { throw new Error('offline') })
-    const bridge = createCharacterReferenceQaBridge({ store,
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store,
       authority: { read: async () => authoritative() }, referenceUploadDeps: { fetch: fetcher } })
     await expect(bridge.upload(session, request())).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
     expect(store.inspect(binding()).upload.state).toBe('unknown')
@@ -497,7 +498,9 @@ describe('character-reference isolated QA bridge', () => {
     ]) {
       const store = await opened()
       const upload = vi.fn(async () => receipt)
-      const bridge = createCharacterReferenceQaBridge({ store, authority: { read: async () => authoritative() }, upload })
+      const bridge = createCharacterReferenceQaBridge({
+        client: fixtureHistoryClient(), store, authority: { read: async () => authoritative() }, upload,
+      })
       await expect(bridge.upload(session, request())).rejects.toThrow('preserve')
       expect(store.inspect(binding()).upload.state).toBe('unknown')
       await expect(bridge.upload(session, request())).rejects.toThrow('reconciled')
@@ -508,10 +511,10 @@ describe('character-reference isolated QA bridge', () => {
     const data = PNG.slice()
     new DataView(data.buffer).setUint32(16, 1023)
     const upload = vi.fn()
-    const unaligned = createCharacterReferenceQaBridge({ store,
+    const unaligned = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store,
       authority: { read: async () => authoritative({ data }) }, upload })
     await expect(unaligned.upload(session, request())).rejects.toThrow('aligned image dimensions')
-    const invalidClock = createCharacterReferenceQaBridge({ store,
+    const invalidClock = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store,
       authority: { read: async () => authoritative() }, upload, now: () => new Date(NaN) })
     await expect(invalidClock.upload(session, request())).rejects.toThrow('valid clock')
     expect(upload).not.toHaveBeenCalled()
@@ -526,11 +529,11 @@ describe('character-reference isolated QA bridge', () => {
     const upload = vi.fn(async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }))
     const authority = { read: async () => authoritative() }
     for (const ownerIdentity of [undefined, async () => 'someone-else']) {
-      const bridge = createCharacterReferenceQaBridge({ store, authority, upload,
+      const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store, authority, upload,
         ...(ownerIdentity === undefined ? {} : { ownerIdentity }) })
       await expect(bridge.upload(session, request())).rejects.toThrow('another Muse account')
     }
-    const bridge = createCharacterReferenceQaBridge({ store, authority, upload,
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store, authority, upload,
       ownerIdentity: async () => value.actorId })
     const first = await bridge.upload(session, request())
     expect(await bridge.upload(session, request())).toEqual(first)
@@ -555,7 +558,7 @@ describe('character-reference isolated QA bridge', () => {
     const upload = vi.fn(async () => ({ materialUrl: MATERIAL_URI, reencoded: false,
       sha256: `sha256:${createHash('sha256').update(normalized).digest('hex')}` }))
     const authority = { read: vi.fn(async () => authoritative({ data, imageSha256: value.imageSha256 })) }
-    const bridge = createCharacterReferenceQaBridge({ store, authority, upload,
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store, authority, upload,
       ownerIdentity: async () => value.actorId, referenceUploadDeps: { scaleImage } })
     const input = { ...request(), imageSha256: value.imageSha256 }
     const result = await bridge.upload(session, input)
@@ -596,7 +599,7 @@ describe('character-reference isolated QA bridge', () => {
         return pngSize(656, 656)
       })
       const upload = vi.fn()
-      const bridge = createCharacterReferenceQaBridge({ store,
+      const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store,
         authority: { read: async () => authoritative({ data, imageSha256: value.imageSha256 }) },
         upload, ownerIdentity: async () => owner, referenceUploadDeps: { scaleImage } })
       const expected = mode === 'wrong-size' || mode === 'wrong-format'
@@ -619,7 +622,7 @@ describe('character-reference isolated QA bridge', () => {
     const directory = await mkdtemp(join(tmpdir(), 'private-reference-no-ffmpeg-'))
     dirs.push(directory)
     const upload = vi.fn()
-    const bridge = createCharacterReferenceQaBridge({ store,
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store,
       authority: { read: async () => authoritative({ data, imageSha256: value.imageSha256 }) },
       upload, ownerIdentity: async () => value.actorId,
       referenceUploadDeps: { ffmpegPath: join(directory, 'uninstalled-ffmpeg') } })
@@ -637,7 +640,7 @@ describe('character-reference isolated QA bridge', () => {
     const scaleImage = vi.fn(async () => pngSize(656, 656))
     const upload = vi.fn(async () => ({ materialUrl: MATERIAL_URI, reencoded: false,
       sha256: `sha256:${value.imageSha256}` }))
-    const bridge = createCharacterReferenceQaBridge({ store,
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store,
       authority: { read: async () => authoritative({ data, imageSha256: value.imageSha256 }) },
       upload, ownerIdentity: async () => value.actorId, referenceUploadDeps: { scaleImage } })
     const input = { ...request(), imageSha256: value.imageSha256 }
@@ -650,7 +653,7 @@ describe('character-reference isolated QA bridge', () => {
 
   it('preserves the original upload error when recording the unknown outcome also fails', async () => {
     const store = await opened()
-    const bridge = createCharacterReferenceQaBridge({ store,
+    const bridge = createCharacterReferenceQaBridge({ client: fixtureHistoryClient(), store,
       authority: { read: async () => authoritative() },
       upload: async () => { store.close(); throw new Error('provider transport failed') } })
     await expect(bridge.upload(session, request())).rejects.toThrow('provider transport failed')
@@ -658,7 +661,8 @@ describe('character-reference isolated QA bridge', () => {
 
   it('requires a claim once, prevents repeated terminal evidence and rejects stale replay identities', async () => {
     const store = await opened()
-    const bridge = createCharacterReferenceQaBridge({ store, authority: { read: async () => authoritative() },
+    const bridge = createCharacterReferenceQaBridge({
+      client: fixtureHistoryClient(), store, authority: { read: async () => authoritative() },
       upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }) })
     const uploaded = await bridge.upload(session, request())
     const generation = { ...request(), idempotencyKey: 'generation-fixed', managedReferenceId: uploaded.managed_reference_id }
@@ -680,7 +684,8 @@ describe('character-reference isolated QA bridge', () => {
 
   it('requires trusted recovery evidence and permits an unknown recovery replay only for the same receipt', async () => {
     const store = await opened()
-    const bridge = createCharacterReferenceQaBridge({ store, authority: { read: async () => authoritative() },
+    const bridge = createCharacterReferenceQaBridge({
+      client: fixtureHistoryClient(), store, authority: { read: async () => authoritative() },
       upload: async () => ({ materialUrl: MATERIAL_URI, reencoded: false, sha256: `sha256:${IMAGE_SHA}` }) })
     const uploaded = await bridge.upload(session, request())
     const generation = { ...request(), idempotencyKey: 'generation-fixed', managedReferenceId: uploaded.managed_reference_id }

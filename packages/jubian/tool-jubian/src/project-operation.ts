@@ -249,7 +249,7 @@ async function performProjectOperation(client: JubianClient, ledger: JubianLedge
       intent: structuredClone(input.intent), request, request_sha256: bodyHash(identity(request)), response: null }
     await saveReceipt(path, receipt)
     await saveBinding(bindingPath, input)
-    const result = await writeUnderLedger(ledger, key, input.method, () => identity(request), async () => {
+    const result = await writeUnderLedger(client, ledger, key, input.method, () => identity(request), async () => {
       const response = await client.request({ ...request, ...(prepared.signal === undefined ? {} : { signal: prepared.signal }) })
       receipt.response = { transport: response.transport, response_sha256: response.response_sha256, data: response.data }
       await saveReceipt(path, receipt)

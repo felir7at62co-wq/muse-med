@@ -36,7 +36,12 @@ function pending(message: string, cause?: unknown): HarnessError {
     cause === undefined ? {} : { cause })
 }
 
-/** Read the single zero-based MP4 picture clock for a full-playback check. */
+/**
+ * Read the single zero-based MP4 picture clock for a full-playback check.
+ * @param toolkit - Host media process runner and FFprobe executable.
+ * @param output - Rendered MP4 path to probe.
+ * @returns Duration of the picture stream in microseconds.
+ */
 export async function pictureDurationUs(toolkit: MediaToolkit, output: string): Promise<number> {
   const probe = await toolkit.channel.run(toolkit.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file',
     '-f', 'mov', '-select_streams', 'v', '-show_entries', 'stream=start_time,duration', '-of', 'json', output])

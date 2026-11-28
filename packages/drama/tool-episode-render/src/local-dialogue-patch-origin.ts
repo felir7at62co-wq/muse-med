@@ -79,7 +79,12 @@ function matchesCall(args: z.infer<typeof call>, result: z.infer<typeof receipt>
     && args.duration_ms === result.durationMs && isLocalDialoguePatchOutput(result.project, result.output.path)
 }
 
-/** Register the private native-output projection and bind it to the trusted Jubian source service. */
+/**
+ * Register the private native-output projection and bind it to the trusted Jubian source service.
+ * @param ctx - Host context that owns the session projections and video source service.
+ * @param readPronunciation - Reader for pronunciation evidence issued in the active session.
+ * @returns A verifier for locally repaired dialogue sources.
+ */
 export async function createLocalDialogueSourceVerifier(ctx: Context,
   readPronunciation: OfflinePronunciationVerifier): Promise<LocalDialogueSourceVerifier> {
   const projection = await ctx.sessionProjections.register({ key: 'episodeLocalDialoguePatch', stateVersion: 1, stateSchema,

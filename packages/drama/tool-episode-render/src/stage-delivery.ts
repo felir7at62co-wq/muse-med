@@ -78,6 +78,8 @@ async function localEntry(path: string) {
   }
 }
 
+async function localDigest(path: string, optional?: false): Promise<string>
+async function localDigest(path: string, optional: boolean): Promise<string | null>
 async function localDigest(path: string, optional = false): Promise<string | null> {
   const info = await localEntry(path)
   if (optional && info === undefined) return null
@@ -166,6 +168,28 @@ interface DraftPicturePolicy {
   readonly endingSeconds: number
 }
 
+function draftPictureMismatch(): Error {
+  return new Error('原生剪映草稿与正式成片的画面切点、素材或片尾起点不符。请用本次时间线重新生成配套草稿。')
+}
+
+interface PairedPictureShot {
+  readonly original: TimelineClip
+  readonly rendered: DeliveryRenderInputs['videos'][number]
+}
+
+/**
+ * Bind a picture-clock cut to the same shot in the authored timeline and the native render receipt.
+ * @param shot - Shot on the measured picture clock.
+ * @param original - Timeline clip at the same position.
+ * @param rendered - Bound picture source at the same position.
+ * @returns The matching authored clip and native picture source.
+ */
+export function requirePairedPictureShot(shot: number, original: TimelineClip | undefined,
+  rendered: DeliveryRenderInputs['videos'][number] | undefined): PairedPictureShot {
+  if (original?.shot !== shot || rendered?.shot !== shot) throw draftPictureMismatch()
+  return { original, rendered }
+}
+
 /** Match the saved body and ending ranges to the same cuts and retained source bytes. */
 function draftPictureFiles(input: DraftPicturePolicy & {
   readonly clock: DeliveryPictureClock
@@ -177,7 +201,6 @@ function draftPictureFiles(input: DraftPicturePolicy & {
   readonly mix?: RenderedDraftMix | undefined
 }) {
   const { timeline, native, clock, fps, endingSeconds, retained, episode, draft, render, mix } = input
-  const mismatch = () => new Error('原生剪映草稿与正式成片的画面切点、素材或片尾起点不符。请用本次时间线重新生成配套草稿。')
   const endingFrames = endingSeconds * fps
   const pictureEnd = deliveryFrameTimeUs(clock.total_frames, fps)
   const audioEnd = mix?.duration_us ?? pictureEnd
@@ -185,12 +208,12 @@ function draftPictureFiles(input: DraftPicturePolicy & {
   if (!isDeepStrictEqual(clock, planDeliveryPictureClock(timeline.clips, fps, endingSeconds)) || audioEnd - pictureEnd > 11
     || pictureEnd - audioEnd > Math.ceil(1_000_000 / fps)
     || !object(native) || native.fps !== fps || native.duration !== Math.max(pictureEnd, audioEnd)
-    || !list(native.tracks) || !object(native.materials) || !list(native.materials.videos)) throw mismatch()
+    || !list(native.tracks) || !object(native.materials) || !list(native.materials.videos)) throw draftPictureMismatch()
 
   const namedTracks = native.tracks.filter(track => object(track) && track.type === 'video' && track.name === '视频轨道')
   const track = namedTracks.length === 1 ? namedTracks[0] : undefined
   if (!object(track) || !list(track.segments)
-    || track.segments.length !== clock.clips.length + Number(endingFrames > 0)) throw mismatch()
+    || track.segments.length !== clock.clips.length + Number(endingFrames > 0)) throw draftPictureMismatch()
   const segments = track.segments
   const videos = native.materials.videos
 
@@ -202,7 +225,7 @@ function draftPictureFiles(input: DraftPicturePolicy & {
       && file === `${episode}.timeline.json` && extra.length === 0
   })
   const stageTimeline = stages.length === 1 ? stages[0]?.[0] : undefined
-  if (stageTimeline === undefined) throw mismatch()
+  if (stageTimeline === undefined) throw draftPictureMismatch()
   const stage = dirname(dirname(stageTimeline))
 
   const match = (index: number, start: number, duration: number, sourceLength: number, path: string, type: 'video' | 'photo') => {
@@ -211,21 +234,19 @@ function draftPictureFiles(input: DraftPicturePolicy & {
       || segment.target_timerange.duration !== duration || !object(segment.source_timerange)
       || segment.source_timerange.start !== 0 || segment.source_timerange.duration !== sourceLength
       || segment.speed !== 1 || segment.reverse !== false || segment.visible !== true
-      || typeof segment.material_id !== 'string' || segment.material_id === '') throw mismatch()
+      || typeof segment.material_id !== 'string' || segment.material_id === '') throw draftPictureMismatch()
     const matches = videos.filter(row => object(row) && row.id === segment.material_id)
     const material = matches.length === 1 ? matches[0] : undefined
     const sha256 = retained.get(path)
     if (!object(material) || material.type !== type || typeof material.path !== 'string' || !isAbsolute(material.path)
-      || resolve(material.path) !== path || sha256 === undefined) throw mismatch()
+      || resolve(material.path) !== path || sha256 === undefined) throw draftPictureMismatch()
     return { path, sha256 }
   }
   const files = clock.clips.map((clip, index) => {
-    const original = timeline.clips[index]
-    const rendered = render.videos[index]
-    if (original?.shot !== clip.shot || rendered?.shot !== clip.shot) throw mismatch()
+    const { original, rendered } = requirePairedPictureShot(clip.shot, timeline.clips[index], render.videos[index])
     const selected = match(index, clip.start_us, clip.duration_us, original.durationUs,
       resolve(stage, '02_media', episode, shotFileName(clip.shot)), 'video')
-    if (selected.sha256 !== rendered.sha256) throw mismatch()
+    if (selected.sha256 !== rendered.sha256) throw draftPictureMismatch()
     return selected
   })
   if (endingFrames > 0) {
@@ -305,7 +326,6 @@ async function checkDraft(input: StageDeliveryInput, draft: string, render: Deli
   const { project, episode, output, toolkit } = input
   const path = resolve(draft, DRAFT_SOURCE)
   const sha = await localDigest(path)
-  if (sha === null) throw new Error('找不到剪映草稿来源回执。')
   const source: unknown = JSON.parse(await readBoundText(path, sha))
   if (!object(source) || source.version !== 1 || source.episode !== episode) throw new Error('剪映草稿来源回执集号或版本不符。')
   if (requireSpeech && (source.audio_mode !== 'independent' || source.track_verification !== 'independent-v1')) {
@@ -620,6 +640,7 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
       outputSha256: sha256, duration: verified.media.duration_seconds,
       sources: render.videos.map(row => ({ ...row, duration: Number(clipDurations.get(row.shot)) / 1_000_000 })),
       cuts: timeline.clips.map(clip => clip.startUs / 1_000_000).slice(1),
+      ...(input.settings.unattendedReview === true ? { unattended: true } : {}),
       ...(input.contentReviewVerifier === undefined ? {} : { verifier: input.contentReviewVerifier }) }) : undefined
     const draftFont = draftProof.fontFiles.length === 0 ? undefined : await retainNativeFontSnapshot(draft, draftProof.nativeSha)
     const body = `${JSON.stringify({ version: 1, status: 'candidate', episode, video, draft, sha256,
@@ -702,14 +723,18 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
         await rmdir(staging)
       }
     })
+    const pending = contentReview?.pending ?? []
+    const pendingWarnings = pending.map(item => `待人工复核：${item}`)
     return { ...verified, output: video, written,
       checks: contentReview === undefined ? verified.checks : [...verified.checks, { id: 'content_review', severity: 'failure' as const,
-        ok: true, detail: '当前分包和成片的观察证据、内容结论与真实试听回答已绑定；不代表自动语义检测完美。',
+        ok: true, detail: pending.length === 0
+          ? '当前分包和成片的观察证据、内容结论与真实试听回答已绑定；不代表自动语义检测完美。'
+          : `无人值守归档：当前分包和成片的观察证据已绑定，另有${pending.length}项待人工复核（含整集试听时须全剧完成后人工听校），已写入交付回执。`,
         fix: '' }],
       not_checked: contentReview === undefined ? verified.not_checked : verified.not_checked.filter(id => id !== 'content_review'),
-      warnings: [...verified.warnings, CANDIDATE_WARNING],
+      warnings: [...verified.warnings, CANDIDATE_WARNING, ...pendingWarnings],
       summary: { ...verified.summary, checks: verified.summary.checks + (contentReview === undefined ? 0 : 1),
-        warnings: verified.summary.warnings + 1 },
+        warnings: verified.summary.warnings + 1 + pendingWarnings.length },
       delivery_package: { status: 'candidate', video, draft, sha256, reused, receipt } }
   })
 }

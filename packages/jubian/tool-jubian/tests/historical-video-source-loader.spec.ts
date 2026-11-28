@@ -27,6 +27,17 @@ const original = 'https://jubian-aigc.tos-cn-beijing.volces.com/offline/p3-base.
 const processed = 'https://jubian-aigc.tos-cn-beijing.volces.com/offline/p3-upscaled.mp4'
 const media = Buffer.from('000000106674797069736f6d00000000', 'hex')
 const sha = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
+const requestUrl = (input: Parameters<typeof fetch>[0]): string => input instanceof Request ? input.url : input.toString()
+
+it('rejects a string where the Host must explicitly enable historical video proof with a boolean', async () => {
+  const { ctx } = await configurationFixture({ hmr: false, rows: [], builtins: {} })
+  try {
+    await expect(Reflect.apply(Jubian.apply, undefined, [ctx, { historicalVideoSourceVerification: 'false' }]))
+      .rejects.toThrow('historicalVideoSourceVerification must be a boolean')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
 
 it('uses only the exact original URL and a fresh native download owned by the current Session', async () => {
   const fixture = await configurationFixture({ hmr: false, rows: [
@@ -39,7 +50,7 @@ it('uses only the exact original URL and a fresh native download owned by the cu
   let current = original
   let lastTaskType = 1
   const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-    const url = new URL(input instanceof Request ? input.url : input.toString())
+    const url = new URL(requestUrl(input))
     const path = url.pathname.replace('/prod-api', '')
     if (url.href === original || url.href === processed) return new Response(media)
     if (path === '/aigc/storyboard/201' && init?.method === 'GET') return Response.json({ code: 200, data: card })
@@ -65,6 +76,12 @@ it('uses only the exact original URL and a fresh native download owned by the cu
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     await expect.poll(() => typeof ctx.get('jubianHistoricalVideoSource')).toBe('function')
     const verify = ctx.get('jubianHistoricalVideoSource')!
+    const videoOutput = ctx.tools.get('jubian_video')!.output
+    expect(videoOutput.presentationMeta?.({ method: 'tasks', script_id: card.scriptId }, {})).toBeUndefined()
+    const mediaOutput = ctx.tools.get('jubian_media')!.output
+    expect(mediaOutput.presentationMeta?.({ method: 'download', media_kind: 'video', resume: true }, { reused: false }))
+      .toEqual({ path: null, bytes: null, source_sha256: null, sha256: null, download_receipt_path: null, kind: null,
+        media_type: null, reused: false })
     const lookup = { method: 'sources', script_id: card.scriptId, storyboard_id: card.id }
     const request = (media_url: string, output_path: string) => ({ method: 'download', media_kind: 'video',
       media_url, output_path, resume: true })
@@ -135,7 +152,7 @@ it('uses only the exact original URL and a fresh native download owned by the cu
     other.session.append('tool/result', { turn: 2, step: 1, message: createToolResultMessage({ callId: copied, isError: false,
       content: recorded[1]?.data.message.content ?? [] }) }, { surfaceOp: 'append' })
     await expect(verify(other.session, input, signal)).rejects.toThrow('HISTORICAL_VIDEO_SOURCE_DOWNLOAD')
-    expect(fetcher.mock.calls.filter(([input]) => String(input) === original)).toHaveLength(1)
+    expect(fetcher.mock.calls.filter(([input]) => requestUrl(input) === original)).toHaveLength(1)
 
   } finally {
     fetcher.mockRestore()

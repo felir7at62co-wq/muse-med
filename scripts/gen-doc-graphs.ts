@@ -216,6 +216,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns admitted local render jobs and publication records; Desktop Host pauses admission and observes remaining work during update or quit.',
   },
   {
+    key: 'jubianHistoricalVideoSource',
+    pkg: 'tool-jubian',
+    title: 'Same-Session historical video verification',
+    mode: 'core',
+    consumers: ['tool-episode-render'],
+    note: 'Binds an original provider result and its downloaded bytes to native evidence in the current Session without a new provider call.',
+  },
+  {
+    key: 'shotScriptVoice',
+    pkg: 'tool-shot-script',
+    title: 'Authored dialogue lookup',
+    mode: 'core',
+    consumers: ['tool-episode-render'],
+    note: 'Returns original speaker and dialogue fields for an explicitly requested voice review.',
+  },
+  {
     key: 'jubianImage',
     pkg: 'tool-jubian',
     title: 'Jubian account image routes',
@@ -467,6 +483,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     implementations: ['llm-deepseek', 'llm-pi-ai', 'llm-replay'],
     consumers: ['agent-loop', 'compaction-basic'],
     note: 'Adapters register provider implementations; the loop and compaction call the provider-neutral stream service.',
+  },
+  {
+    key: 'audioReviewTransport',
+    pkg: 'llm',
+    title: 'Standalone audio review',
+    mode: 'seam',
+    implementations: ['llm-pi-ai'],
+    consumers: ['tool-episode-render'],
+    note: 'Sends bounded WAV clips on an explicitly configured route and returns advisory results bound to the audio digests.',
   },
   {
     key: 'sessionLogDeepSeek',

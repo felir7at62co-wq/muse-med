@@ -9,8 +9,8 @@ import { readSourceRecord, sourceRecordPathFor, writeSourceRecord } from '../src
 import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { episodePaths, shotFileName } from '../src/paths.ts'
-import { renderEpisode, type RenderInput } from '../src/render.ts'
-import { writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { endingTailSource, renderEpisode, type RenderInput } from '../src/render.ts'
+import { subtitleClockPath, writeSubtitleClock } from '../src/subtitle-clock.ts'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
 import { sourceQaFixture } from './source-qa-fixture.ts'
 import { createSourceQaStagedAccess, type SourceQaVerifier } from '../src/source-qa.ts'
@@ -20,6 +20,7 @@ import {
   decodeHandler,
   framemd5Line,
   probeHandler,
+  probeJson,
   renderedPictureProbe,
   shippedEndingAsset,
   sizeOf,
@@ -34,10 +35,15 @@ import {
 
 const temporary: string[] = []
 const publication = vi.hoisted(() => ({ target: '', rollbackTarget: '', rollback: '', cleanupFailure: false,
-  replaceRead: '', reads: 0 }))
+  replaceRead: '', reads: 0, removeClockAfter: '', removeClock: '' }))
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>()
-  return { ...actual, link: async (...args: Parameters<typeof actual.link>) => {
+  return { ...actual, writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
+    await actual.writeFile(...args)
+    if (typeof args[0] === 'string' && publication.removeClock && basename(args[0]) === publication.removeClockAfter) {
+      await actual.unlink(publication.removeClock)
+    }
+  }, link: async (...args: Parameters<typeof actual.link>) => {
     if (String(args[1]) === publication.target) {
       if (publication.rollbackTarget) {
         await actual.unlink(publication.rollbackTarget)
@@ -71,6 +77,8 @@ afterEach(async () => {
   publication.cleanupFailure = false
   publication.replaceRead = ''
   publication.reads = 0
+  publication.removeClockAfter = ''
+  publication.removeClock = ''
   await Promise.all(temporary.splice(0).map(async (dir) => { await cleanup(dir) }))
 })
 
@@ -128,30 +136,38 @@ async function preparedProject(): Promise<Prepared> {
 }
 
 /** Filesystem acceptance cases replace only the independent Host authority, whose real Session owner has separate tests. */
-async function reviewedProject() {
+async function reviewedProject(dialoguePatch = false) {
   const prepared = await preparedProject()
+  const scriptId = 601, episodeId = 41001
   await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({
-    project_bible: { visual_medium: 'photorealistic', delivery: { require_source_review: true } },
+    ...(dialoguePatch ? { jubian_script_id: scriptId } : {}),
+    project_bible: { visual_medium: 'photorealistic', delivery: { require_source_review: true,
+      ...(dialoguePatch ? { subtitle: { require_speech_coverage: true } } : {}) } },
   }))
   const packagePath = join(prepared.project, 'episode_packages', '02', 'package.json')
-  await writePlaceholder(packagePath, JSON.stringify({ episode: '02', video_tasks: [{ shots: [1] }, { shots: [2] }] }))
-  const rows = []
+  await writePlaceholder(packagePath, JSON.stringify({ episode: '02', ...(dialoguePatch ? { script_id: scriptId, episode_id: episodeId } : {}),
+    video_tasks: [1, 2].map(index => ({ shots: [index], ...(dialoguePatch ? { index, storyboard_id: 100 + index } : {}) })) }))
+  const rows: { shot: number; package: number; video: string; audio: string }[] = []
   const artifacts: string[] = []
   for (const shot of [1, 2]) {
-    const video = join(prepared.project, 'selected', `source-${shot}.mp4`)
+    const isPatched = dialoguePatch && shot === 1
+    const video = isPatched ? join(prepared.project, 'editing', 'dialogue-patch-02-ABC123', 'clip.mov')
+      : join(prepared.project, 'selected', `source-${shot}.mp4`)
     await mkdir(dirname(video), { recursive: true })
     await copyFile(join(prepared.paths.videoDir, shotFileName(shot)), video)
     const sha = await fileSha256(video), frame = join(prepared.project, `review-frame-${shot}.png`)
     const download = join(prepared.project, `download-${shot}.json`)
     await writePlaceholder(frame, 'recorded frame fixture')
-    await writePlaceholder(download, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
+    if (!isPatched) await writePlaceholder(download, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
       path: video, sha256: `sha256:${sha}`, source_sha256: 'a'.repeat(64) }))
     const qa = await sourceQaFixture(prepared.project, video, `shot-${shot}`)
     artifacts.push(qa.declaration.ocr.path, qa.declaration.inspection.path)
     await writePlaceholder(join(prepared.project, 'reviews', `ep02-p${String(shot).padStart(2, '0')}.json`), JSON.stringify({
       episode: '02', package: shot, status: 'approved', subtitle_cleanup: 'not_required',
       package_sha256: await fileSha256(packagePath), video_path: video, video_sha256: sha,
-      audio_path: video, audio_sha256: sha, original_download_receipt_path: download, review_frames: [frame],
+      audio_path: video, audio_sha256: sha, review_frames: [frame],
+      ...(isPatched ? { storyboard_id: 100 + shot, local_dialogue_patch: await dialoguePatchOrigins(prepared.project) }
+        : { original_download_receipt_path: download }),
       source_qa: { version: 1, selected: qa.declaration },
       content_review: { identity: 'pass', wardrobe: 'pass', scene: 'pass', prop: 'pass', action_and_dialogue: 'pass',
         visible_artifacts: 'pass', continuity: 'pass', voice_and_speaker: 'pass', av_sync: 'pass',
@@ -165,14 +181,37 @@ async function reviewedProject() {
     expect(await fileSha256(binding.inspectionPath)).toBe(binding.inspectionSha256)
   })
   const reviews = await verifySelectedSourceReviews(prepared.paths, rows, true, true, verifier)
-  const manifest = { shots: rows.map((row) => {
-    const approved = reviews.find(review => review.shot === row.shot)
-    if (approved === undefined) throw Error('Fixture source review did not complete')
-    return { ...row, sha256: approved.videoSha256, review_sha256: approved.reviewSha256, audio_sha256: approved.audioSha256 }
-  }) }
+  const clips = [{ shot: 1, start_us: 0, duration_us: 5_050_000 },
+    { shot: 2, start_us: 5_050_000, duration_us: 109_683_332 }]
+  const manifest = { ...(dialoguePatch ? { master_audio_sha256: await fileSha256(prepared.paths.masterAudio), timeline_clips: clips } : {}),
+    shots: rows.map((row) => {
+      const approved = reviews.find(review => review.shot === row.shot)
+      if (approved === undefined) throw Error('Fixture source review did not complete')
+      return { ...row, sha256: approved.videoSha256, review_sha256: approved.reviewSha256, audio_sha256: approved.audioSha256 }
+    }) }
   await writePlaceholder(prepared.paths.sources, JSON.stringify(manifest))
+  if (dialoguePatch) await writeSubtitleClock(prepared.subtitle, await readFile(prepared.subtitle, 'utf8'), '02', clips.map((clip, index) => {
+    const source = rows[index]
+    if (source === undefined) throw Error('Missing local dialogue patch source')
+    const path = join(prepared.paths.videoDir, shotFileName(clip.shot))
+    return { source, video: path, audio: path, durationUs: clip.duration_us }
+  }))
   verifier.mockClear()
   return { ...prepared, verifier, manifest, artifacts }
+}
+
+async function dialoguePatchOrigins(project: string) {
+  const original = async (label: string, id: number) => {
+    const path = join(project, `original-${label}.mp4`), receipt = join(project, `original-${label}.json`)
+    await writePlaceholder(path, `original download ${label}`)
+    const sha = await fileSha256(path)
+    await writePlaceholder(receipt, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
+      path, sha256: `sha256:${sha}`, source_sha256: sha }))
+    return { task_id: id, subtask_id: id + 1, first_result_id: id + 2, source_path: path, source_sha256: sha,
+      download_receipt_path: receipt }
+  }
+  return { target: await original('target', 1000), donor: await original('donor', 2000),
+    recheck_evidence_id: '5496c6b5-a416-4932-acc7-7d2baa03a932' }
 }
 
 /**
@@ -253,6 +292,42 @@ function renderChannel(prepared: Prepared, options: {
   return stubChannel(handlers)
 }
 
+type ClockScenario = 'verified' | 'unavailable source frame' | 'short ending' | 'missing burned video' | 'short burn' | 'output changed'
+
+function deliveryClockChannel(prepared: Prepared, scenario: ClockScenario) {
+  const base = renderChannel(prepared, { resume: true, durationSeconds: 4 })
+  const clocks: { path: string; frames: number }[] = []
+  const sources = [1, 2].map(shot => join(prepared.paths.videoDir, shotFileName(shot)))
+  const channel = { run: async (command: string, args: readonly string[]) => {
+    const path = args.at(-1) ?? ''
+    const name = basename(path)
+    if (command !== 'ffprobe') return await base.channel.run(command, args)
+    if (args.includes('-show_frames')) {
+      let count = name === 'ending.mp4' ? 120 : name.startsWith('shot_') ? 60 : 240
+      if (name === 'ending.mp4' && scenario === 'short ending') count -= 1
+      const frames = Array.from({ length: count }, (_, pts) => ({ pts }))
+      clocks.push({ path, frames: count })
+      if (name === 'output.mp4' && scenario === 'output changed') await writeFile(path, 'changed during output verification')
+      return { code: 0, stderr: '', stdout: JSON.stringify({ frames, streams: [{ time_base: '1/60',
+        avg_frame_rate: '60/1', r_frame_rate: '60/1', duration_ts: count, nb_frames: String(count) }] }) }
+    }
+    if (sources.includes(path)) {
+      const frames = scenario === 'unavailable source frame' ? 60 : 72
+      return { code: 0, stderr: '', stdout: probeJson({ durationSeconds: frames / 60, video: { fps: 60, startSeconds: 0,
+        frameCount: frames, durationSeconds: frames / 60 } }) }
+    }
+    if (name === 'subtitled.mp4') {
+      const frames = scenario === 'short burn' ? 239 : scenario === 'unavailable source frame' ? 241 : 240
+      const durationSeconds = Number((frames / 60).toFixed(6))
+      return { code: 0, stderr: '', stdout: probeJson({ durationSeconds,
+        video: scenario === 'missing burned video' ? undefined : { fps: 60, startSeconds: 0, frameCount: frames,
+          durationSeconds }, audio: false }) }
+    }
+    return await base.channel.run(command, args)
+  } }
+  return { ...base, channel, clocks }
+}
+
 /** Build the toolkit a render uses over a stub channel. */
 function toolkit(channel: ReturnType<typeof stubChannel>) {
   return createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel })
@@ -283,6 +358,19 @@ async function render(
     ...overrides,
   })
 }
+
+describe('endingTailSource', () => {
+  it('uses the prepared shot until the output has a measured body clock', () => {
+    expect(endingTailSource('prepared/shot.mp4', ['cache/first.mp4', 'cache/last.mp4'], false)).toBe('prepared/shot.mp4')
+    expect(endingTailSource('prepared/shot.mp4', ['cache/first.mp4', 'cache/last.mp4'], true)).toBe('cache/last.mp4')
+  })
+
+  it('refuses to freeze a different source when a measured body has no encoded tail', () => {
+    expect(() => endingTailSource('prepared/shot.mp4', [], true)).toThrow(
+      expect.objectContaining({ code: 'RENDER_FRAME_CLOCK' }),
+    )
+  })
+})
 
 describe('renderEpisode', () => {
   it('refuses a Host source-review digest when the delivery never requested strict source QA', async () => {
@@ -762,11 +850,83 @@ describe('renderEpisode', () => {
     const prepared = await preparedProject()
     const channel = renderChannel(prepared)
     await writePlaceholder(prepared.paths.sources, JSON.stringify({ shots: [
+      null,
       { shot: 1, video: 'editing/dialogue-patch-02-ABC123/clip.mov' },
     ] }))
     await expect(render(prepared, channel)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
     expect(channel.calls).toHaveLength(0)
   })
+
+  it('requires both strict checks and original-session access before mixing a repaired clip', async () => {
+    const f = await reviewedProject(true)
+    const config = join(f.project, 'project_config.json')
+    const savedConfig = await readFile(config, 'utf8')
+    await writeFile(config, JSON.stringify({ project_bible: { visual_medium: 'photorealistic', delivery: { require_source_review: true } } }))
+    const channel = renderChannel(f)
+    await expect(render(f, channel)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+    await writeFile(config, savedConfig)
+    const stage = await tempProject()
+    temporary.push(stage)
+    const access = createSourceQaStagedAccess(f.project, stage, [], new AbortController().signal)
+    await expect(render(f, channel, false, undefined, { sourceQaStage: access }))
+      .rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+    expect(channel.calls).toHaveLength(0)
+  })
+
+  it('carries the edited audio clock into the derived subtitle and binds both in a resume receipt', async () => {
+    const f = await reviewedProject(true)
+    const subtitlePlan = join(f.project, 'repaired-overlay.json')
+    await writePlaceholder(subtitlePlan, '{"schema_version":1,"decisions":[]}')
+    const result = await render(f, renderChannel(f, { resume: true }), false, undefined,
+      { sourceQaVerifier: f.verifier, subtitlePlan, resume: true })
+    expect(result.ok).toBe(true)
+    const patch = f.verifier.mock.calls.find(([binding]) => binding.localDialoguePatch !== undefined)?.[0].localDialoguePatch
+    expect(patch).toMatchObject({
+      episode: '02', scriptId: 601, episodeId: 41001, storyboardId: 101,
+    })
+    const display = result.subtitle_overlay?.resolved_srt
+    if (display === undefined) throw Error('Repaired media is missing the derived subtitle')
+    const sourceClock = subtitleClockPath(f.subtitle), displayClock = subtitleClockPath(display)
+    expect(result.written).toContain(displayClock)
+    expect(JSON.parse(await readFile(displayClock, 'utf8'))).toMatchObject({
+      ...JSON.parse(await readFile(sourceClock, 'utf8')) as object, srt_sha256: await fileSha256(display),
+    })
+    const receipt = await readSourceRecord(sourceRecordPathFor(result.output))
+    expect(receipt?.delivery_inputs).toMatchObject({ subtitle_display: 'overlay', subtitle_sha256: await fileSha256(display) })
+    expect(receipt?.input_files).toEqual(expect.arrayContaining(await Promise.all([sourceClock, displayClock]
+      .map(async path => ({ path, sha256: await fileSha256(path) })))))
+  }, 15_000)
+
+  it.each(['resolved-overlay.srt', 'remove during source probe'] as const)(
+    'keeps the prior output when the repaired subtitle clock disappears at %s', async (timing) => {
+      const f = await reviewedProject(true)
+      const originalSrt = await readFile(f.subtitle)
+      const sourceClock = subtitleClockPath(f.subtitle)
+      await writePlaceholder(f.output, 'older accepted delivery')
+      const base = renderChannel(f)
+      let overrides: Partial<RenderInput> = { sourceQaVerifier: f.verifier }
+      if (timing === 'resolved-overlay.srt') {
+        const subtitlePlan = join(f.project, 'repaired-overlay.json')
+        await writePlaceholder(subtitlePlan, '{"schema_version":1,"decisions":[]}')
+        publication.removeClock = sourceClock
+        publication.removeClockAfter = timing
+        overrides = { ...overrides, subtitlePlan }
+      } else {
+        const source = join(f.paths.videoDir, shotFileName(2))
+        const channel = { run: async (command: string, args: readonly string[]) => {
+          const result = await base.channel.run(command, args)
+          if (command === 'ffprobe' && args.at(-1) === source) await rm(sourceClock)
+          return result
+        } }
+        overrides = { ...overrides, toolkit: toolkit({ ...base, channel }), settings: { ...settings, normalizeSubtitleText: true } }
+      }
+      await expect(render(f, base, false, undefined, overrides)).rejects
+        .toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_SUBTITLE_CLOCK_REQUIRED')
+      expect(await readFile(f.output, 'utf8')).toBe('older accepted delivery')
+      expect(await readFile(f.subtitle)).toEqual(originalSrt)
+      expect(base.calls.some(call => call.command === 'ffmpeg')).toBe(false)
+      await expect(readFile(sourceRecordPathFor(f.output))).rejects.toHaveProperty('code', 'ENOENT')
+    })
 
   it.each(['music', 'none'] as const)('binds actual %s music mode and consumed evidence in the normal render receipt', async (mode) => {
     const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true })
@@ -1143,6 +1303,57 @@ describe('renderEpisode', () => {
     const graph = mux?.args[mux.args.indexOf('-filter_complex') + 1]
     expect(graph).toContain('atrim=end_sample=5602400,alimiter')
     expect(graph).toContain('adelay=delays=5507200S:all=1')
+  })
+
+  it.each(['verified', 'unavailable source frame'] as const)(
+    'binds the mux audio clock to actual picture with %s delivery planning', async (scenario) => {
+      const f = await preparedProject()
+      const clipDuration = scenario === 'verified' ? 1_000_000 : 1_008_333
+      await writeFile(f.timeline, timelineJson([{ shot: 1, startUs: 0, durationUs: clipDuration },
+        { shot: 2, startUs: clipDuration, durationUs: clipDuration }], clipDuration * 2 / 1_000_000))
+      await writeFile(f.subtitle, srtDocument([{ start: '00:00:00,100', end: '00:00:00,500', text: '台词' }]))
+      const channel = deliveryClockChannel(f, scenario)
+      const first = await render(f, channel, false, undefined, { resume: true })
+      expect(first.ok).toBe(true)
+      const record = await readSourceRecord(sourceRecordPathFor(first.output))
+      const mux = channel.calls.find(call => call.args.includes('+faststart'))
+      const graph = mux?.args[mux.args.indexOf('-filter_complex') + 1]
+      const seek = channel.calls.find(call => call.args.includes('-sseof'))
+      const tailSource = seek?.args[seek.args.indexOf('-i') + 1]
+      if (scenario === 'unavailable source frame') {
+        expect(channel.clocks).toEqual([])
+        expect(tailSource).toBe(join(f.paths.videoDir, 'shot_002.mp4'))
+        expect(record?.delivery_inputs).not.toHaveProperty('picture_clock')
+        expect(graph).toContain('atrim=end_sample=192800,alimiter')
+        expect(graph).toContain('adelay=delays=96800S:all=1')
+        return
+      }
+      expect(channel.clocks.map(({ path, frames }) => [basename(path), frames])).toEqual([
+        ['shot_001.mp4', 60], ['shot_002.mp4', 60], ['ending.mp4', 120], ['base.mp4', 240], ['output.mp4', 240],
+      ])
+      expect(tailSource).toBe(channel.clocks[1]?.path)
+      expect(record?.delivery_inputs?.picture_clock).toMatchObject({ fps: 60, body_end_frame: 120, total_frames: 240 })
+      expect(graph).toContain('atrim=end_sample=192000,alimiter')
+      expect(graph).toContain('adelay=delays=96000S:all=1')
+      const next = await render(f, channel, false, undefined, { resume: true })
+      expect(next).toMatchObject({ ok: true, output: first.output, written: [] })
+      expect(channel.clocks.at(-1)).toMatchObject({ path: f.output, frames: 240 })
+      expect(channel.calls.filter(call => call.args.includes('+faststart'))).toHaveLength(1)
+    })
+
+  it.each([
+    ['short ending', 'RENDER_FRAME_CLOCK'], ['missing burned video', 'RENDER_AUDIO_CLOCK'],
+    ['short burn', 'RENDER_FRAME_CLOCK'], ['output changed', 'RENDER_FRAME_CLOCK'],
+  ] as const)('keeps an existing delivery when a resume render finds %s', async (scenario, expectedCode) => {
+    const f = await preparedProject()
+    await writeFile(f.timeline, timelineJson([{ shot: 1, startUs: 0, durationUs: 1_000_000 },
+      { shot: 2, startUs: 1_000_000, durationUs: 1_000_000 }], 2))
+    await writePlaceholder(f.output, 'older accepted delivery')
+    const channel = deliveryClockChannel(f, scenario)
+    await expect(render(f, channel, false, undefined, { resume: true })).rejects.toHaveProperty('code', expectedCode)
+    expect(await readFile(f.output, 'utf8')).toBe('older accepted delivery')
+    expect((await readdir(dirname(f.output))).filter(path => path.endsWith('.mp4'))).toEqual([basename(f.output)])
+    expect((await readdir(dirname(f.output))).filter(path => path.startsWith('.drama-render-'))).toEqual([])
   })
 
   it('records the GPU probe failure and reports the CPU encoder it fell back to', async () => {

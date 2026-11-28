@@ -117,7 +117,8 @@ describe('manuscript reads', () => {
       material_url: 'https://media.example/source.docx', object_key: 'prod/source.docx', sha256: 'sha256:fixture' })
     const f = fixture()
     const result = await manuscriptMethod(f.client, f.ledger, { method: 'upload_document', document_path: '/tmp/source.docx', idempotency_key: 'upload-1' }, UPLOAD_OPTIONS)
-    expect(uploadDocumentMethod).toHaveBeenCalledExactlyOnceWith(f.ledger, { document_path: '/tmp/source.docx', idempotency_key: 'upload-1' }, UPLOAD_OPTIONS)
+    expect(uploadDocumentMethod).toHaveBeenCalledExactlyOnceWith(f.client, f.ledger,
+      { document_path: '/tmp/source.docx', idempotency_key: 'upload-1' }, UPLOAD_OPTIONS)
     expect(result).toMatchObject({ registered: false, ai_parsing_started: false, generation_started: false,
       file: { name: 'source.docx', url: 'https://media.example/source.docx', objectKey: 'prod/source.docx' } })
     expect(f.calls).toEqual([])

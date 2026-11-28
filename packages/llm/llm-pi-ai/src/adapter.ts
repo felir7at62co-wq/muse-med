@@ -522,6 +522,10 @@ export class PiAiAdapter extends LlmAdapter {
     return this.streamWithSnapshot(options, this.current())
   }
 
+  /**
+   * Read the eligible direct Gemini audio routes from the current configuration snapshot.
+   * @returns Provider and model pairs explicitly enabled for audio review.
+   */
   configuredGeminiAudioRoutes(): readonly AudioReviewRoute[] {
     const snapshot = this.current()
     const routes: AudioReviewRoute[] = []
@@ -533,6 +537,11 @@ export class PiAiAdapter extends LlmAdapter {
     return routes
   }
 
+  /**
+   * Send a bounded request on an enabled direct audio route using one configuration snapshot.
+   * @param input - Selected route, prompt, WAV clips and optional cancellation or accounting callback.
+   * @returns Advisory review response bound to the route and the supplied audio digests.
+   */
   async requestGeminiAudio(input: AudioReviewRequest): Promise<AudioReviewTransportResult> {
     const { provider, model, prompt, signal, onProviderResponse } = input
     if (signal?.aborted) throw new LlmError('Gemini audio review was cancelled.', 'ABORTED')

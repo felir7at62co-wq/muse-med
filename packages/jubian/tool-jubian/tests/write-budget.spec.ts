@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
@@ -6,7 +7,25 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { acceptedWriteResponse, bodyHash, requireArguments, writeUnderLedger } from '../src/write.ts'
 
 const temporary: string[] = []
-afterEach(async () => { await Promise.all(temporary.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  await Promise.all(temporary.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+it('blocks a new write before building its body or reserving budget in historical mode', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'jubian-history-ledger-'))
+  temporary.push(root)
+  const ledger = new JubianLedger({ root })
+  const client = fixtureHistoryClient()
+  vi.stubEnv('MUSE_JUBIAN_HISTORY_READ_ONLY', '1')
+  const prepare = vi.fn(() => ({ name: 'fixture' }))
+  const send = vi.fn(async () => ({ transport: { http_status: 200, application_code: 200 }, response_sha256: null, data: null }))
+  await expect(writeUnderLedger(client, ledger, 'history-write', 'storyboard_save', prepare, send))
+    .rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+  expect(prepare).not.toHaveBeenCalled()
+  expect(send).not.toHaveBeenCalled()
+  expect(await ledger.find('history-write')).toBeUndefined()
+})
 
 it.each(['already-aborted', 'aborted-during-preparation'] as const)
 ('refuses an image recovery without Host evidence when %s', async (scenario) => {
@@ -25,7 +44,7 @@ it.each(['already-aborted', 'aborted-during-preparation'] as const)
   if (scenario === 'already-aborted') await abort()
   const send = vi.fn(async () => ({ transport: { http_status: 200, application_code: 200 },
     response_sha256: null, data: null }))
-  await expect(writeUnderLedger(ledger, key, 'image_generate', async () => {
+  await expect(writeUnderLedger(fixtureHistoryClient(), ledger, key, 'image_generate', async () => {
     if (scenario === 'aborted-during-preparation') await abort()
     return payload
   }, send, () => ({ scriptId: 2708, amount: '1.00', unit: 'CNY' })))
@@ -58,7 +77,7 @@ it.each(['different-method', 'different-body', 'accepted-match'])
   const ledger = new JubianLedger({ root }), send = vi.fn(async () => ({
     transport: { http_status: 200, application_code: 200 }, response_sha256: null, data: null,
   }))
-  const result = writeUnderLedger(ledger, 'racing', 'storyboard_save', async () => {
+  const result = writeUnderLedger(fixtureHistoryClient(), ledger, 'racing', 'storyboard_save', async () => {
     await ledger.begin({ idempotencyKey: 'racing', method: scenario === 'different-method' ? 'asset_remove' : 'storyboard_save',
       requestSha256: bodyHash(scenario === 'different-body' ? { name: 'other' } : { name: 'same' }) })
     if (scenario === 'accepted-match') await ledger.settle('racing', {
@@ -83,9 +102,9 @@ it('verifies a body-only replay and persists complete quote metadata for a fresh
   const authorizationPath = join(root, 'reviewed-authorization.json')
   await writeFile(authorizationPath, JSON.stringify({ version: 1, projects: { '2708': { limit: '10.00', unit: 'CNY' } } }))
   await ledger.begin({ idempotencyKey: 'body-only', method: 'storyboard_save', requestSha256: bodyHash({ name: 'ready' }) })
-  expect(await writeUnderLedger(ledger, 'body-only', 'storyboard_save', () => ({ name: 'ready' }), send,
+  expect(await writeUnderLedger(fixtureHistoryClient(), ledger, 'body-only', 'storyboard_save', () => ({ name: 'ready' }), send,
     undefined, { verifyReplayBody: true })).toMatchObject({ replayed: true, outcome: 'unknown' })
-  await writeUnderLedger(ledger, 'priced', 'image_generate', () => ({ name: 'ready' }), send,
+  await writeUnderLedger(fixtureHistoryClient(), ledger, 'priced', 'image_generate', () => ({ name: 'ready' }), send,
     () => ({ scriptId: 2708, amount: '1.00', unit: 'CNY', standardId: 123, observedAt: '2026-10-06T00:00:00Z' }),
     { authorizationPath })
   expect(await ledger.find('priced')).toMatchObject({ script_id: 2708, quoted_amount: '1.00',
@@ -99,7 +118,7 @@ it('does not record or send a paid write when this user has no project grant', a
   const ledger = new JubianLedger({ root: join(root, 'ledger') })
   const send = vi.fn(async () => ({ transport: { http_status: 200, application_code: 0 },
     response_sha256: null, data: {} }))
-  await expect(writeUnderLedger(ledger, 'new-image', 'image_generate', () => ({}), send,
+  await expect(writeUnderLedger(fixtureHistoryClient(), ledger, 'new-image', 'image_generate', () => ({}), send,
     () => ({ scriptId: 2708, amount: '1.00', unit: 'CNY' })))
     .rejects.toThrow('authorization.json')
   expect(send).not.toHaveBeenCalled()
@@ -116,7 +135,7 @@ it('keeps provider rejection response evidence while leaving its paid outcome un
       httpStatus: 200, applicationCode: 500, responseSha256: digest,
     })
   })
-  await expect(writeUnderLedger(ledger, 'rejected-image', 'image_generate', () => ({ assetName: 'candidate' }),
+  await expect(writeUnderLedger(fixtureHistoryClient(), ledger, 'rejected-image', 'image_generate', () => ({ assetName: 'candidate' }),
     send, () => ({ scriptId: 2708, amount: '0.12', unit: 'CNY' }))).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
   expect(send).toHaveBeenCalledOnce()
   expect(await ledger.find('rejected-image')).toMatchObject({
@@ -138,7 +157,7 @@ it('awaits an external authorization check before reserving or sending a paid wr
     expect(authorized).toBe(true)
     return { transport: { http_status: 200, application_code: 0 }, response_sha256: null, data: {} }
   })
-  await writeUnderLedger(ledger, 'authorized-image', 'image_generate', () => ({ name: 'ready' }), send,
+  await writeUnderLedger(fixtureHistoryClient(), ledger, 'authorized-image', 'image_generate', () => ({ name: 'ready' }), send,
     () => ({ scriptId: 2708, amount: '1.00', unit: 'CNY' }), {
       beforeReserve: async () => { await Promise.resolve(); authorized = true },
     })
@@ -159,7 +178,7 @@ it('allows only one of two overlapping paid keys at the remaining limit', async 
   let entered = 0
   let release!: () => void
   const bothReady = new Promise<void>((resolve) => { release = resolve })
-  const submit = (key: string) => writeUnderLedger(ledger, key, 'storyboard_native_submit',
+  const submit = (key: string) => writeUnderLedger(fixtureHistoryClient(), ledger, key, 'storyboard_native_submit',
     async () => { if (++entered === 2) release(); await bothReady; return { isGenerate: 1 } },
     send, () => ({ scriptId: 2708 }))
   const results = await Promise.allSettled([submit('a'), submit('b')])
@@ -179,7 +198,7 @@ it('reserves operator estimates across separate paid calls instead of losing the
   const ledger = new JubianLedger({ root: ledgerRoot })
   const send = vi.fn(async () => ({ transport: { http_status: 200, application_code: 0 },
     response_sha256: null, data: {} }))
-  const submit = (key: string) => writeUnderLedger(ledger, key, 'storyboard_native_submit',
+  const submit = (key: string) => writeUnderLedger(fixtureHistoryClient(), ledger, key, 'storyboard_native_submit',
     () => ({ isGenerate: 1 }), send, () => ({ scriptId: 2708 }))
   await submit('first')
   await submit('second')

@@ -5,10 +5,13 @@ import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { Context } from '@deepseek-ai/cordis'
 import { MuseAccountService, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config } from '../src/index.ts'
+import * as Offline from '../src/offline.ts'
+import * as Pronunciation from '../src/pronunciation.ts'
 import { finishAudioTranscription, probeMediaDuration, startAudioTranscription, startAudioTranscriptionBatch, type AudioBatchResult, type AudioRunResult } from '../src/runner.ts'
 
 vi.mock('../src/runner.ts', () => ({
@@ -26,7 +29,7 @@ afterEach(async () => {
   for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
 })
 
-async function fixture() {
+async function fixture(optional: Pick<Config, 'offline' | 'pronunciation'> = {}) {
   const ctx = new Context()
   contexts.push(ctx)
   const status = async (): Promise<MuseAccountStatus> => ({ state: 'signed-out' })
@@ -40,7 +43,7 @@ async function fixture() {
   const register = vi.spyOn(ctx.tools, 'register')
   const config = Config({ ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', commandTimeoutMs: 600_000,
     maxDurationSeconds: 18_000, chunkSeconds: 600, pollIntervalMs: 2000, maxAudioBytes: 100_000_000,
-    uploadRetryBudgetMs: 120_000, maxBatchInputs: 10 })
+    uploadRetryBudgetMs: 120_000, maxBatchInputs: 10, ...optional })
   apply(ctx, config)
   const tool = register.mock.calls[0]?.[0]
   if (tool === undefined) throw new Error('audio_transcribe was not registered')
@@ -48,10 +51,95 @@ async function fixture() {
   if (!(account instanceof MuseAccountService)) throw new Error('Muse account service was not mounted')
   let count = 0
   const agent = { session: { header: { cwd: workspace } } } as Agent
-  return { tool, config, account, call: (args: Record<string, unknown>) => executeModelToolFixture(ctx, {
-    callId: ToolCallId(`audio-${++count}`), name: 'audio_transcribe', arguments: args, signal: new AbortController().signal, agent,
+  return { tool, config, account, call: (args: Record<string, unknown>, withWorkspace = true) => executeModelToolFixture(ctx, {
+    callId: ToolCallId(`audio-${++count}`), name: 'audio_transcribe', arguments: args, signal: new AbortController().signal,
+    ...(withWorkspace ? { agent } : {}),
   }) }
 }
+
+const localAssets = { pythonPath: resolve(workspace, 'python'), libraryDir: resolve(workspace, 'library'),
+  librarySha256: 'a'.repeat(64), modelDir: resolve(workspace, 'models') }
+const phrase = { tokens: ['wo3', 'dai4', 'ding4'], target_index: 1, alternative: 'zai4',
+  windows: [{ start: 2.2, end: 3.4 }, { start: 2, end: 3.5 }] }
+
+it('exposes local speech methods only when provisioned and rejects cloud or ambiguous inputs before running a local engine', async () => {
+  const disabled = await fixture()
+  const enabled = await fixture({ offline: localAssets, pronunciation: localAssets })
+  expect(disabled.tool.parameters).not.toHaveProperty('properties.pronunciation')
+  expect(enabled.tool.parameters).toHaveProperty('properties.method.enum', ['start', 'inspect', 'status', 'offline', 'pronunciation'])
+  expect(enabled.tool.parameters).toHaveProperty('properties.pronunciation')
+  const project = resolve(workspace, 'project'), input = 'source.mp4'
+  expect((await disabled.call({ method: 'offline', project, input })).isError).toBe(true)
+  const transcribe = vi.spyOn(Offline, 'transcribeOffline')
+  const compare = vi.spyOn(Pronunciation, 'inspectPronunciation')
+  try {
+    const calls = [
+      [{ method: 'offline', project, input }, false, 'offline requires a workspace'],
+      [{ method: 'offline', project, input, inputs: [input] }, true, 'offline requires a workspace'],
+      [{ method: 'offline', project, input, pronunciation: phrase }, true, 'offline requires a workspace'],
+      [{ method: 'pronunciation', project, input }, true, 'pronunciation requires a workspace'],
+      [{ method: 'pronunciation', project, input, pronunciation: phrase, receipt: 'cloud.json' }, true, 'pronunciation requires a workspace'],
+      [{ method: 'start', project, input, pronunciation: phrase }, true, 'pronunciation parameters require method pronunciation'],
+    ] as const
+    for (const [args, withWorkspace, message] of calls) {
+      const result = await enabled.call(args, withWorkspace)
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.content)).toContain(message)
+    }
+    expect(transcribe).not.toHaveBeenCalled()
+    expect(compare).not.toHaveBeenCalled()
+    expect(startAudioTranscription).not.toHaveBeenCalled()
+  } finally {
+    transcribe.mockRestore()
+    compare.mockRestore()
+  }
+})
+
+it('returns structured native-only receipts without invoking the cloud account and issues a new evidence ID per comparison', async () => {
+  const { call, config } = await fixture({ offline: localAssets, pronunciation: localAssets })
+  const project = resolve(workspace, 'project'), input = 'source.mp4'
+  const source = { path: resolve(project, input), sha256: 'b'.repeat(64) }
+  const pcm = { sha256: 'c'.repeat(64), sampleRate: 16_000, samples: 32_000 } as const
+  const transcript: Offline.OfflineTranscript = {
+    version: 1, kind: 'muse_offline_word_timing', project, source, pcm,
+    model: { name: 'Systran/faster-whisper-small', revision: '536b0662742c02347bc0e980a01041f333bce120',
+      sha256: '3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671' },
+    transcript: { path: resolve(project, 'transcript/words.json'), sha256: 'd'.repeat(64) },
+    receipt: resolve(project, 'transcript/receipt.json'), listening_verified: false,
+  }
+  const pronunciation: Pronunciation.OfflinePronunciationResult = { offline_pronunciation: {
+    version: 1, project, source, status: 'uncertain',
+    model: { name: 'robinsonphan/sensevoice-small-zh-pinyin-dual-ctc', revision: '884e70660b97f9c242f1d77c8516aea62a8fdf29',
+      sha256: 'ed3c7db2468b99fd3811578fff6000c990875c22b1e93abcd08f9c05bc61a93a' },
+    expected: 'dai4', alternative: 'zai4', target_index: 1, minimum_margin: 8, listening_verified: false,
+    windows: phrase.windows.map(window => ({ ...window, pcm })), note: 'advisory evidence only',
+  } }
+  const transcribe = vi.spyOn(Offline, 'transcribeOffline').mockResolvedValue(transcript)
+  const compare = vi.spyOn(Pronunciation, 'inspectPronunciation').mockResolvedValue(pronunciation)
+  try {
+    const words = await call({ method: 'offline', project: 'project', input })
+    expect(words.isError).toBe(false)
+    expect(words).toMatchObject({ value: { offline_transcript: transcript }, content: [{ type: 'text', text: JSON.stringify(words.value) }] })
+    expect(words.meta).toMatchObject({ [TOOL_BODY_META_KEY]: { offline_transcript: transcript } })
+    expect(transcribe).toHaveBeenCalledWith(workspace, project, input, config, config.offline, expect.any(AbortSignal))
+    const args = { method: 'pronunciation', project: 'project', input, pronunciation: phrase }
+    const first = await call(args)
+    const second = await call(args)
+    expect(first.isError).toBe(false)
+    expect(second.isError).toBe(false)
+    expect(first.value).toMatchObject({ offline_pronunciation: { source, listening_verified: false } })
+    expect(first.value).toHaveProperty('offline_pronunciation.evidence_id',
+      expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu))
+    expect(first.meta).toMatchObject({ [TOOL_BODY_META_KEY]: first.value })
+    expect(second.value).not.toEqual(first.value)
+    expect(compare).toHaveBeenCalledWith(workspace, project, input, phrase, config, config.pronunciation, expect.any(AbortSignal))
+    expect(startAudioTranscription).not.toHaveBeenCalled()
+    expect(finishAudioTranscription).not.toHaveBeenCalled()
+  } finally {
+    transcribe.mockRestore()
+    compare.mockRestore()
+  }
+})
 
 it('uses the Host account for start and preserves explicit language and purpose', async () => {
   const { call, tool, config, account } = await fixture()

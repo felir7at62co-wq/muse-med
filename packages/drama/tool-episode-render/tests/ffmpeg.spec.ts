@@ -1,6 +1,6 @@
 /** The external-process edge: the spawn channel, the two ffmpeg wrappers, and ffprobe parsing. */
 
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it, vi } from 'vitest'
@@ -143,6 +143,28 @@ describe('createFileCaptureChannel', () => {
     const owned = captureDirectories.slice(before)
     expect(owned).toHaveLength(2)
     for (const directory of owned) await expect(stat(directory)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('stops an already running process and removes its capture files on cancellation', async () => {
+    const before = captureDirectories.length
+    const stop = new AbortController()
+    const reason = Error('stop owned media processing')
+    const running = createFileCaptureChannel(stop.signal).run(node, [
+      '-e', "process.stdout.write('ready');setInterval(() => {}, 1000)",
+    ])
+    try {
+      await vi.waitFor(async () => {
+        const directory = captureDirectories[before]
+        if (directory === undefined) throw Error('Capture files not yet allocated')
+        expect(await readFile(join(directory, 'stdout.txt'), 'utf8')).toBe('ready')
+      }, { timeout: 5_000 })
+    } finally {
+      stop.abort(reason)
+      await expect(running).rejects.toBe(reason)
+    }
+    const directory = captureDirectories[before]
+    if (directory === undefined) throw Error('Missing capture directory from the test process')
+    await expect(stat(directory)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
 

@@ -97,3 +97,19 @@ it('bounds authored data before a request and rejects missing local duration', (
   expect(() => { validateBlindAuthoredDialogue(Array.from({ length: 5 }, () => 'A'.repeat(512))) }).toThrow('上限')
   expect(() => parseBlindDialogueObservation(0, { ranges: [], utterances: [] })).toThrow('实测音频时长')
 })
+
+it('enforces separate byte bounds for the raw observation and the reconciled report', () => {
+  const base = { ranges: [reviewed()],
+    utterances: Array.from({ length: 65 }, (_, index) => spoken('声', index * 10_000, (index + 1) * 10_000)) }
+  const oversized = { ...base, utterances: base.utterances.map(item => ({ ...item, text: item.text + '!'.repeat(1020) })) }
+  expect(() => parseBlindDialogueObservation(duration, oversized)).toThrow('盲听结果超过大小上限')
+
+  let spareBytes = 64 * 1024 - 16 - Buffer.byteLength(JSON.stringify(base), 'utf8')
+  const bounded = { ...base, utterances: base.utterances.map((item) => {
+    const punctuation = Math.min(spareBytes, 1020)
+    spareBytes -= punctuation
+    return { ...item, text: item.text + '!'.repeat(punctuation) }
+  }) }
+  expect(parseBlindDialogueObservation(duration, bounded)).toEqual(bounded)
+  expect(() => reconcileBlindDialogue(duration, bounded, ['声'.repeat(65)])).toThrow('盲听对照报告超过大小上限')
+})

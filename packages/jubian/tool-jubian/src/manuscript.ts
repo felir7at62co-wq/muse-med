@@ -128,7 +128,7 @@ export async function manuscriptMethod(client: JubianClient, ledger: JubianLedge
         identity_basis: 'Exact manuscript detail ID checked before the manuscriptFile lookup; that file response does not carry its own manuscript ID.' }
     }
     case 'upload_document': {
-      const result = await uploadDocumentMethod(ledger, { document_path: need(args.document_path, 'document_path'),
+      const result = await uploadDocumentMethod(client, ledger, { document_path: need(args.document_path, 'document_path'),
         idempotency_key: requireKey(args.idempotency_key) }, documentOptions)
       return { ...result, file: result.uploaded === true
         ? { name: result.file_name, url: result.material_url, objectKey: result.object_key } : null,

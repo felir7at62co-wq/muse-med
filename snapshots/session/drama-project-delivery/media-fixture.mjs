@@ -32,12 +32,14 @@ export async function apply(ctx) {
         let code = 0
         try {
         if (command === 'project-delivery-fixture-ffprobe') {
-          assert.ok(['source.mp4', 'shot_001.mp4', 'candidate.mp4'].includes(basename(args.at(-1))))
+          const file = basename(args.at(-1))
+          assert.ok(['source.mp4', 'shot_001.mp4', 'subtitled.mp4', 'candidate.mp4'].includes(file))
           writeSync(options.stdio[1], JSON.stringify({
             streams: [
               { codec_type: 'video', codec_name: 'h264', width: 480, height: 854,
-                avg_frame_rate: '24/1', r_frame_rate: '24/1' },
-              { codec_type: 'audio', codec_name: 'aac', sample_rate: '48000', channels: 2 },
+                avg_frame_rate: '24/1', r_frame_rate: '24/1',
+                ...(file === 'subtitled.mp4' ? { start_time: '0', duration: '5', nb_frames: '120' } : {}) },
+              ...(file === 'subtitled.mp4' ? [] : [{ codec_type: 'audio', codec_name: 'aac', sample_rate: '48000', channels: 2 }]),
             ],
             format: { duration: '5', size: '5000000', bit_rate: '8000000' },
           }))

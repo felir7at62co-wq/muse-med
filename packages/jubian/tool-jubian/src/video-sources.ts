@@ -101,13 +101,10 @@ function succeeded(status: unknown): boolean {
 
 function originalUrlDigest(child: Row, resultId: number, base: string | null, selected: string): string | undefined {
   if (base === null || !Array.isArray(child.resultList) || child.resultList.length !== 1) return undefined
-  const raw: unknown = child.resultList[0]
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const result = record(raw)
+  // readSubtaskPage has already validated this row and selected the current URL in provider order.
+  const result = record(child.resultList[0])
   if (identity(result.firstResultId) !== resultId || (child.firstResultId != null && identity(child.firstResultId) !== resultId)
     || result.taskType !== 1 || !succeeded(result.resultStatus)) return undefined
-  if ([result.lastTosVideoUrl, result.tosVideoUrl, result.originalVideoUrl]
-    .find(value => typeof value === 'string' && value.trim() !== '') !== selected) return undefined
   if (base === selected) {
     if (result.hdCount != null && result.hdCount !== 0) return undefined
     const hasLastUrl = result.lastTosVideoUrl != null && result.lastTosVideoUrl !== ''

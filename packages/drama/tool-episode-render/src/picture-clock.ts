@@ -14,14 +14,24 @@ function roundNearestEven(value: number): number {
   return nearest - value === 0.5 && nearest % 2 !== 0 ? nearest - 1 : nearest
 }
 
-/** Preserve an exactly serialized frame cut, otherwise select the first frame at or after the authored cut. */
+/**
+ * Preserve an exactly serialized frame cut or select the first frame at or after the authored cut.
+ * @param timeUs - Authored cut on the microsecond timeline.
+ * @param fps - Frames per second of the delivery picture clock.
+ * @returns The zero-based frame boundary for the cut.
+ */
 export function deliveryFrameAtUs(timeUs: number, fps: number): number {
   const frames = timeUs * fps / microsecondsPerSecond
   const nearest = roundNearestEven(frames)
   return deliveryFrameTimeUs(nearest, fps) === timeUs ? nearest : Math.ceil(frames)
 }
 
-/** Project an absolute delivery frame boundary onto the editor's microsecond grid. */
+/**
+ * Project an absolute delivery frame boundary onto the editor's microsecond grid.
+ * @param frame - Absolute frame boundary on the delivery picture clock.
+ * @param fps - Frames per second of the delivery picture clock.
+ * @returns The corresponding timestamp in microseconds.
+ */
 export function deliveryFrameTimeUs(frame: number, fps: number): number {
   return roundNearestEven(frame * microsecondsPerSecond / fps)
 }

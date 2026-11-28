@@ -1,5 +1,6 @@
 /** Public render arguments through a Loader-owned tool registration. */
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { copyFile, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, it, vi } from 'vitest'
@@ -7,7 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -22,12 +23,15 @@ import type { DramaRenderReport } from '../src/types.ts'
 import * as Render from '../src/index.ts'
 import * as Media from '../src/ffmpeg.ts'
 import { createMediaRunner, ffmpeg, ffprobe, hasFfmpeg } from './audio-ffmpeg-harness.ts'
-import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, probeJson, runContext,
+import * as AudioReview from '../src/content-listening-review.ts'
+import * as AudioPreflight from '../src/content-listening-preflight.ts'
+import * as ListeningAudio from '../src/content-listening-audio.ts'
+import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, probeJson, renderedPictureProbe, runContext,
   seekHandler, shippedEndingAsset, stubChannel, tempProject, writePlaceholder } from './harness.ts'
 
 /** Load the real renderer contribution through a private test-only Cordis config. */
-async function loadRenderer(ctx: Context, root: string,
-  agentConfig?: Pick<Render.Config, 'enableLocalClipRepair' | 'ffmpegPath' | 'ffprobePath'>): Promise<void> {
+async function loadRenderer(ctx: Context, root: string, agentConfig: Pick<Render.Config,
+  'enableLocalClipRepair' | 'enableLocalDialoguePatch' | 'enableContentListeningReview' | 'ffmpegPath' | 'ffprobePath'> = {}): Promise<void> {
   const config = join(root, 'cordis.yml')
   await writeFile(config, [
     ...(ctx.get('systemPrompt') === undefined ? ["- name: '@deepseek-ai/dsh-system-prompt'"] : []),
@@ -35,7 +39,7 @@ async function loadRenderer(ctx: Context, root: string,
     "- name: '@deepseek-ai/dsh-tool-episode-render'",
     '  config:',
     '    preferNvenc: false',
-    ...Object.entries(agentConfig ?? {}).map(([key, value]) => `    ${key}: ${JSON.stringify(value)}`),
+    ...Object.entries(agentConfig).map(([key, value]) => `    ${key}: ${JSON.stringify(value)}`),
     '',
   ].join('\n'))
   ctx.baseUrl = pathToFileURL(root).href + '/'
@@ -194,10 +198,239 @@ it('prepares strict source-review projects through the Loader without leaking po
   }
 })
 
+it.each([false, true])('only exposes the provisioned audio tools (enabled: %s) and preserves read-only sessions', async (enabled) => {
+  const project = await tempProject(), ctx = new Context()
+  const media = vi.spyOn(Media, 'createMediaToolkit')
+  try {
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(SandboxPolicy, { mode: 'read-only', workspaceRoot: project })
+    const harness = await mountAgentLoopTestHarness(ctx)
+    await loadRenderer(ctx, project, { enableContentListeningReview: enabled, enableLocalDialoguePatch: enabled })
+    const toolNames = ['drama_review_audio', 'drama_patch_dialogue'] as const
+    if (!enabled) {
+      expect(toolNames.map(name => ctx.tools.get(name))).toEqual([undefined, undefined])
+      return
+    }
+    await expect.poll(() => toolNames.map(name => ctx.tools.get(name)?.name)).toEqual([...toolNames])
+    const [review, patch] = toolNames.map(name => ctx.tools.get(name))
+    if (review === undefined || patch === undefined) throw new Error('Loader did not register opted-in audio tools')
+    const agent = await harness.create(SessionId('episode-audio-permissions'), {}, { cwd: project })
+    const exec = { ...runContext(), agent }
+    const reviewArgs = { method: 'prepare', project, episode: 1, output: 'candidate.mp4' }
+    const patchArgs = { project, episode: 1, target_evidence_id: '00000000-0000-4000-8000-000000000001',
+      donor_evidence_id: '00000000-0000-4000-8000-000000000002',
+      target_start_ms: 100, donor_start_ms: 100, duration_ms: 200 }
+    const before = await readdir(project)
+    await expect(review.execute(reviewArgs, runContext())).rejects.toThrow('当前 Muse 制作会话')
+    await expect(patch.execute(patchArgs, runContext())).rejects.toThrow('普通 Muse 会话')
+    await expect(review.execute(reviewArgs, exec)).rejects.toThrow('当前会话仅可读取')
+    await expect(patch.execute(patchArgs, exec)).rejects.toThrow('仅可读取文件')
+    agent.session.append('sandbox/mode', { mode: 'workspace-write' })
+    await expect(patch.execute(patchArgs, exec)).rejects.toThrow('OFFLINE_PRONUNCIATION_SESSION')
+    expect(await readdir(project)).toEqual(before)
+    expect(media).not.toHaveBeenCalled()
+  } finally {
+    media.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(project)
+  }
+})
+
+it('routes an opted-in listening request with bounded local files and an explicitly provisioned transport', async () => {
+  const project = await tempProject()
+  const unrelated = await tempProject()
+  const ctx = new Context()
+  const prepare = vi.spyOn(ListeningAudio, 'prepareContentListeningAudio').mockResolvedValue({
+    status: 'prepared_for_review', listening_verified: false, grants_approval: false,
+    source_path: join(project, 'native.mp4'), source_sha256: 'a'.repeat(64), source_record_sha256: 'b'.repeat(64),
+    wav_path: join(project, 'voice.wav'), wav_sha256: 'c'.repeat(64), pcm_sha256: 'd'.repeat(64),
+    duration_us: 1_000_000, sample_count: 48000, sample_rate: 48000, channels: 2,
+    receipt_path: join(project, 'prepare.json'),
+  })
+  const status = vi.spyOn(AudioReview, 'readContentListeningAttempt').mockResolvedValue({
+    status: 'pending_provider', attempt_path: join(project, 'attempt.json'), source_sha256: 'a'.repeat(64),
+    provider: 'fixture', model: 'fixture', cost_status: 'pending_reconciliation',
+    listening_verified: false, grants_approval: false,
+  })
+  const preflight = vi.spyOn(AudioPreflight, 'preflightContentListening').mockRejectedValue(new Error('verified preflight route'))
+  const review = vi.spyOn(AudioReview, 'reviewContentListening').mockResolvedValue({
+    status: 'needs_review', mode: 'blind_dialogue', listening_verified: false, grants_approval: false,
+    source_sha256: 'a'.repeat(64), audio_sha256: 'b'.repeat(64), duration_us: 1_000_000,
+    provider: 'fixture', model: 'fixture', findings_count: 1, receipt_path: join(project, 'candidate.json'),
+    attempt_path: join(project, 'attempt.json'), cost_status: 'pending_reconciliation',
+  })
+  const request = vi.fn()
+  const transport = { configuredRoutes: () => [], request }
+  const parseVoiceScript = vi.fn()
+  try {
+    const releaseTransport = ctx.provide('audioReviewTransport', transport)
+    ctx.provide('shotScriptVoice', parseVoiceScript)
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(SandboxPolicy, { mode: 'read-only', workspaceRoot: project })
+    const harness = await mountAgentLoopTestHarness(ctx)
+    await loadRenderer(ctx, project, { enableContentListeningReview: true })
+    await expect.poll(() => ctx.tools.get('drama_review_audio')?.name).toBe('drama_review_audio')
+    const tool = ctx.tools.get('drama_review_audio')
+    if (tool === undefined) throw new Error('Missing opted-in listening tool')
+    const agent = await harness.create(SessionId('episode-listening-routing'), {}, { cwd: project })
+    const exec = { ...runContext(), agent }
+    for (const name of ['native.mp4', 'attempt.json', 'prepare.json', 'display.srt', 'script.txt', 'dialogue.json', 'voice.wav']) {
+      await writeFile(join(project, name), name)
+    }
+    const args = { project, episode: 21, output: 'native.mp4' }
+    await expect(tool.execute({ ...args, method: 'review_status' }, exec)).rejects.toThrow('原听校尝试记录')
+    await expect(tool.execute({ ...args, method: 'review_status', attempt: 'attempt.json' }, exec))
+      .resolves.toMatchObject({ status: 'pending_provider', listening_verified: false, grants_approval: false })
+    expect(status).toHaveBeenCalledWith(expect.objectContaining({
+      output: join(project, 'native.mp4'), attemptPath: join(project, 'attempt.json'), episode: '21',
+    }))
+    agent.session.append('sandbox/mode', { mode: 'workspace-write' })
+    await expect(tool.execute({ ...args, method: 'prepare' }, exec))
+      .resolves.toMatchObject({ status: 'prepared_for_review', listening_verified: false, grants_approval: false })
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ output: join(project, 'native.mp4') }))
+    await expect(tool.execute({ ...args, episode: 0, method: 'preflight' }, exec)).rejects.toThrow('必须是正整数')
+    await expect(tool.execute({ ...args, project: unrelated, method: 'preflight' }, exec)).rejects.toThrow('当前授权工作区')
+    await expect(tool.execute({ ...args, output: '.', method: 'preflight' }, exec)).rejects.toThrow('实际存在的文件')
+    await expect(tool.execute({ ...args, method: 'preflight', attempt: 'attempt.json' }, exec)).rejects.toThrow('仅用于 review_status')
+    await expect(tool.execute({ ...args, method: 'preflight', preparation: 'prepare.json' }, exec)).rejects.toThrow('不需要听校配置')
+    await expect(tool.execute({ ...args, method: 'preflight' }, exec)).rejects.toThrow('verified preflight route')
+    await expect(tool.execute({ ...args, method: 'preflight', subtitle_srt: 'display.srt' }, exec)).rejects.toThrow('verified preflight route')
+    expect(preflight.mock.calls[0]?.[0]).not.toHaveProperty('subtitleSrt')
+    expect(preflight).toHaveBeenLastCalledWith(expect.objectContaining({ subtitleSrt: join(project, 'display.srt') }))
+    expect(review).not.toHaveBeenCalled()
+    const inputs = { ...args, method: 'review', preparation: 'prepare.json', subtitle_srt: 'display.srt', authored_dialogue: 'dialogue.json' }
+    const voice_context = { source_script: 'script.txt', references: [{ character_id: 'speaker', asset_id: 12, path: 'voice.wav' }] }
+    await expect(tool.execute({ ...inputs, mode: 'blind_dialogue', voice_context }, exec)).rejects.toThrow('盲听和声线上下文不能同用')
+    await expect(tool.execute({ ...inputs, mode: 'blind_dialogue' }, exec))
+      .resolves.toMatchObject({ status: 'needs_review', listening_verified: false, grants_approval: false })
+    expect(review).toHaveBeenLastCalledWith(expect.objectContaining({
+      mode: 'blind_dialogue', preparationPath: join(project, 'prepare.json'), transport,
+    }))
+    await expect(tool.execute({ ...inputs, voice_context }, exec)).resolves.toMatchObject({ status: 'needs_review' })
+    expect(review).toHaveBeenLastCalledWith(expect.objectContaining({
+      parseVoiceScript, voiceContext: { source_script: join(project, 'script.txt'),
+        references: [{ character_id: 'speaker', asset_id: 12, path: join(project, 'voice.wav') }] },
+    }))
+    expect(request).not.toHaveBeenCalled()
+    releaseTransport()
+    await expect(tool.execute(inputs, exec)).resolves.toMatchObject({ status: 'needs_review' })
+    expect(review.mock.lastCall?.[0]).not.toHaveProperty('transport')
+  } finally {
+    prepare.mockRestore()
+    status.mockRestore()
+    preflight.mockRestore()
+    review.mockRestore()
+    await ctx.fiber.dispose()
+    await Promise.all([cleanup(project), cleanup(unrelated)])
+  }
+})
+
+it.skipIf(!hasFfmpeg)('uses current native pronunciation receipts to produce a bounded local dialogue candidate', async () => {
+  const root = await realpath(await tempProject())
+  const project = join(root, 'episode')
+  const target = join(project, 'target.mp4'), donor = join(project, 'donor.mp4')
+  const ctx = new Context()
+  const runner = createMediaRunner()
+  const media = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue({ ffmpeg, ffprobe, channel: runner.channel })
+  try {
+    await mkdir(project)
+    for (const [path, frequency] of [[target, 337], [donor, 833]] as const) {
+      const encoded = await runner.runCommand(ffmpeg, ['-n', '-v', 'error', '-f', 'lavfi', '-i',
+        'testsrc2=size=128x96:rate=24:duration=3', '-f', 'lavfi', '-i',
+        `sine=frequency=${frequency}:sample_rate=32000:duration=3`, '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p', '-c:a', 'aac', path])
+      expect(encoded.code, encoded.stderr).toBe(0)
+    }
+    const source = { target: { path: target, sha256: await fileSha256(target) }, donor: { path: donor, sha256: await fileSha256(donor) } }
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(SandboxPolicy, { mode: 'workspace-write', workspaceRoot: root })
+    const harness = await mountAgentLoopTestHarness(ctx)
+    await loadRenderer(ctx, root, { enableLocalDialoguePatch: true })
+    await expect.poll(() => ctx.tools.get('drama_patch_dialogue')?.name).toBe('drama_patch_dialogue')
+    const agent = await harness.create(SessionId('bound-dialogue-repair'), {}, { cwd: root })
+    let nativeStep = 0
+    const issue = (role: 'target' | 'donor', evidence = source[role], evidenceProject = project, neighbor = 'ding4') => {
+      const evidenceId = randomUUID(), step = ++nativeStep, callId = ToolCallId(`pronunciation-${step}`)
+      const isTarget = role === 'target', expected = 'dai4', alternative = 'zai4'
+      const ranges = isTarget ? [{ start: 0.85, end: 2 }, { start: 0.9, end: 2.1 }]
+        : [{ start: 0, end: 1 }, { start: 0.05, end: 1.1 }]
+      const request = { tokens: ['wo3', expected, neighbor], target_index: 1, alternative, windows: ranges }
+      const body = { offline_pronunciation: { version: 1, evidence_id: evidenceId, project: evidenceProject, source: evidence,
+        model: { name: 'robinsonphan/sensevoice-small-zh-pinyin-dual-ctc', revision: '884e70660b97f9c242f1d77c8516aea62a8fdf29',
+          sha256: 'ed3c7db2468b99fd3811578fff6000c990875c22b1e93abcd08f9c05bc61a93a' },
+        status: isTarget ? 'suspected_mismatch' : 'matching_in_windows', expected, alternative, target_index: 1,
+        windows: ranges.map(range => ({ ...range, observed: isTarget ? alternative : expected, target_seconds: isTarget ? 1.35 : 0.54,
+          alternative_minus_expected: isTarget ? 12 : -12,
+          pcm: { sha256: 'a'.repeat(64), sampleRate: 16000, samples: Math.round((range.end - range.start) * 16000) } })),
+        minimum_margin: 8, listening_verified: false, note: 'synthetic local speech observations',
+      } }
+      agent.session.append('tool/call', { turn: 1, step, callId, name: 'audio_transcribe',
+        arguments: JSON.stringify({ method: 'pronunciation', project: evidenceProject, input: evidence.path, pronunciation: request }) })
+      agent.session.append('tool/result', { turn: 1, step,
+        message: createToolResultMessage({ callId, isError: false, content: [{ type: 'text', text: JSON.stringify(body) }] }),
+        meta: { [TOOL_BODY_META_KEY]: body } }, { surfaceOp: 'append' })
+      return evidenceId
+    }
+    const args = { project, episode: 21, target_evidence_id: issue('target'), donor_evidence_id: issue('donor'),
+      target_start_ms: 1250, donor_start_ms: 450, duration_ms: 240 }
+    const invokePatch = (request: typeof args) => executeModelToolFixture(ctx, { name: 'drama_patch_dialogue',
+      callId: ToolCallId(randomUUID()), arguments: request, signal: new AbortController().signal, agent })
+    const unrelatedProjectReceipt = { ...args, donor_evidence_id: issue('donor', source.donor, root) }
+    const refusals = [
+      [{ ...args, donor_evidence_id: issue('donor', source.target) }, 'DIALOGUE_PATCH_EVIDENCE'],
+      [{ ...args, donor_evidence_id: issue('donor', source.donor, project, 'ding1') }, 'DIALOGUE_PATCH_EVIDENCE'],
+      [{ ...args, target_start_ms: 1600 }, 'DIALOGUE_PATCH_EVIDENCE'],
+      [{ ...args, project: join(root, 'missing-project') }, '当前授权工作区'],
+      [unrelatedProjectReceipt, 'DIALOGUE_PATCH_SOURCE'],
+      [{ ...args, donor_evidence_id: issue('donor', { ...source.donor, path: join(project, 'missing-source.mp4') }) },
+        'DIALOGUE_PATCH_SOURCE'],
+    ] as const
+    for (const [request, reason] of refusals) {
+      const refused = await invokePatch(request)
+      expect(refused.isError).toBe(true)
+      expect(JSON.stringify(refused.content)).toContain(reason)
+    }
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    if (platform === undefined) throw new Error('Missing Node platform descriptor')
+    try {
+      // Exercise the other path comparison rule only during a denied metadata check.
+      Object.defineProperty(process, 'platform', { ...platform, value: process.platform === 'win32' ? 'linux' : 'win32' })
+      const refused = await invokePatch(unrelatedProjectReceipt)
+      expect(refused.isError).toBe(true)
+      expect(JSON.stringify(refused.content)).toContain('DIALOGUE_PATCH_SOURCE')
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+    }
+    expect(media).not.toHaveBeenCalled()
+    expect((await readdir(project)).sort()).toEqual(['donor.mp4', 'target.mp4'])
+
+    const repaired = await invokePatch(args)
+    expect(repaired.isError, JSON.stringify(repaired.content)).toBe(false)
+    const output = join(project, 'editing')
+    const directories = await readdir(output)
+    expect(directories).toHaveLength(1)
+    expect(directories[0]).toMatch(/^dialogue-patch-21-/u)
+    const candidate = join(output, directories[0]!, 'clip.mov')
+    expect(repaired.value).toMatchObject({ episode: '21', durationMs: 240,
+      output: { path: candidate, sha256: await fileSha256(candidate) },
+      pronunciation_evidence: { target: args.target_evidence_id, donor: args.donor_evidence_id },
+      listeningVerified: false, sourceApproved: false, reviewStatus: 'pending_review' })
+    expect(repaired.meta).toMatchObject({ [TOOL_BODY_META_KEY]: repaired.value })
+    expect(await fileSha256(target)).toBe(source.target.sha256)
+    expect(await fileSha256(donor)).toBe(source.donor.sha256)
+  } finally {
+    media.mockRestore()
+    await ctx.fiber.dispose()
+    await runner.dispose()
+    await cleanup(root)
+  }
+}, 45_000)
+
 it('keeps legacy bound-project working renders available but refuses unreviewed staging through the Loader', async () => {
   const root = await tempProject(), ctx = new Context()
   const output = join(root, 'exports', '01.mp4'), draft = join(root, '02_剪映草稿', 'legacy-draft')
   const channel = stubChannel([
+    renderedPictureProbe(),
     call => call.command === 'ffprobe' && call.args.at(-1)?.includes('.drama-render-')
       ? { stdout: probeJson({ durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} }) } : undefined,
     probeHandler({
@@ -320,6 +553,7 @@ it('reads and writes mixed project-relative and absolute paths through all four 
   const output = join('exports', '成片 空格.mp4')
   const outputPath = join(project, output)
   const stub = stubChannel([
+    renderedPictureProbe(),
     probeHandler({
       [video]: { durationSeconds: 5, video: {}, audio: {} },
       [join(project, 'video', '01', 'shot_001.mp4')]: { durationSeconds: 5, video: {}, audio: {} },
@@ -382,8 +616,9 @@ it('reads and writes mixed project-relative and absolute paths through all four 
     const verified = await invoke(tool, { method: 'verify', project, episode: 1, output,
       timeline: join(project, timeline), subtitle_srt: join('editing', '01.srt') })
     expect(verified).toMatchObject({ ok: true, output: outputPath, written: [] })
-    expect(stub.calls.filter(call => call.command === 'ffprobe').map(call => call.args.at(-1)))
-      .toEqual(expect.arrayContaining([video, endingEffect, outputPath]))
+    const probed = stub.calls.filter(call => call.command === 'ffprobe').map(call => call.args.at(-1))
+    expect(probed).toEqual(expect.arrayContaining([video, endingEffect, outputPath]))
+    expect(probed).toContain(join(project, 'exports', '.render_cache', '01', 'subtitled.mp4'))
     expect(process.cwd()).toBe(cwd)
   } finally {
     mediaFactory.mockRestore()
@@ -399,6 +634,7 @@ it('exposes the selected 480p render inputs through Loader prepare, render and t
   const output = join(root, 'exports', 'candidate.mp4')
   const bgm = join(root, 'approved-bgm.wav')
   const stub = stubChannel([
+    renderedPictureProbe(),
     probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} },
       [join(root, 'video', '23', 'shot_001.mp4')]: { durationSeconds: 5, video: { fps: 24 } },
       [output]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} } }),
@@ -427,7 +663,7 @@ it('exposes the selected 480p render inputs through Loader prepare, render and t
     expect(log).toContain(JSON.stringify(bgm))
     const mux = stub.calls.find(call => call.args.includes('-stream_loop'))
     expect(mux?.args).toContain(bgm)
-    expect(mux?.args.join(' ')).toContain('[2:a]atrim=0:5.000000,volume=0.24[a1]')
+    expect(mux?.args.join(' ')).toContain('[2:a]aresample=48000,asetpts=N/SR/TB,atrim=0:5.000000,volume=0.24[a1]')
     expect(await readFile(output, 'utf8')).toBe('media')
   } finally {
     mediaFactory.mockRestore()
@@ -442,6 +678,7 @@ it('carries project subtitle and gain snapshots through Loader prepare, ASS, mux
   const video = join(root, 'source.mp4')
   const output = join(root, 'exports', 'configured.mp4')
   const stub = stubChannel([
+    renderedPictureProbe(),
     probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} },
       [join(root, 'video', '23', 'shot_001.mp4')]: { durationSeconds: 5, video: { fps: 24 } },
       [output]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} } }),
@@ -480,8 +717,8 @@ it('carries project subtitle and gain snapshots through Loader prepare, ASS, mux
     expect(ass).toContain('Style: Default,Project font,67.518,')
     expect(ass).toContain('0,2,40,40,41,1')
     const mux = stub.calls.find(call => call.args.includes('-stream_loop'))
-    expect(mux?.args.join(' ')).toContain('[1:a]apad,atrim=0:5.000000,volume=1[a0]')
-    expect(mux?.args.join(' ')).toContain('[2:a]atrim=0:5.000000,volume=0[a1]')
+    expect(mux?.args.join(' ')).toContain('[1:a]aresample=48000,asetpts=N/SR/TB,apad,atrim=end_sample=240000,volume=1[a0]')
+    expect(mux?.args.join(' ')).toContain('[2:a]aresample=48000,asetpts=N/SR/TB,atrim=0:5.000000,volume=0[a1]')
     const log = await readFile(join(cache, 'render.log'), 'utf8')
     expect(log).toContain('"font_family":"Project font"')
     expect(log).toContain('"master_gain":1,"bgm_gain":0')

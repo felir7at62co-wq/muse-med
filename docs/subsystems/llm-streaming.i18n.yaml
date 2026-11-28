@@ -47,6 +47,9 @@
 /llm-streaming/pi-ai-request-headers:
   en: 8c140f9c5a799f01
   zh: f66b895594247e92
+/llm-streaming/standalone-audio-review:
+  en: 7d49c08efae6e1f1
+  zh: b97ee46f3d8cf1f8
 /llm-streaming/service-and-provider-contracts:
   en: 8dc79d4cc82824c2
   zh: 3ebabd3a117ad717

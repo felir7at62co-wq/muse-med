@@ -893,6 +893,10 @@ interface LlmCallConfigAdapterDefaults {
 
 `PiAiRequestHeaderContext` 包含已准备调用的 provider、model、解析后的模型 `baseURL`，以及可选 Session id 和辅助用途。它不可变且不含消息或认证字段，与本次请求独有的 `Headers` 一起传入同步的 `llm-pi-ai/request-headers` waterfall。[适配器的请求头文档](../../packages/llm/llm-pi-ai/README.zh.md#request-headers)定义贡献的所有权、应用标识的优先级与失败行为。此扩展点仅适用于 pi-ai 推理请求。
 
+## 独立音频听校
+
+`ctx.audioReviewTransport` 接收 Host 调用方提供的限量 WAV 片段，执行一次独立听校。`AudioReviewRoute` 标识显式配置的提供方和模型。`AudioReviewRequest` 包含该线路、提示词和 WAV 片段。调用方可取消请求，也可通过回调保存提供方的计量信息。`AudioReviewTransportResult` 将提供方的参考意见与本次请求的音频摘要绑定。试听验证和批准需要单独的证据。
+
 ## 服务与提供方约定
 
 `LlmAdapter` 是提供方约定：创建子类、实现 `stream()`，再用 `ctx.llm.registerAdapter(providers, adapter)` 注册一个适配器实例。`GenerateOptions.provider` 选择已注册适配器；`GenerateOptions.model` 会传给该适配器，无需在生命周期启动时注册。重复提供方路由会原子失败。可选的 `providerRetryPolicy()` 会按路由捕获并填入 normal 默认值，`providerInfo()` 与异步 `listModels()` 方法则为 `LlmRuntime.listProviders()` / `listModels()` 提供分离的 selector 元数据。该目录仅供参考，不是请求白名单：适配器仍是权威，并可接受未列出的模型 id。单次异步 `resolveModel()` 查询返回确切模型身份，以及可选的对正确性敏感的上下文容量、适配器配置的 `defaultMaxTokens`、由模型持有的有序推理强度 ID 和可选的部署默认值；字段缺失表示元数据不可用或保留提供方持有的行为，而不表示目录成员关系无效。解析器会接收可选的取消信号，并且必须在信号中止后迅速完成结算。`LlmRuntime.resolveModelInfo()` 会校验聚合结果并返回分离值。在最终适配器边界，`resolveCallConfig()` 仅在 `maxTokens` 缺失时填入输出默认值，并校验和填入推理强度，因此直接调用也无法绕过任何一项已配置行为；直接分派会在等待解析前捕获一项适配器注册。agent loop 则使用 `prepareCall()`，使模型解析、请求头持久记录和分派全程使用同一项注册，保留来自同一次查询的分离上下文元数据，并报告适配器填入的配置字段。适配器查找发生在 `llm/stream` waterfall 的终端 continuation，因此 listener 可以在查找前短路调用，或路由一个可变的一次性请求。AgentLoop 在外层 waterfall 返回流句柄时观察到一次请求尝试；这个有限边界不能证明惰性终端适配器已构造完成或开始提供方 I/O。`block-start` / `block-end` 的 `index` 关联与 assembler 共同意味着适配器只需 emit 格式正确的分片——块重组不是每个适配器各自的问题。`ctx.llm.stream()` 与 `llm/stream` waterfall 在一个轮次中的位置见 [architecture.md](../architecture.zh.md#turn-flow)。
@@ -1017,6 +1021,29 @@ declare abstract class LlmAdapter {
 ## Cordis API
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxaudioreviewtransport--audioreviewtransport"></a>
+
+### `ctx.audioReviewTransport` — `AudioReviewTransport`
+
+Host service for bounded standalone audio review on deployment-approved routes.
+
+```ts cordis-catalog
+/**
+ * List explicitly configured, compatible routes without resolving any credentials.
+ * @returns Eligible provider and model pairs.
+ */
+configuredRoutes(): readonly AudioReviewRoute[]
+
+/**
+ * Send one isolated request. The implementation rechecks route eligibility before dispatch.
+ * @param input - Exact route, bounded WAV bytes, prompt and optional cancellation or accounting callback.
+ * @returns Provider output and matching request hashes for advisory review.
+ */
+request(input: AudioReviewRequest): Promise<AudioReviewTransportResult>
+```
+
+Source: [`packages/llm/llm/src/audio-review-transport.ts`](../../packages/llm/llm/src/audio-review-transport.ts)
 
 <a id="ctxdeepseekllmapiextensions--deepseekllmapiextensionregistry"></a>
 
