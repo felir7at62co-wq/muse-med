@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
-import { LISTENING_PENDING, unattendedReviewMode, verifyEpisodeContentReview, type ContentReviewVerifier } from '../src/content-review.ts'
+import { LISTENING_PENDING, UNATTENDED_PICTURE_PENDING_LIMIT, unattendedReviewMode, verifyEpisodeContentReview, type ContentReviewVerifier } from '../src/content-review.ts'
 import { contentReviewFixture } from './content-review-fixture.ts'
 
 const roots: string[] = []
@@ -74,17 +74,52 @@ describe('unattended content review', () => {
       event_groups: [{ uncertainty: '分包里的茶杯仍看不清' }] })
     await f.report({ ...observed, event_groups: [{ uncertainty: '无' }, { uncertainty: '陆知宁是否戴手套看不清' }] })
     await expect(verifyEpisodeContentReview(f.input)).rejects.toThrow('CONTENT_REVIEW_PENDING')
+    // Six distinct picture findings exceed the unattended limit; the refusal lists them for repair.
+    const refused = await verifyEpisodeContentReview({ ...f.input, unattended: true })
+      .then(() => '', (error: unknown) => String(error))
+    expect(refused).toContain('超过上限')
+    expect(refused).toContain('白手套消失')
+    expect(refused).toContain('陆知宁是否戴手套看不清')
+    expect(refused.split('P3 裸手待返工')).toHaveLength(2)
+    expect(refused).toContain('成片审查问题：{"note":"声画同步待复核"}')
+    expect(refused).toContain('第1镜分包已观察动作事件仍有未决疑点：分包里的茶杯仍看不清')
+    expect(refused).not.toContain('成片已观察动作事件仍有未决疑点：无')
+    expect(refused).not.toContain('声音审查为unverified')
+  })
+
+  it('refuses to defer more picture findings than the episode limit', async () => {
+    const f = await fixture()
+    unlistened(f)
+    const issues = f.saved.entry.issues as unknown[]
+    for (let index = 1; index <= UNATTENDED_PICTURE_PENDING_LIMIT; index++) issues.push(`第${index}镜道具跳变`)
+    await f.save()
     const receipt = await verifyEpisodeContentReview({ ...f.input, unattended: true })
-    const pending = receipt.pending ?? []
-    expect(pending.some(item => item.includes('白手套消失'))).toBe(true)
-    expect(pending.some(item => item.includes('看不清'))).toBe(true)
-    expect(pending.filter(item => item.includes('P3 裸手待返工'))).toHaveLength(1)
-    expect(pending).toContain('成片审查问题：{"note":"声画同步待复核"}')
-    expect(pending.some(item => item.includes('画面'))).toBe(true)
-    expect(pending.some(item => item.includes('声音审查为unverified'))).toBe(true)
-    expect(pending).toContain('第1镜分包已观察动作事件仍有未决疑点：分包里的茶杯仍看不清')
-    expect(pending).not.toContain('成片已观察动作事件仍有未决疑点：无')
-    expect(pending).not.toContain(LISTENING_PENDING)
+    expect(receipt.pending).toHaveLength(UNATTENDED_PICTURE_PENDING_LIMIT + 1)
+    issues.push({ item: 'prop_continuity', detail: '第9镜手套消失' })
+    await f.save()
+    await expect(verifyEpisodeContentReview({ ...f.input, unattended: true })).rejects.toThrow('超过上限')
+  })
+
+  it('keeps sound issues pending without counting them toward the picture limit', async () => {
+    const f = await fixture()
+    unlistened(f)
+    f.saved.entry.audio = 'unverified'
+    const issues = f.saved.entry.issues as unknown[]
+    const audioIssues = [
+      { item: 'bgm_volume', detail: '对白被音乐盖住' },
+      { item: 'bgm_fit', detail: '音乐与剧情情绪不符' },
+      { item: 'bgm_adjacent_repeat', detail: '与上一集重复使用同一首曲目' },
+      { item: 'bgm_volume', detail: '片尾音乐音量过低' },
+    ]
+    issues.push(...audioIssues)
+    await f.save()
+    await expect(verifyEpisodeContentReview(f.input)).rejects.toThrow('成片审查仍有issues或unverified')
+    const receipt = await verifyEpisodeContentReview({ ...f.input, unattended: true })
+    expect(receipt.pending).toEqual([
+      LISTENING_PENDING,
+      expect.stringContaining('声音审查为unverified'),
+      ...audioIssues.map(issue => `成片审查问题：${JSON.stringify(issue)}`),
+    ])
   })
 
   it.each(['absent audio evidence', 'empty machine ranges'] as const)('leaves listening pending with %s', async (kind) => {

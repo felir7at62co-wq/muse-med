@@ -63,6 +63,12 @@ export interface ContentReviewReceipt {
   readonly pending?: readonly string[]
 }
 
+/**
+ * Unattended runs may defer at most this many picture findings per episode. More means the episode needs repair,
+ * not a longer list for the person who reviews the finished drama.
+ */
+export const UNATTENDED_PICTURE_PENDING_LIMIT = 3
+
 /** First line of the pending list when no person has listened to the current output. */
 export const LISTENING_PENDING = '整集试听待人工听校：无人值守运行中没有人试听当前成片，发音、漏说错说、说话人和声音衔接须在全剧完成后人工听校。'
 
@@ -80,6 +86,8 @@ export function unattendedReviewMode(ctx: Pick<Context, 'get'>): boolean {
 
 type Row = Record<string, unknown>
 const dimensions = ['physical_logic', 'continuity'] as const
+/** Audio issue tags in the built-in video-review skill's film review register. */
+const audioIssueItems = new Set<unknown>(['bgm_volume', 'bgm_fit', 'bgm_adjacent_repeat'])
 function fail(reason: string): never { throw Error(`CONTENT_REVIEW_PENDING: ${reason} 保留工作候选，修复对应时段并复验后再交付；不自动购买转写。`) }
 const object = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
@@ -142,10 +150,13 @@ export async function verifyEpisodeContentReview(input: {
 }): Promise<ContentReviewReceipt> {
   const unattended = input.unattended === true
   const pending: string[] = []
-  const concern = (reason: string): void => {
+  const picturePending = new Set<string>()
+  const concern = (reason: string, audio = false): void => {
     if (!unattended) fail(reason)
     if (!pending.includes(reason)) pending.push(reason)
+    if (!audio) picturePending.add(reason)
   }
+  const audioConcern = (reason: string): void => { concern(reason, true) }
   const saved = await localFile(input.project, input.path ?? '_probe/delivery-config/film-reviews.json')
   const films = saved.value.films, film = object(films) ? films[input.episode] ?? films[String(Number(input.episode))] : undefined
   if (!object(film) || !text(film.source) || !equalPath(resolve(input.project, film.source), input.output)
@@ -156,8 +167,11 @@ export async function verifyEpisodeContentReview(input: {
       || film.issues.length !== 0) fail('成片审查仍有issues或unverified，技术通过不能放行。')
   } else {
     if (['subtitle', 'spec'].some(key => film[key] !== 'ok')) fail('成片字幕或规格审查未通过，无人值守也不能放行。')
-    for (const key of ['picture', 'audio'] as const) if (film[key] !== 'ok') concern(`成片${key === 'picture' ? '画面' : '声音'}审查为${String(film[key])}，待人工复核。`)
-    for (const issue of film.issues) concern(`成片审查问题：${typeof issue === 'string' ? issue : JSON.stringify(issue)}`)
+    for (const key of ['picture', 'audio'] as const) if (film[key] !== 'ok') concern(`成片${key === 'picture' ? '画面' : '声音'}审查为${String(film[key])}，待人工复核。`, key === 'audio')
+    for (const issue of film.issues) {
+      const audio = object(issue) && audioIssueItems.has(issue.item)
+      concern(`成片审查问题：${typeof issue === 'string' ? issue : JSON.stringify(issue)}`, audio)
+    }
   }
   const content = film.content_review
   if (!object(content) || content.version !== 1 || !object(content.output)) fail('缺少分包和成片的内容证据。')
@@ -231,9 +245,9 @@ export async function verifyEpisodeContentReview(input: {
     try {
       const audioRanges = rows(audio.ranges, '声音审查')
       if (audioRanges.some(row => row.dimension !== 'pronunciation')) fail('声音范围必须明确核对实际发音。')
-      if (audioRanges.length > 0) coverage(audioRanges, 'pronunciation', input.duration, concern)
+      if (audioRanges.length > 0) coverage(audioRanges, 'pronunciation', input.duration, audioConcern)
     } catch (error) {
-      concern(String(error).replace(/^(?:Error: )?CONTENT_REVIEW_PENDING: /u, '机器读音检查：'))
+      audioConcern(String(error).replace(/^(?:Error: )?CONTENT_REVIEW_PENDING: /u, '机器读音检查：'))
     }
   }
   let listened = false
@@ -247,6 +261,10 @@ export async function verifyEpisodeContentReview(input: {
       // Nobody can answer in an unattended run; a claimed answer that does not verify leaves listening to a person.
       if (!unattended || !String(error).includes('CONTENT_REVIEW_PENDING')) throw error
     }
+  }
+  if (picturePending.size > UNATTENDED_PICTURE_PENDING_LIMIT) {
+    fail(`无人值守：本集画面类待核 ${picturePending.size} 项，超过上限 ${UNATTENDED_PICTURE_PENDING_LIMIT} 项。`
+      + `请先局部修复或返工受影响的包并复审，再归档。待核清单：${[...picturePending].join('；')}`)
   }
   if (unattended && !listened) pending.unshift(LISTENING_PENDING)
   for (const file of files) if (await fileSha256(file.path) !== file.sha256) fail('核验期间内容证据已变化。')
