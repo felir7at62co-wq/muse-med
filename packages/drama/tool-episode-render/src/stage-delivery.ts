@@ -415,6 +415,7 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
       outputSha256: sha256, duration: verified.media.duration_seconds,
       sources: render.videos.map(row => ({ ...row, duration: Number(clipDurations.get(row.shot)) / 1_000_000 })),
       cuts: timeline.clips.map(clip => clip.startUs / 1_000_000).slice(1),
+      ...(input.settings.unattendedReview === true ? { unattended: true } : {}),
       ...(input.contentReviewVerifier === undefined ? {} : { verifier: input.contentReviewVerifier }) }) : undefined
     const draftFont = draftProof.fontFiles.length === 0 ? undefined : await retainNativeFontSnapshot(draft, draftProof.nativeSha)
     const body = `${JSON.stringify({ version: 1, status: 'candidate', episode, video, draft, sha256,
@@ -488,14 +489,18 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
         await rmdir(staging)
       }
     })
+    const pending = contentReview?.pending ?? []
+    const pendingWarnings = pending.map(item => `待人工复核：${item}`)
     return { ...verified, output: video, written,
       checks: contentReview === undefined ? verified.checks : [...verified.checks, { id: 'content_review', severity: 'failure' as const,
-        ok: true, detail: '当前分包和成片的观察证据、内容结论与真实试听回答已绑定；不代表自动语义检测完美。',
+        ok: true, detail: pending.length === 0
+          ? '当前分包和成片的观察证据、内容结论与真实试听回答已绑定；不代表自动语义检测完美。'
+          : `无人值守归档：当前分包和成片的观察证据已绑定，另有${pending.length}项待人工复核（含整集试听时须全剧完成后人工听校），已写入交付回执。`,
         fix: '' }],
       not_checked: contentReview === undefined ? verified.not_checked : verified.not_checked.filter(id => id !== 'content_review'),
-      warnings: [...verified.warnings, CANDIDATE_WARNING],
+      warnings: [...verified.warnings, CANDIDATE_WARNING, ...pendingWarnings],
       summary: { ...verified.summary, checks: verified.summary.checks + (contentReview === undefined ? 0 : 1),
-        warnings: verified.summary.warnings + 1 },
+        warnings: verified.summary.warnings + 1 + pendingWarnings.length },
       delivery_package: { status: 'candidate', video, draft, sha256, reused, receipt } }
   })
 }

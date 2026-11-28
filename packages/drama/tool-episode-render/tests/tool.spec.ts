@@ -274,9 +274,13 @@ it('does not publish a source verifier after its provider is removed during regi
   }
 })
 
-it('delegates content review only while its Host proof providers are active', async () => {
+it.each([
+  { mode: 'no coordinator', unattended: undefined },
+  { mode: 'unattended coordinator', unattended: true },
+])('delegates content review with $mode only while its Host proof providers are active', async ({ unattended }) => {
   const ctx = new Context(), registered: ToolDefinition[] = []
   ctx.provide('tools', { register: (definition: ToolDefinition) => { registered.push(definition); return () => {} } } as never)
+  if (unattended) ctx.provide('sessionCoordinator', { mode: { unattended } } as never)
   const binding = { kind: 'video' as const, mediaPath: 'source', mediaSha256: 'a'.repeat(64),
     inspectionPath: 'inspection', inspectionSha256: 'b'.repeat(64), sessionId: 'source-session', reviewId: 'review' }
   const verify = vi.fn<VideoInspection.VideoObservationVerifier>().mockResolvedValue(undefined)
@@ -306,6 +310,7 @@ it('delegates content review only while its Host proof providers are active', as
     await vi.waitFor(async () => {
       await expect(tool.execute(args, execution)).rejects.toThrow('Content review delegation completed')
     })
+    expect(stage.mock.lastCall?.[0].settings.unattendedReview).toBe(unattended)
     expect(verify).toHaveBeenCalledWith(undefined, binding, expect.any(AbortSignal))
     await providers.dispose()
     await expect(tool.execute(args, execution)).rejects.toThrow('CONTENT_REVIEW_HOST')

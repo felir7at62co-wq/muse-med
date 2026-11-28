@@ -668,6 +668,11 @@ export interface RenderSettings {
   readonly watermarkFontFamily: string
   /** Injection point for tests; the process channel is otherwise the real one. */
   readonly channel?: ProcessChannel
+  /**
+   * Host runs without a person: content review findings and the missing listening answer are archived as pending
+   * items instead of refusing the episode. Set per call from the session coordinator's mode; never from model input.
+   */
+  readonly unattendedReview?: boolean
 }
 
 /** One audio mix: the three gains and the two boundaries the graph cuts at. */

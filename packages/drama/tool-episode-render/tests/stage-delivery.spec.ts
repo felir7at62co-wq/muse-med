@@ -7,6 +7,7 @@ import { resolveCall, resolveSettings } from '../src/index.ts'
 import { episodePaths } from '../src/paths.ts'
 import { buildSourceRecord, readSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from '../src/source-record.ts'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
+import { LISTENING_PENDING } from '../src/content-review.ts'
 import { summarizeSourceQa } from '../src/source-qa.ts'
 import { reviewSpeechCoverage } from '../src/speech-coverage.ts'
 import { stageEpisodeDelivery } from '../src/stage-delivery.ts'
@@ -431,6 +432,33 @@ describe('stageEpisodeDelivery', () => {
     const { contentReviewVerifier: _verifier, ...input } = f.input
     await expect(stageEpisodeDelivery(input, f.draft)).rejects.toThrow('真实观察和试听')
     await expectNoDelivery(f)
+  })
+
+  it('archives and reuses an unattended candidate with human listening still pending', async () => {
+    const f = await reviewedFixture(true, true)
+    const input: Parameters<typeof stageEpisodeDelivery>[0] = { ...f.input, contentReviewVerifier: async (binding) => {
+      if (binding.kind === 'listening') throw Error('CONTENT_REVIEW_PENDING: 没有当前成片的真实已完成试听回答。')
+    } }
+    await expect(stageEpisodeDelivery(input, f.draft)).rejects.toThrow('CONTENT_REVIEW_PENDING')
+    await expectNoDelivery(f)
+
+    const unattended = { ...input, settings: { ...input.settings, unattendedReview: true } }
+    const pendingWarning = `待人工复核：${LISTENING_PENDING}`
+    const first = await stageEpisodeDelivery(unattended, f.draft)
+    expect(first.delivery_package).toMatchObject({ status: 'candidate', reused: false })
+    expect(first.warnings).toContain(pendingWarning)
+    expect(first.summary.warnings).toBe(first.warnings.length)
+    const reviewCheck = first.checks.find(check => check.id === 'content_review')
+    expect(reviewCheck?.detail).toContain('1项待人工复核')
+    const receipt = await readFile(f.receipt, 'utf8')
+    expect(JSON.parse(receipt)).toMatchObject({ status: 'candidate', content_review: { pending: [LISTENING_PENDING] } })
+
+    const reused = await stageEpisodeDelivery(unattended, f.draft)
+    expect(reused.delivery_package).toMatchObject({ status: 'candidate', reused: true })
+    expect(reused.written).toEqual([])
+    expect(reused.warnings).toContain(pendingWarning)
+    expect(reused.summary.warnings).toBe(first.summary.warnings)
+    expect(await readFile(f.receipt, 'utf8')).toBe(receipt)
   })
 
   it('rechecks content evidence after staging bytes and preserves the source when review changes', async () => {

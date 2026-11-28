@@ -7,7 +7,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tool-present'
 import type {} from '@deepseek-ai/dsh-tools'
 import { createContentReviewVerifier, findShortDramaProject, parseSrtDocument,
-  verifyDraftSubtitleFont, verifyEpisodeContentReview,
+  unattendedReviewMode, verifyDraftSubtitleFont, verifyEpisodeContentReview,
   type ContentReviewVerifier } from '@deepseek-ai/dsh-tool-episode-render/delivery'
 import type {} from '@deepseek-ai/dsh-agent'
 import { z } from 'zod'
@@ -20,7 +20,8 @@ const candidate = z.object({ version: z.literal(1), status: z.literal('candidate
   render_source_sha256: hash, draft_source_sha256: hash,
   draft_font: z.object({ snapshot_path: absolute, snapshot_sha256: hash }).optional(),
   content_review: z.object({ path: absolute, sha256: hash,
-    files: z.array(z.object({ path: absolute, sha256: hash })).min(1) }) })
+    files: z.array(z.object({ path: absolute, sha256: hash })).min(1),
+    pending: z.array(z.string().min(1)).min(1).optional() }) })
 const fileDigest = z.object({ path: absolute, sha256: hash.nullable() })
 const videoDigest = z.object({ shot: z.number().int().positive(), sha256: hash })
 const preparedTimeline = z.object({ delivery: z.object({
@@ -202,11 +203,12 @@ function stagedUploadSource(file: string, project: string): string | undefined {
  * @param registered - Native episode outputs observed by this scoped Host plugin.
  * @param contentVerifier - Actual current-Session observations and user listening answers.
  * @param fontsDir - Managed font bundle used to verify the original draft independently of OS fonts.
+ * @param unattended - Host runs without a person: the receipt's pending review items are re-derived and must match.
  * @returns Modified draft statuses without revoking unchanged, verified MP4s; undefined when none changed.
  */
 export async function validateShortDramaDelivery(files: readonly string[], signal: AbortSignal,
   registered: ReadonlyMap<string, string> = new Map(), contentVerifier?: ContentReviewVerifier,
-  fontsDir = process.env.MUSE_FONTS_DIR): Promise<readonly { episode: string; draft: string; status: 'modified_unverified' }[] | undefined> {
+  fontsDir = process.env.MUSE_FONTS_DIR, unattended = false): Promise<readonly { episode: string; draft: string; status: 'modified_unverified' }[] | undefined> {
   const modifiedDrafts: { episode: string; draft: string; status: 'modified_unverified' }[] = []
   for (const file of files) {
     if (!VIDEO.has(extname(file).toLowerCase())) continue
@@ -223,7 +225,7 @@ export async function validateShortDramaDelivery(files: readonly string[], signa
         throw new ShortDramaUploadError('上传副本不在本集项目或同级视频目录内，请使用已归档原件。', 'SHORT_DRAMA_UPLOAD_SCOPE')
       }
       const before = await digest(selected, signal)
-      const draftChanges = await validateShortDramaDelivery([staged], signal, registered, contentVerifier, fontsDir)
+      const draftChanges = await validateShortDramaDelivery([staged], signal, registered, contentVerifier, fontsDir, unattended)
       if (before !== await digest(staged, signal) || before !== await digest(selected, signal)) {
         throw new ShortDramaUploadError('short_drama_delivery_changed: 上传目录视频与当前已归档成片不一致，请重新归档并使用相同内容。', 'SHORT_DRAMA_UPLOAD_CHANGED')
       }
@@ -259,9 +261,11 @@ export async function validateShortDramaDelivery(files: readonly string[], signa
       outputSha256: receipt.sha256, duration: source.output.duration_seconds,
       sources: render.videos.map(row => ({ ...row, duration: Number(clipDurations.get(row.shot)) / 1_000_000 })),
       cuts: timeline.clips.slice(1).map(clip => clip.start_us / 1_000_000),
-      path: receipt.content_review.path, ...(contentVerifier === undefined ? {} : { verifier: contentVerifier }) })
+      path: receipt.content_review.path, ...(unattended ? { unattended: true } : {}),
+      ...(contentVerifier === undefined ? {} : { verifier: contentVerifier }) })
     if (content.sha256 !== receipt.content_review.sha256
-      || JSON.stringify(content.files) !== JSON.stringify(receipt.content_review.files)) {
+      || JSON.stringify(content.files) !== JSON.stringify(receipt.content_review.files)
+      || JSON.stringify(content.pending ?? null) !== JSON.stringify(receipt.content_review.pending ?? null)) {
       throw Error('short_drama_delivery_content: 内容审查或实际观察文件与归档时不同。')
     }
     const inputs = new Set(source.input_files.flatMap(input => input.sha256 === null ? [] : [input.sha256]))
@@ -358,13 +362,16 @@ export function installShortDramaDelivery(ctx: Context): void {
     operationSignal.throwIfAborted()
   }
   ctx.effect(() => () => { registered.clear() })
-  ctx.on('deliverables/validate', async (files, signal) => { await validateShortDramaDelivery(files, signal, registered, verifier(signal)) })
+  ctx.on('deliverables/validate', async (files, signal) => {
+    await validateShortDramaDelivery(files, signal, registered, verifier(signal), undefined, unattendedReviewMode(ctx))
+  })
   ctx.on('tools/execute', async (exec, next) => {
     if (['dsh_im_return_file', 'send_file'].includes(exec.name)) {
       const args = z.object({ path: z.string() }).safeParse(exec.arguments)
       if (args.success) {
         const path = resolve(exec.agent?.session.header.cwd ?? process.cwd(), args.data.path)
-        await validateShortDramaDelivery([path], exec.signal, registered, verifier(exec.signal, exec.agent?.session))
+        await validateShortDramaDelivery([path], exec.signal, registered, verifier(exec.signal, exec.agent?.session),
+          undefined, unattendedReviewMode(ctx))
       }
     }
     const result = await next()
