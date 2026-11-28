@@ -508,6 +508,9 @@ export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePat
         || !await pathExists(paths.masterAudio) || await fileSha256(paths.masterAudio, signal) !== expected) {
         throw new Error(`EP${paths.episode} 整集原声与准备记录不一致，请用当前选源重新 prepare。`)
       }
+    } else {
+      // Legacy generated subtitles can still be verified from the selected shots.
+      return rows
     }
     const clock = prepared.timeline_clips
     if (requireMaster && (!Array.isArray(clock) || clock.length !== timeline.clips.length
