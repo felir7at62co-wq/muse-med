@@ -448,8 +448,8 @@ describe('stageEpisodeDelivery', () => {
     expect(first.delivery_package).toMatchObject({ status: 'candidate', reused: false })
     expect(first.warnings).toContain(pendingWarning)
     expect(first.summary.warnings).toBe(first.warnings.length)
-    expect(first.checks).toContainEqual(expect.objectContaining({ id: 'content_review',
-      detail: expect.stringContaining('1项待人工复核') }))
+    const reviewCheck = first.checks.find(check => check.id === 'content_review')
+    expect(reviewCheck?.detail).toContain('1项待人工复核')
     const receipt = await readFile(f.receipt, 'utf8')
     expect(JSON.parse(receipt)).toMatchObject({ status: 'candidate', content_review: { pending: [LISTENING_PENDING] } })
 
