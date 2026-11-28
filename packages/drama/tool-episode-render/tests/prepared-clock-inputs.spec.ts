@@ -1,6 +1,6 @@
 /** Private subtitle inputs retain the original picture, audio and timeline identities. */
 import { createHash } from 'node:crypto'
-import { mkdir, realpath, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
@@ -67,7 +67,7 @@ it.each(['picture audio', 'external audio', 'prepared clock', 'generated subtitl
     shots: [{ shot: 1, video: f.video, audio: kind === 'external audio' ? f.audio : f.video }] })
 })
 
-it.each(['invalid JSON', 'non-object', 'extra shot', 'wrong shot', 'missing master hash', 'invalid master hash',
+it.each(['invalid JSON', 'non-object', 'extra shot', 'wrong shot', 'missing master hash', 'invalid master hash', 'missing master audio',
   'changed master', 'missing clock', 'clock not array', 'clock length', 'clock missing row', 'clock shot', 'clock start',
   'clock duration', 'generated without metadata', 'required speech without metadata'] as const)
 ('rejects incomplete or changed private subtitle evidence: %s', async (fault) => {
@@ -79,6 +79,7 @@ it.each(['invalid JSON', 'non-object', 'extra shot', 'wrong shot', 'missing mast
     case 'wrong shot': f.manifest.shots = [{ ...f.source, shot: 2 }]; break
     case 'missing master hash': delete f.manifest.master_audio_sha256; break
     case 'invalid master hash': f.manifest.master_audio_sha256 = 'invalid'; break
+    case 'missing master audio': await rm(f.paths.masterAudio); break
     case 'changed master': await writeFile(f.paths.masterAudio, 'changed'); break
     case 'missing clock': delete f.manifest.timeline_clips; break
     case 'clock not array': f.manifest.timeline_clips = {}; break
