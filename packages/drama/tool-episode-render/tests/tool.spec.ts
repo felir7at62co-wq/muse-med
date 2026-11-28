@@ -3,12 +3,20 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools/pipeline'
 import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRender } from '../src/index.ts'
 import * as Audio from '../src/audio.ts'
+import * as LocalPatchOrigin from '../src/local-dialogue-patch-origin.ts'
+import { offlineWordReceipt, type OfflineWordReceiptVerifier } from '../src/offline-word-evidence.ts'
+import type { LocalDialoguePatchSourceBinding } from '../src/source-qa.ts'
 import * as Speech from '../src/speech-coverage.ts'
 import * as Staging from '../src/stage-delivery.ts'
 import * as VideoInspection from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
@@ -272,6 +280,111 @@ it('does not publish a source verifier after its provider is removed during regi
   } finally {
     release.resolve(verify)
     stage.mockRestore(); create.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it('forwards staged local word timing to the current Session projection and rejects it without Host authority', async () => {
+  const files = await preparedProject(), ctx = new Context()
+  const receipt = offlineWordReceipt.parse({
+    kind: 'muse_offline_word_timing', version: 1, project: files.project, listening_verified: false,
+    source: { path: join(files.project, 'media', 'p1-clean.mp4'), sha256: 'a'.repeat(64) },
+    pcm: { sha256: 'b'.repeat(64), sampleRate: 16000, samples: 16000 },
+    receipt: join(files.project, 'transcript', 'offline', 'receipt.json'),
+    transcript: { path: join(files.project, 'transcript', 'offline', 'words.json'), sha256: 'c'.repeat(64) },
+    model: { name: 'Systran/faster-whisper-small', revision: '536b0662742c02347bc0e980a01041f333bce120',
+      sha256: '3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671' },
+  })
+  const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
+    if (input.verifyOfflineWords === undefined) throw Error('Missing staged local word verifier')
+    input.verifyOfflineWords(receipt)
+    throw Error('Staged local word proof accepted')
+  })
+  try {
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin({ name: 'offline-word-render', inject, apply })
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw Error('Renderer registration missing')
+    const args = { method: 'stage_delivery', project: files.project, episode: 2, timeline: files.timeline,
+      subtitle_srt: files.subtitle, output: files.output, draft: '02_剪映草稿/draft' }
+    await expect(tool.execute(args, runContext())).rejects.toThrow('当前会话无法复验本地转写记录')
+    const policy = await ctx.plugin(SandboxPolicy, { mode: 'workspace-write', workspaceRoot: files.project })
+    const harness = await mountAgentLoopTestHarness(ctx)
+    const agent = await harness.create(SessionId('render-word-owner'), {}, { cwd: files.project })
+    const other = await harness.create(SessionId('render-word-neighbor'), {}, { cwd: files.project })
+    const execution = { ...runContext(), agent }
+    await vi.waitFor(async () => {
+      await expect(tool.execute(args, execution)).rejects.toThrow('当前会话缺少此声音')
+    })
+    const callId = ToolCallId('render-offline-words'), turn = 1, step = 1
+    agent.session.append('tool/call', { turn, step, callId, name: 'audio_transcribe', arguments: '{"method":"offline"}' })
+    agent.session.append('tool/result', { turn, step, message: createToolResultMessage({ callId, isError: false, content: [] }),
+      meta: { [TOOL_BODY_META_KEY]: { offline_transcript: receipt } } }, { surfaceOp: 'append' })
+    await expect(tool.execute(args, execution)).rejects.toThrow('Staged local word proof accepted')
+    await expect(tool.execute(args, { ...runContext(), agent: other })).rejects.toThrow('当前会话缺少此声音')
+    await policy.dispose()
+    await expect(tool.execute(args, execution)).rejects.toThrow('当前会话无法复验本地转写记录')
+  } finally {
+    stage.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it.each([false, true])('gates patched render sources on current Session verification when repair is enabled=%s', async (enabled) => {
+  const files = await preparedProject(), ctx = new Context()
+  const original = (id: number, path: string) => ({
+    task_id: id, subtask_id: id + 10, first_result_id: id + 20, path: join(files.project, path),
+    sha256: 'a'.repeat(64), receiptPath: join(files.project, 'receipts', `download-${String(id)}.json`),
+    urlSha256: 'b'.repeat(64),
+  })
+  const patch: LocalDialoguePatchSourceBinding = {
+    project: files.project, episode: '02', scriptId: 101, episodeId: 102, storyboardId: 103,
+    output: join(files.project, 'editing', 'dialogue-patch-02-a1b2c3', 'clip.mov'),
+    sha256: 'c'.repeat(64), recheckEvidenceId: '00000000-0000-4000-8000-000000000001',
+    originals: { target: original(1, 'target.mp4'), donor: original(2, 'donor.mp4') },
+  }
+  const binding = { mediaPath: patch.output, mediaSha256: patch.sha256, ocrPath: 'ocr', ocrSha256: 'd'.repeat(64),
+    inspectionPath: 'inspection', inspectionSha256: 'e'.repeat(64), sessionId: 'repair-owner', reviewId: 'review',
+    localDialoguePatch: patch }
+  const verifySource = vi.fn<VideoInspection.VideoSourceQaVerifier>().mockResolvedValue(undefined)
+  const verifyPatch = vi.fn<LocalPatchOrigin.LocalDialogueSourceVerifier>().mockResolvedValue(undefined)
+  const createSource = vi.spyOn(VideoInspection, 'createVideoSourceQaVerifier').mockResolvedValue(verifySource)
+  const createPatch = vi.spyOn(LocalPatchOrigin, 'createLocalDialogueSourceVerifier').mockResolvedValue(verifyPatch)
+  const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
+    if (input.sourceQaVerifier === undefined) throw Error('Missing render proof consumer')
+    await input.sourceQaVerifier(binding)
+    throw Error('Patched render source proof accepted')
+  })
+  try {
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(SandboxPolicy, { mode: 'workspace-write', workspaceRoot: files.project })
+    const harness = await mountAgentLoopTestHarness(ctx)
+    await ctx.plugin({ name: 'patched-source-render', inject, apply(scope: Context) { apply(scope, { enableLocalDialoguePatch: enabled }) } })
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw Error('Renderer registration missing')
+    const agent = await harness.create(SessionId('repair-owner'), {}, { cwd: files.project })
+    const args = { method: 'stage_delivery', project: files.project, episode: 2, timeline: files.timeline,
+      subtitle_srt: files.subtitle, output: files.output, draft: '02_剪映草稿/draft' }
+    const execution = { ...runContext(), agent }
+    if (!enabled) {
+      await vi.waitFor(async () => {
+        await expect(tool.execute(args, execution)).rejects.toThrow('未启用同一会话的修音源片复验')
+      })
+      expect(createPatch).not.toHaveBeenCalled()
+      expect(verifySource).not.toHaveBeenCalled()
+      return
+    }
+    verifyPatch.mockRejectedValueOnce(Error('Local repair missing from this Session'))
+    await vi.waitFor(async () => {
+      await expect(tool.execute(args, execution)).rejects.toThrow('Local repair missing from this Session')
+    })
+    expect(verifyPatch).toHaveBeenCalledExactlyOnceWith(agent.session, patch, expect.any(AbortSignal))
+    expect(verifySource).not.toHaveBeenCalled()
+    await expect(tool.execute(args, execution)).rejects.toThrow('Patched render source proof accepted')
+    expect(verifySource).toHaveBeenCalledExactlyOnceWith(agent.session, binding, verifyPatch.mock.lastCall?.[2])
+    expect(verifyPatch).toHaveBeenCalledBefore(verifySource)
+  } finally {
+    stage.mockRestore(); createSource.mockRestore(); createPatch.mockRestore()
     await ctx.fiber.dispose()
   }
 })
@@ -916,6 +1029,16 @@ describe('resolveCall', () => {
 })
 
 describe('runDramaRender', () => {
+  it('reports missing speech evidence when run directly without a Host verifier', async () => {
+    const files = await preparedProject(), speechTranscripts = join(files.project, 'receipts.json')
+    await writeFile(speechTranscripts, '{"shots":[]}')
+    const report = await run({ method: 'speech_coverage', project: files.project, episode: 2,
+      shots: files.shots, timeline: files.timeline, subtitleSrt: files.subtitle, speechTranscripts },
+    settingsWith(callChannel(files.project).channel))
+    expect(report.speech_coverage).toMatchObject({ evidence_complete: false, sources: [], words: [] })
+    expect(report.checks).toContainEqual(expect.objectContaining({ id: 'subtitle_speech_candidates', ok: false }))
+  })
+
   it('resolves animation policy before requiring ending arguments through the tool entry', async () => {
     const files = await preparedProject()
     await writePlaceholder(join(files.project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: 'animation_3d' } }))
@@ -1044,7 +1167,7 @@ describe('runDramaRender', () => {
     expect(await readFile(files.subtitle, 'utf8')).toBe(source)
   })
 
-  it('keeps repeated cues and reports unmeasured width when no visual is configured', async () => {
+  it('forwards the Host word verifier while fitting repeated cues without measured visual width', async () => {
     const files = await preparedProject()
     await writeFile(files.subtitle, srtDocument([
       { start: '00:00:01,000', end: '00:00:02,000', text: '同一句！' },
@@ -1052,9 +1175,15 @@ describe('runDramaRender', () => {
     ]))
     const speechTranscripts = join(files.project, 'receipts.json')
     await writeFile(speechTranscripts, '{"shots":[]}')
-    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+    const verifyOfflineWords = vi.fn<OfflineWordReceiptVerifier>()
+    const review = vi.spyOn(Speech, 'reviewSpeechCoverage')
+    onTestFinished(() => { review.mockRestore() })
+    const report = await runDramaRender({ method: 'prepare', project: files.project, episode: 2,
       shots: files.shots, subtitleSrt: files.subtitle, speechTranscripts },
-    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true },
+    undefined, undefined, undefined, undefined, undefined, verifyOfflineWords)
+    expect(review).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ verifyOfflineWords }))
+    expect(validateJsonSchemaValue(dramaRender().output.schema, report, '')).toEqual([])
     expect(report.warnings.filter(warning => warning.includes('宽度未测得'))).toHaveLength(2)
     const candidate = report.render_preview?.subtitle.path ?? ''
     expect((await readFile(candidate, 'utf8')).match(/^同一句$/gmu)).toHaveLength(2)

@@ -1,5 +1,6 @@
 /** Image normalization checks child completion, output dimensions and owned temporary cleanup. */
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -124,7 +125,7 @@ it('reports alignment requirements through the default scaler when child executi
     const source = join(root, 'odd.png')
     await writeFile(source, bytes)
     const network = vi.fn<typeof fetch>()
-    expect(await uploadReferenceMethod({ image_path: source }, { fetch: network, ffmpegPath: '/test/ffmpeg' }))
+    expect(await uploadReferenceMethod(fixtureHistoryClient(), { image_path: source }, { fetch: network, ffmpegPath: '/test/ffmpeg' }))
       .toMatchObject({ uploaded: false, status: 'alignment_required', required_width: 16, required_height: 16 })
     expect(network).not.toHaveBeenCalled()
   } finally { await rm(root, { recursive: true, force: true }) }

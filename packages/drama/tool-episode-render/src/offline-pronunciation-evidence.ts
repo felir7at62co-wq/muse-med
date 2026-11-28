@@ -46,7 +46,14 @@ export type OfflinePronunciationEvidence = z.infer<typeof evidence>
 /** Read an actual local tool result by issuance ID in the originating Session. */
 export type OfflinePronunciationVerifier = (session: Session, evidenceId: string, signal: AbortSignal) => OfflinePronunciationEvidence
 
-/** At least two independently captured windows support the requested sound inside the exact edit. */
+/**
+ * Check that at least two independently captured windows support the requested sound inside the exact edit.
+ * @param evidence - Pronunciation windows observed by the native tool.
+ * @param observed - Expected pronunciation or spelling in the evidence.
+ * @param startMs - Start of the proposed edit in milliseconds.
+ * @param durationMs - Length of the proposed edit in milliseconds.
+ * @returns Whether the observed windows cover the full edit and agree on the sound.
+ */
 export function measuredPronunciationCovers(evidence: OfflinePronunciationEvidence, observed: string,
   startMs: number, durationMs: number): boolean {
   const start = startMs / 1000, end = (startMs + durationMs) / 1000
@@ -84,7 +91,11 @@ function matchesRequest(args: z.infer<typeof call>, result: z.infer<typeof recei
     })
 }
 
-/** Await the native evidence projection before exposing an invocation-local reader. */
+/**
+ * Await the native evidence projection before exposing an invocation-local reader.
+ * @param ctx - Host context that owns the native tool projection.
+ * @returns A reader for pronunciation evidence issued in the current session.
+ */
 export async function createOfflinePronunciationVerifier(ctx: Context): Promise<OfflinePronunciationVerifier> {
   const projection = await ctx.sessionProjections.register({ key: 'episodeOfflinePronunciation', stateVersion: 1, stateSchema,
     init: (_header, inheritedEventCount) => ({ inheritedEventCount, pending: {}, results: {} }),

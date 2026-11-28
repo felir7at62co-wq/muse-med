@@ -34,6 +34,10 @@ flowchart LR
   svc_jubianVideoRecovery["ctx.jubianVideoRecovery<br/>Original-key video recovery and review"]
   svc_approvedEpisodeRenderer["ctx.approvedEpisodeRenderer<br/>Approved episode renderer"]
   svc_jubianEpisodeDelivery["ctx.jubianEpisodeDelivery<br/>Approved episode admission and publication"]
+  svc_jubianHistoricalVideoSource["ctx.jubianHistoricalVideoSource<br/>Same-Session historical video verification"]
+  pkg_tool_episode_render["tool-episode-render"]
+  pkg_tool_shot_script["tool-shot-script"]
+  svc_shotScriptVoice["ctx.shotScriptVoice<br/>Authored dialogue lookup"]
   svc_jubianImage["ctx.jubianImage<br/>Jubian account image routes"]
   pkg_drama_settings["drama-settings"]
   svc_jubianToken["ctx.jubianToken<br/>Jubian credential settings"]
@@ -126,6 +130,7 @@ flowchart LR
   pkg_llm_replay["llm-replay"]
   pkg_agent_loop["agent-loop"]
   pkg_compaction_basic["compaction-basic"]
+  svc_audioReviewTransport["ctx.audioReviewTransport<br/>Standalone audio review"]
   pkg_session_log_deepseek["session-log-deepseek"]
   svc_sessionLogDeepSeek["ctx.sessionLogDeepSeek<br/>Session-log upload policy"]
   pkg_deepseek_llm_api_extensions["deepseek-llm-api-extensions"]
@@ -446,8 +451,10 @@ flowchart LR
   pkg_inspector --> svc_inspector
   pkg_jobs --> svc_jobs
   pkg_jobs_local --> svc_jobs
+  pkg_llm --> svc_audioReviewTransport
   pkg_llm --> svc_llm
   pkg_llm_deepseek --> svc_llm
+  pkg_llm_pi_ai --> svc_audioReviewTransport
   pkg_llm_pi_ai --> svc_llm
   pkg_llm_replay --> svc_llm
   pkg_lsp --> svc_lsp
@@ -531,10 +538,12 @@ flowchart LR
   pkg_tool_jubian --> svc_approvedEpisodeRenderer
   pkg_tool_jubian --> svc_generationWorkspaceAuthority
   pkg_tool_jubian --> svc_jubianEpisodeDelivery
+  pkg_tool_jubian --> svc_jubianHistoricalVideoSource
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
   pkg_tool_jubian --> svc_jubianVideoRecovery
   pkg_tool_jubian --> svc_jubianVideoSelection
+  pkg_tool_shot_script --> svc_shotScriptVoice
   pkg_tool_subagent --> svc_subagentModelSelection
   pkg_tools --> svc_tools
   pkg_typert_registry --> svc_typert
@@ -571,6 +580,7 @@ flowchart LR
   svc_attachments --> pkg_llm_deepseek
   svc_attachments --> pkg_llm_pi_ai
   svc_attachments --> pkg_tool_fs
+  svc_audioReviewTransport --> pkg_tool_episode_render
   svc_authorization --> pkg_llm_pi_ai
   svc_browserUse --> pkg_experimental_browser_use_chrome_devtools_mcp
   svc_browserUse --> pkg_experimental_browser_use_playwright_mcp
@@ -613,6 +623,7 @@ flowchart LR
   svc_jobs --> pkg_tool_pwsh
   svc_jobs --> pkg_tool_terminal
   svc_jubianEpisodeDelivery --> pkg_desktop_host
+  svc_jubianHistoricalVideoSource --> pkg_tool_episode_render
   svc_jubianImage --> pkg_drama_settings
   svc_jubianToken --> pkg_tool_jubian
   svc_jubianVideoRecovery --> pkg_tool_jubian
@@ -684,6 +695,7 @@ flowchart LR
   svc_shell --> pkg_tool_pwsh
   svc_shellEnv --> pkg_tool_bash
   svc_shellEnv --> pkg_tool_pwsh
+  svc_shotScriptVoice --> pkg_tool_episode_render
   svc_skills --> pkg_tool_skill
   svc_speechToText --> pkg_experimental_api_speech_to_text
   svc_spillStore --> pkg_spill_policy
@@ -761,6 +773,8 @@ flowchart LR
 | `ctx.jubianVideoRecovery` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Reconciles recorded video submissions with provider reads, checks captured media and publishes explicitly approved MP4 bytes without a new generation. |
 | `ctx.approvedEpisodeRenderer` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Desktop Host captures renderer configuration and manages media processes; the episode service consumes approved inputs without new video generation. |
 | `ctx.jubianEpisodeDelivery` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | `desktop-host` | - | Owns admitted local render jobs and publication records; Desktop Host pauses admission and observes remaining work during update or quit. |
+| `ctx.jubianHistoricalVideoSource` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-episode-render`](../packages/drama/tool-episode-render) | - | Binds an original provider result and its downloaded bytes to native evidence in the current Session without a new provider call. |
+| `ctx.shotScriptVoice` | `core` | [`tool-shot-script`](../packages/drama/tool-shot-script) | - | [`tool-episode-render`](../packages/drama/tool-episode-render) | - | Returns original speaker and dialogue fields for an explicitly requested voice review. |
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | Reads account-accessible image generation routes without exposing the credential or submitting paid work. |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Describes, stores and clears the credential through the existing credential provider; the browser receives status without the stored token. |
 | `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only. |
@@ -792,6 +806,7 @@ flowchart LR
 | `ctx.attachments` | `seam` | [`attachment`](../packages/attachment/attachment) | [`attachment-local`](../packages/attachment/attachment-local) | [`api-session-controller`](../packages/api/session-controller), [`tool-fs`](../packages/fs/tool-fs), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-deepseek`](../packages/llm/llm-deepseek) | - | The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content. |
 | `ctx.fileUploads` | `core` | [`client-file-upload`](../packages/client/file-upload) | - | [`api-session-controller`](../packages/api/session-controller) | - | Owns streaming intake, durable storage, and staged receipt lifetime; the Session controller binds receipts to accepted submissions. |
 | `ctx.llm` | `seam` | [`llm`](../packages/llm/llm) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), [`llm-replay`](../packages/test-support/llm-replay) | [`agent-loop`](../packages/core/agent-loop), [`compaction-basic`](../packages/compaction/compaction-basic) | - | Adapters register provider implementations; the loop and compaction call the provider-neutral stream service. |
+| `ctx.audioReviewTransport` | `seam` | [`llm`](../packages/llm/llm) | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | [`tool-episode-render`](../packages/drama/tool-episode-render) | - | Sends bounded WAV clips on an explicitly configured route and returns advisory results bound to the audio digests. |
 | `ctx.sessionLogDeepSeek` | `core` | [`session-log-deepseek`](../packages/session/session-log-deepseek) | - | - | - | Plugins register caller-owned exclusions before the canonical Session-log request contribution is prepared; unmatched requests use normal upload eligibility. |
 | `ctx.deepseekLlmApiExtensions` | `seam` | [`deepseek-llm-api-extensions`](../packages/llm/deepseek-llm-api-extensions) | [`session-log-deepseek`](../packages/session/session-log-deepseek), [`plugin-package-inventory-deepseek`](../packages/llm/plugin-package-inventory-deepseek) | [`llm-deepseek`](../packages/llm/llm-deepseek) | - | Plugins prepare independent top-level fields; the official adapter merges them and commits their delivery state after HTTP acceptance. |
 | `ctx.tokenMeter` | `core` | [`token-meter`](../packages/llm/token-meter) | - | [`compaction-basic`](../packages/compaction/compaction-basic) | - | Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements. |

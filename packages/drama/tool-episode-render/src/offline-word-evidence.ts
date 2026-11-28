@@ -49,7 +49,11 @@ function append<T>(record: Record<string, T>, key: string, value: T, limit: numb
   return { ...Object.fromEntries(Object.entries(previous).slice(1 - limit)), [key]: value }
 }
 
-/** Build a verifier from this Host's bounded native tool history. */
+/**
+ * Build a verifier from this Host's bounded native tool history.
+ * @param ctx - Host context that owns the session projections.
+ * @returns A session-bound verifier factory for native word timing receipts.
+ */
 export async function installOfflineWordEvidence(ctx: Context): Promise<
   (session: Session, signal: AbortSignal) => OfflineWordReceiptVerifier> {
   const projection = await ctx.sessionProjections.register({ key: 'episodeOfflineWordEvidence', stateVersion: 1, stateSchema,

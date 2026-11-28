@@ -32,46 +32,19 @@ export interface AudioReviewTransportResult extends AudioReviewProviderResponse 
   readonly grantsApproval: false
 }
 
+/** Host service for bounded standalone audio review on deployment-approved routes. */
 export interface AudioReviewTransport {
-  /** List explicitly configured, compatible routes without resolving any credentials. */
+  /**
+   * List explicitly configured, compatible routes without resolving any credentials.
+   * @returns Eligible provider and model pairs.
+   */
   configuredRoutes(): readonly AudioReviewRoute[]
-  /** Send one isolated request. The implementation rechecks route eligibility before dispatch. */
+  /**
+   * Send one isolated request. The implementation rechecks route eligibility before dispatch.
+   * @param input - Exact route, bounded WAV bytes, prompt and optional cancellation or accounting callback.
+   * @returns Provider output and matching request hashes for advisory review.
+   */
   request(input: AudioReviewRequest): Promise<AudioReviewTransportResult>
-}
-
-/** Read complete 16-bit PCM audio accepted by the dedicated listening route.
- * @param wav - Exact WAV bytes to send.
- * @returns Sample-derived duration in seconds, or undefined for invalid media.
- */
-export function audioReviewWavDuration(wav: Uint8Array): number | undefined {
-  const bytes = Buffer.isBuffer(wav) ? wav : Buffer.from(wav)
-  if (bytes.length < 44 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.readUInt32LE(4) !== bytes.length - 8
-    || bytes.toString('ascii', 8, 12) !== 'WAVE') return undefined
-  let rate = 0
-  let frameBytes = 0
-  let dataBytes: number | undefined
-  for (let offset = 12; offset < bytes.length;) {
-    if (offset + 8 > bytes.length) return undefined
-    const tag = bytes.toString('ascii', offset, offset + 4)
-    const length = bytes.readUInt32LE(offset + 4)
-    const start = offset + 8
-    offset = start + length + (length % 2)
-    if (offset > bytes.length) return undefined
-    if (tag === 'fmt ') {
-      if (rate !== 0 || length < 16 || bytes.readUInt16LE(start) !== 1 || bytes.readUInt16LE(start + 14) !== 16) return undefined
-      const channels = bytes.readUInt16LE(start + 2)
-      if (channels !== 1 && channels !== 2) return undefined
-      rate = bytes.readUInt32LE(start + 4)
-      frameBytes = channels * 2
-      if (rate < 8000 || rate > 48000 || bytes.readUInt16LE(start + 12) !== frameBytes
-        || bytes.readUInt32LE(start + 8) !== rate * frameBytes) return undefined
-    } else if (tag === 'data') {
-      if (rate === 0 || dataBytes !== undefined || length === 0 || length % frameBytes !== 0) return undefined
-      dataBytes = length
-    }
-  }
-  if (dataBytes === undefined) return undefined
-  return dataBytes / (rate * frameBytes)
 }
 
 declare module '@deepseek-ai/cordis' {

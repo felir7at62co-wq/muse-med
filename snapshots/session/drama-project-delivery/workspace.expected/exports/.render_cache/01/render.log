@@ -10,6 +10,7 @@ encoder_fallback_reason=preferNvenc=false：本次不探测 GPU 编码器，直�
 body_end_seconds=5.000000 ending_seconds=0.000 expected_duration_seconds=5.000000
 target_bitrate=24M max_bitrate=30M min_bitrate_bps=4600000
 encoded_shots=1 reused_shots=(none)
+audio_sample_clock={"sampleRate":48000,"bodyEndSample":240000,"endSample":240000}
 episode=01
 project={{cwd}}
 bgm_plan={"path":"","bed_sha256":"","segments":[],"repeated_sequence_episodes":[],"intended_use":"unknown","license_records":[]}
@@ -22,6 +23,7 @@ encoder_fallback_reason=preferNvenc=false：本次不探测 GPU 编码器，直�
 body_end_seconds=5.000000 ending_seconds=0.000 expected_duration_seconds=5.000000
 target_bitrate=24M max_bitrate=30M min_bitrate_bps=4600000
 encoded_shots=1 reused_shots=(none)
+audio_sample_clock={"sampleRate":48000,"bodyEndSample":240000,"endSample":240000}
 output={{cwd}}/exports/candidate.mp4 size_bytes=5000000 bitrate_bps=8000000 duration_seconds=5.000000
 check duration ok 实测 5.000000s，应为 5.000000s，差 0.000000s
 check video_stream ok 实测 480x854 h264

@@ -249,11 +249,24 @@ export class JubianClient {
   }
 
   /**
+   * Read the write policy bound to this client and the current replay process.
+   * @returns Whether requests are limited to verified historical queries.
+   */
+  isHistoryReadOnly(): boolean {
+    return this.historyReadOnly || jubianHistoryReadOnly()
+  }
+
+  /** Refuse a new write or raw object upload before it reaches its transport. */
+  assertHistoryWritable(): void {
+    if (this.isHistoryReadOnly()) refuseJubianHistoryRequest()
+  }
+
+  /**
    * Resolve the current credential once for one operation's related requests.
    * @returns A client with the same origin, transport and limits whose credential remains private in a closure.
    */
   async snapshotCredential(): Promise<JubianClient> {
-    const historyReadOnly = this.historyReadOnly || jubianHistoryReadOnly()
+    const historyReadOnly = this.isHistoryReadOnly()
     if (historyReadOnly && this.baseUrl !== JUBIAN_DEFAULT_BASE_URL) return refuseJubianHistoryRequest()
     const token = await this.resolveToken()
     const snapshot = new JubianClient({ credential: () => Promise.resolve(token), baseUrl: this.baseUrl,
@@ -280,7 +293,7 @@ export class JubianClient {
    *   tokens and original causes are never attached. Failures are not retried.
    */
   async request(request: JubianRequest): Promise<JubianResponse> {
-    const historyReadOnly = this.historyReadOnly || jubianHistoryReadOnly()
+    const historyReadOnly = this.isHistoryReadOnly()
     if (historyReadOnly && this.baseUrl !== JUBIAN_DEFAULT_BASE_URL) return refuseJubianHistoryRequest()
     const admitted = historyReadOnly ? historicalJubianRequest(request) : request
     const token = await this.resolveToken()

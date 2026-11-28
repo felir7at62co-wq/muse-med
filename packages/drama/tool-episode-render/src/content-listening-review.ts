@@ -4,6 +4,7 @@ import { lstat, mkdir, readFile, realpath, rm, rmdir, writeFile } from 'node:fs/
 import { basename, dirname, join, relative } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { HarnessError, type AudioReviewProviderResponse, type AudioReviewTransport } from '@deepseek-ai/dsh-llm'
+import type { ShotScriptVoiceParser } from '@deepseek-ai/dsh-tool-shot-script'
 import { z } from 'zod'
 import { requireProjectAudioFile } from './audio.ts'
 import { parseContentListeningAssessment } from './content-listening-assessment.ts'
@@ -93,6 +94,19 @@ function reviewError(code: string, message: string): HarnessError {
   return new HarnessError(message, code)
 }
 
+/**
+ * Encode a candidate only if a later read can validate the entire receipt.
+ * @param value - Candidate metadata and the advisory assessment to retain.
+ * @returns The bounded JSON payload written to the candidate file.
+ */
+export function encodeListeningReceipt(value: unknown): string {
+  const receipt = JSON.stringify(storedReview.parse(value)) + '\n'
+  if (Buffer.byteLength(receipt, 'utf8') > maxReceiptBytes) {
+    throw reviewError('CONTENT_LISTENING_REVIEW_INPUT', '听校回执超过可读取的大小。')
+  }
+  return receipt
+}
+
 async function readBoundedBytes(path: string, limit: number): Promise<Buffer> {
   const details = await lstat(path)
   if (!details.isFile() || details.size <= 0 || details.size > limit) {
@@ -104,7 +118,8 @@ async function readBoundedBytes(path: string, limit: number): Promise<Buffer> {
 }
 
 async function readBounded(path: string): Promise<unknown> {
-  return JSON.parse((await readBoundedBytes(path, maxReceiptBytes)).toString('utf8')) as unknown
+  const parsed: unknown = JSON.parse((await readBoundedBytes(path, maxReceiptBytes)).toString('utf8'))
+  return parsed
 }
 
 async function readOptionalReceipt(path: string): Promise<unknown> {
@@ -116,14 +131,34 @@ async function readOptionalReceipt(path: string): Promise<unknown> {
   }
 }
 
-/** Recover the original attempt for the same episode and exact render without calling a provider. */
+type ContentListeningAttempt = {
+  readonly status: 'candidate_available' | 'pending_provider' | 'response_received'
+  readonly attempt_path: string
+  readonly source_sha256: string
+  readonly provider: string
+  readonly model: string
+  readonly candidate_path?: string
+  readonly invalid_candidate?: true
+  readonly provider_response_path?: string
+  readonly provider_request_id?: string
+  readonly token_usage?: z.infer<typeof tokenUsage>
+  readonly cost_status: 'pending_reconciliation'
+  readonly listening_verified: false
+  readonly grants_approval: false
+}
+
+/**
+ * Recover the original attempt for the same episode and exact render without calling a provider.
+ * @param input - Project, rendered episode and a previously saved attempt receipt.
+ * @returns The observed attempt status and verified receipt paths, if present.
+ */
 export async function readContentListeningAttempt(input: {
   readonly project: string
   readonly episode: string
   readonly output: string
   readonly attemptPath: string
   readonly signal?: AbortSignal
-}) {
+}): Promise<ContentListeningAttempt> {
   input.signal?.throwIfAborted()
   const project = await realpath(input.project)
   const [attemptPath, output] = await Promise.all([
@@ -202,6 +237,7 @@ export async function reviewContentListening(input: {
   readonly preparationPath: string
   readonly mode?: 'blind_dialogue'
   readonly voiceContext?: ContentListeningVoiceContext
+  readonly parseVoiceScript?: ShotScriptVoiceParser
   readonly transport?: AudioReviewTransport
   readonly signal?: AbortSignal
 }): Promise<ContentListeningReview> {
@@ -305,16 +341,13 @@ export async function reviewContentListening(input: {
     throw reviewError('CONTENT_LISTENING_REVIEW_INPUT', '听校期间成片或对照材料已改变。请先核对本次请求和费用。')
   }
   const report = assess(actual.response)
-  const receipt = JSON.stringify(storedReview.parse({ identity, listening_verified: false, grants_approval: false,
+  const receipt = encodeListeningReceipt({ identity, listening_verified: false, grants_approval: false,
     assessment: report.assessment,
     ...(input.mode === undefined ? {} : { mode: input.mode, dialogue_findings: report.dialogueFindings }),
     ...(voice === undefined ? {} : { voice_context: voice }),
     ...(actual.usage === undefined ? {} : { token_usage: actual.usage }),
     ...(actual.requestId === undefined ? {} : { provider_request_id: actual.requestId }),
-  })) + '\n'
-  if (Buffer.byteLength(receipt, 'utf8') > maxReceiptBytes) {
-    throw reviewError('CONTENT_LISTENING_REVIEW_INPUT', '听校回执超过可读取的大小。')
-  }
+  })
   await writeFileAtomic(receiptPath, receipt, { mode: 0o600 })
   return { status: report.status, listening_verified: false, grants_approval: false,
     ...(input.mode === undefined ? {} : { mode: input.mode }),

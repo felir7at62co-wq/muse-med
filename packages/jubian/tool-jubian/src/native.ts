@@ -27,7 +27,7 @@ import { readVideoSources, resolveVideoSourceOptions } from './video-sources.ts'
 import type { VideoSourceOptions } from './video-sources.ts'
 import { join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianLedgerRecord, JubianResponse } from '@deepseek-ai/dsh-jubian'
-import { centsOf, checkBudget, JubianError, assertJubianHistoryWritable } from '@deepseek-ai/dsh-jubian'
+import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import {
   assertImageReferenceConsistency, buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
@@ -936,7 +936,7 @@ export async function selectAssetsMethod(client: JubianClient, ledger: JubianLed
     const taskId = taskIdOf(record) as string
     beforeIds.add(taskId)
   }
-  const result = await writeUnderLedger(ledger, key, 'storyboard_select_assets',
+  const result = await writeUnderLedger(client, ledger, key, 'storyboard_select_assets',
     () => plan.payload,
     payload => selectionStage('save_response',
       'Read back the storyboard and check for new video tasks before continuing. Keep the original key.',
@@ -1158,7 +1158,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
   if (recorded !== undefined) return reconcileNativePreview(client, recorded, preview, previewPath, signal)
 
   if (reconcileOnly) throw new JubianError('CONTRACT_CHANGED', 'No recorded video submission for this key')
-  assertJubianHistoryWritable()
+  client.assertHistoryWritable()
   await assertNoEpisodePaidHold(previewPath, preview)
   const previewEntry = await lstat(previewPath)
   if (!previewEntry.isFile() || previewEntry.isSymbolicLink()) throw new JubianError('CONTRACT_CHANGED')
@@ -1214,7 +1214,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
   const state = { putFailed: false, putError: null as { code: string; message: string } | null,
     reconciliationFailed: false, sent: false, appearedIds: [] as string[],
     claim: { status: 'none' } as NativeClaim }
-  const result = await writeUnderLedger(ledger, key, 'storyboard_native_submit', () => preview.payload,
+  const result = await writeUnderLedger(client, ledger, key, 'storyboard_native_submit', () => preview.payload,
     async (payload): Promise<JubianResponse> => {
       let response: JubianResponse
       await beforeSend?.(key)
@@ -1458,7 +1458,7 @@ export async function submitVideoBatchMethod(client: JubianClient, ledger: Jubia
   assertModel?: (model: Record<string, unknown>) => void,
   beforeSend?: (key: string) => Promise<void>):
 Promise<VideoBatchReport> {
-  assertJubianHistoryWritable()
+  client.assertHistoryWritable()
   const raw = args.items
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > options.maxItems) {
     throw new JubianError('INVALID_ARGUMENT', 'video batch items must fit the configured item limit')

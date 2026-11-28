@@ -108,7 +108,7 @@ export async function createFolderMethod(client: JubianClient, ledger: JubianLed
       next: '同名文件夹已经存在，没有发送任何请求。要建一个不同层级的同名文件夹，请给出 parent_id；'
         + '要往里放资产，直接用这个 folder_id 调 move。' }
   }
-  const result = await writeUnderLedger(ledger, key, 'asset_folder_create',
+  const result = await writeUnderLedger(client, ledger, key, 'asset_folder_create',
     () => ({ folderName: name, parentId, assetScopeType: scope, rootCategoryType: categoryType }),
     sent => client.request({ method: 'POST', path: '/aigc/assetFolder/add', body: need(sent) }))
   const created = findFolder(await libraryTree(client, scope, categoryType), name, args.parent_id)
@@ -156,7 +156,7 @@ export async function moveMethod(client: JubianClient, ledger: JubianLedger,
       next: '目标文件夹不在该库的文件夹树里，没有发送任何请求。先重读文件夹树拿到真实 folder_id；'
         + `要把资产放回库根目录，把 target_folder_id 传成 ${categoryType}。` }
   }
-  const result = await writeUnderLedger(ledger, key, 'asset_move',
+  const result = await writeUnderLedger(client, ledger, key, 'asset_move',
     () => ({ ids, targetFolderId: target, assetScopeType: scope }),
     sent => client.request({ method: 'PUT', path: '/aigc/material/move', body: need(sent) }))
   return { ...result, sent: true, status: 'moved', material_ids: ids, target_folder_id: target,
@@ -194,7 +194,7 @@ export async function renameMethod(client: JubianClient, ledger: JubianLedger,
     : composedAssetName(args.episode, need(args.asset_category, 'asset_category'),
       need(args.asset_name, 'asset_name'), deps.naming ?? resolveNaming())
   if (!name) throw new JubianError('INVALID_ARGUMENT', 'asset_name')
-  const result = await writeUnderLedger(ledger, key, 'asset_rename',
+  const result = await writeUnderLedger(client, ledger, key, 'asset_rename',
     () => ({ id: materialId, assetName: name }),
     sent => client.request({ method: 'PUT', path: '/aigc/material/reName', body: need(sent) }))
   return { ...result, sent: true, status: 'renamed', material_id: materialId, asset_name: name,

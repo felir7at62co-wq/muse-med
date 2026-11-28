@@ -1146,10 +1146,15 @@ export function apply(ctx: Context, config: Config = {}): void {
     const verify = await createVideoSourceQaVerifier(scope)
     const contentReview = await createContentReviewVerifier(scope)
     const offlineWords = await installOfflineWordEvidence(scope)
-    const pronunciation = config.enableLocalDialoguePatch === true ? await createOfflinePronunciationVerifier(scope) : undefined
-    const verifyDialogue = pronunciation === undefined ? undefined : await createLocalDialogueSourceVerifier(scope, pronunciation)
-    scope.fiber.assertActive()
-    if (pronunciation !== undefined) registerLocalDialoguePatchTool(scope, settings, pronunciation)
+    let verifyDialogue: LocalDialogueSourceVerifier | undefined
+    if (config.enableLocalDialoguePatch === true) {
+      const pronunciation = await createOfflinePronunciationVerifier(scope)
+      verifyDialogue = await createLocalDialogueSourceVerifier(scope, pronunciation)
+      scope.fiber.assertActive()
+      registerLocalDialoguePatchTool(scope, settings, pronunciation)
+    } else {
+      scope.fiber.assertActive()
+    }
     if (config.enableContentListeningReview === true) registerContentListeningTool(scope, settings)
     scope.effect(() => {
       const owner = new AbortController()

@@ -231,7 +231,7 @@ export async function audioAssetDeleteMethod(client: JubianClient, ledger: Jubia
       if (stableSha256(references) !== stableSha256(raw.references)) fail('Stale audio deletion preview: references changed')
       const send = { started: false }
       try {
-        const result = await writeUnderLedger(ledger, key, 'asset_remove', () => request,
+        const result = await writeUnderLedger(client, ledger, key, 'asset_remove', () => request,
           () => {
             send.started = true
             return client.request({ method: 'DELETE', path: `/aigc/asset/removeAsset/${assetId}?scriptId=${scriptId}&isParent=1` })

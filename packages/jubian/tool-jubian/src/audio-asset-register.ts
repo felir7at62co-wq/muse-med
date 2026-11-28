@@ -249,7 +249,7 @@ async function registerAudioAssetAttempt(client: JubianClient, ledger: JubianLed
     }
     const send = { started: false }
     try {
-      const result = await writeUnderLedger(ledger, key, 'asset_register', () => body, async (payload) => {
+      const result = await writeUnderLedger(client, ledger, key, 'asset_register', () => body, async (payload) => {
         if (scope !== undefined) {
           const lease = need(coordination?.lease_id)
           const started = await need(coordinator).request({ ...scope, action: 'start', lease_id: lease })

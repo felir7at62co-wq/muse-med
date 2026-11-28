@@ -118,6 +118,35 @@ it('requires the current local transcription, preserves timed words, and never e
   expect(await check()).toMatchObject({ evidence_complete: false, warnings: [expect.stringContaining('实际声音仍待核听')] })
 })
 
+it('rejects edited timelines, legacy receipts and displaced evidence in whole-episode offline mode', async () => {
+  const f = await fixture()
+  const verifyOfflineWords = vi.fn()
+  const full = { clips: [{ shot: 1, startUs: 0, durationUs: 10_000_000 }], bodyEndSeconds: 10 }
+  const sources = new Map([[1, f.source]])
+  const input = { project: f.project, sources, subtitleSrt: f.subtitleSrt,
+    offlineReceiptPath: f.receipt, verifyOfflineWords }
+  const edited = await reviewSpeechCoverage({ ...input, timeline: f.timeline })
+  expect(edited.evidence_complete).toBe(false)
+  expect(edited.warnings).toContainEqual(expect.stringContaining('只能对应从零开始'))
+  const legacy = await reviewSpeechCoverage({ ...input, timeline: full })
+  expect(legacy.evidence_complete).toBe(false)
+  expect(legacy.warnings).toContainEqual(expect.stringContaining('须来自当前会话'))
+  const displaced = join(f.project, 'receipt.json')
+  await writeFile(displaced, JSON.stringify({
+    kind: 'muse_offline_word_timing', version: 1, project: await realpath(f.project), receipt: displaced,
+    source: { path: await realpath(f.source), sha256: hash(await readFile(f.source)) },
+    transcript: { path: f.transcript, sha256: hash(await readFile(f.transcript)) },
+    pcm: { sha256: 'b'.repeat(64), sampleRate: 16000, samples: 160000 },
+    model: { name: 'Systran/faster-whisper-small', revision: '536b0662742c02347bc0e980a01041f333bce120',
+      sha256: '3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671' },
+    listening_verified: false,
+  }))
+  const report = await reviewSpeechCoverage({ ...input, offlineReceiptPath: displaced, timeline: full })
+  expect(report.evidence_complete).toBe(false)
+  expect(report.warnings).not.toEqual([])
+  expect(verifyOfflineWords).not.toHaveBeenCalled()
+})
+
 it.each([
   { fps: undefined, offsetMs: 1, hasMismatch: false },
   { fps: undefined, offsetMs: -16, hasMismatch: false },

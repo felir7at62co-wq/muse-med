@@ -43,6 +43,10 @@ const snapshot = snapshotJsonValue(input) as JsonValue
 
 `refresh()` 在发布点报告已观察答案的变化；期间的读取不会确认待发布的变化。它先读取内容再比较完成状态，避免解码错误吞掉完成状态更新。字符串读器提供解码文本、有界前缀和精确 UTF-16 长度，并可为变化判定指定步长和偏移量。`settle(finalText)` 直接将分片与完整文本比较：输入相同时封存原视图并保留缓存，分片缺失或冲突时创建新的封存视图。`fromText()` 和 `fromObject()` 也创建拒绝追加的封存视图。`isSealed` 读取这一追加限制，不扫描或观察内容；`closed()` 还包含外层对象闭合或索引失败的情况。返回值区别见[读器定义](src/partial-json.ts)。
 
+### 测量 PCM 音频
+
+`pcmWavDuration(bytes)` 校验完整的 16 位 PCM WAV，并根据样本计算时长。支持采样率为 8–48 kHz 的单声道和双声道。调用方在发送音频前检查各自的字节数和时长限制。
+
 ### 发布、比较或保留键控值
 
 `deepFreeze(value)` 原地冻结对象图并返回同一个值。它遍历可枚举字符串键的子项，并刻意让活跃 `AbortSignal` 对象保持可变。`deepEqualJson(a, b)` 按结构比较 JSON 兼容数组与记录；调用方必须先校验恶意或不受约束的值，再进行比较。

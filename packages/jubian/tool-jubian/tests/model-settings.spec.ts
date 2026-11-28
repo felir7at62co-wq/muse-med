@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -143,7 +144,7 @@ describe('scoped model settings', () => {
     await ledger.begin({ idempotencyKey: 'foreign-key', method: 'storyboard_save', requestSha256: 'sha256:foreign' })
     let prepared = false
     let sent = false
-    await expect(writeUnderLedger(ledger, 'foreign-key', 'storyboard_model_settings', () => {
+    await expect(writeUnderLedger(fixtureHistoryClient(), ledger, 'foreign-key', 'storyboard_model_settings', () => {
       prepared = true
       return {}
     }, async () => {
@@ -155,7 +156,7 @@ describe('scoped model settings', () => {
 
   it('does not send when ledger begin reports an existing claim after body preparation', async () => {
     let sent = false
-    const result = await writeUnderLedger(ledger, 'racing-key', 'storyboard_model_settings', async () => {
+    const result = await writeUnderLedger(fixtureHistoryClient(), ledger, 'racing-key', 'storyboard_model_settings', async () => {
       await ledger.begin({ idempotencyKey: 'racing-key', method: 'storyboard_model_settings', requestSha256: bodyHash({}) })
       return {}
     }, async () => {

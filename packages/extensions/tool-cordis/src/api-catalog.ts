@@ -566,6 +566,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'audioReviewTransport',
+    summary: 'Host service for bounded standalone audio review on deployment-approved routes.',
+    description: 'Host service for bounded standalone audio review on deployment-approved routes.',
+    methods: [
+      {
+        signature: 'configuredRoutes(): readonly AudioReviewRoute[]',
+        description: 'List explicitly configured, compatible routes without resolving any credentials.',
+        parameters: [],
+        returns: 'Eligible provider and model pairs.',
+      },
+      {
+        signature: 'request(input: AudioReviewRequest): Promise<AudioReviewTransportResult>',
+        description: 'Send one isolated request. The implementation rechecks route eligibility before dispatch.',
+        parameters: [{ name: 'input', description: 'Exact route, bounded WAV bytes, prompt and optional cancellation or accounting callback.' }],
+        returns: 'Provider output and matching request hashes for advisory review.',
+      },
+    ],
+  },
+  {
     key: 'authorization',
     summary: '`ctx.authorization`: a registry of credential-obtaining flows, one attempt at a time per key.',
     description: '`ctx.authorization`: a registry of credential-obtaining flows, one attempt at a time per key.',
@@ -2242,6 +2261,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Persisted publication measurements or targeted state; output is not a current-file verification.',
       },
     ],
+  },
+  {
+    key: 'jubianHistoricalVideoSource',
+    summary: 'Read native history and a fresh download proved by the same ordinary Session.',
+    description: 'Read native history and a fresh download proved by the same ordinary Session.',
+    methods: [],
   },
   {
     key: 'jubianImage',
@@ -4486,6 +4511,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'declarations sorted by environment variable name.',
       },
     ],
+  },
+  {
+    key: 'shotScriptVoice',
+    summary: 'Parse authored dialogue from the exact script bytes supplied by the Host caller.',
+    description: 'Parse authored dialogue from the exact script bytes supplied by the Host caller.',
+    methods: [],
   },
   {
     key: 'skills',
@@ -7104,6 +7135,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AttemptIdentity',
     declaration: 'export interface AttemptIdentity {\n    readonly attempt: EpisodeAttemptId;\n    readonly planSha256: Sha256;\n    readonly projectSha256: Sha256;\n    readonly rendererGeneration: EpisodeRendererGeneration;\n    readonly configurationSha256: Sha256;\n}',
+  },
+  {
+    name: 'AudioReviewProviderResponse',
+    declaration: 'export interface AudioReviewProviderResponse extends AudioReviewRoute {\n    readonly audioSha256: readonly string[];\n    readonly usage?: TokenUsage;\n    readonly requestId?: ProviderRequestId;\n}',
+  },
+  {
+    name: 'AudioReviewRequest',
+    declaration: 'export interface AudioReviewRequest extends AudioReviewRoute {\n    readonly prompt: string;\n    readonly wav: readonly Uint8Array[];\n    readonly signal?: AbortSignal;\n    readonly onProviderResponse?: (receipt: AudioReviewProviderResponse) => Promise<void>;\n}',
+  },
+  {
+    name: 'AudioReviewRoute',
+    declaration: 'export interface AudioReviewRoute {\n    readonly provider: string;\n    readonly model: string;\n}',
+  },
+  {
+    name: 'AudioReviewTransportResult',
+    declaration: 'export interface AudioReviewTransportResult extends AudioReviewProviderResponse {\n    readonly response: Readonly<Record<string, unknown>>;\n    readonly listeningVerified: false;\n    readonly grantsApproval: false;\n}',
   },
   {
     name: 'AuthoritativeCharacterReference',

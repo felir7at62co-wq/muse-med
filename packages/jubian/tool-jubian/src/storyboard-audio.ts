@@ -434,7 +434,7 @@ export async function storyboardAudioMethod(client: JubianClient, ledger: Jubian
     let replayed = false
     let outcome = 'unknown'
     try {
-      const result = await writeUnderLedger(ledger, key, 'storyboard_save', () => body, (payload) => {
+      const result = await writeUnderLedger(client, ledger, key, 'storyboard_save', () => body, (payload) => {
         send.started = true
         return client.request({ method: 'PUT', path: '/aigc/storyboard', body: need(payload) })
       }, undefined, { scriptId })

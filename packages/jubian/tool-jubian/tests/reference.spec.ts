@@ -1,8 +1,9 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { uploadAudioReferenceMethod, uploadReferenceMethod } from '../src/reference.ts'
+import { loadTosConfig, putObject, uploadAudioReferenceMethod, uploadReferenceMethod } from '../src/reference.ts'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
@@ -75,7 +76,10 @@ function transport(options: { status?: number; failBundle?: boolean; failScript?
 
 let root: string
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'jubian-reference-')) })
-afterEach(async () => { await rm(root, { recursive: true, force: true }) })
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  await rm(root, { recursive: true, force: true })
+})
 
 async function file(name: string, bytes: Uint8Array): Promise<string> {
   const path = join(root, name)
@@ -84,9 +88,20 @@ async function file(name: string, bytes: Uint8Array): Promise<string> {
 }
 
 describe('upload_reference', () => {
+  it('refuses both raw TOS operations with the bound history policy before using their transport', async () => {
+    vi.stubEnv('MUSE_JUBIAN_HISTORY_READ_ONLY', '1')
+    const client = fixtureHistoryClient()
+    vi.stubEnv('MUSE_JUBIAN_HISTORY_READ_ONLY', undefined)
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    await expect(loadTosConfig(client, fetch)).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+    await expect(putObject(client, fetch, 'https://example.invalid/object', {}, new Uint8Array()))
+      .rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it.each([{}, { audio_path: '' }, { audio_path: ' ' }])('rejects an absent voice path before bundle reads: %j', async (args) => {
     const stub = transport()
-    await expect(uploadAudioReferenceMethod(args, { fetch: stub.fetch })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    await expect(uploadAudioReferenceMethod(fixtureHistoryClient(), args, { fetch: stub.fetch })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
     expect(stub.bundleLoads).toBe(0)
   })
 
@@ -94,22 +109,22 @@ describe('upload_reference', () => {
     const path = await file('aligned.png', pngHeader(1024, 1024)), stub = transport()
     const global = vi.spyOn(globalThis, 'fetch').mockImplementation(stub.fetch)
     try {
-      expect(await uploadReferenceMethod({ image_path: path })).toMatchObject({ reencoded: false })
+      expect(await uploadReferenceMethod(fixtureHistoryClient(), { image_path: path })).toMatchObject({ reencoded: false })
       expect(stub.uploads).toHaveLength(1)
     } finally { global.mockRestore() }
-    await expect(uploadReferenceMethod({ image_path: path }, { fetch: transport({ failScript: true }).fetch }))
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: transport({ failScript: true }).fetch }))
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
   })
 
   it('contains frontend, response-body and object transport failures without uploading twice', async () => {
     const path = await file('aligned.png', pngHeader(1024, 1024))
     const rejected: typeof fetch = async () => { throw new Error('offline') }
-    await expect(uploadReferenceMethod({ image_path: path }, { fetch: rejected }))
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: rejected }))
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
     const unreadable: typeof fetch = async () => new Response(new ReadableStream({
       start(controller) { controller.error(new Error('body disconnected')) },
     }))
-    await expect(uploadReferenceMethod({ image_path: path }, { fetch: unreadable }))
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: unreadable }))
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
     const stub = transport(), requests: string[] = []
     const failingPut: typeof fetch = async (input, init) => {
@@ -117,13 +132,13 @@ describe('upload_reference', () => {
       if (init?.method === 'PUT') throw new Error('connection closed')
       return await stub.fetch(input, init)
     }
-    await expect(uploadReferenceMethod({ image_path: path }, { fetch: failingPut }))
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: failingPut }))
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
     expect(requests).toEqual(['GET', 'GET', 'PUT'])
     const cancellingPut: typeof fetch = async (input, init) => init?.method === 'PUT'
       ? new Response(new ReadableStream({ cancel() { throw new Error('cancel disconnected') } }), { status: 403 })
       : await stub.fetch(input, init)
-    await expect(uploadReferenceMethod({ image_path: path }, { fetch: cancellingPut }))
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: cancellingPut }))
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
   })
 
@@ -136,7 +151,7 @@ describe('upload_reference', () => {
     wave.writeUInt32LE(32000, 40)
     const stub = transport()
     const global = vi.spyOn(globalThis, 'fetch').mockImplementation(stub.fetch)
-    const result = await uploadAudioReferenceMethod({ audio_path: await file('voice.wav', wave) },
+    const result = await uploadAudioReferenceMethod(fixtureHistoryClient(), { audio_path: await file('voice.wav', wave) },
       mode === 'injected' ? { fetch: stub.fetch, now: () => new Date('2026-09-20T10:11:12Z') } : {})
       .finally(() => { global.mockRestore() })
     expect(stub.uploads).toHaveLength(1)
@@ -150,7 +165,7 @@ describe('upload_reference', () => {
     const path = await file('aligned.png', png)
     const stub = transport()
     let scaled = 0
-    const result = await uploadReferenceMethod({ image_path: path }, { fetch: stub.fetch,
+    const result = await uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: stub.fetch,
       scaleImage: async () => { scaled += 1; return new Uint8Array() },
       now: () => new Date('2026-09-20T10:11:12Z') })
     expect(scaled).toBe(0)
@@ -176,7 +191,7 @@ describe('upload_reference', () => {
     const stub = transport()
     const seen: { width: number; height: number }[] = []
     const scaled = new Uint8Array([1, 2, 3, 4])
-    const result = await uploadReferenceMethod({ image_path: path }, { fetch: stub.fetch,
+    const result = await uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: stub.fetch,
       scaleImage: async (request) => {
         seen.push(request.target)
         expect(request).toMatchObject({ width: 1675, height: 941, format: 'png' })
@@ -193,7 +208,7 @@ describe('upload_reference', () => {
   it('refuses to upload an unaligned image when no re-encode is available, and names the target size', async () => {
     const path = await file('odd.png', pngHeader(1920, 1080))
     const stub = transport()
-    const result = await uploadReferenceMethod({ image_path: path }, { fetch: stub.fetch,
+    const result = await uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: stub.fetch,
       scaleImage: async () => { throw new Error('ffmpeg is not installed') } })
     expect(result).toMatchObject({ uploaded: false, status: 'alignment_required', source_width: 1920,
       source_height: 1080, required_width: 1920, required_height: 1088 })
@@ -203,7 +218,7 @@ describe('upload_reference', () => {
 
   it.each([{}, { image_path: '' }, { image_path: ' ' }])('names an absent image path before any request: %j', async (args) => {
     const stub = transport()
-    await expect(uploadReferenceMethod(args, { fetch: stub.fetch })).rejects.toMatchObject({
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), args, { fetch: stub.fetch })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT', detail: 'upload_reference requires image_path',
     })
     expect(stub.uploads).toHaveLength(0)
@@ -214,7 +229,7 @@ describe('upload_reference', () => {
     const stub = transport()
     const path = kind === 'absent' ? join(root, 'absent.png')
       : join(await file('parent.txt', new Uint8Array([1])), 'image.png')
-    await expect(uploadReferenceMethod({ image_path: path }, { fetch: stub.fetch })).rejects.toMatchObject({
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: stub.fetch })).rejects.toMatchObject({
       code: 'INVALID_ARGUMENT',
       detail: 'image_path points to a missing local file; verify the previous step created the image at that path; no upload was attempted',
     })
@@ -229,7 +244,7 @@ describe('upload_reference', () => {
   ])('contains local read failures without an upload or raw exception text: %j', async (failure) => {
     const stub = transport()
     vi.mocked(readFile).mockRejectedValueOnce(failure)
-    await expect(uploadReferenceMethod({ image_path: join(root, 'image.png') }, { fetch: stub.fetch }))
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: join(root, 'image.png') }, { fetch: stub.fetch }))
       .rejects.toMatchObject({ code: 'INVALID_ARGUMENT',
         detail: 'image_path could not be read as a local file; check the path and file permissions; no upload was attempted' })
     expect(stub.uploads).toHaveLength(0)
@@ -239,16 +254,16 @@ describe('upload_reference', () => {
   it('refuses a non-image file before any request', async () => {
     const stub = transport()
     const text = await file('notes.txt', new TextEncoder().encode('not an image at all'))
-    await expect(uploadReferenceMethod({ image_path: text }, { fetch: stub.fetch })).rejects.toThrow()
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: text }, { fetch: stub.fetch })).rejects.toThrow()
     expect(stub.uploads).toHaveLength(0)
     expect(stub.bundleLoads).toBe(0)
   })
 
   it('fails closed when the bucket refuses the object or the bundle cannot be read', async () => {
     const path = await file('aligned.png', pngHeader(1024, 1024))
-    await expect(uploadReferenceMethod({ image_path: path }, { fetch: transport({ status: 403 }).fetch }))
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: transport({ status: 403 }).fetch }))
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
-    await expect(uploadReferenceMethod({ image_path: path }, { fetch: transport({ failBundle: true }).fetch }))
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path }, { fetch: transport({ failBundle: true }).fetch }))
       .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
   })
 
@@ -257,7 +272,7 @@ describe('upload_reference', () => {
     const stub = async (url: string | URL): Promise<Response> =>
       new Response(url.toString().endsWith('.js') ? 'var modules={{"1":function(){}}}' : FRONTEND_HTML,
         { status: 200 })
-    await expect(uploadReferenceMethod({ image_path: path },
+    await expect(uploadReferenceMethod(fixtureHistoryClient(), { image_path: path },
       { fetch: stub as typeof fetch })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
   })
 })

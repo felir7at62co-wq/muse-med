@@ -1,8 +1,9 @@
 /** Bind optional advisory voice samples to the current render and its authored speakers. */
 import { createHash } from 'node:crypto'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
-import { audioReviewWavDuration, HarnessError } from '@deepseek-ai/dsh-llm'
-import { parseShotScript } from '@deepseek-ai/dsh-tool-shot-script'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
+import type { ShotScriptVoiceParser } from '@deepseek-ai/dsh-tool-shot-script'
+import { pcmWavDuration } from '@deepseek-ai/dsh-util-values'
 import { z } from 'zod'
 import { requireProjectAudioFile } from './audio.ts'
 
@@ -13,6 +14,7 @@ const productionName = /^production-([a-f0-9]{64})\.json$/u
 const maxMetadataBytes = 256 * 1024
 const maxReferenceBytes = 15 * 48_000 * 4 + 4096
 
+/** Inputs that name the authored script and registered local reference WAVs. */
 export const voiceContextInput = z.strictObject({
   source_script: z.string().min(1),
   references: z.array(z.strictObject({
@@ -23,8 +25,10 @@ export const voiceContextInput = z.strictObject({
   })).min(1).max(3),
 })
 
+/** Caller-supplied references to validate against the current episode. */
 export type ContentListeningVoiceContext = z.input<typeof voiceContextInput>
 
+/** Recorded digests and render bindings for the selected voice references. */
 export const voiceContextEvidence = z.strictObject({
   production_sha256: sha256,
   script_sha256: sha256,
@@ -64,13 +68,29 @@ const approvedProfile = z.object({
 
 type FileIdentity = { readonly path: string; readonly sha256: string | null }
 type AuthoredShot = { readonly shot: number; readonly lines: readonly string[] }
-type OriginalShot = ReturnType<typeof parseShotScript>['shots'][number]
+type OriginalShot = ReturnType<ShotScriptVoiceParser>['shots'][number]
+type ResolvedVoiceReferences = {
+  readonly wav: Buffer[]
+  readonly files: { readonly path: string; readonly sha256: string }[]
+  readonly evidence: z.output<typeof voiceContextEvidence>
+  readonly spoken: {
+    readonly shot: number
+    readonly voice_type: OriginalShot['voiceType']
+    readonly render_shot?: number
+    readonly line_index?: number
+    readonly character_id: string
+    readonly reference_attachment: number | undefined
+  }[]
+}
 
 function requireVoice(condition: unknown, message: string): asserts condition {
   if (!condition) throw new HarnessError(message, 'CONTENT_LISTENING_VOICE_CONTEXT')
 }
 function digest(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex') }
-function json(bytes: Buffer): unknown { return JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/u, '')) as unknown }
+function json(bytes: Buffer): unknown {
+  const parsed: unknown = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/u, ''))
+  return parsed
+}
 function authoredText(value: string): string { return value.normalize('NFKC').trim() }
 
 function sameOrder<T>(left: readonly T[], right: readonly T[]): boolean {
@@ -81,7 +101,8 @@ function explicitLegacyVo(shot: OriginalShot): { speaker: string; text: string }
   if (shot.voiceType !== 'vo' || shot.directorFormat || shot.speaker !== '') return undefined
   // The old prop-only format left this explicit speaker in the parsed text. Read only the original 台词 field.
   const source = [...shot.visual.matchAll(/^台词[：:][ \t]*([^\r\n]+)$/gmu)]
-  if (source.length !== 1 || authoredText(source[0]?.[1] ?? '') !== authoredText(shot.text)) return undefined
+  const originalLine = source[0]?.[1]
+  if (source.length !== 1 || originalLine === undefined || authoredText(originalLine) !== authoredText(shot.text)) return undefined
   const parts = /^([^：:\r\n]{1,30})[：:](.+)$/u.exec(shot.text)
   const speaker = parts?.[1]?.trim(), text = parts?.[2]?.trim()
   return speaker && text ? { speaker, text } : undefined
@@ -95,7 +116,7 @@ function resolveAuthoredLayout(original: readonly OriginalShot[], packages: z.in
     && sameOrder(packages.flatMap(task => task.shots), sourceShots)
     && packages.every((task, index) => task.index === undefined || task.index === index + 1),
   '正式制作分包必须按原分镜顺序完整覆盖每一镜，不得重排、重复或漏镜。')
-  const authoredByShot = new Map(authored.map(row => [row.shot, row]))
+  const authoredByShot = new Map<number | undefined, AuthoredShot>(authored.map(row => [row.shot, row]))
   requireVoice(authoredByShot.size === authored.length && rendered.length === authored.length
     && new Set(rendered).size === rendered.length && rendered.every(shot => authoredByShot.has(shot)),
   '原稿对白计划的镜号与当前成片不符。')
@@ -107,7 +128,7 @@ function resolveAuthoredLayout(original: readonly OriginalShot[], packages: z.in
   const byShot = new Map(original.map(shot => [shot.shot, shot]))
   const clipMapping: { render_shot: number; source_shots: number[] }[] = []
   const lines = groups.flatMap((ids, index) => {
-    const plan = authoredByShot.get(rendered[index] ?? -1)
+    const plan = authoredByShot.get(rendered[index])
     requireVoice(plan !== undefined, '当前成片缺少此分包对白。')
     clipMapping.push({ render_shot: plan.shot, source_shots: ids })
     const spoken = ids.flatMap((id) => {
@@ -116,16 +137,19 @@ function resolveAuthoredLayout(original: readonly OriginalShot[], packages: z.in
       if (shot.text === '') return []
       return [{ shot, voice: grouped ? explicitLegacyVo(shot) ?? shot : shot }]
     })
-    requireVoice(spoken.length === plan.lines.length
-      && spoken.every(({ voice }, i) => authoredText(voice.text) === authoredText(plan.lines[i] ?? '')),
-    '原分镜实际对白与当前对白计划不符，须逐句保留原分包和顺序。')
+    requireVoice(sameOrder(spoken.map(({ voice }) => authoredText(voice.text)), plan.lines.map(authoredText)),
+      '原分镜实际对白与当前对白计划不符，须逐句保留原分包和顺序。')
     return spoken.map(({ shot, voice }, i) => ({ shot: shot.shot, voice_type: shot.voiceType, speaker: voice.speaker,
       ...(grouped ? { render_shot: plan.shot, line_index: i + 1 } : {}) }))
   })
   return { lines, clipMapping: grouped ? clipMapping : undefined }
 }
 
-/** Resolve one independently identified approved local sample for every authored speaking role. */
+/**
+ * Resolve one independently identified approved local sample for every authored speaking role.
+ * @param input - Current render evidence, authored dialogue and bounded project file reader.
+ * @returns WAV attachments, their verified identities and the mapping of dialogue to references.
+ */
 export async function resolveContentListeningVoices(input: {
   readonly project: string
   readonly episode: string
@@ -135,8 +159,9 @@ export async function resolveContentListeningVoices(input: {
   readonly authoredPath: string
   readonly authoredSha256: string
   readonly renderedInputs: readonly FileIdentity[]
+  readonly parseVoiceScript: ShotScriptVoiceParser
   readonly read: (path: string, limit: number) => Promise<Buffer>
-}) {
+}): Promise<ResolvedVoiceReferences> {
   const context = voiceContextInput.safeParse(input.context)
   requireVoice(context.success, '声线听校须提供原分镜文件及 1–3 份项目内已登记的原始 WAV。')
   const project = input.project
@@ -167,7 +192,7 @@ export async function resolveContentListeningVoices(input: {
     && plan.data.script_id === bible.data.jubian_script_id && plan.data.source_sha256 === scriptSha,
   '原分镜、剧变项目或角色登记与本次正式制作分包不符。')
 
-  const parsed = parseShotScript(scriptBytes.toString('utf8').replace(/^\uFEFF/u, ''), { actionShotSeconds: 2 })
+  const parsed = input.parseVoiceScript(scriptBytes.toString('utf8').replace(/^\uFEFF/u, ''))
   requireVoice(!parsed.issues.some(issue => issue.severity === 'failure' &&
     ['multiple_speech_lines', 'speaker_mismatch', 'missing_speaker', 'empty_dialogue_line', 'shot_numbering',
       'placeholder_dialogue', 'action_voice_with_dialogue', 'missing_voice_type'].includes(issue.code)),
@@ -199,7 +224,7 @@ export async function resolveContentListeningVoices(input: {
       '声线资产必须是本项目该角色及阶段已登记的批准 WAV。')
     const path = await requireProjectAudioFile(project, ref.path)
     const wav = await input.read(path, maxReferenceBytes)
-    const hash = digest(wav), duration = audioReviewWavDuration(wav)
+    const hash = digest(wav), duration = pcmWavDuration(wav)
     requireVoice(hash === approved.data.reference_audio_sha256.toLowerCase() && duration !== undefined && duration <= 15
       && Math.abs(duration - approved.data.reference_audio_duration_seconds) <= 0.001,
     '本地声线 WAV 的原始字节或实际时长与已批准的项目样本不符。')

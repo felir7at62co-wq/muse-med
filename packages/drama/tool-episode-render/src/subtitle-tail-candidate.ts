@@ -20,6 +20,37 @@ const durationUs = (seconds: number): number => Math.round(seconds * 1_000_000)
 const timingLine = /^[ \t]*(\d{2}:\d{2}:\d{2}[,.]\d{3})[ \t]*-->[ \t]*(\d{2}:\d{2}:\d{2}[,.]\d{3})(?=[ \t]*(?:\r?$))/gmu
 
 type Anchor = { readonly start_seconds: number; readonly end_seconds: number; readonly words: readonly SpeechCoverageWord[] }
+type SubtitleTailResult = {
+  readonly kind: 'muse_subtitle_tail_candidate'
+  readonly episode: string
+  readonly assessment: 'asr_word_timing_candidate'
+  readonly listening_verified: false
+  readonly grants_approval: false
+  readonly external_requests: 0
+} & ({
+  readonly status: 'needs_review'
+  readonly reason: string
+} | {
+  readonly status: 'candidate'
+  readonly source_sha256: string
+  readonly source_record_sha256: string
+  readonly subtitle_sha256: string
+  readonly cue: number
+  readonly start_seconds: number
+  readonly old_end_seconds: number
+  readonly candidate_end_seconds: number
+  readonly safe_frame_end_us: number
+  readonly word_receipt_sha256: string
+  readonly word_transcript_sha256: string
+  readonly anchor: Anchor
+  readonly original_findings_count: number
+  readonly candidate_findings_count: number
+  readonly removed_finding_id: string
+  readonly candidate_path: string
+  readonly candidate_sha256: string
+  readonly evidence_path: string
+  readonly remaining_review: string
+})
 
 function anchoredSuffix(coverage: SpeechCoverageReport, cue: SubtitleCue, clipEndUs: number, fps: number) {
   const cueText = speechCoverageTextKey(cue.text)
@@ -39,8 +70,14 @@ function anchoredSuffix(coverage: SpeechCoverageReport, cue: SubtitleCue, clipEn
     const parts = sequence.map(word => speechCoverageTextKey(word.text))
     const first = sequence[0]
     if (first === undefined || first.start_seconds < cue.startSeconds || sequence.length < 2 || parts.some(part => !part)
-      || Array.from(parts.join('')).length < 3 || !cueText.endsWith(parts.join('')) || !sequence.every(isFullWord)
-      || sequence.some((word, i) => i > 0 && word.start_seconds - (sequence[i - 1]?.end_seconds ?? 0) > maxAnchorGapSeconds)) continue
+      || Array.from(parts.join('')).length < 3 || !cueText.endsWith(parts.join('')) || !sequence.every(isFullWord)) continue
+    let previousEnd = first.start_seconds
+    const hasGap = sequence.some((word) => {
+      const gap = word.start_seconds - previousEnd
+      previousEnd = word.end_seconds
+      return gap > maxAnchorGapSeconds
+    })
+    if (hasGap) continue
     const occurrences = coverage.words.filter((word, i) => word.start_seconds >= cue.startSeconds && word.start_seconds < cue.endSeconds
       && parts.every((part, j) => speechCoverageTextKey(coverage.words[i + j]?.text ?? '') === part))
     const missing = durationUs(last.end_seconds - cue.endSeconds)
@@ -68,7 +105,11 @@ function replaceTailSrtEnd(text: string, path: string, cues: readonly SubtitleCu
   }) ? result : undefined
 }
 
-/** Create a new bounded SRT candidate without changing the current render, draft or subtitle. */
+/**
+ * Create a separate bounded SRT candidate using only verified tail-word evidence.
+ * @param input - Current render, displayed subtitle and the active session's native word receipt.
+ * @returns A saved subtitle candidate or a reason for leaving the subtitle in review.
+ */
 export async function prepareSubtitleTailCandidate(input: {
   readonly toolkit: MediaToolkit
   readonly project: string
@@ -78,7 +119,7 @@ export async function prepareSubtitleTailCandidate(input: {
   readonly wordReceipt: string
   readonly verifyOfflineWords: OfflineWordReceiptVerifier
   readonly signal?: AbortSignal
-}) {
+}): Promise<SubtitleTailResult> {
   const { signal, toolkit } = input
   const project = await realpath(input.project)
   const [output, subtitlePath, wordReceipt] = await Promise.all([input.output, input.subtitleSrt, input.wordReceipt]
@@ -136,10 +177,11 @@ export async function prepareSubtitleTailCandidate(input: {
   try {
     await writeFile(candidatePath, candidateText, { flag: 'wx', mode: 0o600, signal })
     const after = await reviewSpeechCoverage({ ...coverageInput, subtitleSrt: candidatePath })
+    const [afterSource] = after.sources
     const expected = new Set(coverage.findings.map(finding => finding.id))
     expected.delete(anchor.findingId)
-    if (!after.evidence_complete || after.sources[0]?.receipt_sha256 !== wordSource.receipt_sha256
-      || after.sources[0]?.transcript_sha256 !== wordSource.transcript_sha256 || after.findings.length !== expected.size
+    if (!after.evidence_complete || afterSource?.receipt_sha256 !== wordSource.receipt_sha256
+      || afterSource.transcript_sha256 !== wordSource.transcript_sha256 || after.findings.length !== expected.size
       || after.findings.some(finding => !expected.has(finding.id))) return pending('重比较后出现其他差异，独立候选已撤下。')
     const check = [[output, source.source_sha256], [subtitlePath, subtitleSha], [recordPath, recordSha],
       [candidatePath, after.subtitle_sha256]] as const

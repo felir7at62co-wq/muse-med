@@ -1,5 +1,6 @@
 /** Independent process for notification ownership and stale-lease tests. */
 import { GenerationWatchStore, type GenerationWatchRun } from '../../src/generation-watch-store.ts'
+import { fixtureHistoryClient } from './history-write-client.ts'
 import { GenerationWatchRuntime } from '../../src/generation-watch.ts'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -35,7 +36,7 @@ async function runWorker(root: string, mode: string, payload: string): Promise<v
         process.send?.({ kind: 'sent' }, () => { process.disconnect?.() })
         return
       }
-      const result = await writeUnderLedger(ledger, key, 'storyboard_native_submit', () => ({ original: key }), async () => {
+      const result = await writeUnderLedger(fixtureHistoryClient(), ledger, key, 'storyboard_native_submit', () => ({ original: key }), async () => {
         await appendFile(join(root, 'sent.ndjson'), `${key}\n`)
         return { transport: { http_status: 200, application_code: 200 }, response_sha256: null, data: {} }
       }, () => ({ amount: '1.00', unit: 'CNY', scriptId: 42 }))

@@ -96,7 +96,11 @@ function nonblank(value: unknown): string {
 }
 
 const digest = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex')
-/** Compare literal subtitle and recognized text while ignoring display separators. */
+/**
+ * Compare literal subtitle and recognized text while ignoring display separators.
+ * @param text - Subtitle or recognized speech text to normalize.
+ * @returns The normalized text key used for comparison.
+ */
 export function speechCoverageTextKey(text: string): string {
   return text.normalize('NFKC').replace(/[\p{P}\p{Z}\s]/gu, '')
 }

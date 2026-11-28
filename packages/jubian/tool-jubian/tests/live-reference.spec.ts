@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -55,7 +56,7 @@ describe.skipIf(!enabled)('live reference upload', () => {
     // The normalizer runs for real, not injected: this is the path a session uses.
     const scaled = await scaleImageWithFfmpeg({ bytes: new Uint8Array(await readFile(source)),
       width: 100, height: 70, format: 'png', target: { width: 96, height: 64 } })
-    const result = await uploadReferenceMethod({ image_path: source },
+    const result = await uploadReferenceMethod(fixtureHistoryClient(), { image_path: source },
       { scaleImage: async () => scaled, now: () => new Date() })
     expect(result).toMatchObject({ materialType: 'image', sortOrder: 1, width: 96, height: 64,
       source_width: 100, source_height: 70, reencoded: true })

@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { fixtureHistoryClient } from './fixtures/history-write-client.ts'
 import type { Stats } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -49,7 +50,7 @@ async function source(): Promise<string> {
   return path
 }
 
-const upload = (document_path: string, signal?: AbortSignal) => uploadDocumentMethod(new JubianLedger({ root }),
+const upload = (document_path: string, signal?: AbortSignal) => uploadDocumentMethod(fixtureHistoryClient(), new JubianLedger({ root }),
   { document_path, idempotency_key: 'read-fault' }, { maxBytes: 1024, signal }, { fetch: network })
 
 describe('upload_document source reads that change underneath the upload', () => {

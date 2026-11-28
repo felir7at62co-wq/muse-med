@@ -153,6 +153,19 @@ function logCheck(check: RenderCheck): string {
 }
 
 /**
+ * Pick the exact body tail that the ending should freeze.
+ * @param preparedShot - Last prepared source shot for a render without a proved frame grid.
+ * @param encodedSegments - Verified body segments in delivery order.
+ * @param exactPictureClock - Whether the ending must start at the measured body boundary.
+ * @returns The media path from which to extract the last frame.
+ */
+export function endingTailSource(preparedShot: string, encodedSegments: readonly string[], exactPictureClock: boolean): string {
+  const source = exactPictureClock ? encodedSegments.at(-1) : preparedShot
+  if (source === undefined) throw new HarnessError('缺少最后一段已编码正文，不能添加片尾。', 'RENDER_FRAME_CLOCK')
+  return source
+}
+
+/**
  * Encode one episode into the delivered file and judge the result.
  * @param input - The resolved call.
  * @returns The canonical result; `ok` is false when a delivery check failed.
@@ -331,19 +344,27 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const cues = settings.normalizeSubtitleText ? normalizeSubtitleDisplay(originalCues) : originalCues
   let displaySubtitle = overlay?.report.resolved_srt ?? input.subtitleSrt
   const displayWritten: string[] = []
+  const deriveSubtitleClock = async (target: string, text: string) => {
+    const clock = await writeDerivedSubtitleClock(input.subtitleSrt, target, text)
+    if (clock === undefined && localDialoguePatch) {
+      throw new HarnessError(`EP${input.episode} 局部修音的字幕来源时钟已丢失，请用当前原声重新对齐并运行 prepare。`,
+        'SOURCE_DIALOGUE_PATCH_SUBTITLE_CLOCK_REQUIRED')
+    }
+    return clock
+  }
+  let displayClock: string | undefined
   if (settings.normalizeSubtitleText && overlay === undefined) {
     await mkdir(paths.cacheDir, { recursive: true })
     const directory = await mkdtemp(resolve(paths.cacheDir, 'subtitle-display-'))
     displaySubtitle = resolve(directory, `${input.episode}.srt`)
     const displayText = formatSrtDocument(cues)
-    const clock = await writeDerivedSubtitleClock(input.subtitleSrt, displaySubtitle, displayText)
+    displayClock = await deriveSubtitleClock(displaySubtitle, displayText)
     await writeFile(displaySubtitle, displayText, 'utf8')
     displayWritten.push(displaySubtitle)
-    if (clock !== undefined) displayWritten.push(clock)
   } else if (localDialoguePatch && overlay !== undefined) {
-    const clock = await writeDerivedSubtitleClock(input.subtitleSrt, displaySubtitle, await readFile(displaySubtitle, 'utf8'))
-    if (clock !== undefined) displayWritten.push(clock)
+    displayClock = await deriveSubtitleClock(displaySubtitle, await readFile(displaySubtitle, 'utf8'))
   }
+  if (displayClock !== undefined) displayWritten.push(displayClock)
   const renderedSubtitle = displaySubtitle
   const renderedSubtitleFiles = renderedSubtitle === input.subtitleSrt ? [] : [renderedSubtitle,
     ...(localDialoguePatch ? [subtitleClockPath(renderedSubtitle)] : [])]
@@ -487,8 +508,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   let tailFrame = NO_TAIL_FRAME
   if (endingAssets !== undefined) {
-    const tailSource = expectedPictureClock === undefined ? resolve(paths.videoDir, shotFileName(input.lastShot)) : segments.at(-1)
-    if (tailSource === undefined) throw new HarnessError('缺少最后一段已编码正文，不能添加片尾。', 'RENDER_FRAME_CLOCK')
+    const tailSource = endingTailSource(resolve(paths.videoDir, shotFileName(input.lastShot)), segments, expectedPictureClock !== undefined)
     tailFrame = await extractTailFrame(
       toolkit,
       tailSource,

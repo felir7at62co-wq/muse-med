@@ -318,7 +318,7 @@ async function applyPlan(client: JubianClient, ledger: JubianLedger, args: Metho
       const nextConfig = { ...configOf(board), ...target.after }
       const body = { ...board, isGenerate: 0,
         modelConfig: typeof board.modelConfig === 'string' ? JSON.stringify(nextConfig) : nextConfig }
-      const saved = await writeUnderLedger(ledger, `${key}:${target.storyboard_id}`, 'storyboard_model_settings',
+      const saved = await writeUnderLedger(client, ledger, `${key}:${target.storyboard_id}`, 'storyboard_model_settings',
         () => body, (payload) => {
           state.sent = true
           return client.request({ method: 'PUT', path: '/aigc/storyboard', body: need(payload) })

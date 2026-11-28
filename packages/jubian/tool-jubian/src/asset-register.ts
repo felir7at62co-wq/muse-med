@@ -213,7 +213,7 @@ export async function registerImageAsset(client: JubianClient, ledger: JubianLed
   if (record === undefined) {
     const attempt = { dispatched: false }
     try {
-      outcome = await writeUnderLedger(ledger, binding.key, 'asset_register', () => ({ scriptId: binding.scriptId,
+      outcome = await writeUnderLedger(client, ledger, binding.key, 'asset_register', () => ({ scriptId: binding.scriptId,
         assetName: binding.name, assetType: binding.assetType, isLocal: 1, url: binding.url }), async (body) => {
         attempt.dispatched = true
         return await client.request({ method: 'POST', path: '/aigc/asset', body: need(body) })

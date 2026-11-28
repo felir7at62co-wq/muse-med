@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { resolveSettings } from '../src/index.ts'
+import { planDeliveryPictureClock } from '../src/picture-clock.ts'
 import { assertRenderResumeInputs, findRenderResumeCandidate, readRenderResumeFile, renderMusicStem,
   renderResumeRequest } from '../src/render-resume.ts'
 import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliverySourceRecord } from '../src/source-record.ts'
@@ -101,6 +102,39 @@ describe('render resume verification', () => {
     expect(result.verified?.checks).toContainEqual(expect.objectContaining({ id: 'output_source_record', ok: true }))
     expect(c.channel.calls.some(call => call.args.includes('-xerror'))).toBe(true)
   })
+
+  it.each(['missing receipt clock', 'wrong resident PTS', 'exact picture clock'] as const)(
+    'uses a new path or reuses the resident output according to its %s', async (scenario) => {
+      const c = await candidate()
+      const pictureClock = planDeliveryPictureClock([{ shot: 1, startUs: 0, durationUs: 1_000_000 }], 60, 2)
+      if (pictureClock === undefined || c.record.delivery_inputs === undefined) throw Error('Missing exact fixture delivery facts')
+      if (scenario !== 'missing receipt clock') {
+        await writeSourceRecord(c.receipt, { ...c.record, delivery_inputs: { ...c.record.delivery_inputs, picture_clock: pictureClock } })
+      }
+      const before = await readFile(c.receipt)
+      const observe = vi.fn(async (command: string, args: readonly string[]) => {
+        if (!args.includes('-show_frames')) return await c.channel.channel.run(command, args)
+        expect(args.at(-1)).toBe(c.input.output)
+        const frames = Array.from({ length: pictureClock.total_frames }, (_, pts) =>
+          ({ pts: scenario === 'wrong resident PTS' && pts === 91 ? pts + 1 : pts }))
+        return { code: 0, stderr: '', stdout: JSON.stringify({ frames, streams: [{ time_base: '1/60',
+          avg_frame_rate: '60/1', r_frame_rate: '60/1', duration_ts: frames.length, nb_frames: String(frames.length) }] }) }
+      })
+      const result = await findRenderResumeCandidate({ ...c.input, expectedPictureClock: pictureClock,
+        toolkit: { ...c.input.toolkit, channel: { run: observe } } }, c.request, false)
+      if (scenario === 'exact picture clock') {
+        expect(result.output).toBe(c.input.output)
+        expect(result.verified?.ok).toBe(true)
+        expect(c.channel.calls.length).toBeGreaterThan(0)
+      } else {
+        expect(result.output).not.toBe(c.input.output)
+        expect(result.verified).toBeUndefined()
+        expect(c.channel.calls).toEqual([])
+      }
+      expect(observe.mock.calls.filter(([, args]) => args.includes('-show_frames'))).toHaveLength(scenario === 'missing receipt clock' ? 0 : 1)
+      expect(await readFile(c.receipt)).toEqual(before)
+      expect(await readFile(c.input.output, 'utf8')).toBe('current delivered media')
+    })
 
   it.each(['missing', 'directory', 'changed'] as const)('preserves a candidate with %s music evidence', async (defect) => {
     const c = await candidate()
