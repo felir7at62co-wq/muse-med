@@ -79,8 +79,9 @@ async function playbackFixture(f: Awaited<ReturnType<typeof fixture>>, native = 
   const request = { project: root, rendered_output: output, episode: 95, name_prefix: 'paired-',
     audio_mode: 'independent', audio, videos: [video], timeline, subtitle_srt: subtitle,
     music_decision: 'none', decision_reason: 'No added music for this test' }
-  await writeFile(f.input.request_file, JSON.stringify(request))
-  const input = { request_file: f.input.request_file, drafts_dir: draftRoot, workspace: root }
+  const requestFile = await realpath(f.input.request_file)
+  await writeFile(requestFile, JSON.stringify(request))
+  const input = { request_file: requestFile, drafts_dir: draftRoot, workspace: root }
   return { root, request, input, receipt, digest, workingSha }
 }
 
@@ -88,10 +89,11 @@ it('checks the exact working MP4 receipt, canonical episode root and each select
   const f = await fixture()
   const source = await playbackFixture(f)
   const verify = (request: object = source.request, draftRoot = source.input.drafts_dir, workspace = source.root) =>
-    findPairedDraftRender(request, f.input.request_file, draftRoot, workspace, 65_536, f.signal)
+    findPairedDraftRender(request, source.input.request_file, draftRoot, workspace, 65_536, f.signal)
   expect(await verify()).toMatchObject({ episode: '95', output: { path: source.request.rendered_output, sha256: source.workingSha } })
-  await expect(verify(source.request, f.input.drafts_dir)).rejects.toThrow('本集 02_剪映草稿')
-  await expect(verify(source.request, source.input.drafts_dir, f.input.drafts_dir)).rejects.toThrow('当前工作区')
+  const otherDraftRoot = await realpath(f.input.drafts_dir)
+  await expect(verify(source.request, otherDraftRoot)).rejects.toThrow('本集 02_剪映草稿')
+  await expect(verify(source.request, source.input.drafts_dir, otherDraftRoot)).rejects.toThrow('当前工作区')
   await expect(verify({ ...source.request, audio_mode: 'embedded' })).rejects.toThrow('audio_mode=independent')
   await expect(verify({ ...source.request, bgm: source.request.audio })).rejects.toThrow('配乐决定')
   await writeFile(source.request.subtitle_srt, 'Changed effective subtitles')

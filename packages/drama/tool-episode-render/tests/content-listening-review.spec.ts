@@ -1,6 +1,6 @@
 /** Source-bound listening through actual local media and a controlled audio transport. */
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -51,7 +51,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 })
 
 async function fixture(withRegisteredVoice = false, duration = 0.5, referenceDuration = 1) {
-  const project = await mkdtemp(join(tmpdir(), 'dsh-listen-candidate-'))
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'dsh-listen-candidate-')))
   const runner = createMediaRunner()
   onTestFinished(async () => {
     receiptBoundary.afterAttempt = undefined

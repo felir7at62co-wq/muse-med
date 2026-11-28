@@ -11,7 +11,7 @@ import type { MediaToolkit } from '../src/types.ts'
 import { createMediaRunner, ffmpeg, ffprobe, hasFfmpeg } from './audio-ffmpeg-harness.ts'
 
 it.skipIf(!hasFfmpeg)('binds the full 59.125 second final stereo mix and refuses a wrong episode or truncated mix', async () => {
-  const project = await mkdtemp(join(tmpdir(), 'dsh-listening-audio-'))
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'dsh-listening-audio-')))
   const runner = createMediaRunner()
   try {
     const build = async (name: string, audioDuration: number) => {

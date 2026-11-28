@@ -1,6 +1,6 @@
 /** Real media checks for a complete bounded listening request. */
 import { createHash } from 'node:crypto'
-import { appendFile, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -31,7 +31,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 })
 
 async function fixture(duration: number, material: { subtitle?: string; authored?: string; shots?: readonly number[] } = {}) {
-  const project = await mkdtemp(join(tmpdir(), 'dsh-listening-request-test-'))
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'dsh-listening-request-test-')))
   const runner = createMediaRunner()
   const dispose = async () => {
     await runner.dispose()

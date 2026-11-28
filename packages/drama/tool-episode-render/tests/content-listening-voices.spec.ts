@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -52,7 +52,7 @@ async function fixture(options: {
   noRegistry?: boolean
   propLine?: string
 } = {}) {
-  const project = await mkdtemp(join(tmpdir(), 'muse-voice-layout-'))
+  const project = await realpath(await mkdtemp(join(tmpdir(), 'muse-voice-layout-')))
   temporary.push(project)
   const context = new Context()
   contexts.push(context)
