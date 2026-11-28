@@ -20,7 +20,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { JubianError } from '@deepseek-ai/dsh-jubian'
+import { JubianError, assertJubianHistoryWritable } from '@deepseek-ai/dsh-jubian'
 import {
   alignedReferenceSize, buildReferenceObjectKey, extractAppScriptUrl, extractTosUploadConfig,
   readReferenceAudio, readReferenceImage, referenceMaterialItem, signTosObjectPut,
@@ -130,6 +130,7 @@ export async function scaleImageWithFfmpeg(request: ScaleRequest, explicitPath?:
  * @returns Current object-storage configuration; credentials remain Host-local.
  */
 export async function loadTosConfig(transport: typeof fetch): Promise<TosUploadConfig> {
+  assertJubianHistoryWritable()
   let html: string
   let appJs: string
   try {
@@ -163,6 +164,7 @@ function asBody(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
  */
 export async function putObject(transport: typeof fetch, url: string, headers: Record<string, string>,
   payload: Uint8Array): Promise<number> {
+  assertJubianHistoryWritable()
   let response: Response
   try {
     response = await transport(url, { method: 'PUT', headers, body: asBody(payload) })

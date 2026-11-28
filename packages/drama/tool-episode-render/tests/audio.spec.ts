@@ -106,7 +106,8 @@ it('keeps original sound once and exposes only compressed music as the music ste
   const spec = { bodyEndSeconds: 8, totalSeconds: 8, endingSeconds: 0, masterVolume: 1, bgmVolume: 1 }
   const graph = audioMixFilter({ ...spec, profile, musicStem: true })
   expect(graph.match(/\[1:a\]/gu)).toHaveLength(1)
-  expect(graph).toContain('asplit=2[a0][sc]')
+  expect(graph).toContain('asplit=2[a0][sc0]')
+  expect(graph).toContain('[sc0]asetnsamples=n=1024:p=0[sc]')
   expect(graph).toContain('[music][sc]sidechaincompress=')
   expect(graph).toContain('[ducked]asplit=2[a1][musicstem]')
   expect(graph).toContain('[a0][a1]amix=inputs=2')

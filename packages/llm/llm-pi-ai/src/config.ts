@@ -115,6 +115,8 @@ export interface PiAiProviderProfile {
   api?: string
   /** Endpoint for this route's models; defaults to the installed catalog's endpoint. */
   baseURL?: string
+  /** Exact direct Google Generative Language model enabled for Host audio review. */
+  geminiAudioModel?: string
   /**
    * This route's model catalog. Omission serves the installed catalog for the
    * route unchanged; an explicit list replaces it, each entry defaulting its
@@ -362,6 +364,7 @@ const profile = z.object({
   displayName: z.string(),
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
+  geminiAudioModel: z.string(),
   models: z.array(modelProfile),
   modelOverrides: z.dict(modelOverride),
   compat: compatProfile,

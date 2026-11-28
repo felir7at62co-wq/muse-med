@@ -113,11 +113,13 @@ export function createSpawnChannel(): ProcessChannel {
  *
  * The DSH Windows sandbox rejects Node child-process pipes with EPERM. File
  * descriptors preserve the same capture contract without named pipes.
+ * @param signal - Optional cancellation of the owning media operation.
  * @returns A channel that collects stdout/stderr and removes its temporary files after each command.
  */
-export function createFileCaptureChannel(): ProcessChannel {
+export function createFileCaptureChannel(signal?: AbortSignal): ProcessChannel {
   return {
     run: async (command, args) => {
+      signal?.throwIfAborted()
       const directory = await mkdtemp(join(tmpdir(), 'dsh-drama-render-'))
       const stdoutPath = join(directory, 'stdout.txt')
       const stderrPath = join(directory, 'stderr.txt')
@@ -128,17 +130,15 @@ export function createFileCaptureChannel(): ProcessChannel {
         stderrFile = await open(stderrPath, 'w')
         const outcome = await new Promise<{ code: number; spawnError: string }>((resolve) => {
           const child = spawn(command, [...args], {
-            stdio: ['ignore', stdoutFile?.fd, stderrFile?.fd], windowsHide: true,
+            stdio: ['ignore', stdoutFile?.fd, stderrFile?.fd], windowsHide: true, ...(signal === undefined ? {} : { signal }),
           })
-          let settled = false
-          const settle = (code: number, spawnError = ''): void => {
-            if (settled) return
-            settled = true
-            resolve({ code, spawnError })
-          }
-          child.on('error', (error: Error) => { settle(UNKNOWN_EXIT_CODE, error.message) })
-          child.on('close', (code: number | null) => { settle(exitCodeOf(code)) })
+          let spawnError = ''
+          child.on('error', (error: Error) => { spawnError = error.message })
+          child.on('close', (code: number | null) => {
+            resolve({ code: spawnError ? UNKNOWN_EXIT_CODE : exitCodeOf(code), spawnError })
+          })
         })
+        signal?.throwIfAborted()
         await stdoutFile.close()
         await stderrFile.close()
         const stdout = await readFile(stdoutPath, 'utf8')

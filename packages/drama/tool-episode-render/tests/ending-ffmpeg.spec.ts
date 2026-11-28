@@ -1,7 +1,7 @@
 /** Real offline evidence for ending timing and preservation through subtitle burning. */
 import { execFile, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -9,6 +9,10 @@ import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../..
 import { buildEndingClip, requireEndingEffectFits } from '../src/ending.ts'
 import { subtitleBurnFilter } from '../src/delivery.ts'
 import { describeCommand, MediaCommandError, runFfmpeg } from '../src/ffmpeg.ts'
+import { episodePaths, shotFileName } from '../src/paths.ts'
+import { requireRenderedPicturePts } from '../src/picture-clock.ts'
+import { renderEpisode } from '../src/render.ts'
+import { readSourceRecord, sourceRecordPathFor } from '../src/source-record.ts'
 
 const ffmpeg = process.env.MUSE_FFMPEG_EXECUTABLE || process.env.FFMPEG_PATH || 'ffmpeg'
 const ffprobe = process.env.FFPROBE_PATH || (isAbsolute(ffmpeg)
@@ -18,6 +22,51 @@ const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() })
 const testBudgetMs = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 60_000
 const cleanupReserveMs = 10_000
+
+it.skipIf(!available)('publishes measured absolute cuts when three 24fps shots are rendered at 60fps', async ({ task, signal }) => {
+  const runner = createRunner(task.timeout - cleanupReserveMs, signal)
+  const project = await mkdtemp(join(tmpdir(), 'dsh-render-picture-clock-'))
+  cleanups.push(async () => { await runner.dispose(); await rm(project, { recursive: true, force: true }) })
+  const toolkit = { ffmpeg, ffprobe, channel: runner }
+  const paths = episodePaths(project, '01')
+  await Promise.all([mkdir(paths.videoDir, { recursive: true }), mkdir(dirname(paths.masterAudio), { recursive: true }),
+    mkdir(dirname(paths.timeline), { recursive: true })])
+  for (const [index, color] of ['red', 'lime', 'blue'].entries()) {
+    await runFfmpeg(toolkit, ['-n', '-v', 'error', '-f', 'lavfi', '-i', `color=${color}:s=64x64:r=24`,
+      '-frames:v', '25', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(paths.videoDir, shotFileName(index + 1))])
+  }
+  await runFfmpeg(toolkit, ['-n', '-v', 'error', '-f', 'lavfi', '-i', 'sine=sample_rate=48000:duration=3.125', paths.masterAudio])
+  await writeFile(paths.timeline, JSON.stringify({ body_end: 3.125, delivery: {
+    width: 64, height: 64, fps: 60, visual_medium: 'animation_3d',
+  }, clips: [{ shot: 1, start_us: 0, duration_us: 1_041_667 }, { shot: 2, start_us: 1_041_667, duration_us: 1_041_666 },
+    { shot: 3, start_us: 2_083_333, duration_us: 1_041_667 }] }))
+  await writeFile(paths.subtitle, '1\n00:00:00,000 --> 00:00:00,200\nTest\n')
+  const mixProfile = join(project, 'mix.json')
+  await writeFile(mixProfile, JSON.stringify({ schema_version: 1, mode: 'no_bgm', original_gain: 1, music_gain: 0, analysis_window_ms: 100 }))
+  const result = await renderEpisode({
+    toolkit, settings: { ffmpeg, ffprobe, preferNvenc: false, masterVolume: 1, bgmVolume: 0.24,
+      fontsDir: project, subtitleFontFamily: 'sans-serif', watermarkFontFamily: 'sans-serif' },
+    project, episode: '01', timelinePath: paths.timeline, subtitleSrt: paths.subtitle, lastShot: 3, mixProfile,
+    output: paths.output, force: false, resume: true,
+  })
+  const clock = (await readSourceRecord(sourceRecordPathFor(result.output)))?.delivery_inputs?.picture_clock
+  expect(clock).toMatchObject({ status: 'verified_cfr', evidence: 'verified_segment_frames_and_output_pts',
+    fps: 60, body_end_frame: 188, body_end_us: 3_133_333, total_frames: 188 })
+  if (clock === undefined) throw new Error('The native render did not record its picture clock')
+  expect(clock.clips.map(clip => clip.end_frame)).toEqual([63, 125, 188])
+  await requireRenderedPicturePts(toolkit, result.output, clock)
+
+  const pixels = join(project, 'cuts.rgb')
+  const selection = [62, 63, 124, 125, 187].map(index => `eq(n,${String(index)})`).join('+')
+  await runFfmpeg(toolkit, ['-n', '-v', 'error', '-i', result.output, '-an',
+    '-vf', `select='${selection}',scale=1:1`, '-fps_mode', 'passthrough', '-pix_fmt', 'rgb24', '-f', 'rawvideo', pixels])
+  const actual = await readFile(pixels)
+  const dominant = [0, 3, 6, 9, 12].map((start) => {
+    const pixel = [...actual.subarray(start, start + 3)]
+    return pixel.indexOf(Math.max(...pixel))
+  })
+  expect(dominant).toEqual([0, 1, 1, 2, 2])
+}, testBudgetMs)
 
 interface InterruptionFacts {
   timedOut: boolean

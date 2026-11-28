@@ -51,10 +51,58 @@ import pyJianYingDraft as draft
 
 logger = logging.getLogger(__name__)
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+RENDERED_MIX_TRACK = '成片混音'
+RENDERED_MIX_SAMPLE_ROUNDING_US = math.ceil(500_000 / 48_000)
 
 
 class DraftInputError(ValueError):
     """Invalid or incomplete material input for draft generation."""
+
+
+def verify_rendered_mix_track(content: dict, plan: dict) -> None:
+    """Require one unmodified playback mix, with every other media track silent."""
+    tracks = content['tracks']
+    groups = content['materials']
+    mixes = [track for track in tracks if track.get('type') == 'audio' and track.get('name') == RENDERED_MIX_TRACK]
+    if len(mixes) != 1 or len(mixes[0].get('segments', [])) != 1:
+        raise DraftInputError('草稿须保存单一独立的成片混音片段。')
+    track = mixes[0]
+    segment, = track['segments']
+    audio = [item for item in groups.get('audios', []) if item['id'] == segment['material_id']]
+    refs = segment.get('extra_material_refs', [])
+    speeds = [item for item in groups.get('speeds', []) if item['id'] in refs]
+    window = {'start': 0, 'duration': plan['duration_us']}
+    if (track.get('attribute') != 0 or track.get('flag') != 0 or segment.get('track_attribute') != 0
+            or len(audio) != 1 or not isinstance(audio[0].get('path'), str)
+            or Path(audio[0]['path']) != Path(plan['path']) or audio[0].get('duration') != plan['duration_us']
+            or segment.get('source_timerange') != window or segment.get('target_timerange') != window
+            or segment.get('volume') != 1 or segment.get('speed') != 1 or segment.get('visible') is not True
+            or segment.get('reverse') is not False or segment.get('is_tone_modify') is not False
+            or segment.get('common_keyframes') != [] or segment.get('keyframe_refs') != []
+            or len(refs) != 1 or len(speeds) != 1
+            or any(speeds[0].get(key) != value for key, value in
+                   {'type': 'speed', 'speed': 1, 'mode': 0, 'curve_speed': None}.items())):
+        raise DraftInputError('成片混音的素材、时间窗、音量或播放参数与 Host 回执不一致。')
+    if any(type(clip.get('volume')) not in (int, float) or clip['volume'] != 0
+           for other in tracks if other is not track and other.get('type') in ('audio', 'video')
+           for clip in other.get('segments', [])):
+        raise DraftInputError('草稿中的原声、配乐、视频及片尾须静音，避免与成片混音叠播。')
+
+
+def append_rendered_mix(script, plan: dict, picture_end_us: int, fps: int) -> None:
+    from pyJianYingDraft.time_util import Timerange
+    from pyJianYingDraft.track import TrackSpec
+
+    duration_us = plan['duration_us']
+    if not -RENDERED_MIX_SAMPLE_ROUNDING_US <= picture_end_us - duration_us <= math.ceil(1_000_000 / fps):
+        raise DraftInputError('成片混音时长与草稿画面终点不匹配，拒绝交付。')
+    material = draft.AudioMaterial(plan['path'])
+    # The WAV check measures samples precisely. MediaInfo reports a rounded duration.
+    material.duration = duration_us
+    track = script.append_track(TrackSpec(draft.TrackType.audio, RENDERED_MIX_TRACK))
+    segment = draft.AudioSegment(material, Timerange(0, duration_us), source_timerange=Timerange(0, duration_us),
+                                 speed=1, volume=1)
+    script.add_segment(segment, track)
 
 
 class _LocalFontTextSegment(draft.TextSegment):
@@ -332,13 +380,23 @@ def selected_project_frames(source: Path, selected_us: int, fps: int) -> dict:
         return {'status': 'unsupported', 'reason': f'实际 PTS 不可确认（{type(error).__name__}）'}
 
 
-def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_extensions) -> tuple[dict, dict]:
+def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_extensions,
+                                rendered_clock: dict | None = None) -> tuple[dict, dict]:
     """Enable one episode-wide frame plan only when every source has verified project-frame coverage."""
     clock = _draft_inputs.project_frame_clock(plan['body_clips'], plan['policy']['fps'],
                                               plan['body_end_us'], plan['policy']['ending_duration_us'])
     materials = {}
     if clock['status'] == 'unsupported':
         return materials, clock
+    if rendered_clock is not None:
+        fields = ('start_frame', 'end_frame', 'start_us', 'duration_us')
+        expected_clips = [{'shot': shot, **{key: row[key] for key in fields}}
+                          for shot, row in sorted(clock['clips'].items(), key=lambda item: item[1]['start_frame'])]
+        expected = {'status': 'verified_cfr', 'evidence': 'verified_segment_frames_and_output_pts',
+                    **{key: clock[key] for key in ('fps', 'body_end_frame', 'body_end_us', 'total_frames')},
+                    'clips': expected_clips}
+        if rendered_clock != expected:
+            raise DraftInputError('同版成片画面时钟与当前草稿时间线、镜头顺序或片尾不符。')
     status = 'verified_same_fps_cfr'
     source_rates = set()
     for source in media_files:
@@ -364,7 +422,7 @@ def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_exten
             return materials, {'status': 'unsupported', 'reason': f"镜头 {shot}：{probe['reason']}"}
         source_rates.add(probe['fps'])
         available = len(probe['times'])
-        if probe['status'] == 'verified_cross_fps_cfr':
+        if rendered_clock is not None or probe['status'] == 'verified_cross_fps_cfr':
             # A verified source interval must cover the authored cut and the last target-frame instant.
             # Larger differences still take the existing review path, without adding a frozen tail.
             last_target_time = Fraction(wanted - 1, clock['fps'])
@@ -372,7 +430,7 @@ def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_exten
                     or last_target_time >= Fraction(selected_us, 1_000_000)
                     or abs(row['duration_us'] - selected_us) > math.ceil(1_000_000 / clock['fps'])):
                 return materials, {'status': 'unsupported', 'reason': f'镜头 {shot} 的实测源窗不能覆盖项目 fps 切点'}
-            source_window_us = min(selected_us, row['duration_us'])
+            source_window_us = selected_us if rendered_clock is not None else min(selected_us, row['duration_us'])
             # The ending freeze samples the last displayed target frame, before the next source PTS.
             next_frame = bisect_right(probe['times'], last_target_time)
             ending_source_us = source_window_us if next_frame == available else min(
@@ -381,7 +439,7 @@ def prepare_project_frame_clock(plan: dict, media_files: list[Path], video_exten
                        ending_source_us=ending_source_us,
                        source_frame_count=available, video_frames=wanted, video_duration_us=row['duration_us'],
                        hold_frames=0, retimed=False)
-            status = 'verified_mixed_fps_cfr'
+            status = 'verified_rendered_cfr' if rendered_clock is not None else 'verified_mixed_fps_cfr'
             continue
         used = min(wanted, available)
         row['original_source_window_us'] = selected_us
@@ -444,14 +502,14 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
     image = draft_path / "Resources" / "last_video_tail_frame.png"
     frame_md5 = extract_draft_tail(source, selected_duration_us, image)
     segment = draft.VideoSegment(draft.VideoMaterial(str(image)),
-                                 Timerange(plan["body_end_us"], ENDING_DURATION_US))
+                                 Timerange(plan["body_end_us"], ENDING_DURATION_US), volume=0)
     script.add_segment(segment, video_track)
     ending_assets = materials_root / "06_ending"
     effect_evidence = None
     for filename, kind, track_name in (("ending_audio.mp3", "audio", "片尾音"),
                                       ("ending_effect.mp4", "video", "片尾特效")):
         path = ending_assets / filename
-        if kind == "audio" and plan["included"]:
+        if kind == "audio" and plan["included"] and not plan.get('use_rendered_mix'):
             continue
         if not path.is_file():
             continue
@@ -474,8 +532,9 @@ def append_draft_ending(script, video_track, source: Path, selected_duration_us:
                 end_frame = min(plan['frame_clock']['total_frames'],
                                 _draft_inputs.project_frame_index(timerange.end, fps))
                 ending.duration = _draft_inputs.frame_time_us(end_frame, fps) - timerange.start
-        if kind == "video":
+        if kind == "video" or plan.get('use_rendered_mix'):
             ending.volume = 0
+        if kind == "video":
             ending.set_mix_mode(draft.MixModeType.滤色)
             effect_evidence = {"fit": plan.get("ending_effect_fit", "source_once"),
                                "source": str(local), "source_sha256": hashlib.sha256(local.read_bytes()).hexdigest(),
@@ -748,6 +807,7 @@ def find_material_folder_smart(root: Path, material_type: str, exclude_folders: 
 
     # 排除指定的文件夹
     subdirs = [p for p in root.iterdir() if p.is_dir() and p not in exclude_folders
+               and p.name != "07_rendered_mix"
                and not (material_type == "bgm" and p.name == "06_ending")]
     if not subdirs:
         return None
@@ -1539,6 +1599,10 @@ def main_with_args(args, results=None):
     else:
         template_dir = Path(args.template_dir)
     root = Path(args.materials)
+    rendered_mix = getattr(args, 'rendered_mix', None)
+    rendered_picture_clock = getattr(args, 'rendered_picture_clock', None)
+    if rendered_picture_clock is not None and rendered_mix is None:
+        raise DraftInputError('同版画面时钟须与同版成片混音一起核对。')
 
     logger.info(f"正在智能识别素材文件夹...")
     logger.info(f"  [根目录] 素材根目录: {root}")
@@ -1689,6 +1753,8 @@ def main_with_args(args, results=None):
             project = next((path for path in (root, *root.parents)
                             if (path / 'project_config.json').is_file()), None)
         ending_plan = draft_ending_plan(timeline_path, timeline_clips, project)
+        if rendered_mix is not None:
+            ending_plan['use_rendered_mix'] = True
         for warning in ending_plan['warnings']:
             warn(warning)
         ending_effect = root / "06_ending" / "ending_effect.mp4"
@@ -1792,7 +1858,7 @@ def main_with_args(args, results=None):
                 from pyJianYingDraft.time_util import Timerange, tim
                 audio_duration = voice_new.duration
                 audio_segment = draft.AudioSegment(voice_new, Timerange(0, audio_duration))
-                audio_segment.volume = ending_plan['audio']['master_gain']
+                audio_segment.volume = 0 if rendered_mix is not None else ending_plan['audio']['master_gain']
                 script.add_segment(audio_segment, audio_track)
                 main_audio_added = True
                 logger.info(f"[{draft_name}] Successfully added main audio to timeline")
@@ -1825,7 +1891,7 @@ def main_with_args(args, results=None):
                         bgm_segment = draft.AudioSegment(bgm_new, Timerange(0, bgm_duration))
                         logger.info(f"[{draft_name}] BGM shorter than main audio, using full BGM duration")
 
-                    bgm_segment.volume = ending_plan['audio']['bgm_gain']
+                    bgm_segment.volume = 0 if rendered_mix is not None else ending_plan['audio']['bgm_gain']
                     script.add_segment(bgm_segment, bgm_track)
                     logger.info(f"[{draft_name}] Successfully added BGM to timeline (volume: {bgm_segment.volume})")
                 except Exception as e:
@@ -1850,7 +1916,8 @@ def main_with_args(args, results=None):
                 last_source = None
                 last_duration = None
 
-                project_materials, project_clock = prepare_project_frame_clock(ending_plan, media_files, video_extensions)
+                project_materials, project_clock = prepare_project_frame_clock(
+                    ending_plan, media_files, video_extensions, rendered_picture_clock)
                 if (project_clock['status'] != 'unsupported' and audio_duration is not None
                         and audio_duration > project_clock['duration_us']):
                     project_clock = {'status': 'unsupported', 'reason': '原主音轨超出量化后的项目终点'}
@@ -1866,6 +1933,8 @@ def main_with_args(args, results=None):
                              f"{project_clock['body_end_us'] / 1e6:.6f} 秒（差 {project_clock['delta_us']} 微秒）；"
                              '源文件、音频及字幕时钟未改，打开、重开及导出仍须核对。')
                 else:
+                    if rendered_picture_clock is not None:
+                        refuse(f"无法采用同版成片画面时钟：{project_clock['reason']}。")
                     warn(f"未应用剪映项目帧级适配：{project_clock['reason']}；保留原微秒时间线与既有尾差处理，"
                          '编辑器重开后的帧数和标识覆盖尚未确认。')
 
@@ -2177,10 +2246,17 @@ def main_with_args(args, results=None):
                                   normalized_cues, ending_plan, expect_bgm=bgm_path is not None,
                                   body_tail_holds=body_tail_holds, body_sources=body_sources)
         except DraftInputError as error:
+            if rendered_picture_clock is not None:
+                refuse(f"无法验证同版成片的草稿轨道：{error}")
             warn(f"草稿轨道待核：{error}；由 Muse 查看实际轨道并决定后续处理。")
 
         try:
+            if rendered_mix is not None:
+                append_rendered_mix(script, rendered_mix, ending_plan['duration_us'], ending_plan['policy']['fps'])
+                expected_content = json.loads(script.dumps())
             saved_content = save_verified_draft(script, draft_path, expected_content)
+            if rendered_mix is not None:
+                verify_rendered_mix_track(saved_content, rendered_mix)
         except DraftInputError as error:
             refuse(str(error))
 
@@ -2282,6 +2358,8 @@ def generate_draft(
     require_bgm: bool = False,
     bgm_role: str = None,
     allow_empty_subtitle_seq: str = None,
+    rendered_mix: dict = None,
+    rendered_picture_clock: dict = None,
 ) -> dict:
     """
     生成剪映草稿（供 DraftGenerator 直接调用）。
@@ -2296,6 +2374,8 @@ def generate_draft(
         require_bgm: 兼容调用方的配乐要求，只追加提示，不因选曲未完成阻断草稿
         bgm_role: music_only 或 dialogue_music_mix 用途声明；不表示已经分析音轨确认无对白
         allow_empty_subtitle_seq: 内部已绑定全烧录字幕报告的唯一集号，仅允许其空白后加 SRT
+        rendered_mix: Host 为同版成片准备并校验的默认试听轨
+        rendered_picture_clock: Host 重新核对的同版成片绝对帧边界
 
     返回:
         success 仅在至少一个候选完成且全部成功时为 True；drafts_created 只统计保存、回读和请求字体检查均通过的草稿。
@@ -2316,6 +2396,8 @@ def generate_draft(
         require_bgm=require_bgm,
         bgm_role=bgm_role,
         allow_empty_subtitle_seq=allow_empty_subtitle_seq,
+        rendered_mix=rendered_mix,
+        rendered_picture_clock=rendered_picture_clock,
     )
     results = []
     error = ""

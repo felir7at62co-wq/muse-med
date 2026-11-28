@@ -2,8 +2,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat } from 'node:fs/promises'
 import { dirname, parse, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { requireNewAudioOutput, requireProjectAudioFile } from './audio.ts'
 import { fileSha256 } from './cache.ts'
+import { requireRenderedPicturePts, type DeliveryPictureClock } from './picture-clock.ts'
 import { readSourceRecord, sourceRecordPathFor, type DeliverySourceRecord } from './source-record.ts'
 import { verifyEpisode, type VerifyInput } from './verify.ts'
 import type { DramaRenderReport } from './types.ts'
@@ -89,6 +91,11 @@ async function entry(path: string): Promise<Awaited<ReturnType<typeof lstat>> | 
 type RenderResumeCandidate = { output: string; verified?: undefined }
   | { output: string; verified: DramaRenderReport; record: DeliverySourceRecord }
 
+type RenderResumeVerification = VerifyInput & {
+  readonly requireSubtitleVisualVerification?: boolean
+  readonly expectedPictureClock?: DeliveryPictureClock
+}
+
 /**
  * Find an exact independently verified output or an unused path without changing either.
  * @param input - Standard read-only verification inputs and preferred output.
@@ -96,7 +103,7 @@ type RenderResumeCandidate = { output: string; verified?: undefined }
  * @param emitsStem - Whether a matching music stem is required.
  * @returns A reusable artifact or the earliest unoccupied candidate path.
  */
-export async function findRenderResumeCandidate(input: VerifyInput & { requireSubtitleVisualVerification?: boolean },
+export async function findRenderResumeCandidate(input: RenderResumeVerification,
   request: RenderResumeRequest,
   emitsStem: boolean): Promise<RenderResumeCandidate> {
   const outputPath = parse(input.output)
@@ -125,6 +132,10 @@ export async function findRenderResumeCandidate(input: VerifyInput & { requireSu
       const visual: unknown = record.delivery_inputs.subtitle_visual_verification?.visual
       if (input.requireSubtitleVisualVerification && (record.delivery_inputs.subtitle_visual_verification?.delivery === undefined
         || visual === undefined)) continue
+      if (input.expectedPictureClock !== undefined) {
+        if (!isDeepStrictEqual(record.delivery_inputs.picture_clock, input.expectedPictureClock)) continue
+        await requireRenderedPicturePts(input.toolkit, output, input.expectedPictureClock)
+      }
       if (emitsStem) {
         await requireProjectAudioFile(input.project, stem)
         if (await fileSha256(stem) !== record.music_stem_sha256) continue

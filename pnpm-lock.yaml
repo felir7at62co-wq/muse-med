@@ -10035,6 +10035,9 @@ importers:
       '@deepseek-ai/dsh-atomic-write':
         specifier: workspace:*
         version: link:../../util/atomic-write
+      '@deepseek-ai/dsh-tool-shot-script':
+        specifier: workspace:*
+        version: link:../tool-shot-script
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -10054,9 +10057,15 @@ importers:
       '@deepseek-ai/dsh-bgm-license-info':
         specifier: workspace:*
         version: link:../bgm-license-info
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:*
+        version: link:../../fs/fs
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-sandbox-policy':
+        specifier: workspace:*
+        version: link:../../sandbox/sandbox-policy
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:*
         version: link:../../session/session-projection

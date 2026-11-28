@@ -107,6 +107,14 @@ describe('createSpawnChannel', () => {
 describe('createFileCaptureChannel', () => {
   const node = process.execPath
 
+  it('does not start a process or create capture files for an already cancelled operation', async () => {
+    const before = captureDirectories.length
+    const stopped = Error('media operation cancelled')
+    const channel = createFileCaptureChannel(AbortSignal.abort(stopped))
+    await expect(channel.run(node, ['-e', 'process.exit(0)'])).rejects.toBe(stopped)
+    expect(captureDirectories).toHaveLength(before)
+  })
+
   it('captures standard output and error through files', async () => {
     const outcome = await createFileCaptureChannel().run(node, [
       '-e', "process.stdout.write('out');process.stderr.write('err')",

@@ -16,6 +16,7 @@
 import { createHash } from 'node:crypto'
 import { copyFile, lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { verifySelectedSourceReviews } from './approved-sources.ts'
 import { fileSha256 } from './cache.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
@@ -25,6 +26,7 @@ import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues } from '
 import { deliveryPolicyFor, readProjectDelivery, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { appendClips, formatTimelineDocument, readTimeline } from './timeline.ts'
 import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET, type ShippedEndingAsset } from './delivery.ts'
+import type { SourceQaVerifier } from './source-qa.ts'
 import { subtitleClockPath, verifySubtitleClock } from './subtitle-clock.ts'
 import type { RenderSettings, DeliverySubtitleVisual, EndingEffectFit, MediaToolkit, ProbedMedia, ProbedStream, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
 
@@ -79,6 +81,8 @@ export interface PrepareInput {
   readonly shotsPath: string
   /** Absolute path of the subtitle to install. */
   readonly subtitleSrt: string
+  /** Current Session's verifier when preparing an approved local dialogue repair. */
+  readonly sourceQaVerifier?: SourceQaVerifier
 }
 
 /** One resolved shot: the source video, its sound, and its probed duration. */
@@ -283,6 +287,11 @@ async function buildMaster(
   await runFfmpeg(toolkit, args)
 }
 
+function missingDialoguePatchClock(episode: string): HarnessError {
+  return new HarnessError(`EP${episode} 局部修音需要按当前 MOV 实际原声重新对齐并生成字幕，再运行 prepare。`,
+    'SOURCE_DIALOGUE_PATCH_SUBTITLE_CLOCK_REQUIRED')
+}
+
 /**
  * Lay out one episode's render inputs.
  * @param input - The resolved call.
@@ -312,10 +321,18 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
     input.shotsPath,
   )
   const reviewed = await verifySelectedSourceReviews(paths, rows)
+  const requiresLocalDialoguePatch = reviewed.some(shot => shot.requiresLocalDialoguePatch === true)
+  const patchFiles = requiresLocalDialoguePatch
+    ? (await verifySelectedSourceReviews(paths, rows, false, true, input.sourceQaVerifier))
+      .flatMap(shot => shot.sourceQa?.files ?? [])
+    : []
   const byShot = new Map(reviewed.map(row => [row.shot, row]))
   const recheckReviews = async () => {
     if (JSON.stringify(await verifySelectedSourceReviews(paths, rows)) !== JSON.stringify(reviewed)) {
       throw new Error(`EP${input.episode} 准备期间已审核选源变化，请重新核对画面与原声。`)
+    }
+    for (const file of patchFiles) if (await fileSha256(file.path) !== file.sha256) {
+      throw new Error(`EP${input.episode} 准备期间修音来源或审看证据变化，请重新核验。`)
     }
   }
   await assertVideosAllowed(input.project, rows.flatMap(row => [
@@ -326,6 +343,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   const timeline = { ...appendClips(shots.map(shot => shot.durationUs)), delivery,
     ...(endingEffectFit === undefined ? {} : { endingEffectFit }) }
   const subtitleClock = await verifySubtitleClock(input.subtitleSrt, input.episode, () => shots)
+  if (requiresLocalDialoguePatch && subtitleClock === undefined) throw missingDialoguePatchClock(input.episode)
   const packagePath = resolve(input.project, 'episode_packages', input.episode, 'package.json')
   const packageHash = rows.some(row => row.package !== undefined) && await pathExists(packagePath)
     ? await fileSha256(packagePath) : undefined
@@ -458,10 +476,12 @@ export async function prepareStagedEpisodeAudio(
  * @param stagedAudio - Map an original audio reference to a verified private copy, when rendering a private stage.
  * @param signal - Optional owning operation cancellation.
  * @param manifestDocument - Optional parsed manifest from the same captured bytes as the caller.
+ * @param requireDialoguePatchClock - Require exact selected-audio alignment for a verified local repair.
  */
 export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePaths, timeline: Timeline,
-  stagedAudio?: (sourceAudio: string) => string, signal?: AbortSignal, manifestDocument?: object): Promise<void> {
-  const requireMaster = timeline.delivery?.subtitle?.require_speech_coverage === true
+  stagedAudio?: (sourceAudio: string) => string, signal?: AbortSignal, manifestDocument?: unknown,
+  requireDialoguePatchClock = false): Promise<void> {
+  const requireMaster = requireDialoguePatchClock || timeline.delivery?.subtitle?.require_speech_coverage === true
   const readSources = async () => {
     const source = manifestDocument ?? await readJsonDocument(paths.sources, '已准备分包清单')
     const rows = parseShotManifest(source, paths.sources)
@@ -484,7 +504,7 @@ export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePat
     return rows
   }
   const strictSources = requireMaster ? await readSources() : undefined
-  await verifySubtitleClock(srt, paths.episode, async () => {
+  const clock = await verifySubtitleClock(srt, paths.episode, async () => {
     const rows = strictSources ?? await readSources()
     const stale = () => new Error('生成字幕与当前集的准备清单或时间线不一致。请核对素材后重跑 drama_render subtitles 和 prepare。')
     if (rows.length !== timeline.clips.length) throw stale()
@@ -498,6 +518,7 @@ export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePat
       return { source, video, audio, durationUs: clip.durationUs }
     })
   }, signal)
+  if (requireDialoguePatchClock && clock === undefined) throw missingDialoguePatchClock(paths.episode)
 }
 
 /** Files that establish the prepared source audio and optional generated subtitle clock. */

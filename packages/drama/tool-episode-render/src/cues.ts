@@ -28,6 +28,7 @@ import { formatSrtDocument, subtitleBlockPath, subtitleTextWarnings } from './su
 import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
 import { appendClips } from './timeline.ts'
 import { writeSubtitleClock } from './subtitle-clock.ts'
+import { isLocalDialoguePatchOutput } from './source-qa.ts'
 import type { MediaToolkit, SubtitleCue, Timeline } from './types.ts'
 
 /** Everything one cue build needs. */
@@ -113,7 +114,7 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     const recognized = aligned.get(shot.source.shot)
     const recognizedCues = recognized?.cues ?? []
     const sourceSha256 = recognized?.sourceSha256
-    if (input.requireSourceHashes) {
+    if (input.requireSourceHashes || isLocalDialoguePatchOutput(input.project, shot.audio)) {
       alignedAudio.set(shot.source.shot, sourceSha256)
     } else if (sourceSha256 !== undefined) {
       if (sourceSha256 !== await fileSha256(shot.audio)) {
@@ -185,6 +186,10 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     }
     const placement = placeAlignedCues(shot.source.shot, lines, recognized.cues, startSeconds, durationSeconds)
     placements.push(placement)
+    if (recognized.scriptTextDifferenceCount !== undefined) {
+      warnings.push(`镜头 ${shot.source.shot} 有 ${recognized.scriptTextDifferenceCount} 处转写与剧本文字不同。`
+        + '字幕保留剧本原文，请按对齐记录定位并核听实际发音。')
+    }
     if (placement.defect !== '') {
       failures.push({
         id: 'subtitle_line_coverage',

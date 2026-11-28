@@ -22,6 +22,7 @@ import {
   decodeHandler,
   framemd5Line,
   probeHandler,
+  renderedPictureProbe,
   runContext,
   shippedEndingAsset,
   srtDocument,
@@ -127,6 +128,7 @@ async function preparedProject(): Promise<{
  */
 function callChannel(project: string): ReturnType<typeof stubChannel> {
   const handlers: StubHandler[] = [
+    renderedPictureProbe(),
     probeHandler({
       [join(project, 'media', 'p1-clean.mp4')]: { durationSeconds: 114.733332, video: {}, audio: {} },
       [join(project, 'video', '02', 'shot_001.mp4')]: { durationSeconds: 114.733332, video: {}, audio: {} },

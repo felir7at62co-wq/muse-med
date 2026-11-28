@@ -49,8 +49,13 @@ import { measureSubtitleLayout } from './subtitle-layout.ts'
 import { fitSubtitleCues } from './subtitle-fit.ts'
 import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitleDisplayWarnings } from './subtitles.ts'
 import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
-import type { SourceQaVerifier } from './source-qa.ts'
+import type { SourceQaEvidenceBinding, SourceQaVerifier } from './source-qa.ts'
 import { createContentReviewVerifier, type ContentReviewVerifier } from './content-review.ts'
+import { registerLocalDialoguePatchTool } from './local-dialogue-patch-tool.ts'
+import { registerContentListeningTool } from './content-listening-tool.ts'
+import { createOfflinePronunciationVerifier } from './offline-pronunciation-evidence.ts'
+import { createLocalDialogueSourceVerifier, type LocalDialogueSourceVerifier } from './local-dialogue-patch-origin.ts'
+import { installOfflineWordEvidence, type OfflineWordReceiptVerifier } from './offline-word-evidence.ts'
 
 export type { MediaCommandOutcome, ProcessChannel, RenderSettings } from './types.ts'
 export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets } from './prepare.ts'
@@ -91,6 +96,10 @@ const DEFAULT_WATERMARK_FONT_FAMILY = 'Microsoft YaHei'
  * ending and watermark treatment are selected by the explicit visual medium.
  */
 export interface Config {
+  /** Expose the audio review tool where deployment explicitly provisions it. */
+  enableContentListeningReview?: boolean
+  /** Expose local dialogue repair when the deployment provisions local pronunciation checks. */
+  enableLocalDialoguePatch?: boolean
   /** Optional deployment fallback for timelines without an ending-effect fit. */
   defaultEndingEffectFit?: EndingEffectFit
   /** Optional deployment fallback for projects without an explicit subtitle style. */
@@ -121,6 +130,8 @@ export interface Config {
 
 /** Validated deployment config, including gain ranges and ASS-safe font families. */
 export const Config: z<Config> = z.object({
+  enableContentListeningReview: z.boolean().default(false),
+  enableLocalDialoguePatch: z.boolean().default(false),
   defaultEndingEffectFit: z.union(['source_once', 'stretch_to_window']),
   normalizeSubtitleText: z.boolean().default(false),
   enforceSubtitleVisual: z.boolean().default(false),
@@ -496,7 +507,8 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
 
 /** The result of a `prepare` call that wrote nothing but its own layout. */
 async function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typeof prepareEpisode>>,
-  settings: RenderSettings, overlay?: Awaited<ReturnType<typeof resolveSubtitleOverlay>>): Promise<DramaRenderReport> {
+  settings: RenderSettings, overlay?: Awaited<ReturnType<typeof resolveSubtitleOverlay>>,
+  verifyOfflineWords?: OfflineWordReceiptVerifier): Promise<DramaRenderReport> {
   const sources = new Map(prepared.shots.map(shot => [shot.source.shot, shot.video]))
   const policy = deliveryPolicyFor(prepared.timeline.delivery)
   let subtitle = overlay?.report.resolved_srt ?? episodePaths(call.project, call.episode).subtitle
@@ -510,7 +522,8 @@ async function prepareReport(call: PrepareCall, prepared: Awaited<ReturnType<typ
       try {
         const coverage = await reviewSpeechCoverage({ project: call.project, timeline: prepared.timeline,
           sources: new Map(prepared.shots.map(shot => [shot.source.shot, shot.audio])),
-          subtitleSrt: episodePaths(call.project, call.episode).subtitle, transcriptsPath: call.transcriptsPath })
+          subtitleSrt: episodePaths(call.project, call.episode).subtitle, transcriptsPath: call.transcriptsPath,
+          ...(verifyOfflineWords === undefined ? {} : { verifyOfflineWords }) })
         const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
         const widths = new Map<string, boolean | null>()
         const fit = await fitSubtitleCues(cues, coverage, async (text) => {
@@ -630,8 +643,10 @@ function subtitlesReport(call: SubtitlesCall, built: BuiltCues): DramaRenderRepo
   return buildReport(reportInput)
 }
 
-async function prepareWithSubtitleRepair(call: PrepareCall, toolkit: MediaToolkit, settings: RenderSettings) {
+async function prepareWithSubtitleRepair(call: PrepareCall, toolkit: MediaToolkit, settings: RenderSettings,
+  sourceQaVerifier?: SourceQaVerifier) {
   const input = { toolkit, project: call.project, episode: call.episode, shotsPath: call.shotsPath, subtitleSrt: call.subtitleSrt,
+    ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
     ...(settings.defaultEndingEffectFit === undefined ? {} : { defaultEndingEffectFit: settings.defaultEndingEffectFit }),
     ...(settings.defaultSubtitleVisual === undefined ? {} : { defaultSubtitleVisual: settings.defaultSubtitleVisual }),
     ...(settings.enforceSubtitleVisual ? { enforceSubtitleVisual: true } : {}) }
@@ -673,6 +688,7 @@ async function prepareWithSubtitleRepair(call: PrepareCall, toolkit: MediaToolki
  * @param sourceQaStage - Optional Host-captured source evidence in a private stage.
  * @param sourceQaExpectedSha - Host-verified source review digest for that stage.
  * @param contentReviewVerifier - Optional Host-only observation and listening-answer validation for delivery.
+ * @param verifyOfflineWords - Validate local word timing against the originating Session's native result.
  * @returns The canonical result; `ok` is false when a delivery check failed.
  * @throws {Error} When an argument is missing, an input is unusable, or a media command fails.
  */
@@ -684,6 +700,7 @@ export async function runDramaRender(
   sourceQaStage?: import('./source-qa.ts').SourceQaStagedAccess,
   sourceQaExpectedSha?: string,
   contentReviewVerifier?: ContentReviewVerifier,
+  verifyOfflineWords?: OfflineWordReceiptVerifier,
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
@@ -711,6 +728,7 @@ export async function runDramaRender(
     const sources = new Map(rows.map(row => [row.shot, resolve(call.project, row.audio)]))
     const coverage = await reviewSpeechCoverage({ project: call.project, timeline, sources,
       subtitleSrt: call.subtitleSrt, transcriptsPath: call.transcriptsPath,
+      ...(verifyOfflineWords === undefined ? {} : { verifyOfflineWords }),
       ...(call.decisionsPath === undefined ? {} : { decisionsPath: call.decisionsPath }) })
     return { ...buildReport({ method: 'speech_coverage', project: call.project, episode: call.episode, timeline,
       sources: new Map(rows.map(row => [row.shot, resolve(call.project, row.video)])),
@@ -737,13 +755,13 @@ export async function runDramaRender(
         ...(preview.mix.mode === 'ducking' ? ['压低由原声能量触发，不是语义 VAD 或纯对白分离。'] : [])] })
   }
   if (call.method === 'prepare') {
-    const prepared = await prepareWithSubtitleRepair(call, toolkit, settings)
+    const prepared = await prepareWithSubtitleRepair(call, toolkit, settings, sourceQaVerifier)
     const overlay = call.subtitlePlan === undefined ? undefined : await resolveSubtitleOverlay({
       project: call.project, episode: call.episode, timeline: prepared.timeline,
       subtitleSrt: episodePaths(call.project, call.episode).subtitle, planPath: call.subtitlePlan,
       ...(settings.normalizeSubtitleText ? { normalizeDisplay: true } : {}),
     })
-    return await prepareReport(call, prepared, settings, overlay)
+    return await prepareReport(call, prepared, settings, overlay, verifyOfflineWords)
   }
   if (call.method === 'subtitles') {
     return subtitlesReport(call, await buildEpisodeCues({
@@ -809,6 +827,7 @@ export async function runDramaRender(
     ? await stageEpisodeDelivery({ ...verification,
       ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
       ...(contentReviewVerifier === undefined ? {} : { contentReviewVerifier }),
+      ...(verifyOfflineWords === undefined ? {} : { verifyOfflineWords }),
       ...(call.transcriptsPath === undefined ? {} : { transcriptsPath: call.transcriptsPath }),
       ...(call.decisionsPath === undefined ? {} : { decisionsPath: call.decisionsPath }),
     }, call.draft)
@@ -1119,15 +1138,23 @@ export function apply(ctx: Context, config: Config = {}): void {
   const settings = resolveSettings(config)
   let sourceQaScope: {
     readonly verify: VideoSourceQaVerifier
+    readonly verifyDialogue?: LocalDialogueSourceVerifier
+    readonly offlineWords: Awaited<ReturnType<typeof installOfflineWordEvidence>>
     readonly signal: AbortSignal
     readonly contentReview: Awaited<ReturnType<typeof createContentReviewVerifier>> } | undefined
   ctx.inject(['tools', 'fs', 'sandboxPolicy', 'sessionProjections'], async (scope) => {
     const verify = await createVideoSourceQaVerifier(scope)
     const contentReview = await createContentReviewVerifier(scope)
+    const offlineWords = await installOfflineWordEvidence(scope)
+    const pronunciation = config.enableLocalDialoguePatch === true ? await createOfflinePronunciationVerifier(scope) : undefined
+    const verifyDialogue = pronunciation === undefined ? undefined : await createLocalDialogueSourceVerifier(scope, pronunciation)
     scope.fiber.assertActive()
+    if (pronunciation !== undefined) registerLocalDialoguePatchTool(scope, settings, pronunciation)
+    if (config.enableContentListeningReview === true) registerContentListeningTool(scope, settings)
     scope.effect(() => {
       const owner = new AbortController()
-      const binding = { verify, contentReview, signal: owner.signal }
+      const binding = { verify, contentReview, offlineWords, signal: owner.signal,
+        ...(verifyDialogue === undefined ? {} : { verifyDialogue }) }
       sourceQaScope = binding
       return () => {
         owner.abort(Error('SOURCE_QA_HOST_UNAVAILABLE: 源片复验服务已卸载。'))
@@ -1139,7 +1166,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   registerDramaVideo(ctx)
   ctx.tools.register(defineTool({
     name: 'drama_render',
-    description: DESCRIPTION,
+    description: DESCRIPTION + (config.enableLocalDialoguePatch === true
+      ? ' 局部修音正式选源使用同一制作会话。先用 jubian_video sources 查同集同卡的两条原始生成，再用 jubian_media download resume=true 保存两份原片和回执。'
+        + '保留 drama_patch_dialogue 的原路径 MOV，把画面与原声均指向该 MOV。重新做 OCR、完整审看和同源逐词字幕，不沿用任何其他版本的字幕时点。'
+        + 'reviews/epNN-pNN.json 的 local_dialogue_patch 填 target 和 donor，每项含 task_id、subtask_id、first_result_id、source_path、source_sha256、download_receipt_path，'
+        + '另填 recheck_evidence_id 为对这个 MOV 的同句读音复测编号。'
+        + '如有 audio_transcribe offline，用它核对同版声音并将其 receipt 填入 speech_transcripts。'
+        + '再用 align_subtitles.py --speech-transcripts 绑定逐词时间，未识别可靠字词时保留待核。按当前分包继续完整审看、正式 render 和 stage_delivery。'
+      : ''),
     parameters: {
       method: {
         type: 'string', required: true,
@@ -1249,6 +1283,10 @@ export function apply(ctx: Context, config: Config = {}): void {
         const scope = sourceQaScope
         if (scope === undefined) throw Error('SOURCE_QA_HOST_UNAVAILABLE: 当前会话缺少源片复验服务，请恢复文件、沙箱策略和会话审看服务后重试。')
         const signal = AbortSignal.any([exec.signal, scope.signal])
+        if (binding.localDialoguePatch !== undefined) {
+          if (scope.verifyDialogue === undefined) throw Error('SOURCE_DIALOGUE_PATCH: 当前 Muse 未启用同一会话的修音源片复验。')
+          await scope.verifyDialogue(session, binding.localDialoguePatch, signal)
+        }
         await scope.verify(session, binding, signal)
         signal.throwIfAborted()
       }, undefined, undefined, undefined, async (binding) => {
@@ -1257,10 +1295,14 @@ export function apply(ctx: Context, config: Config = {}): void {
         const signal = AbortSignal.any([exec.signal, scope.signal])
         await scope.contentReview(session, signal)(binding)
         signal.throwIfAborted()
+      }, (receipt) => {
+        const scope = sourceQaScope
+        if (scope === undefined) throw Error('当前会话无法复验本地转写记录。')
+        scope.offlineWords(session, AbortSignal.any([exec.signal, scope.signal]))(receipt)
       })
       return coverage === undefined ? report : { ...report, speech_coverage: toolSpeechCoverage(coverage) }
     },
   }))
 }
 
-export type { SourceQaEvidenceBinding } from './source-qa.ts'
+export type { SourceQaEvidenceBinding }

@@ -24,6 +24,10 @@ Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频�
 
 桌面在标准、PTC、创造、编辑与短剧模式中装载此工具，极简模式除外。开始前须登录 Muse 账号，云端网关还须单独启用转写。模型不能提供服务商凭据。
 
+部署可通过 `pronunciation.pythonPath`、`libraryDir`、`librarySha256`、`modelDir` 和可选的 `minimumMargin` 启用本地读音检查。该方法在项目内一份素材的两个或三个重叠时段中，对照同一个普通话短句的两种带调读音。工具先核验本地模型文件，再返回来源摘要、实测时段和值得核听的结果编号。整个过程无需登录 Muse 账号或上传音轨。`uncertain` 保留待核项，所有结果的 `listening_verified` 均为 `false`。可先用结果定位和复查短句读音，再单独核听说话人、声线衔接和整段混音。
+
+部署可通过 `offline.pythonPath`、`libraryDir`、`librarySha256` 和 `modelDir` 单独启用本地逐词转写。用 `{"method":"offline","project":"<项目根目录>","input":"<本地素材>"}` 处理会话工作区内单个项目文件。工具核验本地普通话模型后，处理最多 120 秒的解码音频，无需登录 Muse 账号或上传音轨。逐词时间和收据保存在 `transcript/offline/`，收据记录源文件与转写摘要、解码音频的时间基准和模型版本。`no_reliable_words` 表示转写结果为空。每份收据的 `listening_verified` 均为 `false`，时间信息可供后续核听参考。
+
 ```json
 {"method":"start","project":"<project root>","input":"<authorized local audio or video>","language":"zh","purpose":"screenplay"}
 {"method":"start","project":"<project root>","inputs":["<episode 1 media>","<episode 2 media>"],"language":"zh","purpose":"screenplay"}
@@ -82,6 +86,10 @@ Host 账号服务读取绑定网关源地址的已保存会话，把音频发送
 [工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-audio-transcribe)记录 start/status schema。结果包含状态、收据路径、任务 ID 和完成产物路径。完成回读另附说话人标签覆盖摘要，简短提示读取 `output_json` 并按时间码结合画面核对角色归属。通用持久化工具卡展示调用与结果。`queue_full` 结果在原样 JSON 前增加“Muse 转写队列已满，请稍后重试”，明确指向 Muse 自身队列，而非提供方容量；本地超时另附提示，指向原收据。批量结果的一行摘要按输入顺序标明各项状态，并列出本次未开始的数量。批量 start 返回按输入顺序排列的 `items`，每条是带 `input` 的单文件结果，或使批次停止的 `{input, error}`，另附 `not_started` 和一个共用的 `polling_note`；任一条目为 `queue_full` 时，队列提示只出现一次。`screenplay` 用途结果为 `silent` 时，JSON 前附一条提示：服务判为无语音不能证明本集没有对白，应以 `video_ocr` 核对硬字幕、以 `video_inspect` 核对口型和画面；确有对白时用单个 `input` 并带 `purpose: "screenplay"` 重转一次，新建计费版本，因为批次只返回原有 silent 收据；重转仍为 silent 时不再重转，以字幕和画面为准；批量结果中只出现一次。`inspect` 查询从未受理的任务时返回 `job-not-found`、`status` 调用参数和不要删除收据的提示。媒体字节、账号 cookie、对象 URL 和提供方凭据不进入参数或结果；工具调用及返回路径仍属于 Session 数据。
 
 #### Token 影响
+
+启用 `pronunciation` 后，工具声明增加一个方法以及短句和时段字段。每个本地结果最多携带三个实测时段及来历信息，音频字节留在本机。
+
+启用 `offline` 后，工具声明增加该方法和收据字段。结果带回收据、转写路径和来历信息，逐词时间保存在本地转写文件中。
 
 可选用途枚举、`inputs` 参数和描述中关于批次的一句话增加有限的请求开销；每次结果增加简短状态、收据已有的用途和本地路径；完成回读另附固定大小的说话人计数与提示，队列拒绝或本地超时另增加一句解释。批次为每个已处理文件返回一个状态标签和结果，`not_started` 只列出未处理路径，轮询说明只附一条，总量受 `maxBatchInputs` 限制。展示批次分支的结果类型（如 PTC 提示）会在 `items` 内再列出一次结果字段。
 

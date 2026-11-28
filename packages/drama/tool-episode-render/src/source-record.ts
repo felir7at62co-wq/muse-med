@@ -17,6 +17,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { deliveryPictureClockSchema, type DeliveryPictureClock } from './picture-clock.ts'
 import type { DeliverySubtitleVisual, RenderCheck } from './types.ts'
 
 /** Format version; only 1 is read. */
@@ -48,6 +49,8 @@ export interface SourceRecordCheck {
 export interface DeliveryRenderInputs {
   readonly timeline_sha256: string
   readonly subtitle_sha256: string
+  /** Measured for complete eligible CFR renders. Absence makes no claim about exact frame cuts. */
+  readonly picture_clock?: DeliveryPictureClock
   /** Actual OCR, observed picture versions and source-content decisions checked for this render. */
   readonly source_qa_sha256?: string
   /** Actual final-display text, glyph-width and selected-face checks run before encoding. */
@@ -178,6 +181,10 @@ export async function readSourceRecord(path: string): Promise<DeliverySourceReco
   const document = parsed as Partial<DeliverySourceRecord>
   if (document.version !== SOURCE_RECORD_VERSION || typeof document.output?.sha256 !== 'string') {
     throw new Error(`${path} 不是 version ${String(SOURCE_RECORD_VERSION)} 的来源清单。`)
+  }
+  const clock = document.delivery_inputs?.picture_clock
+  if (clock !== undefined && !deliveryPictureClockSchema.safeParse(clock).success) {
+    throw new Error(`${path} 的成片画面时钟回执无效，请重新渲染。`)
   }
   return document as DeliverySourceRecord
 }

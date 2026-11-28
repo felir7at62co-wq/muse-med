@@ -3,3 +3,8 @@ export { findShortDramaProject, isShortDramaProject } from './delivery-policy.ts
 export { createContentReviewVerifier, verifyEpisodeContentReview, type ContentReviewVerifier } from './content-review.ts'
 export { verifyDraftSubtitleFont } from './draft-font.ts'
 export { parseSrtDocument } from './subtitles.ts'
+export { fileSha256 } from './cache.ts'
+export { readSourceRecord, sourceRecordPathFor, type DeliverySourceRecord } from './source-record.ts'
+export { deliveryPictureClockSchema, deliveryFrameAtUs, deliveryFrameTimeUs, requireRenderedPicturePts,
+  type DeliveryPictureClock } from './picture-clock.ts'
+export { prepareRenderedDraftMix, verifyRenderedDraftMix, renderedDraftMixSchema, type RenderedDraftMix } from './draft-playback-mix.ts'

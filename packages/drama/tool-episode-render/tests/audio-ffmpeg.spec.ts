@@ -70,6 +70,25 @@ function waveData(bytes: Buffer): Buffer {
   throw new Error('WAV has no PCM data chunk')
 }
 
+it.skipIf(!hasFfmpeg)('trims the whole local mix to the picture sample count without shifting the original signal', async () => {
+  const f = await fixture()
+  const output = join(f.project, 'timed-impulse.wav')
+  const clock = { bodyEndSample: 48_017, endSample: 48_017 }
+  const impulse = 'aevalsrc=if(eq(n\\,8192)\\,0.5\\,0):s=48000:d=1.1'
+  const graph = audioMixFilter({ bodyEndSeconds: 1, totalSeconds: 1, endingSeconds: 0, masterVolume: 1,
+    bgmVolume: 0, deliverySampleClock: clock })
+  await f.command(['-n', '-v', 'error', '-f', 'lavfi', '-i', 'color=s=8x8:d=1',
+    '-f', 'lavfi', '-i', impulse, '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono:d=1.1',
+    '-filter_complex', graph, '-map', '[a]', '-c:a', 'pcm_f32le', output])
+  const pcm = waveData(await readFile(output))
+  expect(pcm.length / 4).toBe(clock.endSample)
+  let peak = 0
+  for (let frame = 1; frame < clock.endSample; frame++) {
+    if (Math.abs(pcm.readFloatLE(frame * 4)) > Math.abs(pcm.readFloatLE(peak * 4))) peak = frame
+  }
+  expect(peak).toBe(8192)
+})
+
 it.skipIf(!hasFfmpeg)('measures energy reduction, pause recovery, LUFS warmup, pure stems and shared sidechain history', async () => {
   const f = await fixture()
   const plan = join(f.project, 'plan.json')

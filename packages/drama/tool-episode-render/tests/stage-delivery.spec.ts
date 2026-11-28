@@ -2,9 +2,11 @@ import { mkdir, readdir, readFile, realpath, rename, symlink, truncate, unlink }
 import { dirname, join, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
+import type { RenderedDraftMix } from '../src/draft-playback-mix.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { resolveCall, resolveSettings } from '../src/index.ts'
 import { episodePaths } from '../src/paths.ts'
+import { planDeliveryPictureClock } from '../src/picture-clock.ts'
 import { buildSourceRecord, readSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from '../src/source-record.ts'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
 import { summarizeSourceQa } from '../src/source-qa.ts'
@@ -231,6 +233,137 @@ async function expectNoDelivery(f: Fixture) {
   expect(await readdir(f.project)).not.toContain('成片与草稿回执.json')
   expect(await fileSha256(f.paths.output)).toBe(f.sha256)
 }
+
+describe('same-version draft playback claim', () => {
+  it.each(['matching', 'stale MP4', 'second audible track', 'shifted track', 'short timeline', 'different samples', 'changed WAV'] as const)(
+    'checks the saved tracks and fresh audio readback when the claim is present: %s', async (kind) => {
+      const f = await fixture()
+      const path = join(f.draft, 'rendered_mix.wav')
+      const nativePath = join(f.draft, 'draft_content.json')
+      await writePlaceholder(path, 'retained playback WAV')
+      const mix: RenderedDraftMix = { schema_version: 1, path, sha256: await fileSha256(path),
+        source_mp4_sha256: kind === 'stale MP4' ? '0'.repeat(64) : f.sha256,
+        pcm_sha256: 'a'.repeat(64), sample_count: 336_000, duration_us: 7_000_000, sample_rate: 48_000, channels: 2 }
+      const sourceRange = { start: 0, duration: mix.duration_us }
+      const targetRange = { ...sourceRange, start: kind === 'shifted track' ? 1 : 0 }
+      const playback = { material_id: 'playback', volume: 1, speed: 1, visible: true, reverse: false,
+        track_attribute: 0, is_tone_modify: false, common_keyframes: [], keyframe_refs: [],
+        extra_material_refs: ['playback-speed'], source_timerange: sourceRange, target_timerange: targetRange }
+      await writePlaceholder(nativePath, JSON.stringify({
+        duration: mix.duration_us - (kind === 'short timeline' ? 1 : 0), config: { video_mute: false },
+        tracks: [
+          { type: 'audio', name: '成片混音', attribute: 0, flag: 0, segments: [playback] },
+          { type: 'audio', name: '主音频轨道', segments: [{ material_id: 'voice', volume: kind === 'second audible track' ? 1 : 0 }] },
+        ],
+        materials: {
+          audios: [{ id: 'playback', path, duration: mix.duration_us, type: 'extract_music', effect_id: '', formula_id: '' },
+            { id: 'voice', path: f.paths.masterAudio }],
+          speeds: [{ id: 'playback-speed', type: 'speed', mode: 0, speed: 1, curve_speed: null }],
+        },
+      }))
+      f.source.files.find(file => file.path === 'draft_content.json')!.sha256 = await fileSha256(nativePath)
+      f.source.materials.push({ path, sha256: mix.sha256 })
+      await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, rendered_mix: mix }))
+      const run = f.input.toolkit.channel.run.bind(f.input.toolkit.channel)
+      vi.spyOn(f.input.toolkit.channel, 'run').mockImplementation(async (cmd, args) => {
+        if (args.includes('-select_streams') && args.includes('a')) {
+          return { code: 0, stderr: '', stdout: JSON.stringify({ streams: [{
+            codec_name: args.includes(path) ? 'pcm_s16le' : 'aac', sample_rate: '48000', channels: 2,
+            time_base: '1/48000', start_pts: 0, duration_ts: mix.sample_count,
+          }] }) }
+        }
+        if (args.includes('-hash')) {
+          const pcm = args.includes(path) && kind === 'different samples' ? 'b'.repeat(64) : mix.pcm_sha256
+          return { code: 0, stderr: '', stdout: `SHA256=${pcm}\n` }
+        }
+        return await run(cmd, args)
+      })
+      if (kind === 'changed WAV') {
+        storage.afterCopy = async (source) => {
+          if (source === f.paths.output) await writePlaceholder(path, 'replaced WAV')
+        }
+      }
+      if (kind === 'matching') {
+        expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+        expect(JSON.parse(await readFile(f.receipt, 'utf8'))).toMatchObject({ rendered_mix: mix })
+        expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.reused).toBe(true)
+        return
+      }
+      await expect(stageEpisodeDelivery(f.input, f.draft))
+        .rejects.toThrow(/需要绑定本集实际成片|必须完整播放|实际解码的 PCM|草稿播放混音.*已变化/u)
+      await expectNoDelivery(f)
+    })
+})
+
+describe('same-version draft picture clock', () => {
+  it.each(['matching', 'render claim only', 'draft claim only', 'different claims', 'real PTS drift',
+    'native cut shifted', 'same-name copy', 'tail shifted', 'material changed'] as const)(
+    'checks both claims, the decoded output clock and saved native picture ranges: %s', async (kind) => {
+      const clips = [{ shot: 1, startUs: 0, durationUs: 2_041_667 }, { shot: 2, startUs: 2_041_667, durationUs: 2_958_333 }]
+      const f = await fixture(clips)
+      const clock = planDeliveryPictureClock(clips, 60, 2)!
+      if (kind !== 'draft claim only') await changeRender(f, (row) => {
+        ;(row.delivery_inputs as Record<string, unknown>).picture_clock = clock
+      })
+      const batch = join(f.project, '制作资料', '剪映素材', 'batch-one')
+      const retainedTimeline = join(batch, '05_timeline', '26.timeline.json')
+      const scene = (shot: number) => `shot_${String(shot).padStart(3, '0')}.mp4`
+      const retain = async (source: string, target: string) => {
+        await writePlaceholder(target, await readFile(source, 'utf8'))
+        f.source.materials.push({ path: target, sha256: await fileSha256(target) })
+        return target
+      }
+      await retain(f.paths.timeline, retainedTimeline)
+      const videos = await Promise.all(clips.map(async ({ shot }) => ({ id: `body-${shot}`, type: 'video',
+        path: await retain(join(f.paths.videoDir, scene(shot)), join(batch, '02_media', '26', scene(shot))) })))
+      if (kind === 'same-name copy') {
+        videos[0]!.path = await retain(videos[0]!.path,
+          join(dirname(batch), 'batch-other', '02_media', '26', scene(1)))
+      }
+      const still = join(f.draft, 'Resources', 'last_video_tail_frame.png')
+      await writePlaceholder(still, 'retained ending frame')
+      f.source.materials.push({ path: still, sha256: await fileSha256(still) })
+      videos.push({ id: 'end', type: 'photo', path: still })
+      const nativeSegment = (material_id: string, sourceDuration: number, start: number, targetDuration: number) => ({
+        material_id, source_timerange: { start: 0, duration: sourceDuration },
+        target_timerange: { start, duration: targetDuration }, speed: 1, reverse: false, visible: true,
+      })
+      const body = clock.clips.map((clip, index) => nativeSegment(`body-${clip.shot}`, clips[index]!.durationUs,
+        clip.start_us + (kind === 'native cut shifted' && index === 1 ? 1 : 0), clip.duration_us))
+      const ending = nativeSegment('end', 2_000_000, clock.body_end_us + (kind === 'tail shifted' ? 1 : 0), 2_000_000)
+      const nativePath = join(f.draft, 'draft_content.json')
+      await writePlaceholder(nativePath, JSON.stringify({ fps: 60, duration: 7_000_000,
+        tracks: [{ type: 'video', name: '视频轨道', segments: [...body, ending] }], materials: { videos } }))
+      const nativeSha = await fileSha256(nativePath)
+      f.source.files.find(file => file.path === 'draft_content.json')!.sha256 = nativeSha
+      await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, ...(kind === 'render claim only' ? {} : {
+        picture_clock: { ...clock, total_frames: clock.total_frames + (kind === 'different claims' ? 1 : 0) },
+      }) }))
+      const run = f.input.toolkit.channel.run.bind(f.input.toolkit.channel)
+      let pictureReadbacks = 0
+      vi.spyOn(f.input.toolkit.channel, 'run').mockImplementation(async (cmd, args) => {
+        if (!args.includes('stream=time_base,avg_frame_rate,r_frame_rate,duration_ts,nb_frames:frame=pts')) return await run(cmd, args)
+        pictureReadbacks++
+        const frames = Array.from({ length: clock.total_frames }, (_, pts) => ({ pts: pts + (kind === 'real PTS drift' && pts === 80 ? 1 : 0) }))
+        return { code: 0, stderr: '', stdout: JSON.stringify({ frames, streams: [{ time_base: '1/60',
+          avg_frame_rate: '60/1', r_frame_rate: '60/1', duration_ts: clock.total_frames, nb_frames: String(clock.total_frames) }] }) }
+      })
+      if (kind === 'material changed') {
+        storage.afterCopy = async (source) => {
+          if (source === f.paths.output) await writePlaceholder(videos[0]!.path, 'changed after picture checks')
+        }
+      }
+      if (kind === 'matching') {
+        expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+        expect(JSON.parse(await readFile(f.receipt, 'utf8'))).toMatchObject({ picture_clock: { ...clock, native_sha256: nativeSha } })
+        expect(pictureReadbacks).toBeGreaterThan(0)
+        return
+      }
+      await expect(stageEpisodeDelivery(f.input, f.draft))
+        .rejects.toThrow(/相同的画面时钟回执|画面切点|画面的帧数或时间戳|草稿播放混音或画面引用已变化/u)
+      await expectNoDelivery(f)
+    })
+})
 
 async function reviewedFixture(strict = false, separate = false) {
   const f = await fixture(undefined, { explicitVisual: false, text: '现在做饭', requireSpeechCoverage: strict })
@@ -886,6 +1019,14 @@ describe('stageEpisodeDelivery', () => {
     try { await expect(stageEpisodeDelivery(f.input, draft)).rejects.toThrow('不接受通过链接') }
     finally { await unlink(link) }
     expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+    await expectNoDelivery(f)
+  })
+
+  it('directs a working preview without a source record to the native resumable renderer', async () => {
+    const f = await fixture()
+    await unlink(sourceRecordPathFor(f.paths.output))
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('drama_render method=render、resume=true')
+    expect(await readFile(f.paths.output, 'utf8')).toBe('verified render bytes')
     await expectNoDelivery(f)
   })
 

@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 import os
+import wave
 from unittest.mock import patch
 from pathlib import Path
 
@@ -119,6 +120,70 @@ class DraftDeliveryContractTests(unittest.TestCase):
     def generate_content(self, root):
         draft = self.generate(root)
         return json.loads((draft / 'draft_content.json').read_text(encoding='utf-8'))
+
+    def test_paired_request_keeps_editable_audio_but_only_plays_the_verified_mix(self):
+        timeline = self.delivery_timeline('photorealistic')
+        timeline['delivery']['fps'] = 60
+        timeline['clips'] = [{'shot': 1, 'start_us': 0, 'duration_us': 2_041_667},
+                             {'shot': 2, 'start_us': 2_041_667, 'duration_us': 2_000_000}]
+        root = self.build_root(timeline=timeline)
+        shutil.copy2(self.short_video, root / '02_media/25/p1.mp4')
+        drafts = root / '视频' / '第25集' / '02_剪映草稿'
+        drafts.mkdir(parents=True)
+        spec = importlib.util.spec_from_file_location('draft_request', SCRIPT.with_name('generate_draft_request.py'))
+        request_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(request_module)
+        mix = root / 'host-mix.wav'
+        sample_count = 290_400
+        frames = b'\x10\x00\x20\x00' * sample_count
+        with wave.open(str(mix), 'wb') as stream:
+            stream.setparams((2, 2, 48_000, 0, 'NONE', 'not compressed'))
+            stream.writeframes(frames)
+        plan = {'schema_version': 1, 'path': str(mix), 'sha256': request_module.file_sha256(mix),
+                'source_mp4_sha256': 'a' * 64, 'pcm_sha256': hashlib.sha256(frames).hexdigest(),
+                'sample_count': sample_count, 'duration_us': 6_050_000, 'sample_rate': 48_000, 'channels': 2}
+        clock = {'status': 'verified_cfr', 'evidence': 'verified_segment_frames_and_output_pts',
+                 'fps': 60, 'body_end_frame': 243, 'body_end_us': 4_050_000, 'total_frames': 363,
+                 'clips': [{'shot': 1, 'start_frame': 0, 'end_frame': 123, 'start_us': 0, 'duration_us': 2_050_000},
+                           {'shot': 2, 'start_frame': 123, 'end_frame': 243,
+                            'start_us': 2_050_000, 'duration_us': 2_000_000}]}
+        request = {'project': str(root), 'episode': 25, 'name_prefix': '混音-',
+                   'audio': str(root / '01_audio/25.wav'),
+                   'videos': [str(root / f'02_media/25/p{shot}.mp4') for shot in (1, 2)],
+                   'subtitle_srt': str(root / '03_subtitle/25.srt'),
+                   'timeline': str(root / '05_timeline/25.timeline.json')}
+        pair_env = {'MUSE_PREPARED_DRAFT_MIX': json.dumps(plan),
+                    'MUSE_PREPARED_DRAFT_PICTURE_CLOCK': json.dumps(clock)}
+        with patch.dict(os.environ, pair_env):
+            result = request_module.generate_request(request, str(drafts))
+        self.assertTrue(result['success'], result)
+        self.assertFalse(result['editor_open_verified'])
+        candidate = result['drafts'][0]
+        claim = json.loads(Path(candidate['episode_source_path']).read_text(encoding='utf-8'))
+        retained = Path(claim['rendered_mix']['path'])
+        self.assertEqual(retained.relative_to(result['materials_dir']), request_module.RENDERED_MIX_FILE)
+        self.assertEqual(claim['rendered_mix'], {**plan, 'path': str(retained)})
+        self.assertEqual(claim['picture_clock'], clock)
+        self.assertEqual(retained.read_bytes(), mix.read_bytes())
+        content = json.loads((Path(candidate['path']) / 'draft_content.json').read_text(encoding='utf-8'))
+        self.module.verify_rendered_mix_track(content, claim['rendered_mix'])
+        originals = next(track for track in content['tracks'] if track['name'] == '主音频轨道')
+        self.assertEqual([segment['volume'] for segment in originals['segments']], [0])
+        self.assertEqual(len(self.texts(content)), 3)
+        self.assertEqual(content['duration'], 6_050_000)
+        self.assertEqual([segment['target_timerange'] for segment in self.segments(content, 'video')],
+                         [{'start': 0, 'duration': 2_050_000}, {'start': 2_050_000, 'duration': 2_000_000},
+                          {'start': 4_050_000, 'duration': 2_000_000}])
+        wrong_clock = {**clock, 'clips': [{**clock['clips'][0], 'end_frame': 122}, clock['clips'][1]]}
+        with patch.dict(os.environ, {**pair_env, 'MUSE_PREPARED_DRAFT_PICTURE_CLOCK': json.dumps(wrong_clock)}):
+            rejected = request_module.generate_request({**request, 'name_prefix': '错切点-'}, str(drafts))
+        self.assertFalse(rejected['success'])
+        self.assertIn('同版成片画面时钟', rejected['error'])
+        tampered = {**plan, 'pcm_sha256': 'b' * 64}
+        with patch.dict(os.environ, {'MUSE_PREPARED_DRAFT_MIX': json.dumps(tampered)}):
+            with self.assertRaisesRegex(ValueError, '实际 PCM 样本'):
+                request_module.generate_request({**request, 'name_prefix': '疑似损坏-'}, str(drafts))
+        self.assertFalse((drafts / '疑似损坏-25').exists())
 
     def test_direct_request_uses_upstream_library_and_retains_only_selected_episode_sources(self):
         root = self.build_root(timeline=self.delivery_timeline('animation_3d'))

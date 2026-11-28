@@ -5,8 +5,9 @@ import { dirname, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
 import { episodePaths } from '../src/paths.ts'
-import { preparedSubtitleClockInputs, prepareStagedEpisodeAudio } from '../src/prepare.ts'
+import { preparedSubtitleClockInputs, prepareStagedEpisodeAudio, verifyPreparedSubtitleClock } from '../src/prepare.ts'
 import { subtitleClockPath, writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { readTimeline } from '../src/timeline.ts'
 import { cleanup, srtDocument, stubChannel, tempProject, writePlaceholder } from './harness.ts'
 
 const roots: string[] = []
@@ -27,6 +28,23 @@ async function fixture() {
   const read = async (signal?: AbortSignal) => await preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined, signal)
   return { project, paths, video, audio, subtitle, source, manifest, save, read }
 }
+
+it('demands the exact repaired clip clock even when a legacy subtitle was otherwise valid', async () => {
+  const f = await fixture()
+  f.source.video = f.source.audio = join(f.project, 'editing', 'dialogue-patch-02-ABC123', 'clip.mov')
+  f.manifest.master_audio_sha256 = await fileSha256(f.paths.masterAudio)
+  f.manifest.timeline_clips = [{ shot: 1, start_us: 0, duration_us: 1_000_000 }]
+  await f.save()
+  const timeline = await readTimeline(f.paths.timeline)
+  const verify = () => verifyPreparedSubtitleClock(f.paths.subtitle, f.paths, timeline, undefined, undefined, f.manifest, true)
+  await expect(verify()).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_SUBTITLE_CLOCK_REQUIRED')
+  const shots = [{ source: f.source, video: f.video, audio: f.video, durationUs: 1_000_000 }]
+  const sha = await fileSha256(f.video)
+  await writeSubtitleClock(f.paths.subtitle, f.subtitle, '02', shots, new Map([[1, sha]]))
+  await expect(verify()).resolves.toBeUndefined()
+  await writeFile(f.video, 'different prepared repaired clip')
+  await expect(verify()).rejects.toThrow('生成字幕与当前集')
+})
 
 it.each(['picture audio', 'external audio', 'prepared clock', 'generated subtitle'] as const)
 ('captures exact private subtitle inputs: %s', async (kind) => {

@@ -207,8 +207,17 @@ describe('audioMixFilter', () => {
       + '[2:a]atrim=0:114.733332,volume=0.24[a1];'
       + '[3:a]atrim=0:2.000000,adelay=114733|114733,volume=1[a2];'
       + '[a0][a1][a2]amix=inputs=3:duration=longest:normalize=0,'
-      + 'atrim=0:116.733332,alimiter=limit=0.95:level=false[a]',
+      + 'atrim=0:116.733332,alimiter=limit=0.95:level=false:latency=1[a]',
     )
+  })
+
+  it('places the ending and whole output on exactly the supplied 48 kHz sample clock', () => {
+    const filter = audioMixFilter({
+      bodyEndSeconds: 54.125, totalSeconds: 56.125, endingSeconds: 2, masterVolume: 1.45, bgmVolume: 0.24,
+      deliverySampleClock: { bodyEndSample: 2_598_400, endSample: 2_694_400 },
+    })
+    expect(filter).toContain('aresample=48000,asetpts=N/SR/TB,atrim=end_sample=96000,adelay=delays=2598400S:all=1')
+    expect(filter).toContain('atrim=end_sample=2694400,alimiter=limit=0.95:level=false:latency=1')
   })
 })
 

@@ -10,6 +10,7 @@ export type { ProjectBudget } from './types.ts'
 export type { JubianLedgerBegin, JubianLedgerBeginResult, JubianLedgerMethod, JubianLedgerOptions,
   JubianLedgerRecord, JubianLedgerSettlement } from './ledger.ts'
 export { JUBIAN_DEFAULT_BASE_URL, JubianClient } from './client.ts'
+export { assertJubianHistoryWritable, jubianHistoryReadOnly } from './history-read-only.ts'
 export type { JubianClientOptions, JubianEnvelopeLayout, JubianRequest, JubianResponse } from './client.ts'
 export { workspacePipelineToken, workspaceJubianClient, configuredJubianClient } from './workspace.ts'
 export { describeBodyRejection, describePayload, describeRejection, describeUnparsed, namesCaptureSwitch,

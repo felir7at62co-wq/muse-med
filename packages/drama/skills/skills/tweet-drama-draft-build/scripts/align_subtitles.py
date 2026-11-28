@@ -583,27 +583,51 @@ def corrected_cloud_words(segments: list, correction: dict, source_sha256: str,
 
 
 def _read_cloud_alignment(video: Path, receipt_path: Path, allow_empty: bool = False,
-                          correction: dict | None = None) -> tuple:
+                          correction: dict | None = None, selected_audio: Path | None = None) -> tuple:
     """Read timed words, optional correction evidence, and the verified source digest."""
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    if receipt.get("status") not in ("complete", "silent") or Path(receipt.get("source", "")).resolve() != video.resolve():
-        raise SystemExit("云转写收据未完成或不属于当前镜头。")
-    source_sha256 = sha256_of(video)
-    if receipt.get("sourceSha256") != source_sha256:
-        raise SystemExit("镜头内容已变化或旧收据缺少源文件摘要，请对当前视频重新转写。")
-    stem, version = receipt.get("stem"), receipt.get("version")
-    if not isinstance(stem, str) or not re.fullmatch(r"[\w.-]+", stem) or not isinstance(version, int) or version < 1:
-        raise SystemExit("云转写收据的文件标识无效。")
-    if receipt_path.parent.name != "jobs" or receipt_path.name != f"{stem}-v{version}.json":
-        raise SystemExit("请使用 audio_transcribe 返回的原始收据路径。")
-    if receipt["status"] == "silent":
+    local = receipt.get("kind") == "muse_offline_word_timing"
+    if local:
+        if receipt.get("recognition") == "no_reliable_words":
+            raise SystemExit("本地未识别到可靠字词，本段实际声音仍待核听。")
+        audio = (selected_audio or video).resolve()
+        root = Path(receipt.get("project", "")).resolve()
+        source, words = receipt.get("source"), receipt.get("transcript")
+        transcript = receipt_path.parent / "words.json"
+        if (receipt.get("version") != 1 or receipt.get("listening_verified") is not False
+                or receipt_path.name != "receipt.json" or not re.fullmatch(r"local-[a-zA-Z0-9]{6}", receipt_path.parent.name)
+                or receipt_path.parent.parent != (root / "transcript" / "offline")
+                or not audio.is_relative_to(root) or Path(receipt.get("receipt", "")) != receipt_path
+                or not isinstance(source, dict) or Path(source.get("path", "")).resolve() != audio
+                or not isinstance(words, dict) or Path(words.get("path", "")).resolve() != transcript):
+            raise SystemExit("本地转写收据与当前选定声音或原始路径不一致。")
         if correction is not None:
-            raise SystemExit("无发声收据没有可纠正的字词，不能用纠错记录添加台词。")
-        if not allow_empty:
-            raise SystemExit("云转写判定无发声，但剧本含台词，请人工核听。")
-        return [], None, source_sha256
-    transcript = receipt_path.parent.parent / "raw" / f"{stem}-v{version}.json"
+            raise SystemExit("本地转写不能使用云端纠错声明。请保留原始字词和待核项。")
+        source_sha256 = sha256_of(audio)
+        if source.get("sha256") != source_sha256:
+            raise SystemExit("本地转写的声音或逐词时间已变化，请重新转写。")
+        allow_empty = False
+    else:
+        if receipt.get("status") not in ("complete", "silent") or Path(receipt.get("source", "")).resolve() != video.resolve():
+            raise SystemExit("云转写收据未完成或不属于当前镜头。")
+        source_sha256 = sha256_of(video)
+        if receipt.get("sourceSha256") != source_sha256:
+            raise SystemExit("镜头内容已变化或旧收据缺少源文件摘要，请对当前视频重新转写。")
+        stem, version = receipt.get("stem"), receipt.get("version")
+        if not isinstance(stem, str) or not re.fullmatch(r"[\w.-]+", stem) or not isinstance(version, int) or version < 1:
+            raise SystemExit("云转写收据的文件标识无效。")
+        if receipt_path.parent.name != "jobs" or receipt_path.name != f"{stem}-v{version}.json":
+            raise SystemExit("请使用 audio_transcribe 返回的原始收据路径。")
+        if receipt["status"] == "silent":
+            if correction is not None:
+                raise SystemExit("无发声收据没有可纠正的字词，不能用纠错记录添加台词。")
+            if not allow_empty:
+                raise SystemExit("云转写判定无发声，但剧本含台词，请人工核听。")
+            return [], None, source_sha256
+        transcript = receipt_path.parent.parent / "raw" / f"{stem}-v{version}.json"
     transcript_bytes = transcript.read_bytes()
+    if local and hashlib.sha256(transcript_bytes).hexdigest() != words.get("sha256"):
+        raise SystemExit("本地转写的声音或逐词时间已变化，请重新转写。")
     segments = json.loads(transcript_bytes.decode("utf-8"))
     if not isinstance(segments, list) or (not segments and not allow_empty):
         raise SystemExit("云转写缺少语音片段。")
@@ -654,7 +678,7 @@ def main() -> None:
     parser.add_argument("--lines", help="逐镜台词计划，默认 <项目>/_probe/epNN-lines.json")
     parser.add_argument("--review-srt", help="只读比较完整显示 SRT 与原剧本核对过的台词计划，输出 JSON，不重新识别")
     parser.add_argument("--out", help="输出的对齐文档，默认 <项目>/_probe/epNN-aligned.json")
-    parser.add_argument("--cloud-transcripts", help="逐镜 Muse 收据映射 JSON：shots 数组含 shot 与 receipt")
+    parser.add_argument("--cloud-transcripts", "--speech-transcripts", help="逐镜 Muse 云端或本地收据映射 JSON：shots 数组含 shot 与 receipt")
     parser.add_argument("--corrections", help="可选逐镜核实错字映射；绑定源视频与原始转写摘要，不修改原收据或时间")
     parser.add_argument("--model-dir", help="本地模型目录")
     parser.add_argument("--model-url", help="模型包（zip）的下载地址")
@@ -741,8 +765,9 @@ def main() -> None:
             continue
         if cloud_receipts is not None:
             try:
+                selected_audio = (project / entry["audio"]).resolve() if entry.get("audio") else video
                 chars, correction_evidence, source_sha256 = _read_cloud_alignment(
-                    video, cloud_receipts[shot], allow_empty=not lines, correction=corrections.get(shot))
+                    video, cloud_receipts[shot], allow_empty=not lines, correction=corrections.get(shot), selected_audio=selected_audio)
             except SystemExit as error:
                 message = str(error)
                 print(f"提示：镜头 {shot} 收据尚不能提供同源时间：{message}")

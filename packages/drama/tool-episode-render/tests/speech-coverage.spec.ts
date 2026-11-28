@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it, onTestFinished } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import { reviewSpeechCoverage } from '../src/speech-coverage.ts'
 import { formatSrtDocument } from '../src/subtitles.ts'
 import type { SubtitleCue, Timeline } from '../src/types.ts'
@@ -88,6 +88,36 @@ it('matches both words to the corrected final SRT without inventing character ti
   expect(report.matches.every(match => match.precision === 'word')).toBe(true)
 })
 
+it('requires the current local transcription, preserves timed words, and never equates empty recognition with silence', async () => {
+  const f = await fixture()
+  const project = await realpath(f.project)
+  const directory = join(project, 'transcript', 'offline', 'local-A12B34')
+  const receipt = join(directory, 'receipt.json'), words = join(directory, 'words.json')
+  const transcript = await readFile(f.transcript)
+  await mkdir(directory, { recursive: true })
+  await writeFile(words, transcript)
+  const recorded = { kind: 'muse_offline_word_timing', version: 1, project, receipt,
+    source: { path: await realpath(f.source), sha256: hash(await readFile(f.source)) },
+    transcript: { path: words, sha256: hash(transcript) },
+    pcm: { sha256: 'b'.repeat(64), sampleRate: 16000, samples: 160000 },
+    model: { name: 'Systran/faster-whisper-small', revision: '536b0662742c02347bc0e980a01041f333bce120',
+      sha256: '3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671' }, listening_verified: false }
+  await writeFile(receipt, JSON.stringify(recorded))
+  await writeFile(f.transcriptsPath, JSON.stringify({ shots: [{ shot: 4, receipt }] }))
+  expect(await reviewSpeechCoverage(f.input)).toMatchObject({ evidence_complete: false, listening_verified: false })
+  const verifyOfflineWords = vi.fn()
+  const check = () => reviewSpeechCoverage({ ...f.input, verifyOfflineWords })
+  const accepted = await check()
+  expect(verifyOfflineWords).toHaveBeenCalledWith(recorded)
+  expect(accepted).toMatchObject({ evidence_complete: true, listening_verified: false, findings: [] })
+  expect(accepted.matches.map(match => match.text)).toEqual(['做', '饭'])
+
+  await writeFile(words, '[]')
+  expect(await check()).toMatchObject({ evidence_complete: false, warnings: [expect.stringContaining('逐词时间已变化')] })
+  await writeFile(receipt, JSON.stringify({ ...recorded, recognition: 'no_reliable_words' }))
+  expect(await check()).toMatchObject({ evidence_complete: false, warnings: [expect.stringContaining('实际声音仍待核听')] })
+})
+
 it.each([
   { fps: undefined, offsetMs: 1, hasMismatch: false },
   { fps: undefined, offsetMs: -16, hasMismatch: false },
@@ -124,6 +154,18 @@ it('retains one-character tail sounds and utterances outside the script as ASR c
   const f = await fixture([{ text: '做饭', start: 6.670, end: 7.150 }, { text: '啦', start: 7.2, end: 7.3 }, { text: '哼', start: 8, end: 8.2 }])
   const report = await reviewSpeechCoverage(f.input)
   expect(report.findings.map(item => item.text)).toEqual(['啦', '哼'])
+})
+
+it('reports an independently anchored late word even if the same cue has text disagreements', async () => {
+  const f = await fixture([
+    { text: '完', start: 6, end: 6.5 }, { text: '成', start: 6.5, end: 6.8 }, { text: '了', start: 6.8, end: 7.1 },
+  ])
+  await f.setCues([cue('达成了', 39.184, 40.000)])
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.findings).toContainEqual(expect.objectContaining({ kind: 'subtitle_without_recognition', text: '达' }))
+  expect(report.findings).toContainEqual(expect.objectContaining({ kind: 'timing_mismatch', text: '了',
+    start_seconds: 40, end_seconds: 40.284, cue_indexes: [1] }))
+  expect(report.listening_verified).toBe(false)
 })
 
 it('does not use a later repeated word to cover a subtitle in another time window', async () => {

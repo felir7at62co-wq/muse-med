@@ -61,7 +61,7 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type { Context } from '@deepseek-ai/cordis'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
-import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
+import type { AdapterRegistrationHandle, AudioReviewTransport, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { PiAiAdapter } from './adapter.ts'
@@ -258,6 +258,11 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.debug(`llm-pi-ai: omitted stale thinking from ${count} assistant message(s) for route "${provider}/${model}"`)
     },
   })
+  const audioReviewTransport: AudioReviewTransport = {
+    configuredRoutes: () => adapter.configuredGeminiAudioRoutes(),
+    request: input => adapter.requestGeminiAudio(input),
+  }
+  ctx.provide('audioReviewTransport', audioReviewTransport)
   // Independent of the route set: signing in is what makes a route worth
   // adding, so the flows are offered before any profile names their provider.
   // Scoped to the authorization seam rather than injected outright, because a

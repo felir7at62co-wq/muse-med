@@ -69,7 +69,11 @@ Use `jubian_video sources` with the exact `script_id` and original `storyboard_i
 
 Source reads use `videoSourcePageSize` (100), `videoSourcePageLimit` (20), `videoSourceTaskLimit` (50), and `videoSourceResultLimit` (20), each within 1–100; `videoSourceMaxResultChars` bounds the complete result to 12000 JSON characters by default (2048–1000000). A reached limit preserves verified rows that fit, removes whole rows rather than truncating URLs, and reports incomplete coverage. Source lookup and missing voice samples do not create a paid request. New user messages receive no automatic extraction or reuse notice. Historical notices remain ordinary saved context.
 
+Deployments can enable `historicalVideoSourceVerification` for local dialogue repairs. In the same ordinary Session, run a complete native `jubian_video sources` read for the production card and use native `jubian_media download` with `resume: true` to fetch the verified original URL into the project. The Host verifies the exact original result, native download receipt, and current file bytes. A reused local copy can retain an already proved download in the owning Session. A fresh Session must establish its own proof. Content review remains required.
+
 Supply a managed `character_reference` only to `image_generate`. For callers that fill optional fields automatically, `task`, `tasks`, `subtasks`, `sources` and `unresolved` discard a placeholder object when all five identity strings are empty and `authorization_version` is `0` or `1`. A different reference on these reads is rejected before provider access.
+
+To find an existing upscale or subtitle-removal task, pass the original video result as `parent_result_id` with `task_type=20` or `task_type=10`, respectively. The read starts at page 1 and returns only exact matches across the pages it inspected. When `complete` is false, the match count can be partial. Read the task and its children to verify the episode, result and status before reusing a file.
 
 ### Conversation video selection
 

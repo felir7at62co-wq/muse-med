@@ -27,7 +27,7 @@ import { readVideoSources, resolveVideoSourceOptions } from './video-sources.ts'
 import type { VideoSourceOptions } from './video-sources.ts'
 import { join, resolve, sep } from 'node:path'
 import type { JubianClient, JubianLedger, JubianLedgerRecord, JubianResponse } from '@deepseek-ai/dsh-jubian'
-import { centsOf, checkBudget, JubianError } from '@deepseek-ai/dsh-jubian'
+import { centsOf, checkBudget, JubianError, assertJubianHistoryWritable } from '@deepseek-ai/dsh-jubian'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import {
   assertImageReferenceConsistency, buildNativeVideoPreview, buildSubjectSelection, childrenOf, classifyExistingNativeMatches,
@@ -1158,6 +1158,7 @@ reconcileOnly = false, signal?: AbortSignal, beforeSend?: (key: string) => Promi
   if (recorded !== undefined) return reconcileNativePreview(client, recorded, preview, previewPath, signal)
 
   if (reconcileOnly) throw new JubianError('CONTRACT_CHANGED', 'No recorded video submission for this key')
+  assertJubianHistoryWritable()
   await assertNoEpisodePaidHold(previewPath, preview)
   const previewEntry = await lstat(previewPath)
   if (!previewEntry.isFile() || previewEntry.isSymbolicLink()) throw new JubianError('CONTRACT_CHANGED')
@@ -1457,6 +1458,7 @@ export async function submitVideoBatchMethod(client: JubianClient, ledger: Jubia
   assertModel?: (model: Record<string, unknown>) => void,
   beforeSend?: (key: string) => Promise<void>):
 Promise<VideoBatchReport> {
+  assertJubianHistoryWritable()
   const raw = args.items
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > options.maxItems) {
     throw new JubianError('INVALID_ARGUMENT', 'video batch items must fit the configured item limit')

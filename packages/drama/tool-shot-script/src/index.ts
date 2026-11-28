@@ -32,6 +32,8 @@ import type { ProductionConfig } from './production.ts'
 import { installSessionReview, reviewPresentationMeta, sessionDurationBudget } from './session-video.ts'
 import type { CompiledShot, DramaShotMethod, DramaShotReport, DramaShotReviewMode, DurationBudget, ManifestAsset, PackedTask, ShotIssue } from './types.ts'
 
+export { parseShotScript } from './script.ts'
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-shot-script'
 

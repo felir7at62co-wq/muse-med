@@ -58,7 +58,7 @@ import { readSubtitleEraseQuote } from './subtitle-price.ts'
 import type { VoiceCoordinator } from './voice-coordination.ts'
 import type { SelectedVideoOption } from './native.ts'
 import { readVideoSources, resolveVideoSourceOptions } from './video-sources.ts'
-import type { VideoSourceOptions } from './video-sources.ts'
+import type { HistoricalVideoSourceEvidence, VideoSourceOptions } from './video-sources.ts'
 import { createImageReferenceResolver, resolveImageReferenceScanOptions, unknownIdentityReference } from './image-continuity.ts'
 import type { ImageReferenceResolution, ImageReferenceScanOptions } from './image-continuity.ts'
 import type { CharacterReferenceQaGenerationPreparation } from './character-reference-qa-bridge.ts'
@@ -307,6 +307,7 @@ export interface MethodDeps {
   creationWorkspaceDir?: string | undefined
   /** Bounded read-only discovery of existing sources on an original card. */
   videoSources?: VideoSourceOptions
+  recordHistoricalVideoSources?: (rows: readonly HistoricalVideoSourceEvidence[]) => void
   /** Shared project inventory bounds for complete free-storyboard creation readback. */
   projectInventoryLimits?: { pageSize: number; pageLimit: number }
   /** Foreground cancellation for provider reads and reservation. */
@@ -1014,7 +1015,7 @@ function videoPageEvidence(data: unknown, total: number, returned: number, num: 
  * @param client - Jubian transport.
  * @param ledger - Write-path ledger, used by every state-changing method here.
  * @param args - Dispatched on `method`.
- * @param deps - Optional seams for the paid image path: the pinned catalogue row and the readback budget.
+ * @param deps - History scan bounds, cancellation, and operation-specific dependencies.
  * @returns The requested video view, keyed by the `method` that asked for it.
  */
 export async function videoMethod(client: JubianClient, ledger: JubianLedger,
@@ -1050,7 +1051,8 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     }
     case 'sources':
       return { sources: await readVideoSources(client, { script_id: need(args.script_id),
-        storyboard_id: need(args.storyboard_id) }, deps.videoSources ?? resolveVideoSourceOptions(), deps.signal) }
+        storyboard_id: need(args.storyboard_id) }, deps.videoSources ?? resolveVideoSourceOptions(), deps.signal,
+      deps.recordHistoricalVideoSources) }
     case 'tasks': {
       const scriptId = need(args.script_id)
       const { num, size } = pageSelection(args)
@@ -1058,13 +1060,56 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
       if (taskType !== undefined && (!Number.isSafeInteger(taskType) || taskType < 1)) {
         throw new JubianError('INVALID_ARGUMENT', 'task_type must be a positive integer when filtering tasks')
       }
-      const result = await client.request({
-        method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}`
-          + (taskType === undefined ? '' : `&taskType=${taskType}`) + `&pageNum=${num}&pageSize=${size}`,
-        ...(deps.signal === undefined ? {} : { signal: deps.signal }) })
-      const tasks = readTaskList(result.data)
-      const evidence = videoPageEvidence(result.data, tasks.total, tasks.rows.length, num, size)
+      const readPage = async (page: number) => {
+        const result = await client.request({
+          method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}`
+            + (taskType === undefined ? '' : `&taskType=${taskType}`) + `&pageNum=${page}&pageSize=${size}`,
+          ...(deps.signal === undefined ? {} : { signal: deps.signal }) })
+        const tasks = readTaskList(result.data)
+        return { tasks, evidence: videoPageEvidence(result.data, tasks.total, tasks.rows.length, page, size) }
+      }
       const scope = { script_id: scriptId, task_type: taskType ?? null }
+      const parentResultId = args.parent_result_id
+      if (parentResultId !== undefined) {
+        if (!Number.isSafeInteger(parentResultId) || parentResultId < 1 || num !== 1
+          || (taskType !== 10 && taskType !== 20)) {
+          throw new JubianError('INVALID_ARGUMENT', 'parent_result_id requires a positive original result ID, task_type 10 or 20, and page 1')
+        }
+        const { pageLimit, resultLimit } = deps.videoSources ?? resolveVideoSourceOptions()
+        const rows: ReturnType<typeof readTaskList>['rows'] = []
+        const seen = new Set<number>()
+        let remoteTotal: number | undefined
+        let complete = false
+        let parentIdsKnown = true
+        let pagesRead = 0
+        for (let page = 1; page <= pageLimit; page++) {
+          deps.signal?.throwIfAborted()
+          const { tasks, evidence } = await readPage(page)
+          pagesRead++
+          const ids = tasks.rows.map(row => row.task_id)
+          if (ids.length > size || new Set(ids).size !== ids.length || ids.some(id => seen.has(id))
+            || tasks.rows.some(row => row.script_id !== scriptId || row.task_type !== taskType)
+            || (remoteTotal !== undefined && remoteTotal !== tasks.total)) break
+          for (const id of ids) seen.add(id)
+          const matches = tasks.rows.filter(row => row.parent_result_id === parentResultId)
+          const remaining = resultLimit - rows.length
+          rows.push(...matches.slice(0, remaining))
+          if (matches.length > remaining || !evidence.total_verified) break
+          parentIdsKnown &&= tasks.rows.every(row => row.parent_result_id !== null)
+          remoteTotal = tasks.total
+          if (seen.size === remoteTotal) { complete = parentIdsKnown; break }
+          if (seen.size > remoteTotal || ids.length === 0) break
+        }
+        return {
+          tasks: { scope: { ...scope, parent_result_id: parentResultId }, rows, total: rows.length,
+            returned: rows.length, queried_at: new Date().toISOString(), page_num: 1, page_size: size,
+            pages_read: pagesRead, total_verified: complete, complete, has_more: complete ? false : null,
+            next_page: null, project_complete: false },
+          guidance: '只列出与该原视频结果精确匹配的历史处理任务。用 task 和 subtasks 回读所属集、原结果、任务状态与输出。'
+            + 'complete=false 时，尚不能确定有无其他匹配任务。查询不发单。',
+        }
+      }
+      const { tasks, evidence } = await readPage(num)
       return { tasks: { ...tasks, ...evidence, scope, project_complete: taskType === undefined && evidence.complete },
         guidance: 'tasks.rows 仅是本页；scope.task_type=null 表示没有按任务类型筛选。'
           + 'total_verified 和 complete 仅说明 scope 范围内的提供方列表；按类型筛选时 project_complete 恒为 false，'

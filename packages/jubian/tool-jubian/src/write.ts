@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto'
 import type { BudgetDecision, JubianLedger, JubianLedgerBegin, JubianLedgerMethod, JubianLedgerRecord } from '@deepseek-ai/dsh-jubian'
-import { JubianError, SPENDING_METHODS, centsOf, checkBudget } from '@deepseek-ai/dsh-jubian'
+import { JubianError, SPENDING_METHODS, assertJubianHistoryWritable, centsOf, checkBudget } from '@deepseek-ai/dsh-jubian'
 
 /** Caller-calculated reservation, independent of the project spending limit. */
 export interface CostEstimate {
@@ -345,6 +345,7 @@ export async function writeUnderLedger(
     throw new JubianError('CONTRACT_CHANGED',
       'A proven pre-dispatch image abort requires matching Host recovery evidence')
   }
+  assertJubianHistoryWritable()
   // Awaited on purpose: a body may be compiled from a provider read, and the
   // quote below observes what that read returned.
   const payload = await body()

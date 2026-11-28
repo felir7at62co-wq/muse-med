@@ -242,6 +242,45 @@ function cueProbes(project: string): StubHandler {
 }
 
 describe('drama_render subtitles', () => {
+  it('requires exact alignment-source hashes for an edited dialogue clip before publishing subtitles', async () => {
+    const { project, shots, plan, aligned, subtitle } = await cueProject(LINES)
+    const video = join(project, 'editing', 'dialogue-patch-02-ABC123', 'clip.mov')
+    await writePlaceholder(video, 'repaired clip')
+    const other = join(project, 'media', 'p2.mp4')
+    await writeFile(shots, JSON.stringify({ shots: [{ shot: 1, video }, { shot: 2, video: other }] }))
+    const build = () => runDramaRender({ method: 'subtitles', project, episode: 2, shots, lines: plan,
+      alignment: aligned, subtitleSrt: subtitle }, settingsWith(stubChannel([probeHandler({
+      [video]: { durationSeconds: 4, video: {} }, [other]: { durationSeconds: 2, video: {} },
+    })]).channel))
+    await expect(build()).rejects.toThrow('同源对齐')
+    await expect(readFile(subtitle)).rejects.toHaveProperty('code', 'ENOENT')
+    const sourceSha = await fileSha256(video)
+    const saveAligned = async (sha256: string) => {
+      await writeFile(aligned, JSON.stringify({ shots: ALIGNMENT.shots.map(row =>
+        row.shot === 1 ? { ...row, source_sha256: sha256 } : row) }))
+    }
+    await saveAligned('0'.repeat(64))
+    await expect(build()).rejects.toThrow('同源对齐')
+    await saveAligned(sourceSha)
+    const result = await build()
+    expect(result.written).toContain(subtitle)
+    expect(await readFile(subtitle, 'utf8')).toContain('第一句')
+  })
+
+  it('keeps source script text and reports equal-length recognition differences for listening', async () => {
+    const alignment = { shots: ALIGNMENT.shots.map(row => row.shot !== 1 ? row : {
+      ...row, script_text_differences: [{ line: 1, script: '第', recognized: '弟', start: 0.4, end: 0.6 }],
+    }) }
+    const { project, shots, plan, aligned, subtitle } = await cueProject(LINES, alignment)
+    const report = await runDramaRender({ method: 'subtitles', project, episode: 2, shots,
+      lines: plan, alignment: aligned, subtitleSrt: subtitle }, settingsWith(stubChannel([cueProbes(project)]).channel))
+
+    expect(report.ok).toBe(true)
+    expect(report.warnings).toContain('镜头 1 有 1 处转写与剧本文字不同。字幕保留剧本原文，请按对齐记录定位并核听实际发音。')
+    expect(report.not_checked).toContain('speech_alignment')
+    expect(await readFile(subtitle, 'utf8')).toContain('第一句')
+  })
+
   it('does not publish new cues as source-bound when alignment explicitly identifies another selected sound', async () => {
     const { project, shots, plan, aligned, subtitle } = await cueProject(LINES)
     const selectedAudio = join(project, 'media', 'p1-original.wav')

@@ -20,6 +20,7 @@ import {
   decodeHandler,
   framemd5Line,
   probeHandler,
+  renderedPictureProbe,
   shippedEndingAsset,
   sizeOf,
   srtDocument,
@@ -191,6 +192,7 @@ function renderChannel(prepared: Prepared, options: {
   resume?: boolean
   sourceProbe?: ProbeSpec
   layout?: boolean
+  pictureFrameAdjustment?: number
 } = {}): ReturnType<typeof stubChannel> {
   const queued = [...(options.imageHashes ?? ['tail'])]
   const deliveredProbe = {
@@ -201,6 +203,7 @@ function renderChannel(prepared: Prepared, options: {
     audio: options.deliveredHasStreams === false ? false as const : {},
   }
   const handlers: StubHandler[] = [
+    renderedPictureProbe(options.pictureFrameAdjustment),
     ...(options.layout === true ? [(call => call.args.some(argument => argument.includes('bbox=min_val=1')) ? {
       stderr: 'fontselect: (SimHei, 400, 0) -> SimHei, 0, SimHei\n[Parsed_bbox] x1:1000 x2:1199 y1:1200 y2:1239 w:200 h:40',
       after: async () => { for (const path of call.args.filter(argument => argument.endsWith('.png'))) await writePlaceholder(path, 'glyph probe image') },
@@ -755,6 +758,16 @@ describe('renderEpisode', () => {
     expect(record?.input_files).toContainEqual({ path: prepared.paths.sources, sha256: await fileSha256(prepared.paths.sources) })
   })
 
+  it('keeps a pending repaired clip out of the ordinary nonstrict render route', async () => {
+    const prepared = await preparedProject()
+    const channel = renderChannel(prepared)
+    await writePlaceholder(prepared.paths.sources, JSON.stringify({ shots: [
+      { shot: 1, video: 'editing/dialogue-patch-02-ABC123/clip.mov' },
+    ] }))
+    await expect(render(prepared, channel)).rejects.toHaveProperty('code', 'SOURCE_DIALOGUE_PATCH_PENDING')
+    expect(channel.calls).toHaveLength(0)
+  })
+
   it.each(['music', 'none'] as const)('binds actual %s music mode and consumed evidence in the normal render receipt', async (mode) => {
     const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true })
     const bgmPlan = join(prepared.project, 'bgm-plan.json'), bgmGeneration = join(prepared.project, 'bgm.generation.json')
@@ -1114,10 +1127,22 @@ describe('renderEpisode', () => {
     const mux = channel.calls.find(call => call.args.includes('+faststart'))
     expect(mux?.args.slice(0, 4)).toEqual(['-y', '-v', 'error', '-i'])
     expect(mux?.args[mux.args.indexOf('-filter_complex') + 1] ?? '')
-      .toContain('alimiter=limit=0.95:level=false[a]')
+      .toContain('alimiter=limit=0.95:level=false:latency=1[a]')
+    expect(mux?.args.slice(mux.args.indexOf('-movie_timescale'), mux.args.indexOf('-movie_timescale') + 2))
+      .toEqual(['-movie_timescale', '48000'])
     expect(mux?.args).toContain('+faststart')
     expect(mux?.args.at(-1)).toContain('.drama-render-')
     expect(mux?.args.at(-1)).not.toBe(prepared.output)
+  })
+
+  it('uses the actual silent picture count when its final burn differs by one frame', async () => {
+    const prepared = await preparedProject()
+    const channel = renderChannel(prepared, { pictureFrameAdjustment: -1 })
+    await render(prepared, channel)
+    const mux = channel.calls.find(call => call.args.includes('+faststart'))
+    const graph = mux?.args[mux.args.indexOf('-filter_complex') + 1]
+    expect(graph).toContain('atrim=end_sample=5602400,alimiter')
+    expect(graph).toContain('adelay=delays=5507200S:all=1')
   })
 
   it('records the GPU probe failure and reports the CPU encoder it fell back to', async () => {
